@@ -9018,61 +9018,233 @@ function VendorDirectory({lang="en"}) {
 
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
 function AccessManager({lang="en", empDb, setEmpDb}) {
-  const T2 = s => T(s, lang);
+  const PRESET_ROLES = {
+    admin:              {label:"👑 Admin — Full Access",         permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:true,repair:true,dept_service:true,dept_crockery:true,dept_beverages:true,access:true}},
+    head_chef:          {label:"👨‍🍳 Head Chef",                  permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:false,repair:true,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_chinese:    {label:"🥢 Chinese Section",            permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_indian:     {label:"🍛 Indian Curries Section",     permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_tandoor:    {label:"🔥 Tandoor Section",            permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_continental:{label:"🍝 Continental Section",        permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_sweets:     {label:"🍮 Sweets Section",             permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    section_chaat:      {label:"🥗 Chaat Section",              permissions:{dashboard:false,kitchen:true,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    service:            {label:"🍽 Service Dept",               permissions:{dashboard:true,kitchen:false,store:false,menus:true,transport:false,dept_odc:false,team:true,vendors:true,repair:true,dept_service:true,dept_crockery:false,dept_beverages:false,access:false}},
+    crockery:           {label:"🍶 Crockery Dept",              permissions:{dashboard:true,kitchen:false,store:true,menus:false,transport:false,dept_odc:false,team:true,vendors:false,repair:true,dept_service:false,dept_crockery:true,dept_beverages:false,access:false}},
+    beverages:          {label:"🥤 Beverages Dept",             permissions:{dashboard:true,kitchen:false,store:true,menus:true,transport:false,dept_odc:false,team:true,vendors:false,repair:true,dept_service:false,dept_crockery:false,dept_beverages:true,access:false}},
+    transport:          {label:"🚛 Transport",                  permissions:{dashboard:true,kitchen:false,store:false,menus:false,transport:true,dept_odc:false,team:false,vendors:false,repair:true,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+    kiosk_gate:         {label:"🏛 Gate Kiosk",                permissions:{dashboard:false,kitchen:false,store:false,menus:false,transport:false,dept_odc:false,team:false,vendors:false,repair:false,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
+  };
+
+  const SCREEN_GROUPS = [
+    {label:"KITCHEN & OPS", screens:[
+      {key:"kitchen",       label:"Kitchen Hub",      icon:"👨‍🍳", desc:"Prep tracking & live kitchen ops"},
+      {key:"store",         label:"Store & Inventory", icon:"📦", desc:"Stock levels, issue & receive items"},
+      {key:"menus",         label:"Menu Packages",    icon:"📜", desc:"Event menus, packages & recipes"},
+      {key:"transport",     label:"Transport",         icon:"🚛", desc:"Dispatch & delivery tracking"},
+      {key:"dept_odc",      label:"ODC Operations",   icon:"🏕️", desc:"Outside dining & catering ops"},
+    ]},
+    {label:"MANAGEMENT", screens:[
+      {key:"dashboard",     label:"Dashboard",         icon:"📊", desc:"Event overview, alerts & KPIs"},
+      {key:"team",          label:"Team & Attendance", icon:"👥", desc:"Attendance, leaves & staff records"},
+      {key:"vendors",       label:"Vendor Directory",  icon:"📇", desc:"Supplier contacts & orders"},
+      {key:"repair",        label:"Repair & Maint.",   icon:"🔧", desc:"Equipment repairs & tickets"},
+    ]},
+    {label:"DEPARTMENTS", screens:[
+      {key:"dept_service",   label:"Service Ops",      icon:"🍽️", desc:"Front-of-house & banquet service"},
+      {key:"dept_crockery",  label:"Crockery Ops",     icon:"🍶", desc:"Crockery inventory & breakage"},
+      {key:"dept_beverages", label:"Beverages Ops",    icon:"🥤", desc:"Beverage planning & bar ops"},
+    ]},
+    {label:"ADMIN ONLY", screens:[
+      {key:"access", label:"Access Manager", icon:"🔐", desc:"Staff accounts, roles & permissions", locked:true},
+    ]},
+  ];
+
+  const ALL_SCREEN_KEYS = SCREEN_GROUPS.flatMap(g=>g.screens.map(s=>s.key));
+  const screenInfo = key => SCREEN_GROUPS.flatMap(g=>g.screens).find(s=>s.key===key);
+
+  function getPermissions(s) {
+    if(s.permissions) return s.permissions;
+    return PRESET_ROLES[s.role]?.permissions || PRESET_ROLES.section_indian.permissions;
+  }
+
   const ROLE_OPTIONS = [
     {v:"admin",              l:"👑 Admin — Full Access"},
-    {v:"head_chef",          l:"👨‍🍳 Head Chef — Kitchen + Store + Transport"},
-    {v:"section_chinese",    l:"🥢 Chinese Section Tablet"},
-    {v:"section_indian",     l:"🍛 Indian Curries Section Tablet"},
-    {v:"section_tandoor",    l:"🔥 Tandoor Section Tablet"},
-    {v:"section_continental",l:"🍝 Continental Section Tablet"},
-    {v:"section_sweets",     l:"🍮 Sweets Section Tablet"},
-    {v:"section_chaat",      l:"🥗 Chaat Section Tablet"},
-    {v:"service",            l:"🍽 Service Dept"},
-    {v:"crockery",           l:"🍶 Crockery Dept"},
-    {v:"beverages",          l:"🥤 Beverages Dept"},
+    {v:"head_chef",          l:"👨‍🍳 Head Chef"},
+    {v:"section_chinese",    l:"🥢 Chinese Section"},
+    {v:"section_indian",     l:"🍛 Indian Curries"},
+    {v:"section_tandoor",    l:"🔥 Tandoor"},
+    {v:"section_continental",l:"🍝 Continental"},
+    {v:"section_sweets",     l:"🍮 Sweets"},
+    {v:"section_chaat",      l:"🥗 Chaat"},
+    {v:"service",            l:"🍽 Service"},
+    {v:"crockery",           l:"🍶 Crockery"},
+    {v:"beverages",          l:"🥤 Beverages"},
     {v:"transport",          l:"🚛 Transport"},
-    {v:"kiosk_gate",         l:"🏛 Gate Attendance Kiosk"},
+    {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
   ];
   const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Service","Crockery","Beverages","Transportation","ODC","Continental"];
+  const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
+  const fld = {width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:40};
 
-  const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId]   = useState(null);
-  const [delId, setDelId]     = useState(null);
-  const [search, setSearch]   = useState("");
-  const [form, setForm]       = useState({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
+  // ── State ──
+  const [showAdd, setShowAdd]             = useState(false);
+  const [editId, setEditId]               = useState(null);
+  const [delId, setDelId]                 = useState(null);
+  const [delConfirmText, setDelConfirmText] = useState("");
+  const [search, setSearch]               = useState("");
+  const [roleFilter, setRoleFilter]       = useState("all");
+  const [form, setForm]                   = useState({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"",is_active:true});
+  const [showChangePIN, setShowChangePIN] = useState(false);
+  const [pinError, setPinError]           = useState("");
+  const [viewPerms, setViewPerms]         = useState(null);
+  const [permsForm, setPermsForm]         = useState({});
+  const [templatePreview, setTemplatePreview] = useState(null);
 
-  const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || s.staff_id?.toLowerCase().includes(search.toLowerCase()));
+  const allStaff = safeArr(empDb);
+  const staff = allStaff.filter(s=>{
+    const sid = s.staffListId||s.staff_id;
+    const matchSearch = !search || s.name?.toLowerCase().includes(search.toLowerCase()) || sid?.toLowerCase().includes(search.toLowerCase());
+    const matchRole = roleFilter==="all" || s.role===roleFilter;
+    return matchSearch && matchRole;
+  });
 
   function openAdd(){
-    setForm({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
-    setEditId(null); setShowAdd(true);
+    setForm({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"",is_active:true});
+    setEditId(null); setShowAdd(true); setShowChangePIN(false); setPinError("");
   }
   function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"0000",is_active:s.is_active!==false});
-    setEditId(s.staffListId||s.staff_id); setShowAdd(true);
+    setForm({staff_id:s.staffListId||s.staff_id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"",is_active:s.is_active!==false});
+    setEditId(s.staffListId||s.staff_id); setShowAdd(true); setShowChangePIN(false); setPinError("");
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
+    if(!editId && form.pin.length!==4){setPinError("PIN must be exactly 4 digits");return;}
+    if(showChangePIN && form.pin.length!==4){setPinError("PIN must be exactly 4 digits");return;}
+    setPinError("");
     if(editId){
-      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===editId?{...s,name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:form.is_active}:s));
+      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===editId?{...s,name:form.name,role:form.role,section:form.section,...(showChangePIN?{pin:form.pin}:{}),is_active:form.is_active}:s));
     } else {
-      const newStaff={staffListId:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.role};
-      setEmpDb(p=>[...safeArr(p),newStaff]);
+      const defPerms = {...(PRESET_ROLES[form.role]?.permissions||PRESET_ROLES.section_indian.permissions)};
+      const ns={staffListId:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.role,permissions:defPerms};
+      setEmpDb(p=>[...safeArr(p),ns]);
     }
     setShowAdd(false); setEditId(null);
   }
   function deleteStaff(id){
+    if(delConfirmText!=="DELETE") return;
     setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id)!==id));
-    setDelId(null);
+    setDelId(null); setDelConfirmText("");
   }
   function toggleActive(id){
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===id?{...s,is_active:!s.is_active}:s));
   }
+  function openPerms(s){
+    const sid=s.staffListId||s.staff_id;
+    setViewPerms(sid); setPermsForm({...getPermissions(s)}); setTemplatePreview(null);
+  }
+  function savePerms(){
+    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===viewPerms?{...s,permissions:{...permsForm}}:s));
+    setViewPerms(null);
+  }
+  function applyTemplate(roleKey){
+    const tpl=PRESET_ROLES[roleKey]?.permissions;
+    if(!tpl) return;
+    setPermsForm({...tpl});
+    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===viewPerms?{...s,role:roleKey,permissions:{...tpl}}:s));
+    setTemplatePreview(null);
+  }
 
-  const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
-  const fld={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:40};
+  // ── PERMISSIONS EDITOR VIEW ──
+  if(viewPerms){
+    const sm=allStaff.find(s=>(s.staffListId||s.staff_id)===viewPerms);
+    const canKeys=ALL_SCREEN_KEYS.filter(k=>permsForm[k]);
+    const cantKeys=ALL_SCREEN_KEYS.filter(k=>!permsForm[k]);
+    const previewPerms=templatePreview?PRESET_ROLES[templatePreview]?.permissions:null;
 
+    return(
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600}}>← Back</button>
+          <div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔑 Screen Permissions</div>
+            <div style={{fontSize:12,color:C.muted}}>{sm?.name||viewPerms} · <span style={{color:C.gold}}>{ROLE_MAP[sm?.role]||sm?.role||"—"}</span></div>
+          </div>
+        </div>
+
+        {/* Role Templates */}
+        <Card style={{marginBottom:14,padding:"16px 18px",border:`1px solid ${C.goldBorder}`}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:.8}}>⚡ Role Templates — Quick Apply</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:templatePreview?12:0}}>
+            {ROLE_OPTIONS.map(r=>(
+              <button key={r.v} onClick={()=>setTemplatePreview(templatePreview===r.v?null:r.v)}
+                style={{padding:"6px 12px",borderRadius:8,background:templatePreview===r.v?C.gold:C.darkCard,border:`1px solid ${templatePreview===r.v?C.gold:C.border}`,color:templatePreview===r.v?"#0A0908":C.muted,fontSize:11,fontWeight:templatePreview===r.v?700:400,cursor:"pointer"}}>
+                {r.l}
+              </button>
+            ))}
+          </div>
+          {templatePreview&&previewPerms&&(
+            <div style={{padding:"14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.goldBorder}`}}>
+              <div style={{fontSize:11,color:C.gold,fontWeight:700,marginBottom:8}}>Preview — {ROLE_OPTIONS.find(r=>r.v===templatePreview)?.l}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
+                {ALL_SCREEN_KEYS.map(k=>{
+                  const si=screenInfo(k); const on=previewPerms[k];
+                  return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:on?C.greenBg:C.darkCard,border:`1px solid ${on?C.greenBorder:C.border}`,color:on?C.green:C.faint}}>{si?.icon} {si?.label}</span>;
+                })}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>applyTemplate(templatePreview)} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✓ Apply This Template</button>
+                <button onClick={()=>setTemplatePreview(null)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* Preview Access */}
+        <Card style={{marginBottom:14,padding:"14px 16px",border:`1px solid ${C.greenBorder}`,background:C.greenBg+"30"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>👁 Access Preview</div>
+          {canKeys.length>0
+            ? <div style={{fontSize:12,color:C.text,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> will access: <span style={{color:C.green}}>{canKeys.map(k=>screenInfo(k)?.label||k).join(", ")}</span>.</div>
+            : <div style={{fontSize:12,color:C.red,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> will have NO screen access.</div>
+          }
+          {cantKeys.length>0&&<div style={{fontSize:12,color:C.faint}}>Will NOT see: <span style={{color:C.muted}}>{cantKeys.map(k=>screenInfo(k)?.label||k).join(", ")}</span>.</div>}
+        </Card>
+
+        {/* Screen groups */}
+        {SCREEN_GROUPS.map(group=>(
+          <div key={group.label} style={{marginBottom:14}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",paddingLeft:2}}>── {group.label} ──</div>
+            <Card style={{padding:"2px 0",overflow:"hidden"}}>
+              {group.screens.map((scr,i)=>{
+                const isLocked=scr.locked;
+                const isOn=isLocked?false:!!permsForm[scr.key];
+                return(
+                  <div key={scr.key} onClick={()=>{if(!isLocked)setPermsForm(p=>({...p,[scr.key]:!p[scr.key]}));}}
+                    style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",cursor:isLocked?"not-allowed":"pointer",
+                      background:isOn?"rgba(62,170,104,.04)":C.darkCard,borderTop:i>0?`1px solid ${C.borderLight}`:"none",
+                      minHeight:56,opacity:isLocked?.45:1,transition:"background .15s"}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:isOn?C.greenBg:C.surface,border:`1px solid ${isOn?C.greenBorder:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{scr.icon}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:isOn?C.text:C.muted}}>{scr.label}</div>
+                      <div style={{fontSize:11,color:C.faint,marginTop:1}}>{scr.desc}{isLocked?" · Admin only — always locked":""}</div>
+                    </div>
+                    <div style={{width:46,height:26,borderRadius:13,background:isOn?C.green:C.border,transition:"background .2s",position:"relative",flexShrink:0}}>
+                      <div style={{position:"absolute",top:3,left:isOn?22:3,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.3)"}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
+          </div>
+        ))}
+
+        <div style={{display:"flex",gap:10,marginTop:4,marginBottom:24}}>
+          <button onClick={savePerms} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48}}>✓ Save Permissions</button>
+          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MAIN LIST VIEW ──
   return(
     <div>
       {/* Header */}
@@ -9084,28 +9256,34 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         <button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>
       </div>
 
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+      {/* Stats bar */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:14}}>
         {[
-          {l:"Total Staff",v:safeArr(empDb).length,c:C.gold},
-          {l:"Active",v:safeArr(empDb).filter(s=>s.is_active!==false).length,c:C.green},
-          {l:"Section Tablets",v:safeArr(empDb).filter(s=>s.role?.startsWith("section_")).length,c:C.amber},
-          {l:"Admin",v:safeArr(empDb).filter(s=>s.role==="admin").length,c:C.purple},
-        ].map(s=>(
-          <div key={s.l} style={{background:C.darkCard,borderRadius:12,padding:"12px 10px",textAlign:"center",border:`1px solid ${s.c}20`}}>
-            <div style={{fontSize:22,fontWeight:800,color:s.c,lineHeight:1}}>{s.v}</div>
-            <div style={{fontSize:10,color:s.c,fontWeight:600,marginTop:4}}>{s.l}</div>
+          {l:"Total",   v:allStaff.length,                                           c:C.gold},
+          {l:"Active",  v:allStaff.filter(s=>s.is_active!==false).length,            c:C.green},
+          {l:"Inactive",v:allStaff.filter(s=>s.is_active===false).length,            c:C.red},
+          {l:"Admins",  v:allStaff.filter(s=>s.role==="admin").length,               c:C.purple},
+          {l:"Tablets", v:allStaff.filter(s=>s.role?.startsWith("section_")).length, c:C.amber},
+        ].map(st=>(
+          <div key={st.l} style={{background:C.darkCard,borderRadius:12,padding:"10px 8px",textAlign:"center",border:`1px solid ${st.c}22`}}>
+            <div style={{fontSize:20,fontWeight:800,color:st.c,lineHeight:1}}>{st.v}</div>
+            <div style={{fontSize:10,color:st.c,fontWeight:600,marginTop:3}}>{st.l}</div>
           </div>
         ))}
       </div>
 
-      {/* Search */}
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or ID…"
-        style={{...fld,marginBottom:12,fontSize:13}}/>
+      {/* Search + role filter */}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or ID…" style={{...fld,flex:1,fontSize:13}}/>
+        <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)} style={{...fld,width:"auto",fontSize:11,paddingRight:24,flexShrink:0}}>
+          <option value="all">All Roles</option>
+          {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+        </select>
+      </div>
 
-      {/* Add / Edit Form */}
+      {/* Add / Edit form */}
       {showAdd&&(
-        <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"60"}}>
+        <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"55"}}>
           <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>{editId?"✏️ Edit Staff":"➕ Add New Staff"}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
@@ -9128,11 +9306,31 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
-            <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN (4 digits)</div>
-              <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:6,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+            <div style={{gridColumn:"1/-1"}}>
+              {editId?(
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN</div>
+                  {!showChangePIN?(
+                    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                      <div style={{...fld,flex:1,display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:8,fontSize:18,color:C.faint,userSelect:"none"}}>{"●●●●"}</div>
+                      <button onClick={()=>{setShowChangePIN(true);setForm(p=>({...p,pin:""}));}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",minHeight:40}}>Change PIN</button>
+                    </div>
+                  ):(
+                    <div>
+                      <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="New 4-digit PIN" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+                      {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
+                    </div>
+                  )}
+                </div>
+              ):(
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN (4 digits) *</div>
+                  <input value={form.pin} onChange={e=>{setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}));setPinError("");}} placeholder="Enter 4-digit PIN" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+                  {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
+                </div>
+              )}
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:10,paddingTop:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{fontSize:12,color:C.muted}}>Status:</div>
               <button onClick={()=>setForm(p=>({...p,is_active:!p.is_active}))}
                 style={{padding:"8px 16px",borderRadius:10,background:form.is_active?C.greenBg:C.redBg,border:`1px solid ${form.is_active?C.greenBorder:C.redBorder}`,color:form.is_active?C.green:C.red,fontSize:12,fontWeight:700,cursor:"pointer"}}>
@@ -9145,21 +9343,26 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
               style={{flex:1,padding:"12px",borderRadius:12,background:form.name.trim()&&form.staff_id.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:form.name.trim()&&form.staff_id.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
               {editId?"✓ Save Changes":"✓ Add Staff Member"}
             </button>
-            <button onClick={()=>{setShowAdd(false);setEditId(null);}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+            <button onClick={()=>{setShowAdd(false);setEditId(null);setPinError("");}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
           </div>
         </Card>
       )}
 
-      {/* Delete confirm */}
+      {/* Delete confirm modal */}
       {delId&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <Card style={{padding:"28px 24px",maxWidth:340,width:"100%",textAlign:"center",border:`2px solid ${C.redBorder}`}}>
-            <div style={{fontSize:28,marginBottom:10}}>⚠️</div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>Delete Staff Member?</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:18}}>This will remove their login access permanently. Their attendance records will not be deleted.</div>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <Card style={{padding:"28px 24px",maxWidth:380,width:"100%",textAlign:"center",border:`2px solid ${C.redBorder}`}}>
+            <div style={{fontSize:30,marginBottom:10}}>⚠️</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>Permanently Delete Staff?</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>This removes their login access forever.</div>
+            <div style={{fontSize:11,color:C.amber,marginBottom:14,padding:"8px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>💡 Prefer <strong>Deactivate</strong> to block login while keeping their records.</div>
+            <div style={{fontSize:12,color:C.red,fontWeight:600,marginBottom:6}}>Type DELETE to confirm:</div>
+            <input value={delConfirmText} onChange={e=>setDelConfirmText(e.target.value)} placeholder="Type DELETE here"
+              style={{...fld,textAlign:"center",fontSize:14,fontWeight:700,letterSpacing:2,marginBottom:14,border:`1px solid ${delConfirmText==="DELETE"?C.red:C.border}`}}/>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>deleteStaff(delId)} style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${C.red},#8A1010)`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>🗑 Delete</button>
-              <button onClick={()=>setDelId(null)} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+              <button onClick={()=>deleteStaff(delId)} disabled={delConfirmText!=="DELETE"}
+                style={{flex:1,padding:"12px",borderRadius:12,background:delConfirmText==="DELETE"?`linear-gradient(135deg,${C.red},#8A1010)`:"#2A2A2A",color:delConfirmText==="DELETE"?"#fff":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:delConfirmText==="DELETE"?"pointer":"not-allowed",minHeight:44}}>🗑 Confirm Delete</button>
+              <button onClick={()=>{setDelId(null);setDelConfirmText("");}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
             </div>
           </Card>
         </div>
@@ -9167,30 +9370,48 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
 
       {/* Staff list */}
       {staff.map(s=>{
-        const roleLabel = ROLE_MAP[s.role||"section_indian"] || s.role || "—";
-        const isActive = s.is_active!==false;
-        const sid = s.staffListId||s.staff_id;
+        const roleLabel=ROLE_MAP[s.role||"section_indian"]||s.role||"—";
+        const isActive=s.is_active!==false;
+        const sid=s.staffListId||s.staff_id;
+        const perms=getPermissions(s);
+        const canKeys=ALL_SCREEN_KEYS.filter(k=>perms[k]);
+        const cantKeys=ALL_SCREEN_KEYS.filter(k=>!perms[k]);
         return(
-          <Card key={sid} style={{marginBottom:8,padding:"14px 16px",opacity:isActive?1:.65,border:`1px solid ${isActive?C.border:C.redBorder}`}}>
-            <div style={{display:"flex",gap:12,alignItems:"center"}}>
-              <div style={{width:40,height:40,borderRadius:12,background:C.gold+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+          <Card key={sid} style={{marginBottom:10,padding:"14px 16px",opacity:isActive?1:.58,border:`1px solid ${isActive?C.border:C.redBorder}`}}>
+            {/* Name + role row */}
+            <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
+              <div style={{width:44,height:44,borderRadius:12,background:C.gold+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
                 {roleLabel.split(" ")[0]}
               </div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
-                  <span style={{fontSize:13,fontWeight:700,color:C.text}}>{s.name||"—"}</span>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                  <span style={{fontSize:14,fontWeight:700,color:C.text}}>{s.name||"—"}</span>
                   <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"15",color:C.gold,fontWeight:700}}>{sid}</span>
-                  {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>Inactive</span>}
+                  {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>Inactive</span>}
                 </div>
-                <div style={{fontSize:11,color:C.muted}}>{roleLabel}</div>
-                {s.section&&<div style={{fontSize:11,color:C.faint}}>📍 {s.section}</div>}
-                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: {"●".repeat((s.pin||"0000").length)} · Joined: {s.joining||"—"}</div>
+                <div style={{display:"inline-flex",alignItems:"center",padding:"3px 10px",borderRadius:8,background:C.gold+"12",border:`1px solid ${C.goldBorder}`,marginBottom:4}}>
+                  <span style={{fontSize:11,color:C.gold,fontWeight:700}}>{roleLabel}</span>
+                </div>
+                {s.section&&<div style={{fontSize:11,color:C.faint,marginTop:2}}>📍 {s.section}</div>}
+                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: ●●●● · Joined: {s.joining||"—"}</div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
-                <button onClick={()=>openEdit(s)} style={{padding:"6px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
-                <button onClick={()=>toggleActive(sid)} style={{padding:"6px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>{isActive?"🔴 Deactivate":"✅ Activate"}</button>
-                <button onClick={()=>setDelId(sid)} style={{padding:"6px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
+            </div>
+
+            {/* Access pills */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:.6}}>Screen Access</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {si?.label}</span>;})}
+                {cantKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint}}>{si?.icon} {si?.label}</span>;})}
               </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <button onClick={()=>openPerms(s)} style={{padding:"8px 14px",borderRadius:8,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>🔑 Edit Permissions</button>
+              <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✏️ Edit</button>
+              <button onClick={()=>toggleActive(sid)} style={{padding:"8px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{isActive?"🔴 Deactivate":"✅ Activate"}</button>
+              <button onClick={()=>{setDelId(sid);setDelConfirmText("");}} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36}}>🗑 Delete</button>
             </div>
           </Card>
         );
@@ -9340,7 +9561,11 @@ export default function App() {
     odc:{name:"ODC",icon:"🏕️",color:C.gold},
   };
 
-  const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
+  const baseNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
+  const curNav = [
+    ...baseNav.filter(item=>item.id!=="access"),
+    ...(currentUser?.role==="admin"?[{id:"access",label:"Access Manager",icon:"🔐"}]:[])
+  ];
   const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
   const gAlerts   = attendance.filter(a=>a.date===TODAY&&a.groomingFailed).length;
