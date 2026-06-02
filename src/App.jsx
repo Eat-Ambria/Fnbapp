@@ -67,6 +67,12 @@ input:focus, select:focus, textarea:focus {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.015); }
 }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+.pin-shake { animation: shake 0.4s ease-in-out; }
 
 .fade-in { animation: fadeIn 0.4s var(--ease-luxury) both; }
 .fade-in-up { animation: fadeInUp 0.5s var(--ease-luxury) both; }
@@ -95,6 +101,22 @@ const C = {
   shadow:"rgba(0,0,0,.6)",
   glow:"rgba(212,180,74,.08)",
   glass:"rgba(20,18,16,.85)",
+};
+
+const ROLES = {
+  admin:         { label:"Admin",             icon:"👑", color:"#D4B44A", screens:["dashboard","team","kitchen","menus","transport","store","repair","vendors","dept_service","dept_crockery","dept_beverages","dept_odc"], sections:"all" },
+  head_chef:     { label:"Head Chef",         icon:"👨‍🍳", color:"#3EAA68", screens:["dashboard","kitchen","menus","transport","store","repair"], sections:"all" },
+  section_chinese:   { label:"Chinese Section",    icon:"🥢", color:"#D4914A", screens:["kitchen","repair"], section:"Chinese" },
+  section_indian:    { label:"Indian Section",     icon:"🍛", color:"#D4914A", screens:["kitchen","repair"], section:"Indian Curries" },
+  section_tandoor:   { label:"Tandoor Section",    icon:"🔥", color:"#D4914A", screens:["kitchen","repair"], section:"Tandoor" },
+  section_continental: { label:"Continental",      icon:"🍝", color:"#D4914A", screens:["kitchen","repair"], section:"Continental" },
+  section_sweets:    { label:"Sweets Section",     icon:"🍮", color:"#D4914A", screens:["kitchen","repair"], section:"Sweets" },
+  section_chaat:     { label:"Chaat Section",      icon:"🥗", color:"#D4914A", screens:["kitchen","repair"], section:"Chaat" },
+  service:       { label:"Service",           icon:"🍽",  color:"#4A8FD0", screens:["dept_service","repair"], section:"Service" },
+  crockery:      { label:"Crockery",          icon:"🍶",  color:"#9060C8", screens:["dept_crockery","repair"], section:"Crockery" },
+  beverages:     { label:"Beverages",         icon:"🥤",  color:"#30A898", screens:["dept_beverages","repair"], section:"Beverages" },
+  transport:     { label:"Transport",         icon:"🚛",  color:"#5B8FD0", screens:["transport","repair"], section:"Transportation" },
+  kiosk_gate:    { label:"Gate Kiosk",        icon:"🏛",  color:"#7A6F62", screens:["kiosk_gate"], section:"none" },
 };
 
 // ─── AMBRIA MENU PACKAGES ─────────────────────────────────────────
@@ -387,8 +409,8 @@ const STAFF_LIST = [
 const EMPLOYEE_DB_INIT = [
   // Management
   {id:"AM001",name:"Abhi",          role:"admin",    section:"Management",     dept:"Operations",    joining:"2022-01-01",pin:"0000",active:true},
-  {id:"AM002",name:"Gopal",         role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2019-03-15",pin:"0000",active:true},
-  {id:"AM003",name:"Yatender",      role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2018-06-01",pin:"0000",active:true},
+  {id:"AM002",name:"Gopal",         role:"head_chef", section:"Management",     dept:"F&B Kitchen",   joining:"2019-03-15",pin:"0000",active:true},
+  {id:"AM003",name:"Yatender",      role:"head_chef", section:"Management",     dept:"F&B Kitchen",   joining:"2018-06-01",pin:"0000",active:true},
   // Café
   {id:"CAF01",name:"Caonty",        role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2021-04-10",pin:"0000",active:true},
   {id:"CAF02",name:"Rahul",         role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2022-07-01",pin:"0000",active:true},
@@ -404,7 +426,7 @@ const EMPLOYEE_DB_INIT = [
   {id:"IND06",name:"Roshan",        role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2021-06-01",pin:"0000",active:true},
   // Chinese
   {id:"CHN01",name:"Kishor",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2020-05-01",pin:"0000",active:true},
-  {id:"CHN02",name:"Lokesh",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2019-09-01",pin:"0000",active:true},
+  {id:"CHN02",name:"Lokesh",        role:"section_chinese",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2019-09-01",pin:"0000",active:true},
   {id:"CHN03",name:"Monu",          role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2022-01-15",pin:"0000",active:true},
   {id:"CHN04",name:"Vichesh",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2021-11-01",pin:"0000",active:true},
   {id:"CHN05",name:"Sandeep",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2023-04-01",pin:"0000",active:true},
@@ -463,6 +485,13 @@ const EMPLOYEE_DB_INIT = [
   {id:"ODC03",name:"Sanjay (ODC)",   role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-04-01",pin:"0000",active:true},
   {id:"ODC04",name:"Bittu (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-09-01",pin:"0000",active:true},
   {id:"ODC05",name:"Rahul (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2024-06-01",pin:"0000",active:true},
+  // ── SECTION TABLETS ──
+  {id:"TAB001",name:"Chinese Tablet",     role:"section_chinese",    section:"Chinese",        dept:"Kitchen",pin:"1111",active:true,joining:"2024-01-01"},
+  {id:"TAB002",name:"Indian Tablet",      role:"section_indian",     section:"Indian Curries", dept:"Kitchen",pin:"2222",active:true,joining:"2024-01-01"},
+  {id:"TAB003",name:"Tandoor Tablet",     role:"section_tandoor",    section:"Tandoor",        dept:"Kitchen",pin:"3333",active:true,joining:"2024-01-01"},
+  {id:"TAB004",name:"Continental Tablet", role:"section_continental",section:"Continental",    dept:"Kitchen",pin:"4444",active:true,joining:"2024-01-01"},
+  {id:"TAB005",name:"Sweets Tablet",      role:"section_sweets",     section:"Sweets",         dept:"Kitchen",pin:"5555",active:true,joining:"2024-01-01"},
+  {id:"TAB006",name:"Chaat Tablet",       role:"section_chaat",      section:"Chaat",          dept:"Kitchen",pin:"6666",active:true,joining:"2024-01-01"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -1343,14 +1372,18 @@ class ErrorBoundary extends React.Component {
 
 
 const NAV_ADMIN = [
-  {id:"dashboard",  label:"Dashboard",           icon:"📊"},
-  {id:"team",       label:"Team & Attendance",    icon:"👥"},
-  {id:"kitchen",    label:"Kitchen",              icon:"👨‍🍳"},
-  {id:"menus",      label:"Menu",        icon:"📜"},
-  {id:"transport",  label:"Transport & Dispatch", icon:"🚛"},
-  {id:"store",      label:"Store & Inventory",    icon:"📦"},
-  {id:"repair",     label:"Repair & Maintenance",  icon:"🔧"},
-  {id:"vendors",    label:"Vendor Directory",      icon:"🤝"},
+  {id:"dashboard",      label:"Dashboard",           icon:"📊"},
+  {id:"team",           label:"Team & Attendance",    icon:"👥"},
+  {id:"kitchen",        label:"Kitchen",              icon:"👨‍🍳"},
+  {id:"menus",          label:"Menu",                 icon:"📜"},
+  {id:"transport",      label:"Transport & Dispatch", icon:"🚛"},
+  {id:"store",          label:"Store & Inventory",    icon:"📦"},
+  {id:"repair",         label:"Repair & Maintenance", icon:"🔧"},
+  {id:"vendors",        label:"Vendor Directory",     icon:"🤝"},
+  {id:"dept_service",   label:"Service Operations",   icon:"🍽️"},
+  {id:"dept_crockery",  label:"Crockery Operations",  icon:"🍶"},
+  {id:"dept_beverages", label:"Beverage Operations",  icon:"🥤"},
+  {id:"dept_odc",       label:"ODC Operations",       icon:"🏕️"},
 ];
 const NAV = NAV_ADMIN;
 
@@ -1495,127 +1528,154 @@ function SelfieCapture({onCapture,onRetake,captured,lang="en"}) {
   );
 }
 
-// ─── DASHBOARD ────────────────────────────────────────────────
-// ─── LOGIN SCREEN ─────────────────────────────────────────────────
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────
 function LoginScreen({ empDb, onLogin, lang="en" }) {
   const T2 = s => T(s, lang);
-  const safeDb = safeArr(empDb);
-  const [empId,  setEmpId]  = useState("");
-  const [pin,    setPin]    = useState("");
-  const [error,  setError]  = useState("");
-  const [loading,setLoading]= useState(false);
-  const [remember,setRemember]=useState(false);
+  const safeDb = safeArr(empDb).filter(e => e.active !== false);
+  const [selected, setSelected] = useState(null);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [shaking, setShaking] = useState(false);
 
-  useEffect(()=>{
-    (async()=>{
-      try{
-        const [rid,rpin,rrem]=await Promise.all([
-          window.storage?.get("ambria_emp_id"),
-          window.storage?.get("ambria_pin"),
-          window.storage?.get("ambria_remember"),
-        ]);
-        if(rrem?.value==="true" && rid?.value && rpin?.value){
-          const id  = rid.value.trim().toUpperCase();
-          const pin2 = rpin.value.trim();
-          const emp  = (empDb||[]).find(e=>String(e.id).toUpperCase()===id);
-          if(emp && emp.active && String(emp.pin)===pin2){
-            // credentials valid — auto-login immediately
-            const sl = STAFF_LIST.find(s=>s.name===emp.name);
-            onLogin({...emp, staffListId:sl?.id||null});
-            return;
-          }
-          // credentials saved but not valid (e.g. PIN changed) — just pre-fill
-          setEmpId(id);
-          setPin(pin2);
-          setRemember(true);
-        }
-      }catch(e){}
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
+  const mgmt    = safeDb.filter(e => e.role==="admin" || e.role==="head_chef");
+  const tablets = safeDb.filter(e => e.id.startsWith("TAB"));
+  const kitchen = safeDb.filter(e =>
+    !e.id.startsWith("TAB") && e.role!=="admin" && e.role!=="head_chef" &&
+    ["Indian Curries","Tandoor","Chinese","Chaat","Sweets"].includes(e.section)
+  );
+  const otherDepts = safeDb.filter(e =>
+    !e.id.startsWith("TAB") && e.role!=="admin" && e.role!=="head_chef" &&
+    !["Indian Curries","Tandoor","Chinese","Chaat","Sweets"].includes(e.section)
+  );
 
-  async function handleLogin(){
-    setError(""); setLoading(true);
-    const id  = empId.trim().toUpperCase();
-    const emp = safeDb.find(e=>String(e.id).toUpperCase()===id);
-    if(!emp){setError("Employee ID not found.");setLoading(false);return;}
-    if(!emp.active){setError("Account inactive. Contact manager.");setLoading(false);return;}
-    if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
-    try{
-      if(remember){
-        await Promise.all([window.storage?.set("ambria_emp_id",id),window.storage?.set("ambria_pin",pin.trim()),window.storage?.set("ambria_remember","true")]);
-      } else {
-        await Promise.all([window.storage?.delete("ambria_emp_id"),window.storage?.delete("ambria_pin"),window.storage?.delete("ambria_remember")]);
-      }
-    }catch(e){}
-    const sl = STAFF_LIST.find(s=>s.name===emp.name);
-    onLogin({...emp, staffListId:sl?.id||null});
-    setLoading(false);
+  function selectUser(emp){ setSelected(emp); setPin(""); setError(""); }
+  function back(){ setSelected(null); setPin(""); setError(""); }
+
+  function attemptLogin(p){
+    if(!selected) return;
+    if(String(selected.pin) !== p){
+      setShaking(true); setError("Incorrect PIN"); setPin("");
+      setTimeout(()=>setShaking(false), 500);
+      return;
+    }
+    const sl = STAFF_LIST.find(s=>s.name===selected.name);
+    onLogin({...selected, staffListId:sl?.id||null});
   }
 
-  return (
-    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 20%, #18150E 0%, #0A0908 50%, #06050A 100%)`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
-      {/* Background decorative elements */}
-      <div style={{position:"absolute",top:"-20%",right:"-10%",width:500,height:500,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.04) 0%, transparent 70%)",pointerEvents:"none"}}/>
-      <div style={{position:"absolute",bottom:"-15%",left:"-5%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.03) 0%, transparent 70%)",pointerEvents:"none"}}/>
+  function handlePad(k){
+    if(k==="clear"){ setPin(""); setError(""); return; }
+    if(k==="✓"){ attemptLogin(pin); return; }
+    if(pin.length>=4) return;
+    const np = pin+k;
+    setPin(np);
+    if(np.length===4) setTimeout(()=>attemptLogin(np), 120);
+  }
 
-      <div className="fade-in-up" style={{background:`linear-gradient(160deg, ${C.surface} 0%, #0E0D0B 100%)`,borderRadius:24,padding:"48px 44px",width:400,boxShadow:`0 32px 80px rgba(0,0,0,.5), 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.04)`,border:`1px solid ${C.border}`,position:"relative"}}>
-        {/* Subtle top gold line */}
-        <div style={{position:"absolute",top:0,left:"15%",right:"15%",height:1,background:`linear-gradient(90deg, transparent, ${C.gold}40, transparent)`}}/>
-
-        {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{width:64,height:64,borderRadius:16,background:`linear-gradient(135deg, ${C.gold}, #8B6A14)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:700,color:"#fff",margin:"0 auto 16px",boxShadow:`0 8px 24px rgba(212,180,74,.25)`,letterSpacing:1,fontFamily:"var(--font-display)"}}>A</div>
-          <div style={{fontSize:26,fontWeight:600,color:C.text,fontFamily:"var(--font-display)",letterSpacing:2}}>{T2("Ambria Work Force")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:6,letterSpacing:1.5,textTransform:"uppercase",fontWeight:500}}>{T2("F&B Kitchen Operations")}</div>
-        </div>
-
-        {/* Form */}
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1.2}}>{T2("Employee ID")}</div>
-          <input
-            value={empId}
-            onChange={e=>setEmpId(e.target.value.toUpperCase())}
-            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-            placeholder={T2("e.g. AM001")}
-            style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${error?C.red:C.border}`,fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box"}}
-            autoFocus
-          />
-        </div>
-        <div style={{marginBottom:22}}>
-          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1.2}}>4-Digit PIN</div>
-          <input
-            type="password"
-            value={pin}
-            onChange={e=>setPin(e.target.value.replace(/\D/g,"").slice(0,4))}
-            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-            placeholder={T2("••••")}
-            maxLength={4}
-            style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${error?C.red:C.border}`,fontSize:20,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",letterSpacing:8}}
-          />
-        </div>
-
-        {error&&<div className="fade-in" style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.red,marginBottom:16}}>{error}</div>}
-
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,cursor:"pointer"}} onClick={()=>setRemember(r=>!r)}>
-          <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${remember?C.gold:C.border}`,background:remember?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {remember&&<span style={{color:"#0A0908",fontSize:11,fontWeight:700}}>✓</span>}
-          </div>
-          <span style={{fontSize:12,color:C.muted}}>{T2("Remember me on this device")}</span>
-        </div>
-
-        <button
-          onClick={handleLogin}
-          disabled={loading||!empId||pin.length<4}
-          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #A8891E)`,color:(!empId||pin.length<4)?C.muted:"#0A0908",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
-          {loading?T2("Signing in…"):T2("Sign In →")}
-        </button>
-
-        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.faint,letterSpacing:.5}}>
-          Ambria Cuisines · Get Your Venue Events Pvt Ltd
+  function StaffGroup({title, staff, large=false}){
+    if(!staff.length) return null;
+    return(
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.faint,letterSpacing:2.5,textTransform:"uppercase",marginBottom:8,paddingLeft:2}}>{title}</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {staff.map(emp=>{
+            const ri=ROLES[emp.role]||{label:emp.role,icon:"👤",color:C.muted};
+            return(
+              <button key={emp.id} onClick={()=>selectUser(emp)} style={{
+                padding:large?"16px 18px":"12px 14px",borderRadius:14,
+                background:C.surface,border:`1.5px solid ${ri.color}25`,
+                cursor:"pointer",textAlign:"left",
+                minWidth:large?150:120,transition:"all .2s",
+              }}>
+                <div style={{fontSize:large?15:13,fontWeight:700,color:ri.color,marginBottom:2}}>
+                  {ri.icon} {emp.name.replace(" Tablet","")}
+                </div>
+                <div style={{fontSize:10,color:C.muted}}>{ri.label}</div>
+                {emp.section&&emp.section!=="none"&&<div style={{fontSize:10,color:C.faint}}>{emp.section}</div>}
+              </button>
+            );
+          })}
         </div>
       </div>
+    );
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 20%, #18150E 0%, #0A0908 50%, #06050A 100%)`,overflowY:"auto",padding:"24px 20px 32px"}}>
+      {/* Decorative gold orb */}
+      <div style={{position:"fixed",top:"-10%",right:"-5%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.05) 0%, transparent 70%)",pointerEvents:"none"}}/>
+
+      {/* Header */}
+      <div style={{textAlign:"center",marginBottom:28,paddingTop:12}}>
+        <div style={{width:56,height:56,borderRadius:14,background:`linear-gradient(135deg,${C.gold},#8B6A14)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:700,color:"#fff",margin:"0 auto 14px",boxShadow:`0 8px 24px rgba(212,180,74,.25)`,fontFamily:"var(--font-display)"}}>A</div>
+        <div style={{fontSize:28,fontWeight:600,color:C.text,fontFamily:"var(--font-display)",letterSpacing:2}}>Ambria FnB Operations</div>
+        <div style={{fontSize:11,color:C.muted,marginTop:5,letterSpacing:3,textTransform:"uppercase"}}>Ambria Cuisines · Select your profile</div>
+      </div>
+
+      {!selected&&(
+        <div style={{maxWidth:680,margin:"0 auto"}}>
+          <StaffGroup title="Management" staff={mgmt} large={true}/>
+          <StaffGroup title="Section Tablets" staff={tablets} large={true}/>
+          <StaffGroup title="Kitchen Staff" staff={kitchen}/>
+          <StaffGroup title="Other Departments" staff={otherDepts}/>
+
+          {/* Gate Kiosk */}
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:20,marginTop:8,textAlign:"center"}}>
+            <button onClick={()=>onLogin({id:"KIOSK",name:"Gate Kiosk",role:"kiosk_gate",section:"none",active:true,pin:""})}
+              style={{padding:"15px 32px",borderRadius:14,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",letterSpacing:.5}}>
+              🏛 Gate Attendance Kiosk
+            </button>
+            <div style={{fontSize:11,color:C.faint,marginTop:6}}>No PIN required</div>
+          </div>
+        </div>
+      )}
+
+      {selected&&(
+        <div style={{maxWidth:340,margin:"0 auto"}}>
+          {/* Selected user card */}
+          <div style={{textAlign:"center",marginBottom:20,padding:"18px 20px",borderRadius:16,background:C.surface,border:`1px solid ${C.border}`}}>
+            {(()=>{const ri=ROLES[selected.role]||{label:selected.role,icon:"👤",color:C.muted};return(<>
+              <div style={{fontSize:32,marginBottom:6}}>{ri.icon}</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{selected.name}</div>
+              <div style={{fontSize:12,color:ri.color,marginTop:3}}>{ri.label}</div>
+              {selected.section&&selected.section!=="none"&&<div style={{fontSize:11,color:C.muted}}>{selected.section}</div>}
+            </>);})()}
+          </div>
+
+          {/* PIN dots */}
+          <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:16}}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} className={shaking&&i<pin.length?"pin-shake":""} style={{
+                width:54,height:54,borderRadius:12,
+                border:`2px solid ${error?C.red:pin.length>i?C.gold:C.border}`,
+                background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:28,color:C.gold,transition:"border-color .2s"
+              }}>{pin.length>i?"●":""}</div>
+            ))}
+          </div>
+          {error&&<div style={{textAlign:"center",color:C.red,fontSize:13,marginBottom:12,fontWeight:600}}>{error}</div>}
+
+          {/* PIN pad */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:14}}>
+            {["1","2","3","4","5","6","7","8","9","⌫","0","✓"].map(k=>(
+              <button key={k} onClick={()=>{
+                if(k==="⌫"){setPin(p=>p.slice(0,-1));setError("");return;}
+                handlePad(k);
+              }} style={{
+                padding:"16px",borderRadius:14,
+                background:k==="⌫"?C.darkCard:k==="✓"?`linear-gradient(135deg,${C.gold},#A8891E)`:C.surface,
+                border:`1px solid ${k==="✓"?C.gold:C.border}`,
+                color:k==="✓"?"#0A0908":C.text,
+                fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56,
+                boxShadow:k==="✓"?`0 4px 16px rgba(212,180,74,.3)`:"none",
+              }}>{k}</button>
+            ))}
+          </div>
+
+          <button onClick={back} style={{width:"100%",padding:"12px",borderRadius:12,background:"none",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>
+            ← Back
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -5114,7 +5174,7 @@ function getDishImageUrl(dishName) {
   return "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=70";
 }
 
-function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false }) {
+function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null }) {
   const T2 = s => T(s, lang);
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
@@ -5146,6 +5206,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // Apply scaling to a raw per-pax quantity
   function applyScale(q, evId){return q*(getEventScale(evId)/100);}
   const [tick, setTick] = useState(0);
+  const isSectionTablet = !!(currentUser?.role?.startsWith("section_"));
+  const sectionFilter = isSectionTablet ? (ROLES[currentUser.role]?.section || null) : null;
 
   // ── Chef Photo on Mark as Complete ──
   const [readyModal, setReadyModal] = useState(null); // {evId,idx,dishName}
@@ -5256,7 +5318,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const newD1Pax = evList.filter(e=>e.date===DAY_AFTER).reduce((s,e)=>s+(+e.pax||0),0);
   const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
 
-  const TABS=[
+  const TABS = isSectionTablet ? [
+    {v:"today", l:todayTabL},
+    {v:"d1",    l:d1TabL},
+    {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
+  ] : [
     {v:"today", l:todayTabL},
     {v:"d1",    l:d1TabL},
     {v:"scale", l:`⚖️ ${T2("Pax Scaling")}`},
@@ -5268,6 +5334,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   return(
     <div style={{position:"relative"}}>
+      {sectionFilter&&(()=>{const ri=ROLES[currentUser.role]||{};const paxToday=safeArr(events).filter(e=>e.date===TODAY).reduce((s,e)=>s+(+e.pax||0),0);return(
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderRadius:14,background:ri.color+"15",border:`1.5px solid ${ri.color}30`,marginBottom:16}}>
+          <span style={{fontSize:22}}>{ri.icon}</span>
+          <div><div style={{fontSize:15,fontWeight:700,color:ri.color,fontFamily:"var(--font-display)"}}>{ri.label}</div>
+          <div style={{fontSize:12,color:C.muted}}>{paxToday>0?`${paxToday} pax today`:"No events today"}</div></div>
+        </div>
+      );})()}
 
       {/* ── Chef Photo Modal ── */}
       {readyModal&&(
@@ -5324,6 +5397,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
             safeArr(ev.menu).forEach((name,idx)=>{
               if(guessSectionForDish(name)==="Beverages") return;
+              if(sectionFilter && guessSectionForDish(name)!==sectionFilter) return;
               if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
               byDish[name].totalPax+=ev.pax||0;
               byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5423,6 +5497,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name)!==sectionFilter) return;
             if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDish[name].totalPax+=ev.pax||0;
             byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5719,6 +5794,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name)!==sectionFilter) return;
             if(!byDishCont[name])byDishCont[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishCont[name].totalPax+=ev.pax||0;
             byDishCont[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5733,6 +5809,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name)!==sectionFilter) return;
             if(!byDishNew[name])byDishNew[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishNew[name].totalPax+=ev.pax||0;
             byDishNew[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -9154,8 +9231,17 @@ export default function App() {
     odc:{name:"ODC",icon:"🏕️",color:C.gold},
   };
 
-  const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
-  const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
+  const isRoleUser = !!(currentUser && ROLES[currentUser.role]);
+  const roleInfo = isRoleUser ? ROLES[currentUser.role] : null;
+  const allowedScreens = isRoleUser ? (roleInfo.screens || []) : null;
+  const curNav = isRoleUser
+    ? NAV_ADMIN.filter(n => allowedScreens.includes(n.id))
+    : (activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : []);
+  const curDeptMeta = isRoleUser
+    ? {name:roleInfo.label, icon:roleInfo.icon, color:roleInfo.color}
+    : (DEPT_META[activeDept]||{name:"",icon:"",color:C.gold});
+  const effectiveScreen = (isRoleUser && allowedScreens && !allowedScreens.includes(screen))
+    ? (allowedScreens[0] || screen) : screen;
 
   const gAlerts   = attendance.filter(a=>a.date===TODAY&&a.groomingFailed).length;
   const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
@@ -9170,8 +9256,9 @@ export default function App() {
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
+  if(currentUser?.role==="kiosk_gate") return <KioskAttendance staffList={STAFF_LIST} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={handleLogout} lang={lang}/>;
   // ── DEPT SELECTOR (first screen for everyone) ──
-  if(!activeDept) return (
+  if(!activeDept && !isRoleUser) return (
     <DeptView
       attendance={attendance} setAttendance={setAttendance}
       events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
@@ -9186,16 +9273,16 @@ export default function App() {
     switch(s){
       case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang}/>;
       case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept}/>;
-      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang}/>;
+      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser}/>;
       case "menus":          return <MenuPackagesView lang={lang}/>;
-      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang}/>;
+      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser}/>;
       case "store":          return <StoreModule events={events} lang={lang}/>;
-      case "repair":         return <RepairMaintenance lang={lang} currentDept="management"/>;
+      case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
-      case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
-      case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
-      case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
-      case "dept_odc":       return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="odc"/>;
+      case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" currentUser={currentUser}/>;
+      case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery" currentUser={currentUser}/>;
+      case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages" currentUser={currentUser}/>;
+      case "dept_odc":       return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="odc" currentUser={currentUser}/>;
       default: return <div style={{padding:40,textAlign:"center",color:"#888"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:"#6B1818",color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
     }
   }
@@ -9216,15 +9303,17 @@ export default function App() {
               <div style={{fontSize:11,color:C.muted,letterSpacing:.3}}>Ambria Cuisines</div>
             </div>
           </div>
+          {!isRoleUser&&(
           <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,minHeight:44,fontWeight:500}}>
             🔄 {T2("Change Department")}
           </button>
+          )}
         </div>
 
         {/* Nav items (tablet: larger touch targets) */}
         <nav style={{flex:1,padding:"10px 12px",overflowY:"auto"}}>
           {curNav.map(item=>{
-            const active=screen===item.id;
+            const active=effectiveScreen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
             return(
               <button key={item.id} onClick={()=>setScreen(item.id)} style={{
@@ -9260,7 +9349,7 @@ export default function App() {
             <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:11,padding:"10px 10px",cursor:"pointer",fontWeight:600,minHeight:42}}>
               {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
             </button>
-            <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.muted,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
+            <button onClick={handleLogout} style={{flex:1,background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,color:C.red,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
           </div>
         </div>
       </div>
@@ -9269,7 +9358,7 @@ export default function App() {
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{background:`linear-gradient(90deg, ${C.surface}, ${C.darkCard})`,borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,boxShadow:`0 2px 12px ${C.shadow}`}}>
           <div>
-            <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
+            <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===effectiveScreen)?.label||"Dashboard",lang)}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
           </div>
           <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:12,padding:"10px 16px",cursor:"pointer",fontWeight:600,minHeight:42,letterSpacing:.3}}>
@@ -9277,7 +9366,7 @@ export default function App() {
           </button>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"28px 32px",scrollBehavior:"smooth"}}>
-          <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
+          <ErrorBoundary key={effectiveScreen} lang={lang}>{renderScreen(effectiveScreen)}</ErrorBoundary>
         </div>
       </div>
     </div>
