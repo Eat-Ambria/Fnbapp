@@ -1,29 +1,100 @@
 import React, { useState, useRef, useEffect } from "react";
 
-// localStorage shim — replaces Claude artifact window.storage
-if (typeof window !== "undefined" && !window.storage) {
-  window.storage = {
-    get: async (k) => ({ value: localStorage.getItem(k) }),
-    set: async (k, v) => { localStorage.setItem(k, v); },
-    delete: async (k) => { localStorage.removeItem(k); },
-  };
+// ─── INJECT GLOBAL STYLES ──────────────────────────────────────
+const LUXURY_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ease-luxury: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+body { font-family: var(--font-body); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0A0908; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Smooth transitions for all interactive elements */
+button, select, input, textarea {
+  font-family: var(--font-body) !important;
+  transition: all 0.2s var(--ease-luxury) !important;
+}
+button:hover { filter: brightness(1.08); }
+button:active { transform: scale(0.97); filter: brightness(0.95); }
+
+select, input, textarea {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none !important;
+  border-color: #D4B44A !important;
+  box-shadow: 0 0 0 3px rgba(212,180,74,.12) !important;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(212,180,74,.15); }
+  50% { box-shadow: 0 0 20px rgba(212,180,74,.3); }
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015); }
+}
+
+.fade-in { animation: fadeIn 0.4s var(--ease-luxury) both; }
+.fade-in-up { animation: fadeInUp 0.5s var(--ease-luxury) both; }
+.slide-in { animation: slideInRight 0.4s var(--ease-luxury) both; }
+`;
+
+if(typeof document!=="undefined"&&!document.getElementById("ambria-luxury-css")){
+  const s=document.createElement("style");s.id="ambria-luxury-css";s.textContent=LUXURY_CSS;document.head.appendChild(s);
 }
 
 
 const C = {
-  navy:"#0A0A0F",
-  wine:"#C4A44A",   wineMid:"#A07A1C",  wineBg:"#1E1B14",   wineBorder:"#3A3220",
-  bg:"#0B0A08",     surface:"#141312",
-  border:"#272420", borderLight:"#1E1D1A",
-  text:"#F2EEE2",   muted:"#8A8476",     faint:"#5A5750",
-  green:"#4DAA6A",  greenBg:"#12201A",   greenBorder:"#1E3A28",
-  red:"#D64545",    redBg:"#201212",     redBorder:"#3A1E1E",
-  amber:"#D4A843",  amberBg:"#201A0E",   amberBorder:"#3A3018",
-  blue:"#5B8FD0",   blueBg:"#0E1620",    blueBorder:"#1E2E40",
-  purple:"#8A70C8", purpleBg:"#14101E",  purpleBorder:"#2A2240",
-  teal:"#50B0A0",   tealBg:"#0E1E1A",    tealBorder:"#1E3A34",
-  gold:"#D4B44A",   goldBg:"#1A1710",    goldBorder:"#3A3420",
-  cream:"#F2EEE2",  darkCard:"#181716",  darkCardHover:"#222120",
+  navy:"#08070A",
+  wine:"#C9A84C",   wineMid:"#A88B30",  wineBg:"#1A1810",   wineBorder:"#332E1E",
+  bg:"#0A0908",     surface:"#131210",   surfaceHover:"#1A1918",
+  border:"#252320", borderLight:"#1C1B18",
+  text:"#F4F0E4",   muted:"#8E8678",     faint:"#5C5850",
+  green:"#3EAA68",  greenBg:"#0E1E16",   greenBorder:"#1A3826",
+  red:"#D64040",    redBg:"#1E0E0E",     redBorder:"#381A1A",
+  amber:"#D4A843",  amberBg:"#1E1A0E",   amberBorder:"#382E16",
+  blue:"#5B8FD0",   blueBg:"#0E1420",    blueBorder:"#1A2E42",
+  purple:"#8A70C8", purpleBg:"#120E1E",  purpleBorder:"#281E40",
+  teal:"#50B0A0",   tealBg:"#0E1E1A",    tealBorder:"#1A3830",
+  gold:"#D4B44A",   goldBg:"#1A1710",    goldBorder:"#38321E",
+  cream:"#F4F0E4",  darkCard:"#161514",  darkCardHover:"#1E1D1A",
+  shadow:"rgba(0,0,0,.6)",
+  glow:"rgba(212,180,74,.08)",
+  glass:"rgba(20,18,16,.85)",
 };
 
 // ─── AMBRIA MENU PACKAGES ─────────────────────────────────────────
@@ -416,61 +487,31 @@ const GROOMING_CHECKS = [
   {id:"shoes",  label:"Clean shoes / proper footwear"},
 ];
 
-const TODAY = new Date().toISOString().split("T")[0];
+// ─── DATES (local time — no UTC shift bug) ──────────────────────
+function localDateStr(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${dd}`;}
+const TODAY = localDateStr(new Date());
 const TODAY_LABEL = new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
 const CUR_YEAR = new Date().getFullYear();
 function relDate(daysFromToday){
   const d=new Date(); d.setDate(d.getDate()+daysFromToday);
-  return d.toISOString().split("T")[0];
+  return localDateStr(d);
 }
 const TOMORROW = relDate(1);
 const DAY_AFTER = relDate(2);
 
 const LIVE_EVENTS_INIT = [
-  // ── TODAY (2 in-house + 1 ODC) ──
-  {id:`FP-${CUR_YEAR}-101`,guest:"Sharma Wedding",venue:"Ambria Pushpanjali",
-    date:TODAY,time:"7:00 PM",type:"Wedding",pax:500,veg:350,nonveg:150,
-    menuPackage:"Multi-Cuisine Non-Veg",menu:MENU_PACKAGES["Multi-Cuisine Non-Veg"]||[],
-    special:"No onion-garlic for 50 Jain guests. Welcome drink mandatory.",
-    extras:[{item:"Paan Counter",qty:1,type:"Complimentary",by:"Sales Team"}]},
-  {id:`FP-${CUR_YEAR}-102`,guest:"Jain Corporate Lunch",venue:"Manaktala Farm",
-    date:TODAY,time:"1:00 PM",type:"Corporate",pax:120,veg:120,nonveg:0,
-    menuPackage:"Double Magnum Veg",menu:MENU_PACKAGES["Double Magnum Veg"]||[],
-    special:"Strictly Jain — no onion, no garlic, no root vegetables. CEO table separate.",
-    extras:[]},
-  {id:`FP-${CUR_YEAR}-103`,guest:"Taneja Sangeet (ODC)",venue:"Outdoor Catering (ODC)",
-    date:TODAY,time:"8:00 PM",type:"Wedding",pax:650,veg:400,nonveg:250,
-    menuPackage:"Luxury Non-Veg",menu:MENU_PACKAGES["Luxury Non-Veg"]||[],
-    special:"ODC at DLF Chattarpur. Gopal leads. Live tandoor + sushi counter. 2 fridge trucks.",
-    extras:[{item:"Sushi Counter",qty:1,type:"Complimentary",by:"Kitchen"},{item:"Ice Carving",qty:1,type:"Chargeable",rate:25000,by:"Sales Team"}]},
-  // ── TOMORROW (2 functions) ──
+  // ── TOMORROW (Jun 1) ──
   {id:`FP-${CUR_YEAR}-104`,guest:"Gupta Reception",venue:"Ambria Pushpanjali",
-    date:TOMORROW,time:"4:00 PM",type:"Reception",pax:400,veg:280,nonveg:120,
-    menuPackage:"Double Magnum Non-Veg",menu:MENU_PACKAGES["Double Magnum Non-Veg"]||[],
-    special:"Ice cream counter by 6 PM. Bride is lactose intolerant — separate dessert.",
+    date:TOMORROW,time:"7:00 PM",type:"Reception",pax:500,veg:320,nonveg:180,
+    menuPackage:"Multi-Cuisine Non-Veg",menu:MENU_PACKAGES["Multi-Cuisine Non-Veg"]||[],
+    special:"Ice cream counter by 9 PM. Bride is lactose intolerant — separate dessert.",
     extras:[{item:"Mocktail Counter (Extra Flavours)",qty:3,type:"Complimentary",by:"Sales Team"}]},
-  {id:`FP-${CUR_YEAR}-105`,guest:"Kapoor Anniversary",venue:"Ambria Exotica",
-    date:TOMORROW,time:"6:00 PM",type:"Other",pax:200,veg:200,nonveg:0,
-    menuPackage:"Multi-Cuisine Veg",menu:MENU_PACKAGES["Multi-Cuisine Veg"]||[],
-    special:"Pure Veg. No non-veg items anywhere on premises.",
-    extras:[{item:"Live Chaat Counter",qty:1,type:"Complimentary",by:"Sales Team"}]},
-  // ── DAY+2 (2 functions) ──
+  // ── DAY AFTER (Jun 2) ──
   {id:`FP-${CUR_YEAR}-106`,guest:"Mehra Engagement",venue:"Ambria Pushpanjali",
     date:DAY_AFTER,time:"1:00 PM",type:"Other",pax:300,veg:180,nonveg:120,
     menuPackage:"Magnum Non-Veg",menu:MENU_PACKAGES["Magnum Non-Veg"]||[],
     special:"Dry fruit counter must be premium. Saffron theme decor.",
     extras:[{item:"Dry Fruit Counter",qty:1,type:"Chargeable",rate:12000,by:"Sales Team"}]},
-  {id:`FP-${CUR_YEAR}-107`,guest:"Verma Wedding (ODC)",venue:"Outdoor Catering (ODC)",
-    date:DAY_AFTER,time:"7:30 PM",type:"Wedding",pax:900,veg:550,nonveg:350,
-    menuPackage:"Luxury Non-Veg",menu:MENU_PACKAGES["Luxury Non-Veg"]||[],
-    special:"ODC at Kapashera farmhouse. Gopal leads. Full luxury setup. 3 trucks.",
-    extras:[{item:"Live Tandoor Counter x2",qty:2,type:"Complimentary",by:"Kitchen"},{item:"Paan Counter",qty:1,type:"Chargeable",rate:8000,by:"Sales Team"}]},
-  // ── DAY+3 (1 function) ──
-  {id:`FP-${CUR_YEAR}-108`,guest:"Agarwal Wedding",venue:"Manaktala Farm",
-    date:relDate(3),time:"7:00 PM",type:"Wedding",pax:450,veg:450,nonveg:0,
-    menuPackage:"Luxury Veg",menu:MENU_PACKAGES["Luxury Veg"]||[],
-    special:"Marwadi pure veg. No eggs. Pushkar tea mandatory. Premium presentation.",
-    extras:[{item:"Pushkar Tea Station",qty:1,type:"Complimentary",by:"Kitchen"}]},
 ];
 
 
@@ -478,7 +519,7 @@ const LIVE_EVENTS_INIT = [
 const HI = {
   // NAV
   "Dashboard":"डैशबोर्ड","Event Calendar":"इवेंट कैलेंडर","Team & Attendance":"टीम व हाज़िरी",
-  "Kitchen":"रसोई","Menu Packages":"मेनू पैकेज","Transport & Dispatch":"ट्रांसपोर्ट व डिस्पैच",
+  "Kitchen":"रसोई","Menu":"मेनू पैकेज","Transport & Dispatch":"ट्रांसपोर्ट व डिस्पैच",
   "Store & Inventory":"स्टोर व स्टॉक","Vendor Directory":"वेंडर डायरेक्टरी",
 
   // SECTIONS
@@ -582,7 +623,7 @@ const HI = {
   "Section Speciality":"विभाग विशेषता","No vendors found.":"कोई वेंडर नहीं।",
 
   // MENU
-  "Menu Packages":"मेनू पैकेज","packages":"पैकेज",
+  "Menu":"मेनू पैकेज","packages":"पैकेज",
   "items total":"कुल आइटम","Search dishes…":"व्यंजन खोजें…","No items match your search.":"कोई आइटम नहीं मिला।",
   "items":"आइटम","Full catering menus for all events":"सभी इवेंट्स के लिए पूर्ण केटरिंग मेनू","packages":"पैकेज",
   "MENU SOLD":"मेनू बिका","Full Menu Sold":"पूरा मेनू बिका",
@@ -1020,7 +1061,7 @@ const HI = {
   "Search name or ID…":"नाम या आईडी खोजें…","Add Employee":"कर्मचारी जोड़ें",
   "Full catering menus for all events":"सभी इवेंट के लिए पूर्ण केटरिंग मेनू",
   "All Packages":"सभी पैकेज","Sign out":"साइन आउट","Loading…":"लोड हो रहा है…",
-  "Dashboard":"डैशबोर्ड","Kitchen":"किचन","Menu Packages":"मेनू पैकेज",
+  "Dashboard":"डैशबोर्ड","Kitchen":"किचन","Menu":"मेनू पैकेज",
   "Team & Attendance":"टीम और उपस्थिति","Store & Inventory":"स्टोर और इन्वेंटरी",
   "Transport & Dispatch":"ट्रांसपोर्ट और रवानगी","Repair & Maintenance":"मरम्मत और रखरखाव",
   "Vendor Directory":"वेंडर डायरेक्टरी","Recipe SOPs":"रेसिपी SOP",
@@ -1127,6 +1168,128 @@ const HI = {
   "Plumber":"प्लंबर","Decorator":"डेकोरेटर","Other":"अन्य",
   "Coming soon — actual SOPs will be added in next phase":"जल्द आ रहा है — अगले चरण में वास्तविक SOP जोड़े जाएंगे",
   "alerts":"अलर्ट",
+  "ODC Bookings":"ODC बुकिंग","Total ODC":"कुल ODC","Total Pax":"कुल अतिथि",
+  "Menu Breakdown":"मेनू विवरण","Kitchen Status for ODC":"ODC के लिए किचन स्थिति",
+  "Real-time sync with Kitchen team":"किचन टीम के साथ रियल-टाइम सिंक",
+  "No ODC events today/tomorrow":"आज/कल कोई ODC इवेंट नहीं","Sent":"भेजा",
+  "ODC Transport Status":"ODC ट्रांसपोर्ट स्थिति",
+  "Vehicle assignment and dispatch tracking for ODC":"ODC के लिए वाहन और रवानगी ट्रैकिंग",
+  "Vehicles assigned via Transport & Dispatch module":"वाहन ट्रांसपोर्ट मॉड्यूल से असाइन होंगे",
+  "Site Checklist":"साइट चेकलिस्ट","Kitchen Status":"किचन स्थिति",
+
+  "Add Function":"फंक्शन जोड़ें","Add":"जोड़ें","Camera":"कैमरा","Delete":"हटाएं",
+  "Dispatch":"रवानगी","Dispatched":"रवाना","Edit":"संपादन",
+  "Equipment":"उपकरण","Gas cylinders":"गैस सिलेंडर",
+  "In":"अंदर","Lead":"प्रमुख",
+  "Live Fleet Map":"लाइव फ्लीट मैप","Loading / Unloading Checklist":"लोडिंग / अनलोडिंग चेकलिस्ट",
+  "Menu":"मेनू","No events today":"आज कोई इवेंट नहीं","PIN":"पिन",
+  "Pending":"लंबित","Procedures in Hindi":"हिंदी में विधि",
+  "Punch In":"पंच इन","Punch Out":"पंच आउट","Punched In":"पंच इन हो चुका",
+  "Real-time tracking":"रियल-टाइम ट्रैकिंग","Reason":"कारण",
+  "Service Staff Allocation":"सर्विस स्टाफ आवंटन","Start":"शुरू",
+  "Today's Plan":"आज की योजना","Total":"कुल","Upcoming":"आगामी",
+  "Vehicle":"वाहन","Vendor Portal":"वेंडर पोर्टल","Venue":"वेन्यू",
+  "dishes ready":"व्यंजन तैयार","staff":"स्टाफ",
+  "Scan Barcode":"बारकोड स्कैन करें","Stock In":"स्टॉक इन","Stock Out":"स्टॉक आउट",
+  "Master Data":"मास्टर डेटा","Inventory":"इन्वेंटरी","Barcode":"बारकोड",
+  "Product Name":"उत्पाद का नाम","Category":"श्रेणी","Unit":"इकाई",
+  "Current Stock":"वर्तमान स्टॉक","Min Stock":"न्यूनतम स्टॉक",
+  "Add New Item":"नया आइटम जोड़ें","Scan to add":"स्कैन करके जोड़ें",
+  "Item added successfully":"आइटम सफलतापूर्वक जोड़ा गया",
+  "Stock updated":"स्टॉक अपडेट हुआ","Qty":"मात्रा",
+  "Search items…":"आइटम खोजें…","All Categories":"सभी श्रेणियां",
+  "Low Stock":"कम स्टॉक","In Stock":"स्टॉक में","Out of Stock":"स्टॉक खत्म",
+  "Transaction History":"लेन-देन इतिहास","No items found":"कोई आइटम नहीं मिला",
+  "Scanning…":"स्कैन हो रहा है…","Point camera at barcode":"बारकोड पर कैमरा करें",
+  "Product found!":"उत्पाद मिला!","Not in database":"डेटाबेस में नहीं",
+  "Brand":"ब्रांड","MRP":"एमआरपी","Weight":"वज़न",
+  "Save to Master Data":"मास्टर डेटा में सेव करें",
+  "kg":"किलो","g":"ग्राम","L":"लीटर","ml":"मिली","pcs":"पीस","pkt":"पैकेट","box":"बॉक्स","dozen":"दर्जन",
+  "Store & Inventory":"स्टोर और इन्वेंटरी","items":"आइटम",
+  "Kitchen Tasks":"किचन कार्य","Site Checklist":"साइट चेकलिस्ट",
+  "ODC Bookings":"ODC बुकिंग",
+  "Scan & Stock":"स्कैन और स्टॉक","Stock In":"स्टॉक इन","Stock Out":"स्टॉक आउट",
+  "Point camera at barcode":"बारकोड पर कैमरा करें","Scan":"स्कैन","Stop":"रुकें",
+  "No transactions yet. Scan an item to begin.":"अभी कोई लेन-देन नहीं। शुरू करने के लिए आइटम स्कैन करें।",
+  "Purchase":"खरीद","Return":"वापसी","Transfer In":"ट्रांसफर इन","Opening Stock":"ओपनिंग स्टॉक",
+  "Event Use":"इवेंट उपयोग","Damage":"टूट-फूट","Expired":"एक्सपायर्ड","Transfer Out":"ट्रांसफर आउट","Correction":"सुधार",
+  "📦 Inventory":"📦 इन्वेंटरी","📷 Scan & Stock":"📷 स्कैन और स्टॉक",
+  "🛒 Orders":"🛒 ऑर्डर","📋 Event Requirements":"📋 इवेंट आवश्यकताएं",
+  "Smart Issue":"स्मार्ट इश्यू","🧮 Smart Issue":"🧮 स्मार्ट इश्यू",
+  "Auto-calculated ingredient bags per kitchen section based on event menus and pax":"इवेंट मेनू और पैक्स के आधार पर किचन सेक्शन वार ऑटो-गणना सामग्री बैग",
+  "issued":"जारी","Events":"इवेंट","Sections":"सेक्शन","Items":"आइटम",
+  "All Issued":"सब जारी","Issue All":"सब जारी करें","Item":"आइटम",
+  "Not in inventory":"इन्वेंटरी में नहीं","In Stock":"स्टॉक में",
+  "No events with recipe data. Add recipes with ingredients to enable Smart Issue.":"रेसिपी डेटा वाले कोई इवेंट नहीं। स्मार्ट इश्यू के लिए सामग्री वाली रेसिपी जोड़ें।",
+  "Tap stock number to edit":"स्टॉक संख्या पर टैप करें संपादन के लिए",
+  "Out":"खत्म","Low":"कम","OK":"ठीक","Order":"ऑर्डर",
+  "pending orders":"लंबित ऑर्डर","Add Item":"आइटम जोड़ें",
+  "Save to Inventory":"इन्वेंटरी में सेव करें","Looking up in product databases…":"प्रोडक्ट डेटाबेस में खोज रहे हैं…",
+  "Found in your inventory":"आपकी इन्वेंटरी में मिला","Product not found":"प्रोडक्ट नहीं मिला",
+  "Barcode scanning not supported on this browser. Enter barcode manually.":"इस ब्राउज़र में बारकोड स्कैन नहीं होगा। मैन्युअल बारकोड दर्ज करें।",
+  "Halwai & Savoury":"Halwai & Savoury","Indian Tandoor":"Indian Tandoor","Chinese & Pan-Asian":"Chinese & Pan-Asian","Indian Main Course":"Indian Main Course","Indian Desserts":"Indian Desserts",
+  "Dish Ready!":"व्यंजन तैयार!","Take a photo of the completed dish before marking as done":"मार्क करने से पहले तैयार व्यंजन की फोटो लें",
+  "Capture Photo":"फोटो लें","Retake":"दोबारा लें","Confirm Ready":"तैयार पुष्टि करें",
+  "Starting camera…":"कैमरा शुरू हो रहा है…",
+  "Go Collect Items":"सामान लेने जाएं","1 hr timer":"1 घंटे का टाइमर",
+  "Done Collecting":"कलेक्शन पूरा","elapsed":"बीत गया","remaining of 1 hr limit":"1 घंटे की सीमा में शेष",
+  "Quality Remarks":"गुणवत्ता टिप्पणी",
+  "e.g. Paneer fresh, tomatoes slightly overripe, onion good quality…":"जैसे: पनीर ताज़ा, टमाटर थोड़े पके, प्याज़ अच्छी गुणवत्ता…",
+  "Collected":"कलेक्ट किया","Ingredients collected":"सामग्री कलेक्ट की","Done":"पूरा",
+  "Excellent":"उत्कृष्ट","Good":"अच्छा","Average":"ठीक-ठाक","Poor Quality":"खराब गुणवत्ता","Items Missing":"सामान गायब",
+  "D-1 Prep":"D-1 तैयारी","Event Day":"इवेंट दिन","Prepping for":"की तैयारी",
+  "These are advance prep steps — Mesa, marination, grinding, cutting, dough. Actual cooking will happen on the event day":"ये अग्रिम तैयारी के चरण हैं — मेसा, मैरिनेशन, पीसना, काटना, आटा। असली खाना इवेंट के दिन बनेगा",
+  "No events today — focus on D-1 prep below":"आज कोई इवेंट नहीं — नीचे D-1 तैयारी पर ध्यान दें",
+  "Today is a D-1 prep day.":"आज D-1 तैयारी का दिन है।",
+  "Switch to the D-1 tab to see all advance prep tasks for tomorrow's function.":"कल के फंक्शन की सभी अग्रिम तैयारी देखने के लिए D-1 टैब पर जाएं।",
+  "Go to D-1 Prep":"D-1 तैयारी पर जाएं",
+  "Event day cooking for":"इवेंट दिन खाना बनाना","No functions tomorrow":"कल कोई फंक्शन नहीं",
+  "for":"के लिए","Event Day":"इवेंट डे",
+  "Event Closure Report":"इवेंट क्लोज़र रिपोर्ट","Dishes Ready":"व्यंजन तैयार","Dispatched":"रवाना",
+  "Staff Present":"स्टाफ उपस्थित","Kitchen Summary":"किचन सारांश","Staff on Duty":"ड्यूटी पर स्टाफ",
+  "staff present today":"स्टाफ आज उपस्थित","Attendance not marked yet":"अभी उपस्थिति नहीं ली",
+  "Head Chef Remarks":"हेड शेफ की टिप्पणी","Overall Rating":"कुल रेटिंग","Needs Work":"सुधार ज़रूरी",
+  "Overall quality, timing, issues, improvements needed…":"कुल गुणवत्ता, समय, समस्याएं, सुधार…",
+  "Download Report":"रिपोर्ट डाउनलोड","Event Details":"इवेंट विवरण","Total Dishes":"कुल व्यंजन",
+  "Staff Today":"आज का स्टाफ","Low Stock":"कम स्टॉक","Open Issues":"खुले मुद्दे",
+  "items need reorder":"आइटम को रीऑर्डर चाहिए","repair tickets":"रिपेयर टिकट",
+  "Upcoming Functions":"आगामी फंक्शन","Tomorrow":"कल","of":"में से",
+  "Pax Scaling":"पैक्स स्केलिंग","Pax Scaling Logic Panel":"पैक्स स्केलिंग लॉजिक पैनल",
+  "Ingredient quantities auto-calculated from SOP base. Chefs can edit any cell.":"SOP बेस से ऑटो-कैलकुलेट। शेफ कोई भी सेल एडिट कर सकते हैं।",
+  "Base: 1100 pax (highlighted). All other columns scale proportionally. Tap any quantity to override it.":"बेस: 1100 पैक्स। बाकी कॉलम अनुपात में। किसी भी मात्रा पर टैप करें।",
+  "Select a dish to scale":"स्केल करने के लिए व्यंजन चुनें","Ingredient":"सामग्री",
+  "Ingredient Scaling Table":"सामग्री स्केलिंग टेबल",
+  "Select a dish above to see ingredient quantities across all pax columns.":"ऊपर से व्यंजन चुनें।",
+  "SOP base is 1100 pax":"SOP बेस 1100 पैक्स है","All other columns auto-calculate.":"बाकी कॉलम ऑटो-कैलकुलेट।",
+  "Tap any quantity to override — for custom event requirements.":"किसी भी मात्रा पर टैप करें — कस्टम इवेंट के लिए।",
+  "Reset to SOP values":"SOP वैल्यू पर रीसेट करें",
+  "Select a dish":"व्यंजन चुनें","Select dishes":"व्यंजन चुनें","Clear":"साफ करें",
+  "dishes will be shown":"व्यंजन दिखेंगे","in package":"पैकेज में",
+  "Select a dish to see its scaling table":"स्केलिंग टेबल देखने के लिए व्यंजन चुनें",
+  "Select dishes from the package to scale":"पैकेज से व्यंजन चुनें",
+  "Select a menu package to scale all dishes":"सभी व्यंजन स्केल करने के लिए मेनू पैकेज चुनें",
+  "All columns auto-calculate":"सभी कॉलम ऑटो-कैलकुलेट","Reset":"रीसेट",
+  "Menu Applicability by Pax":"मेनू पैक्स अनुसार उपयुक्तता",
+  "Menu Package":"मेनू पैकेज","Code":"कोड","Type":"प्रकार","Applicable":"लागू",
+  "Not recommended":"अनुशंसित नहीं","Tap any":"किसी भी",
+  "to load that menu's ingredient scaling":"पर टैप करें उस मेनू की स्केलिंग देखने के लिए",
+  "Ingredient Scaling":"सामग्री स्केलिंग","Menu applicability matrix + ingredient quantities. Base: 1100 pax":"मेनू उपयुक्तता मैट्रिक्स + सामग्री मात्रा। बेस: 1100 पैक्स",
+  "D-1 Prep Day":"D-1 तैयारी दिन",
+  "Repair & Maintenance":"रिपेयर और मेंटेनेंस","Shared pool — all departments":"साझा पूल — सभी विभाग",
+  "All Depts":"सभी विभाग","Raise From Dept":"विभाग से उठाएं",
+  "Issue Title":"समस्या का शीर्षक","Timeline":"टाइमलाइन",
+  "Add update, comment or action taken…":"अपडेट, टिप्पणी या की गई कार्रवाई लिखें…",
+  "Ticket will be visible to all departments":"टिकट सभी विभागों को दिखेगा",
+  "Reassign":"पुनः सौंपें","Update Status":"स्टेटस अपडेट करें",
+  "Post":"पोस्ट","Submit Request":"अनुरोध भेजें","Yesterday":"कल",
+  "Furniture & Civil":"फर्नीचर और सिविल","IT / Software":"आईटी/सॉफ्टवेयर",
+  "Final Cooking":"फाइनल कुकिंग","No Event":"कोई इवेंट नहीं",
+  "Parallel work today":"आज का समानांतर काम","Final cooking for":"के लिए फाइनल कुकिंग",
+  "see Event Day tab":"इवेंट डे टैब देखें","D-1 prep for":"के लिए D-1 तैयारी",
+  "this tab":"यह टैब","function":"फंक्शन",
+  "Continue":"कंटिन्यू","Final Cooking":"फाइनल कुकिंग",
+  "Collective":"कुल मिलाकर","Showing":"दिखा रहे हैं","function dishes only":"फंक्शन के व्यंजन",
+  "Show all":"सभी दिखाएं",
 };
 // T() — translate string if Hindi mode
 function T(key, lang) {
@@ -1183,7 +1346,7 @@ const NAV_ADMIN = [
   {id:"dashboard",  label:"Dashboard",           icon:"📊"},
   {id:"team",       label:"Team & Attendance",    icon:"👥"},
   {id:"kitchen",    label:"Kitchen",              icon:"👨‍🍳"},
-  {id:"menus",      label:"Menu Packages",        icon:"📜"},
+  {id:"menus",      label:"Menu",        icon:"📜"},
   {id:"transport",  label:"Transport & Dispatch", icon:"🚛"},
   {id:"store",      label:"Store & Inventory",    icon:"📦"},
   {id:"repair",     label:"Repair & Maintenance",  icon:"🔧"},
@@ -1226,7 +1389,7 @@ function Avatar({name,size=34,index=0}) {
   const bg=AVATAR_COLORS[index%AVATAR_COLORS.length];
   return (
     <div style={{width:size,height:size,borderRadius:"50%",background:bg,display:"flex",alignItems:"center",justifyContent:"center",
-      fontSize:size*0.38,fontWeight:700,color:"#fff",flexShrink:0,fontFamily:"Georgia,'Times New Roman',serif"}}>
+      fontSize:size*0.38,fontWeight:700,color:"#fff",flexShrink:0,fontFamily:"var(--font-display)"}}>
       {name.charAt(0).toUpperCase()}
     </div>
   );
@@ -1262,16 +1425,30 @@ function STag({name}) {
   return <span style={{fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:m.bg,color:m.color,border:`1px solid ${m.color}20`}}>{m.icon} {name}</span>;
 }
 
-function Card({children,style={}}) {
-  return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 22px",boxShadow:"0 4px 20px rgba(0,0,0,.5),0 0 1px rgba(196,164,74,.1)",...style}}>{children}</div>;
+function Card({children,style={},className=""}) {
+  return <div className={"fade-in-up "+className} style={{
+    background:`linear-gradient(145deg, ${C.surface} 0%, ${C.darkCard} 100%)`,
+    border:`1px solid ${C.border}`,borderRadius:16,padding:"18px 22px",
+    boxShadow:`0 8px 32px ${C.shadow}, 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.03)`,
+    backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",
+    transition:"all .3s cubic-bezier(.23,1,.32,1)",
+    ...style
+  }}>{children}</div>;
 }
 
 function Btn({children,onClick,color=C.gold,textColor="#0E0D0B",border="none",style={}}) {
-  return <button onClick={onClick} style={{padding:"7px 16px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",background:color,color:textColor,border,letterSpacing:.3,...style}}>{children}</button>;
+  return <button onClick={onClick} style={{
+    padding:"9px 18px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",
+    background:color,color:textColor,border,letterSpacing:.4,
+    boxShadow:`0 2px 8px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.15)`,
+    transition:"all .25s cubic-bezier(.23,1,.32,1)",
+    minHeight:40,
+    ...style
+  }}>{children}</button>;
 }
 
 function SectionHeader({icon,title}) {
-  return <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14,display:"flex",alignItems:"center",gap:6}}>{icon} {title}</div>;
+  return <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,display:"flex",alignItems:"center",gap:8,fontFamily:"var(--font-display)",letterSpacing:.5}}>{icon} {title}</div>;
 }
 
 // ─── SELFIE CAPTURE ────────────────────────────────────────────
@@ -1378,29 +1555,36 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   }
 
   return (
-    <div style={{minHeight:"100vh",background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:C.surface,borderRadius:20,padding:"40px 44px",width:380,boxShadow:"0 24px 60px rgba(0,0,0,.35)"}}>
+    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 20%, #18150E 0%, #0A0908 50%, #06050A 100%)`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+      {/* Background decorative elements */}
+      <div style={{position:"absolute",top:"-20%",right:"-10%",width:500,height:500,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.04) 0%, transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:"-15%",left:"-5%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.03) 0%, transparent 70%)",pointerEvents:"none"}}/>
+
+      <div className="fade-in-up" style={{background:`linear-gradient(160deg, ${C.surface} 0%, #0E0D0B 100%)`,borderRadius:24,padding:"48px 44px",width:400,boxShadow:`0 32px 80px rgba(0,0,0,.5), 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.04)`,border:`1px solid ${C.border}`,position:"relative"}}>
+        {/* Subtle top gold line */}
+        <div style={{position:"absolute",top:0,left:"15%",right:"15%",height:1,background:`linear-gradient(90deg, transparent, ${C.gold}40, transparent)`}}/>
+
         {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:32}}>
-          <div style={{width:56,height:56,borderRadius:"50%",background:C.wine,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:700,color:"#fff",margin:"0 auto 14px"}}>A</div>
-          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{T2("Ambria Work Force")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:4}}>{T2("F&B Kitchen Operations · Sign in")}</div>
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{width:64,height:64,borderRadius:16,background:`linear-gradient(135deg, ${C.gold}, #8B6A14)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:700,color:"#fff",margin:"0 auto 16px",boxShadow:`0 8px 24px rgba(212,180,74,.25)`,letterSpacing:1,fontFamily:"var(--font-display)"}}>A</div>
+          <div style={{fontSize:26,fontWeight:600,color:C.text,fontFamily:"var(--font-display)",letterSpacing:2}}>{T2("Ambria Work Force")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:6,letterSpacing:1.5,textTransform:"uppercase",fontWeight:500}}>{T2("F&B Kitchen Operations")}</div>
         </div>
 
         {/* Form */}
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>{T2("Employee ID")}</div>
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1.2}}>{T2("Employee ID")}</div>
           <input
             value={empId}
             onChange={e=>setEmpId(e.target.value.toUpperCase())}
             onKeyDown={e=>e.key==="Enter"&&handleLogin()}
             placeholder={T2("e.g. AM001")}
-            style={{width:"100%",padding:"11px 14px",borderRadius:10,border:`1.5px solid ${error?C.red:C.border}`,fontSize:14,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",transition:"border .2s"}}
+            style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${error?C.red:C.border}`,fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box"}}
             autoFocus
           />
         </div>
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>4-Digit PIN</div>
+        <div style={{marginBottom:22}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1.2}}>4-Digit PIN</div>
           <input
             type="password"
             value={pin}
@@ -1408,15 +1592,15 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
             onKeyDown={e=>e.key==="Enter"&&handleLogin()}
             placeholder={T2("••••")}
             maxLength={4}
-            style={{width:"100%",padding:"11px 14px",borderRadius:10,border:`1.5px solid ${error?C.red:C.border}`,fontSize:18,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",letterSpacing:6,transition:"border .2s"}}
+            style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${error?C.red:C.border}`,fontSize:20,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",letterSpacing:8}}
           />
         </div>
 
-        {error&&<div style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"8px 12px",fontSize:12,color:C.red,marginBottom:14}}>{error}</div>}
+        {error&&<div className="fade-in" style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.red,marginBottom:16}}>{error}</div>}
 
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,cursor:"pointer"}} onClick={()=>setRemember(r=>!r)}>
-          <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${remember?C.wine:C.border}`,background:remember?C.wine:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
-            {remember&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,cursor:"pointer"}} onClick={()=>setRemember(r=>!r)}>
+          <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${remember?C.gold:C.border}`,background:remember?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {remember&&<span style={{color:"#0A0908",fontSize:11,fontWeight:700}}>✓</span>}
           </div>
           <span style={{fontSize:12,color:C.muted}}>{T2("Remember me on this device")}</span>
         </div>
@@ -1424,11 +1608,11 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         <button
           onClick={handleLogin}
           disabled={loading||!empId||pin.length<4}
-          style={{width:"100%",padding:"13px",borderRadius:11,background:(!empId||pin.length<4)?C.border:C.wine,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",transition:"background .2s",fontFamily:"Georgia,'Times New Roman',serif"}}>
+          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #A8891E)`,color:(!empId||pin.length<4)?C.muted:"#0A0908",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
           {loading?T2("Signing in…"):T2("Sign In →")}
         </button>
 
-        <div style={{textAlign:"center",marginTop:16,fontSize:11,color:C.faint}}>
+        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.faint,letterSpacing:.5}}>
           Ambria Cuisines · Get Your Venue Events Pvt Ltd
         </div>
       </div>
@@ -1457,7 +1641,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const [expandedDish, setExpandedDish] = useState(null);
   const [bevTick, setBevTick] = useState(0);
   const [vehStatus, setVehStatus] = useState({});
-  const [loadChecks, setLoadChecks] = useState({}); // {evId: {itemId: true/false}} // {vehicleId: {status, event, driver, trips:[{action,time}]}}
+  const [loadChecks, setLoadChecks] = useState({});
+  const [selOdcId, setSelOdcId] = useState(null);
   useEffect(()=>{const t2=setInterval(()=>setBevTick(k=>k+1),1000);return()=>clearInterval(t2);},[]);
   const [odcChecks, setOdcChecks] = useState({});
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),30000);return()=>clearInterval(t);},[]);
@@ -1538,11 +1723,11 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* Top bar */}
       <div style={{position:"absolute",top:16,left:24,right:24,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:36,height:36,borderRadius:"50%",background:C.wine,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",fontWeight:700}}>A</div>
-          <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>Ambria Cuisines</div>
+          <div style={{width:36,height:36,borderRadius:"50%",background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",fontWeight:700}}>A</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>Ambria Cuisines</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>{if(setLang)setLang(l=>l==="en"?"hi":"en");}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.wine,fontSize:12,padding:"8px 14px",cursor:"pointer",fontWeight:600,minHeight:44}}>
+          <button onClick={()=>{if(setLang)setLang(l=>l==="en"?"hi":"en");}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.gold,fontSize:12,padding:"8px 14px",cursor:"pointer",fontWeight:600,minHeight:44}}>
             {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
           </button>
           {onLogout&&<button onClick={onLogout} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:12,padding:"8px 14px",cursor:"pointer",minHeight:44}}>{T2("Sign out")}</button>}
@@ -1550,7 +1735,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       </div>
 
       {currentUser&&<div style={{fontSize:14,color:C.muted,marginBottom:4}}>{T2("Welcome")}, <strong>{currentUser.name}</strong></div>}
-      <div style={{fontSize:26,fontWeight:800,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:6}}>{T2("Select Your Department")}</div>
+      <div style={{fontSize:26,fontWeight:800,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>{T2("Select Your Department")}</div>
       <div style={{fontSize:13,color:C.muted,marginBottom:32}}>{T2("Each tablet is locked to its department")}</div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,maxWidth:780,width:"100%"}}>
@@ -1597,12 +1782,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // Tabs per department
   const DEPT_TABS = {
-    kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
-    service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
-    crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
-    beverages:[{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
-    transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`}],
-    odc:      [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"events",l:`🏕️ ${T2("ODC Events")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`}],
+    kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    beverages:[{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
   };
   const tabs = DEPT_TABS[selDept]||DEPT_TABS.kitchen;
   const activeTab = (deptTab && tabs.some(t=>t.v===deptTab)) ? deptTab : (tabs[0]?.v || "attendance");
@@ -1614,7 +1799,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:48,height:48,borderRadius:14,background:dept.color+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{dept.icon}</div>
           <div>
-            <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{T2(dept.name)}</div>
+            <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{T2(dept.name)}</div>
             <div style={{fontSize:12,color:C.muted}}>{lang==="hi"?dept.descHi:dept.desc}</div>
           </div>
         </div>
@@ -2307,51 +2492,137 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       })()}
 
       {/* ══════ ODC: Events ══════ */}
-      {selDept==="odc"&&activeTab==="events"&&(
-        <div>
-          {/* Gopal status */}
-          <Card style={{marginBottom:12,padding:"12px 14px",background:C.darkCard,border:"1px solid #E8D5A3"}}>
-            <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <div style={{width:40,height:40,borderRadius:10,background:C.wine,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,fontWeight:700}}>G</div>
-              <div>
-                <div style={{fontSize:13,fontWeight:700,color:C.text}}>Gopal — {T2("ODC Lead")}</div>
-                <div style={{fontSize:10,color:odcEvs.length>0?C.wine:C.green}}>{odcEvs.length>0?`🔴 ${T2("Committed to ODC today")} — ${T2("in-house venues lose oversight")}`:`✅ ${T2("Available for in-house venues")}`}</div>
-              </div>
-            </div>
-          </Card>
+      {selDept==="odc"&&activeTab==="bookings"&&(()=>{
+        const allOdcEvs = safeArr(events).filter(e=>/outdoor|odc/i.test(e.venue));
+        const todayOdc2 = allOdcEvs.filter(e=>e.date===TODAY);
+        const tomorrowOdc2 = allOdcEvs.filter(e=>e.date===TOMORROW);
+        const upcomingOdc = allOdcEvs.filter(e=>e.date>TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+        const kt=kitchenTracking&&typeof kitchenTracking==="object"?kitchenTracking:{};
+        const selOdcEv = allOdcEvs.find(e=>e.id===selOdcId)||(selOdcId?null:todayOdc2[0]||tomorrowOdc2[0]||upcomingOdc[0]||null);
+        const activeOdcId = selOdcEv?.id||null;
 
-          {/* Today ODC events */}
-          {odcEvs.length>0&&<div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:8}}>{T2("Today")}</div>}
-          {odcEvs.map(ev=>(
-            <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px",borderLeft:`4px solid ${C.wine}`}}>
-              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:6}}>{ev.guest}</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-                {[{l:T2("Time"),v:ev.time},{l:T2("Pax"),v:ev.pax},{l:T2("Menu"),v:ev.menuPackage||"Custom"}].map((f,i)=>(
-                  <div key={i} style={{background:C.bg,borderRadius:8,padding:"5px 8px"}}>
-                    <div style={{fontSize:12,color:C.muted}}>{f.l}</div>
-                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{f.v}</div>
-                  </div>
-                ))}
+        return(
+          <div>
+            {/* Gopal status */}
+            <Card style={{marginBottom:12,padding:"12px 14px",background:C.darkCard,border:"1px solid #E8D5A3"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <div style={{width:40,height:40,borderRadius:10,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,fontWeight:700}}>G</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>Gopal — {T2("ODC Lead")}</div>
+                  <div style={{fontSize:10,color:todayOdc2.length>0?C.red:C.green}}>{todayOdc2.length>0?`🔴 ${T2("Committed to ODC today")} — ${T2("in-house venues lose oversight")}`:`✅ ${T2("Available for in-house venues")}`}</div>
+                </div>
+                <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.gold}}>{allOdcEvs.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("Total ODC")}</div></div>
               </div>
-              {ev.special&&<div style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.red,fontWeight:500}}>⚠ {ev.special}</div>}
             </Card>
-          ))}
 
-          {/* Tomorrow ODC */}
-          {tomorrowOdc.length>0&&(
-            <div style={{marginTop:16}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.amber,marginBottom:8}}>📅 {T2("Tomorrow")} ODC</div>
-              {tomorrowOdc.map(ev=>(
-                <Card key={ev.id} style={{marginBottom:8,padding:"12px 16px",opacity:.85}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{ev.guest}</div>
-                  <div style={{fontSize:12,color:C.muted}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {ev.menuPackage||"Custom"}</div>
-                </Card>
-              ))}
+            {/* Summary tiles */}
+            <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:80,background:todayOdc2.length>0?C.redBg:C.surface,border:`1px solid ${todayOdc2.length>0?C.redBorder:C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:todayOdc2.length>0?C.red:C.text}}>{todayOdc2.length}</div>
+                <div style={{fontSize:10,color:C.muted}}>{T2("Today")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:C.amber}}>{tomorrowOdc2.length}</div>
+                <div style={{fontSize:10,color:C.muted}}>{T2("Tomorrow")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:C.text}}>{upcomingOdc.length}</div>
+                <div style={{fontSize:10,color:C.muted}}>{T2("Upcoming")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:10,padding:"10px 14px",textAlign:"center"}}>
+                <div style={{fontSize:20,fontWeight:700,color:C.gold}}>{allOdcEvs.reduce((s,e)=>s+(+e.pax||0),0)}</div>
+                <div style={{fontSize:10,color:C.muted}}>{T2("Total Pax")}</div>
+              </div>
             </div>
-          )}
 
-          {odcEvs.length===0&&tomorrowOdc.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No ODC events scheduled")}</div>}
-        </div>
+            {allOdcEvs.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No ODC events scheduled")}</div>}
+
+            {/* Booking list */}
+            {[{label:T2("Today"),evs:todayOdc2,color:C.red},{label:T2("Tomorrow"),evs:tomorrowOdc2,color:C.amber},{label:T2("Upcoming"),evs:upcomingOdc,color:C.muted}].map(group=>{
+              if(group.evs.length===0) return null;
+              return(
+                <div key={group.label} style={{marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:group.color,marginBottom:8,textTransform:"uppercase"}}>{group.label} ({group.evs.length})</div>
+                  {group.evs.map(ev=>{
+                    const isSel=activeOdcId===ev.id;
+                    const menu=safeArr(ev.menu).filter(d=>guessSectionForDish(d)!=="Beverages");
+                    const readyCount=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.ready||d?.dispatchReady;}).length;
+                    return(
+                      <Card key={ev.id} onClick={()=>setSelOdcId(isSel?null:ev.id)} style={{marginBottom:8,padding:0,overflow:"hidden",cursor:"pointer",border:`2px solid ${isSel?C.gold:C.border}`}}>
+                        <div style={{padding:"14px 16px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                            <div>
+                              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{ev.guest}</div>
+                              <div style={{fontSize:12,color:C.muted,marginTop:3}}>📍 {ev.venue} · ⏰ {ev.time} · 👥 {ev.pax} {T2("pax")}</div>
+                              <div style={{fontSize:12,color:C.muted}}>{ev.menuPackage||"Custom"} · {menu.length} {T2("dishes")} · 🚛 {T2("Dispatch")}: {calcDispatch(ev.time)}</div>
+                              {ev.date>TODAY&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📅 {ev.date}</div>}
+                            </div>
+                            <div style={{textAlign:"center",flexShrink:0}}>
+                              <div style={{fontSize:18,fontWeight:700,color:readyCount===menu.length&&menu.length>0?C.green:readyCount>0?C.amber:C.muted}}>{readyCount}/{menu.length}</div>
+                              <div style={{fontSize:10,color:C.muted}}>{T2("ready")}</div>
+                            </div>
+                          </div>
+                          {ev.special&&<div style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"6px 10px",fontSize:11,color:C.red,marginTop:8}}>⚠ {ev.special}</div>}
+                        </div>
+
+                        {/* Expanded detail */}
+                        {isSel&&(
+                          <div style={{borderTop:`1px solid ${C.border}`,padding:"12px 16px",background:C.bg}}>
+                            {/* Menu breakdown by section */}
+                            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:8}}>🍽 {T2("Menu Breakdown")}</div>
+                            {(()=>{
+                              const bySec={};
+                              menu.forEach((n,i)=>{const s=guessSectionForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
+                              return Object.entries(bySec).map(([sec,items])=>{
+                                const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                                const rd=items.filter(d=>{const dk=kt[ev.id]?.[`d_${d.idx}`];return dk?.ready||dk?.dispatchReady;}).length;
+                                return(
+                                  <div key={sec} style={{marginBottom:6}}>
+                                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                                      <span style={{fontSize:12,fontWeight:600,color:m2.color}}>{m2.icon} {sec}</span>
+                                      <span style={{fontSize:11,color:rd===items.length?C.green:C.muted}}>{rd}/{items.length}</span>
+                                    </div>
+                                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                                      {items.map((d,di)=>{
+                                        const rdy=!!(kt[ev.id]?.[`d_${d.idx}`]?.ready||kt[ev.id]?.[`d_${d.idx}`]?.dispatchReady);
+                                        return <span key={di} style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:rdy?C.greenBg:C.surface,border:`1px solid ${rdy?C.greenBorder:C.border}`,color:rdy?C.green:C.text}}>{rdy?"✓ ":""}{d.name}</span>;
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+
+                            {/* Key info grid */}
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:12}}>
+                              <div style={{background:C.surface,borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+                                <div style={{fontSize:11,color:C.muted}}>{T2("Venue")}</div>
+                                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{ev.venue}</div>
+                              </div>
+                              <div style={{background:C.surface,borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+                                <div style={{fontSize:11,color:C.muted}}>{T2("Lead")}</div>
+                                <div style={{fontSize:12,fontWeight:600,color:C.gold}}>Gopal</div>
+                              </div>
+                              <div style={{background:C.surface,borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+                                <div style={{fontSize:11,color:C.muted}}>{T2("Dispatch")}</div>
+                                <div style={{fontSize:12,fontWeight:600,color:C.gold}}>{calcDispatch(ev.time)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* ══════ ODC: Kitchen Tasks (full KitchenHub for ODC events) ══════ */}
+      {selDept==="odc"&&activeTab==="kitchen"&&(
+        <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} odcOnly={true}/>
       )}
 
       {/* ══════ ODC: Site Checklist ══════ */}
@@ -2376,7 +2647,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               return (
                 <Card key={ev.id} style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"12px 16px",background:C.wineBg,borderBottom:`1px solid ${C.wineBorder}`}}>
-                    <div style={{fontSize:13,fontWeight:700,color:C.wine}}>{ev.guest}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:C.gold}}>{ev.guest}</div>
                     <div style={{fontSize:12,color:C.muted}}>{ev.date===TODAY?T2("Today"):T2("Tomorrow")} · {ev.time} · {ev.pax} {T2("pax")}</div>
                   </div>
                   {ODC_PHASES.map(phase=>{
@@ -2410,6 +2681,10 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           </div>
         );
       })()}
+
+      {/* ══════ REPAIR & MAINTENANCE TAB (all depts) ══════ */}
+      {activeTab==="repair"&&<RepairMaintenance lang={lang} currentDept={selDept||forceDept||"kitchen"}/>}
+
     </div>
   );
 }
@@ -2446,7 +2721,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif"}}>
       {/* Top bar */}
-      <div style={{background:C.wine,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{background:C.gold,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <Avatar name={user.name} size={36} index={staffIdx>=0?staffIdx:0}/>
           <div>
@@ -2473,7 +2748,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
         {/* ── HOME ── */}
         {tab==="home"&&(
           <div>
-            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:14}}>Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}, {(user.name||"").split(" ")[0]} 👋</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}, {(user.name||"").split(" ")[0]} 👋</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
               <div style={{background:todayRec?.status==="Present"?C.greenBg:C.redBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${todayRec?.status==="Present"?C.greenBorder:C.redBorder}`}}>
                 <div style={{fontSize:12,fontWeight:600,color:todayRec?.status==="Present"?C.green:C.red,marginBottom:4}}>Today's Attendance</div>
@@ -2502,7 +2777,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
         {/* ── ATTENDANCE ── */}
         {tab==="attendance"&&(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:14}}>Mark Attendance — {TODAY_LABEL}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>Mark Attendance — {TODAY_LABEL}</div>
 
             {todayRec&&attStep==="check"&&(
               <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:12,padding:"16px",marginBottom:14,textAlign:"center"}}>
@@ -2511,7 +2786,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
                 <div style={{fontSize:12,color:C.muted,marginTop:4}}>Checked in at {todayRec.time}</div>
                 {todayRec.selfie&&<img src={todayRec.selfie} alt="" style={{width:80,height:60,objectFit:"cover",borderRadius:8,border:`2px solid ${C.greenBorder}`,marginTop:10}}/>}
                 <div style={{marginTop:12}}>
-                  <button onClick={()=>setAttStep("capture")} style={{padding:"7px 16px",borderRadius:8,background:C.wine,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Re-mark Attendance</button>
+                  <button onClick={()=>setAttStep("capture")} style={{padding:"7px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Re-mark Attendance</button>
                 </div>
               </div>
             )}
@@ -2522,7 +2797,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
                 <div style={{fontSize:16,fontWeight:700,color:C.green}}>{T2("Attendance marked!")}</div>
                 <div style={{fontSize:12,color:C.muted,marginTop:4}}>{TODAY} · {new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                 {!allOk&&<div style={{marginTop:10,padding:"8px 12px",background:C.amberBg,borderRadius:8,fontSize:12,color:C.amber}}>⚠ Some grooming checks were incomplete — supervisor notified</div>}
-                <button onClick={()=>setAttStep("check")} style={{marginTop:14,padding:"8px 18px",borderRadius:8,background:C.wine,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Done</button>
+                <button onClick={()=>setAttStep("check")} style={{marginTop:14,padding:"8px 18px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Done</button>
               </div>
             )}
 
@@ -2557,7 +2832,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
         {/* ── LEAVES ── */}
         {tab==="leaves"&&(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:14}}>{T2("My Leave Requests")}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>{T2("My Leave Requests")}</div>
             <Card style={{marginBottom:14}}>
               <SectionHeader icon="+" title="Request Leave"/>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
@@ -2596,12 +2871,12 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
         {/* ── PROFILE ── */}
         {tab==="profile"&&(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:14}}>{T2("My Profile")}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>{T2("My Profile")}</div>
             <Card style={{marginBottom:12}}>
               <div style={{display:"flex",gap:16,alignItems:"center",marginBottom:16}}>
                 <Avatar name={user.name} size={64} index={staffIdx>=0?staffIdx:0}/>
                 <div>
-                  <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{user.name}</div>
+                  <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{user.name}</div>
                   <div style={{fontSize:12,color:C.muted,marginTop:3}}>{user.section} · {user.dept}</div>
                   <Chip label={user.role==="headchef"?"Head Chef":user.role==="admin"?"Admin":"Kitchen Staff"} color={C.wine} bg={C.wineBg} size={11}/>
                 </div>
@@ -2637,11 +2912,11 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
 
 
 
-function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,lang="en"}) {
+function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en"}) {
   const T2 = s => T(s, lang);
   const safeEvs = Array.isArray(events)?events.filter(e=>e&&typeof e.date==="string"&&e.date.length===10):[];
   const today = new Date(); today.setHours(0,0,0,0);
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = TODAY; // use the app-level TODAY constant (local date, not UTC-shifted)
   const MO_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const DY = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const VENUES = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Outdoor Catering (ODC)"];
@@ -2669,6 +2944,9 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const [editId, setEditId] = useState(null);
   const [venFil, setVenFil] = useState("All");
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:""});
+  const [closureEv, setClosureEv] = useState(null);
+  const [closureRemark, setClosureRemark] = useState("");
+  const [closureRating, setClosureRating] = useState("");
 
   // FY
   const FY_START=`${today.getFullYear()}-04-01`, FY_END=`${today.getFullYear()+1}-03-31`;
@@ -2742,7 +3020,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     :<input type={f.t||"text"} value={form[f.k]||""} onChange={e=>setForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={fld}/>}
                   </div>
                 ))}
-                {form.menuPackage&&form.menuPackage!=="(Custom)"&&<div style={{gridColumn:"1/-1",background:C.wineBg,borderRadius:8,padding:"6px 10px",fontSize:11,color:C.wine}}>📋 {(MENU_PACKAGES[form.menuPackage]||[]).length} {T2("dishes")} — {form.menuPackage}</div>}
+                {form.menuPackage&&form.menuPackage!=="(Custom)"&&<div style={{gridColumn:"1/-1",background:C.wineBg,borderRadius:8,padding:"6px 10px",fontSize:11,color:C.gold}}>📋 {(MENU_PACKAGES[form.menuPackage]||[]).length} {T2("dishes")} — {form.menuPackage}</div>}
                 {(!form.menuPackage||form.menuPackage==="(Custom)")&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.muted,marginBottom:2,fontWeight:600}}>{T2("CUSTOM MENU")}</div><textarea value={form.menu} onChange={e=>setForm(p=>({...p,menu:e.target.value}))} placeholder="Dal Makhni, Paneer Tikka…" style={{...fld,height:44,resize:"none"}}/></div>}
                 <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.muted,marginBottom:2,fontWeight:600}}>{T2("SPECIAL INSTRUCTIONS")}</div><input value={form.special} onChange={e=>setForm(p=>({...p,special:e.target.value}))} placeholder="Jain, no onion-garlic…" style={fld}/></div>
               </div>
@@ -2755,20 +3033,64 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         </div>
       )}
 
-      {/* ══ STATS ROW ══ */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
-        {[
-          {l:T2("Today"),v:todayEvs.length,sub:todayEvs.reduce((s,e)=>s+(+e.pax||0),0)+" pax",bg:"#2A1A1A",accent:C.wine},
-          {l:T2("This Month"),v:monthEvs.length,sub:monthPax.toLocaleString()+" pax",bg:"#0E1628",accent:C.blue},
-          {l:T2("FY Total"),v:fyEvs.length,sub:fyUpcoming.length+" "+T2("upcoming"),bg:C.purpleBg,accent:C.purple},
-        ].map(s=>(
-          <div key={s.l} style={{background:s.bg,borderRadius:14,padding:"18px 16px",border:`1px solid ${s.accent}25`}}>
-            <div style={{fontSize:32,fontWeight:800,color:C.text,lineHeight:1}}>{s.v}</div>
-            <div style={{fontSize:13,color:C.muted,fontWeight:600,marginTop:6}}>{s.l}</div>
-            {s.sub&&<div style={{fontSize:12,color:s.accent,marginTop:3}}>{s.sub}</div>}
+      {/* ══ OPERATIONAL KPI TILES ══ */}
+      {(()=>{
+        const staffToday = Object.values(attendance||{}).filter(r=>r.date===TODAY&&r.status==="Present").length;
+        const allStaff = Object.keys(attendance||{}).length||1;
+        const lowStockCount = (typeof INIT!=="undefined"?INIT:[]).filter(i=>i.inStock<=i.minStock&&i.inStock>=0).length;
+        const todayPax = todayEvs.reduce((s,e)=>s+(+e.pax||0),0);
+        const kitchenKt = kitchenTracking&&typeof kitchenTracking==="object"?kitchenTracking:{};
+        const readyDishes = Object.values(kitchenKt).reduce((s,ev)=>s+Object.values(ev||{}).filter(d=>d&&d.ready).length,0);
+        const openRepairs = safeArr(repairs).filter(t=>t.status==="Open"||t.status==="In Progress").length;
+        return(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+            {[
+              {icon:"🎉",l:T2("Today"),v:todayEvs.length,sub:todayPax?`${todayPax.toLocaleString()} pax`:`${upcoming.slice(0,1).map(e=>e.guest).join("")||T2("No events")}`,c:C.gold,bg:C.goldBg,bdr:C.goldBorder,action:()=>setScreen&&setScreen("kitchen")},
+              {icon:"📋",l:T2("This Month"),v:monthEvs.length,sub:`${monthPax.toLocaleString()} pax`,c:C.blue,bg:C.blueBg,bdr:C.blueBorder},
+              {icon:"📅",l:T2("FY Total"),v:fyEvs.length,sub:`${fyUpcoming.length} ${T2("upcoming")}`,c:C.purple,bg:C.purpleBg,bdr:C.purpleBorder},
+              {icon:"👨‍🍳",l:T2("Staff Today"),v:staffToday,sub:`${T2("of")} ${allStaff} ${T2("total")}`,c:staffToday>0?C.green:C.red,bg:staffToday>0?C.greenBg:C.redBg,bdr:staffToday>0?C.greenBorder:C.redBorder,action:()=>setScreen&&setScreen("team")},
+              {icon:"📦",l:T2("Low Stock"),v:lowStockCount,sub:T2("items need reorder"),c:lowStockCount>0?C.amber:C.green,bg:lowStockCount>0?C.amberBg:C.greenBg,bdr:lowStockCount>0?C.amberBorder:C.greenBorder,action:()=>setScreen&&setScreen("store")},
+              {icon:"🔧",l:T2("Open Issues"),v:openRepairs,sub:T2("repair tickets"),c:openRepairs>0?C.red:C.green,bg:openRepairs>0?C.redBg:C.greenBg,bdr:openRepairs>0?C.redBorder:C.greenBorder,action:()=>setScreen&&setScreen("repair")},
+            ].map(s=>(
+              <div key={s.l} onClick={s.action||null} style={{background:s.bg,borderRadius:14,padding:"16px 14px",border:`1px solid ${s.bdr}`,cursor:s.action?"pointer":"default",transition:"all .2s"}}>
+                <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
+                <div style={{fontSize:26,fontWeight:800,color:s.c,lineHeight:1,letterSpacing:-1}}>{s.v}</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.muted,marginTop:5}}>{s.l}</div>
+                {s.sub&&<div style={{fontSize:11,color:s.c,marginTop:2}}>{s.sub}</div>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
+
+      {/* ══ UPCOMING EVENTS STRIP ══ */}
+      {upcoming.length>0&&(
+        <Card style={{marginBottom:16,padding:"14px 18px"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10,fontFamily:"var(--font-display)",letterSpacing:.4}}>📅 {T2("Upcoming Functions")} <span style={{fontSize:11,color:C.muted,fontWeight:400}}>({upcoming.length})</span></div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {upcoming.slice(0,4).map(ev=>{
+              const vp=gp(ev.venue);const daysDiff=Math.round((new Date(ev.date+"T00:00")-new Date(TODAY+"T00:00"))/(864e5));
+              return(
+                <div key={ev.id} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 12px",background:C.darkCard,borderRadius:10,border:`1px solid ${C.border}`}}>
+                  <div style={{width:38,height:38,borderRadius:10,background:vp.c+"15",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <div style={{fontSize:14,fontWeight:800,color:vp.c,lineHeight:1}}>{new Date(ev.date+"T00:00").getDate()}</div>
+                    <div style={{fontSize:9,color:vp.c}}>{new Date(ev.date+"T00:00").toLocaleString("en",{month:"short"})}</div>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.guest}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{vp.code} · {ev.time} · {ev.pax} pax</div>
+                  </div>
+                  <div style={{textAlign:"center",flexShrink:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:daysDiff===1?C.amber:vp.c}}>{daysDiff===1?"Tomorrow":daysDiff+"d"}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{ev.menuPackage?.split(" ").slice(0,2).join(" ")||"Custom"}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {upcoming.length>4&&<div style={{fontSize:11,color:C.muted,textAlign:"center",padding:"6px 0"}}>+{upcoming.length-4} {T2("more")}</div>}
+          </div>
+        </Card>
+      )}
 
       {/* ══ CALENDAR ══ */}
       <Card style={{marginBottom:20,padding:0,overflow:"hidden"}}>
@@ -2776,11 +3098,11 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 18px",borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={prev} style={{background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:16,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-            <div style={{fontSize:18,fontWeight:800,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",minWidth:180,textAlign:"center"}}>{MO_FULL[mo]} {yr}</div>
+            <div style={{fontSize:18,fontWeight:800,color:C.text,fontFamily:"var(--font-display)",minWidth:180,textAlign:"center"}}>{MO_FULL[mo]} {yr}</div>
             <button onClick={next} style={{background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:10,width:40,height:40,cursor:"pointer",fontSize:16,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <button onClick={()=>{setYr(today.getFullYear());setMo(today.getMonth());setSel(todayStr);}} style={{padding:"8px 14px",borderRadius:10,background:C.wineBg,border:`1px solid ${C.wineBorder}`,color:C.wine,fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>{T2("Today")}</button>
+            <button onClick={()=>{setYr(today.getFullYear());setMo(today.getMonth());setSel(todayStr);}} style={{padding:"8px 14px",borderRadius:10,background:C.wineBg,border:`1px solid ${C.wineBorder}`,color:C.gold,fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>{T2("Today")}</button>
             <button onClick={()=>openAdd(sel||todayStr)} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>+ {T2("Add")}</button>
           </div>
         </div>
@@ -2827,7 +3149,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{fontSize:16,fontWeight:800,color:C.text}}>{new Date(sel+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{weekday:"long",day:"numeric",month:"long"})}</div>
-              {sel===todayStr&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.wine,color:"#fff",fontWeight:700}}>{T2("Today")}</span>}
+              {sel===todayStr&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.gold,color:"#fff",fontWeight:700}}>{T2("Today")}</span>}
             </div>
             <button onClick={()=>openAdd(sel)} style={{padding:"10px 18px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ {T2("Add Function")}</button>
           </div>
@@ -2871,7 +3193,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       {/* ══ TODAY'S LIVE EVENTS ══ */}
       {todayEvs.length>0&&(
         <div style={{marginBottom:20}}>
-          <div style={{fontSize:16,fontWeight:800,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:12}}>🔴 {T2("Live today")} — {todayEvs.length} {T2("functions")}</div>
+          <div style={{fontSize:16,fontWeight:800,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>🔴 {T2("Live today")} — {todayEvs.length} {T2("functions")}</div>
           <div style={{display:"grid",gridTemplateColumns:todayEvs.length===1?"1fr":"1fr 1fr",gap:12}}>
             {todayEvs.map(ev=>{
               const p=gp(ev.venue);
@@ -2895,6 +3217,12 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                       {ev.menuPackage&&<span style={{color:C.gold}}>📜 {ev.menuPackage}</span>}
                     </div>
                     {ev.special&&<div style={{marginTop:6,fontSize:12,color:C.amber}}>⚠ {ev.special}</div>}
+                    {/* Event Closure Report button */}
+                    <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                      <button onClick={()=>setClosureEv(closureEv?.id===ev.id?null:ev)} style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                        📊 {T2("Event Closure Report")}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -2903,12 +3231,144 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         </div>
       )}
 
+      {/* ══ EVENT CLOSURE REPORT MODAL ══ */}
+      {closureEv&&(()=>{
+        const ev=closureEv;
+        const kt=kitchenTracking&&typeof kitchenTracking==="object"?kitchenTracking:{};
+        const menu=(ev.menu||[]).filter(d=>{const sec=guessSectionForDish?.(d)||"";return sec!=="Beverages";});
+        const readyDishes=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.ready;});
+        const dispatchDishes=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.dispatchReady;});
+        const notReady=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return !d?.ready;});
+        const allStaffToday=Object.values(attendance||{}).filter(r=>r.date===TODAY&&r.status==="Present");
+        const issues=["RM-001","RM-002","RM-003"].length; // open tickets
+        return(
+          <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",border:`1px solid ${C.goldBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
+              {/* Header */}
+              <div style={{position:"sticky",top:0,background:C.surface,padding:"18px 22px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:1}}>
+                <div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📊 {T2("Event Closure Report")}</div>
+                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{ev.guest} · {ev.date} · {ev.pax} pax</div>
+                </div>
+                <button onClick={()=>setClosureEv(null)} style={{background:"none",border:"none",fontSize:22,color:C.muted,cursor:"pointer",padding:4}}>✕</button>
+              </div>
+
+              <div style={{padding:"18px 22px"}}>
+                {/* Summary tiles */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
+                  {[
+                    {l:T2("Dishes Ready"),v:readyDishes.length,t:menu.length,c:readyDishes.length===menu.length?C.green:C.amber},
+                    {l:T2("Dispatched"),v:dispatchDishes.length,t:menu.length,c:C.blue},
+                    {l:T2("Staff Present"),v:allStaffToday.length,t:"",c:C.teal},
+                  ].map(s=>(
+                    <div key={s.l} style={{background:C.darkCard,borderRadius:12,padding:"12px 10px",textAlign:"center",border:`1px solid ${s.c}20`}}>
+                      <div style={{fontSize:22,fontWeight:800,color:s.c}}>{s.v}{s.t?"/"+s.t:""}</div>
+                      <div style={{fontSize:10,color:C.muted,marginTop:3}}>{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Event details */}
+                <Card style={{marginBottom:12,padding:"14px 16px",background:C.darkCard}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>📋 {T2("Event Details")}</div>
+                  {[
+                    {l:T2("Venue"),v:ev.venue},
+                    {l:T2("Time"),v:ev.time},
+                    {l:T2("Total Pax"),v:ev.pax+" pax ("+T2("Veg")+": "+(ev.veg||0)+", "+T2("Non-Veg")+": "+(ev.nonveg||0)+")"},
+                    {l:T2("Menu Package"),v:ev.menuPackage||"Custom"},
+                    {l:T2("Total Dishes"),v:menu.length+" dishes"},
+                  ].map(r=>(
+                    <div key={r.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:12}}>
+                      <span style={{color:C.muted}}>{r.l}</span>
+                      <span style={{color:C.text,fontWeight:600,textAlign:"right",maxWidth:"60%"}}>{r.v}</span>
+                    </div>
+                  ))}
+                </Card>
+
+                {/* Kitchen status */}
+                <Card style={{marginBottom:12,padding:"14px 16px",background:C.darkCard}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>👨‍🍳 {T2("Kitchen Summary")}</div>
+                  <div style={{display:"flex",gap:8,marginBottom:8}}>
+                    <div style={{flex:1,background:C.greenBg,borderRadius:8,padding:"8px",textAlign:"center"}}>
+                      <div style={{fontSize:18,fontWeight:700,color:C.green}}>{readyDishes.length}</div>
+                      <div style={{fontSize:10,color:C.green}}>✅ {T2("Ready")}</div>
+                    </div>
+                    <div style={{flex:1,background:C.blueBg,borderRadius:8,padding:"8px",textAlign:"center"}}>
+                      <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{dispatchDishes.length}</div>
+                      <div style={{fontSize:10,color:C.blue}}>🚛 {T2("Dispatched")}</div>
+                    </div>
+                    <div style={{flex:1,background:C.redBg,borderRadius:8,padding:"8px",textAlign:"center"}}>
+                      <div style={{fontSize:18,fontWeight:700,color:C.red}}>{notReady.length}</div>
+                      <div style={{fontSize:10,color:C.red}}>⏳ {T2("Pending")}</div>
+                    </div>
+                  </div>
+                  {notReady.length>0&&<div style={{fontSize:11,color:C.amber,background:C.amberBg,borderRadius:8,padding:"6px 10px"}}>⚠ {T2("Pending")}: {notReady.slice(0,3).join(", ")}{notReady.length>3?` +${notReady.length-3} more`:""}</div>}
+                </Card>
+
+                {/* Staff summary */}
+                <Card style={{marginBottom:12,padding:"14px 16px",background:C.darkCard}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>👥 {T2("Staff on Duty")}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>{allStaffToday.length} {T2("staff present today")}</div>
+                  {allStaffToday.length>0?(
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {allStaffToday.slice(0,8).map((s,i)=>(
+                        <span key={i} style={{fontSize:11,padding:"3px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,color:C.text}}>{s.name||s.staffName||"Staff"}</span>
+                      ))}
+                      {allStaffToday.length>8&&<span style={{fontSize:11,color:C.muted}}>+{allStaffToday.length-8} {T2("more")}</span>}
+                    </div>
+                  ):<div style={{fontSize:11,color:C.muted}}>{T2("Attendance not marked yet")}</div>}
+                </Card>
+
+                {/* Special instructions outcome */}
+                {ev.special&&(
+                  <Card style={{marginBottom:12,padding:"14px 16px",background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.amber,marginBottom:4}}>⚠ {T2("Special Instructions")}</div>
+                    <div style={{fontSize:12,color:C.text}}>{ev.special}</div>
+                  </Card>
+                )}
+
+                {/* Closure remarks */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1}}>📝 {T2("Head Chef Remarks")}</div>
+                  <textarea value={closureRemark} onChange={e=>setClosureRemark(e.target.value)} placeholder={T2("Overall quality, timing, issues, improvements needed…")} rows={3}
+                    style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,resize:"none",boxSizing:"border-box"}}/>
+                </div>
+
+                {/* Rating */}
+                <div style={{marginBottom:18}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>⭐ {T2("Overall Rating")}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    {[{v:"excellent",l:"🌟 "+T2("Excellent")},{v:"good",l:"✅ "+T2("Good")},{v:"average",l:"🟡 "+T2("Average")},{v:"needswork",l:"🔴 "+T2("Needs Work")}].map(r=>(
+                      <button key={r.v} onClick={()=>setClosureRating(closureRating===r.v?"":r.v)}
+                        style={{flex:1,padding:"10px 6px",borderRadius:10,border:`2px solid ${closureRating===r.v?C.gold:C.border}`,background:closureRating===r.v?C.goldBg:"transparent",color:closureRating===r.v?C.gold:C.muted,fontSize:11,fontWeight:closureRating===r.v?700:400,cursor:"pointer",minHeight:44}}>
+                        {r.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{display:"flex",gap:10}}>
+                  <button onClick={()=>{
+                    const report=`EVENT CLOSURE REPORT\n${"=".repeat(40)}\nEvent: ${ev.guest}\nDate: ${ev.date} · Time: ${ev.time}\nVenue: ${ev.venue}\nPax: ${ev.pax}\nMenu: ${ev.menuPackage||"Custom"}\n\nKITCHEN\nDishes Ready: ${readyDishes.length}/${menu.length}\nDispatched: ${dispatchDishes.length}/${menu.length}\n${notReady.length>0?"Pending: "+notReady.join(", ")+"\n":""}\nSTAFF\nPresent Today: ${allStaffToday.length}\n\nRATING: ${closureRating?.toUpperCase()||"Not rated"}\nREMARKS: ${closureRemark||"None"}\n\nGenerated: ${new Date().toLocaleString("en-IN")}`;
+                    const blob=new Blob([report],{type:"text/plain"});
+                    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`Closure_${ev.guest.replace(/\s/g,"_")}_${ev.date}.txt`;a.click();
+                  }} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,fontFamily:"var(--font-display)"}}>
+                    ⬇ {T2("Download Report")}
+                  </button>
+                  <button onClick={()=>{setClosureEv(null);setClosureRemark("");setClosureRating("");}}
+                    style={{padding:"14px 18px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
 
     </div>
   );
 }
-
-
 
 
 
@@ -3062,7 +3522,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
       {phase==="dept"&&(
         <div style={{textAlign:"center",maxWidth:800,width:"100%"}}>
           <div style={{fontSize:14,color:"#8A8476",marginBottom:4}}>Ambria Cuisines</div>
-          <div style={{fontSize:28,fontWeight:700,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:6,color:"#C4A44A"}}>{T2("Property Gate Attendance")}</div>
+          <div style={{fontSize:28,fontWeight:700,fontFamily:"var(--font-display)",marginBottom:6,color:"#C4A44A"}}>{T2("Property Gate Attendance")}</div>
           <div style={{fontSize:13,color:"#5A5750",marginBottom:28}}>{T2("Select department to mark attendance")}</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
             {ALL_DEPARTMENTS.filter(d=>d!=="Management").map(sec=>{
@@ -3090,7 +3550,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
         <div style={cardStyle}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:18,fontWeight:700,color:"#C4A44A",fontFamily:"Georgia,'Times New Roman',serif"}}>{T2(lockedSection||"All Staff")}</div>
+              <div style={{fontSize:18,fontWeight:700,color:"#C4A44A",fontFamily:"var(--font-display)"}}>{T2(lockedSection||"All Staff")}</div>
               <div style={{fontSize:11,color:"#5A5750"}}>{T2("Tap your name to check in")}</div>
             </div>
             <button onClick={()=>{setLockedSection(null);setPhase("dept");}} style={{background:"#1A1918",border:"1px solid #2A2824",borderRadius:8,color:"#8A8476",fontSize:11,padding:"8px 14px",cursor:"pointer",minHeight:44}}>{T2("Change Dept")}</button>
@@ -3138,7 +3598,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
         <div style={cardStyle}>
           <div style={{textAlign:"center",marginBottom:16}}>
             <div style={{fontSize:36,marginBottom:8}}>👷</div>
-            <div style={{fontSize:20,fontWeight:700,color:"#E8A040",fontFamily:"Georgia,'Times New Roman',serif"}}>{T2("Outdoor / Daily Wages Staff")}</div>
+            <div style={{fontSize:20,fontWeight:700,color:"#E8A040",fontFamily:"var(--font-display)"}}>{T2("Outdoor / Daily Wages Staff")}</div>
             <div style={{fontSize:12,color:"#5A5750",marginTop:4}}>{T2("Enter details for attendance")}</div>
           </div>
 
@@ -3288,7 +3748,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
         <div style={cardStyle}>
           <div style={{textAlign:"center"}}>
             <div style={{fontSize:48,marginBottom:12}}>{punchAction==="out"?"👋":punchAction==="done_shift"?"🏁":"✅"}</div>
-            <div style={{fontSize:22,fontWeight:700,color:punchAction==="out"?"#D06040":C.green,fontFamily:"Georgia,'Times New Roman',serif"}}>
+            <div style={{fontSize:22,fontWeight:700,color:punchAction==="out"?"#D06040":C.green,fontFamily:"var(--font-display)"}}>
               {punchAction==="out"?T2("Punch Out Recorded"):punchAction==="done_shift"?T2("Shift Complete"):T2("Punch In Recorded")}
             </div>
             <div style={{fontSize:16,color:C.text,marginTop:8,fontWeight:600}}>{picked.name}</div>
@@ -3532,9 +3992,9 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             {deptLeaves.filter(l=>l.status==="Approved"&&l.from<=TODAY&&l.to>=TODAY).map((l,i)=><div key={i} style={{fontSize:12,color:C.amber,marginTop:1}}>• {l.staffName}</div>)}
           </div>
           <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.wine}}>{pending.length}</div>
-            <div style={{fontSize:10,color:C.wine,fontWeight:600}}>{T2("Pending leave")}</div>
-            {pending.map((l,i)=><div key={i} style={{fontSize:10,color:C.wine,marginTop:1}}>• {l.staffName}</div>)}
+            <div style={{fontSize:22,fontWeight:700,color:C.gold}}>{pending.length}</div>
+            <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{T2("Pending leave")}</div>
+            {pending.map((l,i)=><div key={i} style={{fontSize:10,color:C.gold,marginTop:1}}>• {l.staffName}</div>)}
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:`repeat(${(deptSections||ALL_DEPARTMENTS.filter(d=>d!=="Management")).length>5?5:Math.max((deptSections||[]).length,3)},1fr)`,gap:10}}>
@@ -3557,7 +4017,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>👥 Team</div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>👥 Team</div>
           <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {present}/{deptStaffList.length} present</div>
         </div>
         <div style={{display:"flex",gap:8}}>
@@ -3570,8 +4030,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             <div style={{fontSize:11,color:C.red}}>{T2("Absent")}</div>
           </div>
           <div style={{background:C.wineBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
-            <div style={{fontSize:18,fontWeight:700,color:C.wine}}>{pending.length}</div>
-            <div style={{fontSize:11,color:C.wine}}>Pending</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.gold}}>{pending.length}</div>
+            <div style={{fontSize:11,color:C.gold}}>Pending</div>
           </div>
         </div>
       </div>
@@ -3596,7 +4056,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     <div style={{fontSize:12,color:C.muted}}>★ {v.rating} · {v.specialty}</div>
                   </div>
                 </div>
-                <button onClick={()=>setTab("chefs")} style={{width:"100%",padding:"4px",borderRadius:8,fontSize:11,fontWeight:500,cursor:"pointer",background:C.wine,color:"#fff",border:"none"}}>Book via Vendor Tab →</button>
+                <button onClick={()=>setTab("chefs")} style={{width:"100%",padding:"4px",borderRadius:8,fontSize:11,fontWeight:500,cursor:"pointer",background:C.gold,color:"#fff",border:"none"}}>Book via Vendor Tab →</button>
               </div>
             ))}
           </div>
@@ -3768,11 +4228,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             <button onClick={()=>setVendorSubTab(vendorSubTab==="portal"?"book":"portal")}
               style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",borderRadius:10,cursor:"pointer",transition:"all .2s",
                 background:vendorSubTab==="portal"?C.wine:C.wineBg,
-                border:`1.5px solid ${C.wine}`,color:vendorSubTab==="portal"?"#fff":C.wine,fontWeight:600,fontSize:12}}>
+                border:`1.5px solid ${C.gold}`,color:vendorSubTab==="portal"?"#fff":C.wine,fontWeight:600,fontSize:12}}>
               <span style={{fontSize:14}}>🏢</span>
               {vendorSubTab==="portal" ? "← Exit Vendor Portal" : "Open Vendor Portal"}
               {vendorSubTab!=="portal" && vendorOrders.filter(o=>o.status==="Pending").length > 0 &&
-                <span style={{background:C.wine,color:"#fff",fontSize:12,fontWeight:700,padding:"1px 6px",borderRadius:10,marginLeft:2}}>
+                <span style={{background:C.gold,color:"#fff",fontSize:12,fontWeight:700,padding:"1px 6px",borderRadius:10,marginLeft:2}}>
                   {vendorOrders.filter(o=>o.status==="Pending").length}
                 </span>
               }
@@ -3783,7 +4243,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             <div style={{background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
               <span style={{fontSize:24}}>🏢</span>
               <div>
-                <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"Georgia,'Times New Roman',serif"}}>{T2("Vendor Portal View")}</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"var(--font-display)"}}>{T2("Vendor Portal View")}</div>
                 <div style={{fontSize:11,color:"rgba(255,255,255,.65)"}}>You are viewing as a vendor. Accept, edit or reject bookings sent from kitchen management.</div>
               </div>
             </div>
@@ -3814,13 +4274,13 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                   {/* Vendor selected */}
                   <div style={{background:C.wineBg,border:`1.5px solid ${C.wineBorder}`,borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                      <div style={{width:36,height:36,borderRadius:9,background:C.wine,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff"}}>🏢</div>
+                      <div style={{width:36,height:36,borderRadius:9,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff"}}>🏢</div>
                       <div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.wine}}>{bookingForm.vendorName}</div>
-                        <div style={{fontSize:11,color:C.wine,opacity:.7}}>Booking will be sent to this vendor</div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{bookingForm.vendorName}</div>
+                        <div style={{fontSize:11,color:C.gold,opacity:.7}}>Booking will be sent to this vendor</div>
                       </div>
                     </div>
-                    <button onClick={()=>setBookingForm(p=>({...p,vendorId:"",vendorName:""}))} style={{fontSize:11,color:C.wine,background:"none",border:`1px solid ${C.wineBorder}`,borderRadius:8,padding:"6px 12px",cursor:"pointer"}}>Change ×</button>
+                    <button onClick={()=>setBookingForm(p=>({...p,vendorId:"",vendorName:""}))} style={{fontSize:11,color:C.gold,background:"none",border:`1px solid ${C.wineBorder}`,borderRadius:8,padding:"6px 12px",cursor:"pointer"}}>Change ×</button>
                   </div>
 
                   {/* Event + logistics */}
@@ -3887,7 +4347,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     })}
                     <div style={{padding:"8px 14px",background:C.bg,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span style={{fontSize:12,color:C.muted}}>Total staff requested</span>
-                      <span style={{fontSize:14,fontWeight:700,color:C.wine}}>{Object.values(bookingForm.staffReqs||{}).reduce((a,r)=>a+(r.qty||0),0)} people</span>
+                      <span style={{fontSize:14,fontWeight:700,color:C.gold}}>{Object.values(bookingForm.staffReqs||{}).reduce((a,r)=>a+(r.qty||0),0)} people</span>
                     </div>
                   </div>
 
@@ -3928,7 +4388,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           <div>
                             <div style={{fontSize:14,fontWeight:700,color:C.text}}>{order.vendorName}</div>
                             <div style={{fontSize:11,color:C.muted,marginTop:2}}>{order.date} · {order.time}{order.endTime?" – "+order.endTime:""} · {order.venue||"Venue TBD"}{order.pax?" · "+order.pax+" pax":""}</div>
-                            {order.eventName&&<div style={{fontSize:11,color:C.wine,marginTop:1}}>📋 {order.eventName}</div>}
+                            {order.eventName&&<div style={{fontSize:11,color:C.gold,marginTop:1}}>📋 {order.eventName}</div>}
                           </div>
                           <span style={{fontSize:12,fontWeight:700,padding:"4px 11px",borderRadius:20,background:sbg,color:scol}}>{order.status}</span>
                         </div>
@@ -4007,10 +4467,10 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                   },{})).map(([vid,grp])=>(
                     <div key={vid} style={{marginBottom:20}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"12px 16px",background:C.wineBg,borderRadius:10,border:`1px solid ${C.wineBorder}`}}>
-                        <div style={{width:36,height:36,borderRadius:9,background:C.wine,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff"}}>🏢</div>
+                        <div style={{width:36,height:36,borderRadius:9,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff"}}>🏢</div>
                         <div>
-                          <div style={{fontSize:14,fontWeight:700,color:C.wine}}>{grp.name}</div>
-                          <div style={{fontSize:11,color:C.wine,opacity:.7}}>{grp.orders.length} order{grp.orders.length!==1?"s":""} · {grp.orders.filter(o=>o.status==="Pending").length} pending</div>
+                          <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{grp.name}</div>
+                          <div style={{fontSize:11,color:C.gold,opacity:.7}}>{grp.orders.length} order{grp.orders.length!==1?"s":""} · {grp.orders.filter(o=>o.status==="Pending").length} pending</div>
                         </div>
                       </div>
                       {grp.orders.map(order=>{
@@ -4144,7 +4604,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
 
           {showAddEmp && (
             <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-              <div style={{fontSize:12,fontWeight:600,color:C.wine,marginBottom:10}}>{T2("New Employee")}</div>
+              <div style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:10}}>{T2("New Employee")}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
                 {[{l:"Full Name",k:"name",ph:"Full name"},{l:"Section",k:"section",type:"sel",opts:ALL_DEPARTMENTS},{l:"Role",k:"role",type:"sel",opts:["staff","headchef","admin"]},{l:"PIN (4 digits)",k:"pin",max:4,ph:"0000"},{l:"Joining Date",k:"joining",dt:"date"},{l:"Dept",k:"dept",ph:"F&B Kitchen"}].map(f=>(
                   <div key={f.k}>
@@ -4195,7 +4655,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           <Avatar name={emp.name} size={34} index={i}/>
                           <div>
                             <div style={{fontSize:12,fontWeight:600,color:C.text}}>{emp.name}</div>
-                            <div style={{fontSize:10,color:C.wine,fontWeight:600}}>{emp.id}</div>
+                            <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{emp.id}</div>
                             <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
                               <STag name={emp.section}/>
                               <Chip label={emp.role==="admin"?"Admin":emp.role==="headchef"?"HC":"Staff"} color={emp.role!=="staff"?C.wine:C.muted} bg={emp.role!=="staff"?C.wineBg:"#F2F1EE"} size={9}/>
@@ -4283,11 +4743,219 @@ const GENERIC_STEPS = [
 ];
 
 // ─── RECIPE DATABASE (will be populated with actual SOPs in next phase) ──
+// ─── RECIPE INGREDIENTS (per-pax in grams/ml, calculated from SOP 200-pax base) ──
+const RECIPE_INGREDIENTS = {
+  "Aloo Pakoda":[{n:"Potato",h:"आलू",q:20,u:"g"},{n:"Besan",h:"बेसन",q:10,u:"g"},{n:"Oil (frying)",h:"तेल",q:40,u:"ml"}],
+  "Gobhi Pakoda":[{n:"Cauliflower",h:"फूलगोभी",q:25,u:"g"},{n:"Besan",h:"बेसन",q:10,u:"g"},{n:"Oil (frying)",h:"तेल",q:40,u:"ml"}],
+  "Pyaz Pakoda":[{n:"Onion",h:"प्याज",q:30,u:"g"},{n:"Besan",h:"बेसन",q:8,u:"g"},{n:"Oil (frying)",h:"तेल",q:35,u:"ml"}],
+  "Palak Pakoda":[{n:"Spinach Leaves",h:"पालक पत्ते",q:20,u:"g"},{n:"Besan",h:"बेसन",q:6,u:"g"},{n:"Oil (frying)",h:"तेल",q:30,u:"ml"}],
+  "Aloo Paratha":[{n:"Wheat Flour",h:"गेहूं आटा",q:30,u:"g"},{n:"Potato (boiled)",h:"आलू उबला",q:25,u:"g"},{n:"Ghee",h:"घी",q:5,u:"g"}],
+  "Samosa Mini":[{n:"Maida",h:"मैदा",q:10,u:"g"},{n:"Potato filling",h:"आलू मसाला",q:15,u:"g"},{n:"Oil (frying)",h:"तेल",q:40,u:"ml"}],
+  "Arbi Ka Jhol":[{n:"Arbi (Colocasia)",h:"अरबी",q:35,u:"g"},{n:"Oil",h:"तेल",q:6,u:"ml"},{n:"Tamarind",h:"इमली",q:2,u:"g"}],
+  "Butterscotch Caramel Kheer":[{n:"Milk",h:"दूध",q:50,u:"ml"},{n:"Basmati Rice",h:"बासमती चावल",q:5,u:"g"},{n:"Sugar",h:"चीनी",q:8,u:"g"},{n:"Butterscotch Chips",h:"बटरस्कॉच चिप्स",q:3,u:"g"}],
+  "Paneer Tikka":[{n:"Paneer",h:"पनीर",q:175,u:"g"},{n:"Hung Curd",h:"हंग दही",q:30,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:5,u:"ml"},{n:"Capsicum",h:"शिमला मिर्च",q:20,u:"g"},{n:"Onion",h:"प्याज",q:15,u:"g"},{n:"Butter",h:"मक्खन",q:2.5,u:"g"}],
+  "Soya Chaap Malai":[{n:"Soya Chaap",h:"सोया चाप",q:150,u:"g"},{n:"Cream",h:"क्रीम",q:20,u:"ml"},{n:"Cashew Paste",h:"काजू पेस्ट",q:10,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"}],
+  "Dahi Ke Sholay":[{n:"Hung Curd",h:"हंग दही",q:30,u:"g"},{n:"Bread (crust)",h:"ब्रेड क्रस्ट",q:15,u:"g"},{n:"Oil (frying)",h:"तेल",q:25,u:"ml"},{n:"Green Chilli",h:"हरी मिर्च",q:2,u:"g"}],
+  "Golden Coin":[{n:"Paneer",h:"पनीर",q:20,u:"g"},{n:"Bread Disc",h:"ब्रेड डिस्क",q:10,u:"g"},{n:"Corn",h:"कॉर्न",q:5,u:"g"},{n:"Oil (frying)",h:"तेल",q:20,u:"ml"}],
+  "Veg Galauti":[{n:"Raw Banana",h:"कच्चा केला",q:25,u:"g"},{n:"Potato",h:"आलू",q:15,u:"g"},{n:"Khoya",h:"खोया",q:5,u:"g"},{n:"Ghee",h:"घी",q:5,u:"g"}],
+  "Mushroom Galauti":[{n:"Mushroom",h:"मशरूम",q:30,u:"g"},{n:"Potato",h:"आलू",q:10,u:"g"},{n:"Ghee",h:"घी",q:5,u:"g"},{n:"Galauti Masala",h:"गलौटी मसाला",q:1,u:"g"}],
+  "Tandoori Broccoli":[{n:"Broccoli",h:"ब्रोकली",q:50,u:"g"},{n:"Hung Curd",h:"हंग दही",q:15,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:3,u:"ml"}],
+  "Chicken Seekh Kebab":[{n:"Chicken Mince",h:"चिकन कीमा",q:60,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Ginger Garlic",h:"अदरक-लहसुन",q:3,u:"g"},{n:"Butter",h:"मक्खन",q:2,u:"g"}],
+  "Mutton Seekh Kebab":[{n:"Mutton Mince",h:"मटन कीमा",q:70,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Raw Papaya Paste",h:"कच्चा पपीता पेस्ट",q:5,u:"g"},{n:"Ghee",h:"घी",q:3,u:"g"}],
+  "Tangri Kebab":[{n:"Chicken Legs",h:"चिकन टांग",q:200,u:"g"},{n:"Hung Curd",h:"हंग दही",q:20,u:"g"},{n:"Cream",h:"क्रीम",q:10,u:"ml"},{n:"Butter",h:"मक्खन",q:5,u:"g"}],
+  "Murgh Malai Tikka":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Cream",h:"क्रीम",q:15,u:"ml"},{n:"Cream Cheese",h:"क्रीम चीज़",q:10,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"}],
+  "Chicken Tikka":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Hung Curd",h:"हंग दही",q:20,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:3,u:"ml"},{n:"Butter",h:"मक्खन",q:2,u:"g"}],
+  "Fish Tikka":[{n:"Fish (Boneless)",h:"मछली",q:60,u:"g"},{n:"Hung Curd",h:"हंग दही",q:15,u:"g"},{n:"Carom Seeds",h:"अजवाइन",q:0.5,u:"g"}],
+  "Mint Chutney":[{n:"Mint",h:"पुदीना",q:5,u:"g"},{n:"Coriander",h:"हरा धनिया",q:5,u:"g"},{n:"Green Chilli",h:"हरी मिर्च",q:1,u:"g"},{n:"Lemon",h:"नींबू",q:2,u:"ml"}],
+  "Naan":[{n:"Maida",h:"मैदा",q:30,u:"g"},{n:"Yogurt",h:"दही",q:5,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"},{n:"Baking Powder",h:"बेकिंग पाउडर",q:0.3,u:"g"}],
+  "Honey Chilli Potatoes":[{n:"Potato",h:"आलू",q:60,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:10,u:"g"},{n:"Honey",h:"शहद",q:2.5,u:"g"},{n:"Tomato Sauce",h:"टोमैटो सॉस",q:7.5,u:"g"},{n:"Chilli Sauce",h:"चिली सॉस",q:2.5,u:"g"},{n:"Oil (frying)",h:"तेल",q:50,u:"ml"}],
+  "Schezwan Mushroom":[{n:"Mushroom",h:"मशरूम",q:50,u:"g"},{n:"Schezwan Sauce",h:"स्चेज़वान सॉस",q:5,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:5,u:"g"},{n:"Oil",h:"तेल",q:20,u:"ml"}],
+  "Chilli Paneer":[{n:"Paneer",h:"पनीर",q:40,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:8,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:3,u:"ml"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Oil",h:"तेल",q:25,u:"ml"}],
+  "Veg Spring Roll":[{n:"Spring Roll Sheet",h:"स्प्रिंग रोल शीट",q:1,u:"pcs"},{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:20,u:"g"},{n:"Noodles",h:"नूडल्स",q:5,u:"g"},{n:"Oil (frying)",h:"तेल",q:30,u:"ml"}],
+  "Veg Momos":[{n:"Maida",h:"मैदा",q:12,u:"g"},{n:"Cabbage",h:"पत्तागोभी",q:15,u:"g"},{n:"Carrot",h:"गाजर",q:5,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:0.5,u:"ml"}],
+  "Green Thai Curry Veg":[{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:40,u:"g"},{n:"Coconut Milk",h:"नारियल दूध",q:40,u:"ml"},{n:"Green Thai Paste",h:"ग्रीन थाई पेस्ट",q:5,u:"g"},{n:"Lemongrass",h:"लेमनग्रास",q:1,u:"g"}],
+  "Chicken Red Thai Curry":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Coconut Milk",h:"नारियल दूध",q:40,u:"ml"},{n:"Red Thai Paste",h:"रेड थाई पेस्ट",q:5,u:"g"}],
+  "Veg Hakka Noodles":[{n:"Hakka Noodles",h:"हक्का नूडल्स",q:30,u:"g"},{n:"Cabbage",h:"पत्तागोभी",q:15,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:2,u:"ml"},{n:"Oil",h:"तेल",q:8,u:"ml"}],
+  "Garlic Onion Fried Rice":[{n:"Cooked Rice",h:"पका चावल",q:40,u:"g"},{n:"Garlic",h:"लहसुन",q:2,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:2,u:"ml"},{n:"Oil",h:"तेल",q:5,u:"ml"}],
+  "Green Tea":[{n:"Hot Water",h:"गर्म पानी",q:180,u:"ml"},{n:"Green Tea Bag",h:"ग्रीन टी बैग",q:1,u:"pcs"},{n:"Honey",h:"शहद",q:15,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:10,u:"ml"}],
+  "Masala Chai":[{n:"Tea Leaves",h:"चाय पत्ती",q:8,u:"g"},{n:"Milk",h:"दूध",q:60,u:"ml"},{n:"Water",h:"पानी",q:120,u:"ml"},{n:"Ginger",h:"अदरक",q:10,u:"g"},{n:"Cardamom",h:"इलायची",q:4,u:"pcs"},{n:"Cloves",h:"लौंग",q:2,u:"pcs"}],
+  "Virgin Mojito":[{n:"Lime",h:"नींबू",q:1,u:"pcs"},{n:"Mint Leaves",h:"पुदीना",q:8,u:"pcs"},{n:"Sugar Syrup",h:"शुगर सिरप",q:15,u:"ml"},{n:"Soda",h:"सोडा",q:150,u:"ml"},{n:"Ice",h:"बर्फ",q:100,u:"g"}],
+  "Jaljeera":[{n:"Cumin Powder",h:"जीरा पाउडर",q:2,u:"g"},{n:"Tamarind Water",h:"इमली पानी",q:30,u:"ml"},{n:"Mint",h:"पुदीना",q:3,u:"g"},{n:"Chilled Water",h:"ठंडा पानी",q:200,u:"ml"}],
+  "Shikanji":[{n:"Lemon",h:"नींबू",q:1,u:"pcs"},{n:"Sugar",h:"चीनी",q:15,u:"g"},{n:"Black Salt",h:"काला नमक",q:0.5,u:"g"},{n:"Chilled Water",h:"ठंडा पानी",q:250,u:"ml"}],
+  "Mango Michelada":[{n:"Mango Puree",h:"आम प्यूरी",q:60,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:15,u:"ml"},{n:"Chilli Rim Salt",h:"चिली रिम सॉल्ट",q:2,u:"g"},{n:"Soda",h:"सोडा",q:100,u:"ml"}],
+  "Spicy Jamun Shots":[{n:"Jamun Puree",h:"जामुन प्यूरी",q:40,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:10,u:"ml"},{n:"Jaljeera Powder",h:"जलजीरा पाउडर",q:1,u:"g"},{n:"Salt",h:"नमक",q:0.3,u:"g"}],
+  "Caribbean Citrus Cooler":[{n:"Orange Juice",h:"संतरे का रस",q:80,u:"ml"},{n:"Pineapple Juice",h:"अनानास रस",q:40,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:15,u:"ml"},{n:"Grenadine",h:"ग्रेनाडाइन",q:10,u:"ml"},{n:"Soda",h:"सोडा",q:60,u:"ml"}],
+  "Paneer Tikka":[{n:"Paneer",h:"पनीर",q:175,u:"g"},{n:"Hung Curd",h:"हंग दही",q:30,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:5,u:"ml"},{n:"Capsicum",h:"शिमला मिर्च",q:20,u:"g"},{n:"Onion",h:"प्याज",q:15,u:"g"},{n:"Butter",h:"मक्खन",q:2.5,u:"g"}],
+  "Soya Chaap Malai":[{n:"Soya Chaap",h:"सोया चाप",q:150,u:"g"},{n:"Cream",h:"क्रीम",q:20,u:"ml"},{n:"Cashew Paste",h:"काजू पेस्ट",q:10,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"}],
+  "Dahi Ke Sholay":[{n:"Hung Curd",h:"हंग दही",q:30,u:"g"},{n:"Bread (crust)",h:"ब्रेड क्रस्ट",q:15,u:"g"},{n:"Oil (frying)",h:"तेल",q:25,u:"ml"},{n:"Green Chilli",h:"हरी मिर्च",q:2,u:"g"}],
+  "Golden Coin":[{n:"Paneer",h:"पनीर",q:20,u:"g"},{n:"Bread Disc",h:"ब्रेड डिस्क",q:10,u:"g"},{n:"Corn",h:"कॉर्न",q:5,u:"g"},{n:"Oil (frying)",h:"तेल",q:20,u:"ml"}],
+  "Veg Galauti":[{n:"Raw Banana",h:"कच्चा केला",q:25,u:"g"},{n:"Potato",h:"आलू",q:15,u:"g"},{n:"Khoya",h:"खोया",q:5,u:"g"},{n:"Ghee",h:"घी",q:5,u:"g"}],
+  "Mushroom Galauti":[{n:"Mushroom",h:"मशरूम",q:30,u:"g"},{n:"Potato",h:"आलू",q:10,u:"g"},{n:"Ghee",h:"घी",q:5,u:"g"},{n:"Galauti Masala",h:"गलौटी मसाला",q:1,u:"g"}],
+  "Tandoori Broccoli":[{n:"Broccoli",h:"ब्रोकली",q:50,u:"g"},{n:"Hung Curd",h:"हंग दही",q:15,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:3,u:"ml"}],
+  "Chicken Seekh Kebab":[{n:"Chicken Mince",h:"चिकन कीमा",q:60,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Ginger Garlic",h:"अदरक-लहसुन",q:3,u:"g"},{n:"Butter",h:"मक्खन",q:2,u:"g"}],
+  "Mutton Seekh Kebab":[{n:"Mutton Mince",h:"मटन कीमा",q:70,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Raw Papaya Paste",h:"कच्चा पपीता पेस्ट",q:5,u:"g"},{n:"Ghee",h:"घी",q:3,u:"g"}],
+  "Tangri Kebab":[{n:"Chicken Legs",h:"चिकन टांग",q:200,u:"g"},{n:"Hung Curd",h:"हंग दही",q:20,u:"g"},{n:"Cream",h:"क्रीम",q:10,u:"ml"},{n:"Butter",h:"मक्खन",q:5,u:"g"}],
+  "Murgh Malai Tikka":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Cream",h:"क्रीम",q:15,u:"ml"},{n:"Cream Cheese",h:"क्रीम चीज़",q:10,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"}],
+  "Chicken Tikka":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Hung Curd",h:"हंग दही",q:20,u:"g"},{n:"Mustard Oil",h:"सरसों तेल",q:3,u:"ml"},{n:"Butter",h:"मक्खन",q:2,u:"g"}],
+  "Fish Tikka":[{n:"Fish (Boneless)",h:"मछली",q:60,u:"g"},{n:"Hung Curd",h:"हंग दही",q:15,u:"g"},{n:"Carom Seeds",h:"अजवाइन",q:0.5,u:"g"}],
+  "Mint Chutney":[{n:"Mint",h:"पुदीना",q:5,u:"g"},{n:"Coriander",h:"हरा धनिया",q:5,u:"g"},{n:"Green Chilli",h:"हरी मिर्च",q:1,u:"g"},{n:"Lemon",h:"नींबू",q:2,u:"ml"}],
+  "Naan":[{n:"Maida",h:"मैदा",q:30,u:"g"},{n:"Yogurt",h:"दही",q:5,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"},{n:"Baking Powder",h:"बेकिंग पाउडर",q:0.3,u:"g"}],
+  "Honey Chilli Potatoes":[{n:"Potato",h:"आलू",q:60,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:10,u:"g"},{n:"Honey",h:"शहद",q:2.5,u:"g"},{n:"Tomato Sauce",h:"टोमैटो सॉस",q:7.5,u:"g"},{n:"Chilli Sauce",h:"चिली सॉस",q:2.5,u:"g"},{n:"Oil (frying)",h:"तेल",q:50,u:"ml"}],
+  "Schezwan Mushroom":[{n:"Mushroom",h:"मशरूम",q:50,u:"g"},{n:"Schezwan Sauce",h:"स्चेज़वान सॉस",q:5,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:5,u:"g"},{n:"Oil",h:"तेल",q:20,u:"ml"}],
+  "Chilli Paneer":[{n:"Paneer",h:"पनीर",q:40,u:"g"},{n:"Corn Flour",h:"कॉर्नफ्लोर",q:8,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:3,u:"ml"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Oil",h:"तेल",q:25,u:"ml"}],
+  "Veg Spring Roll":[{n:"Spring Roll Sheet",h:"स्प्रिंग रोल शीट",q:1,u:"pcs"},{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:20,u:"g"},{n:"Noodles",h:"नूडल्स",q:5,u:"g"},{n:"Oil (frying)",h:"तेल",q:30,u:"ml"}],
+  "Veg Momos":[{n:"Maida",h:"मैदा",q:12,u:"g"},{n:"Cabbage",h:"पत्तागोभी",q:15,u:"g"},{n:"Carrot",h:"गाजर",q:5,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:0.5,u:"ml"}],
+  "Green Thai Curry Veg":[{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:40,u:"g"},{n:"Coconut Milk",h:"नारियल दूध",q:40,u:"ml"},{n:"Green Thai Paste",h:"ग्रीन थाई पेस्ट",q:5,u:"g"},{n:"Lemongrass",h:"लेमनग्रास",q:1,u:"g"}],
+  "Chicken Red Thai Curry":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Coconut Milk",h:"नारियल दूध",q:40,u:"ml"},{n:"Red Thai Paste",h:"रेड थाई पेस्ट",q:5,u:"g"}],
+  "Veg Hakka Noodles":[{n:"Hakka Noodles",h:"हक्का नूडल्स",q:30,u:"g"},{n:"Cabbage",h:"पत्तागोभी",q:15,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:2,u:"ml"},{n:"Oil",h:"तेल",q:8,u:"ml"}],
+  "Garlic Onion Fried Rice":[{n:"Cooked Rice",h:"पका चावल",q:40,u:"g"},{n:"Garlic",h:"लहसुन",q:2,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Soy Sauce",h:"सोया सॉस",q:2,u:"ml"},{n:"Oil",h:"तेल",q:5,u:"ml"}],
+  "Green Tea":[{n:"Hot Water",h:"गर्म पानी",q:180,u:"ml"},{n:"Green Tea Bag",h:"ग्रीन टी बैग",q:1,u:"pcs"},{n:"Honey",h:"शहद",q:15,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:10,u:"ml"}],
+  "Masala Chai":[{n:"Tea Leaves",h:"चाय पत्ती",q:8,u:"g"},{n:"Milk",h:"दूध",q:60,u:"ml"},{n:"Water",h:"पानी",q:120,u:"ml"},{n:"Ginger",h:"अदरक",q:10,u:"g"},{n:"Cardamom",h:"इलायची",q:4,u:"pcs"},{n:"Cloves",h:"लौंग",q:2,u:"pcs"}],
+  "Virgin Mojito":[{n:"Lime",h:"नींबू",q:1,u:"pcs"},{n:"Mint Leaves",h:"पुदीना",q:8,u:"pcs"},{n:"Sugar Syrup",h:"शुगर सिरप",q:15,u:"ml"},{n:"Soda",h:"सोडा",q:150,u:"ml"},{n:"Ice",h:"बर्फ",q:100,u:"g"}],
+  "Jaljeera":[{n:"Cumin Powder",h:"जीरा पाउडर",q:2,u:"g"},{n:"Tamarind Water",h:"इमली पानी",q:30,u:"ml"},{n:"Mint",h:"पुदीना",q:3,u:"g"},{n:"Chilled Water",h:"ठंडा पानी",q:200,u:"ml"}],
+  "Shikanji":[{n:"Lemon",h:"नींबू",q:1,u:"pcs"},{n:"Sugar",h:"चीनी",q:15,u:"g"},{n:"Black Salt",h:"काला नमक",q:0.5,u:"g"},{n:"Chilled Water",h:"ठंडा पानी",q:250,u:"ml"}],
+  "Mango Michelada":[{n:"Mango Puree",h:"आम प्यूरी",q:60,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:15,u:"ml"},{n:"Chilli Rim Salt",h:"चिली रिम सॉल्ट",q:2,u:"g"},{n:"Soda",h:"सोडा",q:100,u:"ml"}],
+  "Spicy Jamun Shots":[{n:"Jamun Puree",h:"जामुन प्यूरी",q:40,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:10,u:"ml"},{n:"Jaljeera Powder",h:"जलजीरा पाउडर",q:1,u:"g"},{n:"Salt",h:"नमक",q:0.3,u:"g"}],
+  "Caribbean Citrus Cooler":[{n:"Orange Juice",h:"संतरे का रस",q:80,u:"ml"},{n:"Pineapple Juice",h:"अनानास रस",q:40,u:"ml"},{n:"Lime Juice",h:"नींबू रस",q:15,u:"ml"},{n:"Grenadine",h:"ग्रेनाडाइन",q:10,u:"ml"},{n:"Soda",h:"सोडा",q:60,u:"ml"}],
+  "Gajar Ka Halwa":[{n:"Gajar (grated)",h:"गाजर कसी",q:50,u:"g"},{n:"Sugar",h:"चीनी",q:10,u:"g"},{n:"Khoya",h:"खोया",q:10,u:"g"},{n:"Milk",h:"दूध",q:50,u:"ml"},{n:"Desi Ghee",h:"देसी घी",q:5,u:"g"},{n:"Cardamom",h:"इलायची",q:0.25,u:"g"},{n:"Cashew",h:"काजू",q:1.5,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.25,u:"g"}],
+  "Moong Dal Halwa":[{n:"Moong Dal",h:"मूंग दाल",q:10,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:15,u:"g"},{n:"Sugar",h:"चीनी",q:10,u:"g"},{n:"Sooji",h:"सूजी",q:1,u:"g"},{n:"Water",h:"पानी",q:22,u:"ml"},{n:"Cashew",h:"काजू",q:2.5,u:"g"},{n:"Cardamom",h:"इलायची",q:0.15,u:"g"}],
+  "Anjeer Halwa":[{n:"Anjeer (Fig)",h:"अंजीर",q:7.5,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:3,u:"g"},{n:"Khoya",h:"खोया",q:5,u:"g"},{n:"Sugar",h:"चीनी",q:1.5,u:"g"},{n:"Cardamom",h:"इलायची",q:0.015,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.05,u:"g"}],
+  "Apple Halwa":[{n:"Apple",h:"सेब",q:15,u:"g"},{n:"Milk",h:"दूध",q:15,u:"ml"},{n:"Sugar",h:"चीनी",q:2.5,u:"g"},{n:"Khoya",h:"खोया",q:4,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:1.25,u:"g"},{n:"Cardamom",h:"इलायची",q:0.025,u:"g"},{n:"Cashew",h:"काजू",q:0.5,u:"g"}],
+  "Mirch Ka Halwa":[{n:"Achari Mirch",h:"अचारी मिर्च",q:15,u:"g"},{n:"Sugar",h:"चीनी",q:3,u:"g"},{n:"Khoya",h:"खोया",q:3.75,u:"g"},{n:"Milk",h:"दूध",q:15,u:"ml"},{n:"Desi Ghee",h:"देसी घी",q:1.5,u:"g"},{n:"Cashew",h:"काजू",q:0.5,u:"g"}],
+  "Ghewar":[{n:"Maida",h:"मैदा",q:5,u:"g"},{n:"Dalda/Ghee (batter)",h:"डालडा/घी",q:1,u:"g"},{n:"Water (batter)",h:"पानी",q:15,u:"ml"},{n:"Desi Ghee (frying)",h:"देसी घी तलने",q:25,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:15,u:"g"},{n:"Saffron",h:"केसर",q:0.0015,u:"g"}],
+  "Gulab Jamun":[{n:"Khoya (dhaap)",h:"खोया",q:15,u:"g"},{n:"Chhena",h:"छैना",q:6.25,u:"g"},{n:"Maida",h:"मैदा",q:3.75,u:"g"},{n:"Baking Powder",h:"बेकिंग पाउडर",q:0.04,u:"g"},{n:"Cardamom",h:"इलायची",q:0.05,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:45,u:"g"},{n:"Desi Ghee (frying)",h:"देसी घी तलने",q:25,u:"g"}],
+  "Ras Malai":[{n:"Chhena",h:"छैना",q:20,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:10,u:"g"},{n:"Milk (rabri)",h:"दूध रबड़ी",q:40,u:"ml"},{n:"Saffron",h:"केसर",q:0.005,u:"g"},{n:"Cardamom",h:"इलायची",q:0.1,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.5,u:"g"}],
+  "Gulab Kheer":[{n:"Basmati Rice",h:"बासमती चावल",q:5,u:"g"},{n:"Milk",h:"दूध",q:40,u:"ml"},{n:"Sugar",h:"चीनी",q:8,u:"g"},{n:"Cardamom",h:"इलायची",q:0.1,u:"g"},{n:"Rose Water",h:"गुलाब जल",q:0.5,u:"ml"},{n:"Pistachio",h:"पिस्ता",q:0.25,u:"g"}],
+  "Jalebi":[{n:"Maida",h:"मैदा",q:5,u:"g"},{n:"Dahi (Yogurt)",h:"दही",q:2,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:15,u:"g"},{n:"Desi Ghee (frying)",h:"देसी घी तलने",q:10,u:"g"},{n:"Saffron",h:"केसर",q:0.002,u:"g"}],
+  "Shahi Tukda":[{n:"Bread",h:"ब्रेड",q:10,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:5,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:8,u:"g"},{n:"Milk (rabri)",h:"दूध रबड़ी",q:30,u:"ml"},{n:"Saffron",h:"केसर",q:0.003,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.5,u:"g"}],
+  "Kaju Katli":[{n:"Cashew",h:"काजू",q:10,u:"g"},{n:"Sugar",h:"चीनी",q:6,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:1,u:"g"},{n:"Cardamom",h:"इलायची",q:0.05,u:"g"},{n:"Silver Leaf",h:"वर्क",q:0.01,u:"g"}],
+  "Phirni":[{n:"Basmati Rice",h:"बासमती चावल",q:4,u:"g"},{n:"Milk",h:"दूध",q:35,u:"ml"},{n:"Sugar",h:"चीनी",q:8,u:"g"},{n:"Cardamom",h:"इलायची",q:0.1,u:"g"},{n:"Saffron",h:"केसर",q:0.003,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.3,u:"g"},{n:"Almond",h:"बादाम",q:0.3,u:"g"}],
+  "Fruit Cream":[{n:"Fresh Cream",h:"ताज़ी क्रीम",q:15,u:"ml"},{n:"Mixed Fruits",h:"मिक्स फल",q:20,u:"g"},{n:"Sugar",h:"चीनी",q:3,u:"g"},{n:"Vanilla Essence",h:"वनीला एसेंस",q:0.1,u:"ml"}],
+  "Fruit Custard":[{n:"Milk",h:"दूध",q:30,u:"ml"},{n:"Custard Powder",h:"कस्टर्ड पाउडर",q:2,u:"g"},{n:"Sugar",h:"चीनी",q:5,u:"g"},{n:"Mixed Fruits",h:"मिक्स फल",q:15,u:"g"}],
+  "Rasgulla":[{n:"Chhena",h:"छैना",q:15,u:"g"},{n:"Sugar (syrup)",h:"चीनी चाशनी",q:20,u:"g"},{n:"Water (syrup)",h:"पानी",q:40,u:"ml"}],
+  "Tilla Kulfi":[{n:"Milk",h:"दूध",q:50,u:"ml"},{n:"Sugar",h:"चीनी",q:8,u:"g"},{n:"Cardamom",h:"इलायची",q:0.1,u:"g"},{n:"Saffron",h:"केसर",q:0.005,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.5,u:"g"},{n:"Almond",h:"बादाम",q:0.5,u:"g"}],
+  "Kadai Doodh":[{n:"Milk",h:"दूध",q:60,u:"ml"},{n:"Sugar",h:"चीनी",q:8,u:"g"},{n:"Almond",h:"बादाम",q:1,u:"g"},{n:"Cashew",h:"काजू",q:1,u:"g"},{n:"Pistachio",h:"पिस्ता",q:0.5,u:"g"},{n:"Saffron",h:"केसर",q:0.005,u:"g"},{n:"Cardamom",h:"इलायची",q:0.1,u:"g"}],
+  // Generic per-pax for common dishes (approx)
+  "Paneer Tikka":[{n:"Paneer",h:"पनीर",q:40,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:10,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Yogurt",h:"दही",q:15,u:"g"},{n:"Spice Mix",h:"मसाला मिक्स",q:3,u:"g"},{n:"Lemon",h:"नींबू",q:2,u:"g"}],
+  "Dal Makhani":[{n:"Black Urad Dal",h:"काली उड़द दाल",q:12,u:"g"},{n:"Rajma",h:"राजमा",q:3,u:"g"},{n:"Butter",h:"मक्खन",q:5,u:"g"},{n:"Cream",h:"क्रीम",q:5,u:"ml"},{n:"Tomato",h:"टमाटर",q:8,u:"g"},{n:"Ginger-Garlic",h:"अदरक-लहसुन",q:2,u:"g"}],
+  "Butter Chicken":[{n:"Chicken",h:"चिकन",q:60,u:"g"},{n:"Yogurt",h:"दही",q:10,u:"g"},{n:"Butter",h:"मक्खन",q:8,u:"g"},{n:"Cream",h:"क्रीम",q:8,u:"ml"},{n:"Tomato",h:"टमाटर",q:15,u:"g"},{n:"Cashew",h:"काजू",q:3,u:"g"},{n:"Kasuri Methi",h:"कसूरी मेथी",q:0.3,u:"g"}],
+  "Tandoori Roti":[{n:"Wheat Flour",h:"गेहूं आटा",q:25,u:"g"},{n:"Salt",h:"नमक",q:0.5,u:"g"},{n:"Water",h:"पानी",q:12,u:"ml"},{n:"Ghee (brush)",h:"घी",q:2,u:"g"}],
+  "Naan":[{n:"Maida",h:"मैदा",q:25,u:"g"},{n:"Yogurt",h:"दही",q:5,u:"g"},{n:"Baking Powder",h:"बेकिंग पाउडर",q:0.3,u:"g"},{n:"Butter",h:"मक्खन",q:3,u:"g"}],
+  "Veg Biryani":[{n:"Basmati Rice",h:"बासमती चावल",q:40,u:"g"},{n:"Mixed Vegetables",h:"मिक्स सब्ज़ियां",q:25,u:"g"},{n:"Onion (fried)",h:"प्याज तला",q:10,u:"g"},{n:"Desi Ghee",h:"देसी घी",q:5,u:"g"},{n:"Saffron",h:"केसर",q:0.005,u:"g"},{n:"Biryani Masala",h:"बिरयानी मसाला",q:2,u:"g"}],
+  "Gobhi Masala":[{n:"Cauliflower",h:"फूलगोभी",q:35,u:"g"},{n:"Onion",h:"प्याज",q:10,u:"g"},{n:"Tomato",h:"टमाटर",q:10,u:"g"},{n:"Green Chilli",h:"हरी मिर्च",q:1,u:"g"},{n:"Oil",h:"तेल",q:5,u:"ml"},{n:"Garam Masala",h:"गरम मसाला",q:0.5,u:"g"}],
+  "Paneer Lababdar":[{n:"Paneer",h:"पनीर",q:25.0,u:"g"},{n:"Tomato",h:"टमाटर",q:22.5,u:"g"},{n:"Onion",h:"प्याज़",q:12.5,u:"g"},{n:"Cashew",h:"काजू",q:3.0,u:"g"},{n:"Cream",h:"क्रीम",q:4.0,u:"ml"},{n:"Butter",h:"मक्खन",q:4.0,u:"g"},{n:"Oil",h:"तेल",q:3.0,u:"ml"},{n:"Khoya",h:"खोया",q:2.5,u:"g"},{n:"Ginger Garlic Paste",h:"अदरक-लहसुन पेस्ट",q:2.0,u:"g"},{n:"Capsicum",h:"शिमला मिर्च",q:2.5,u:"g"},{n:"Kasuri Methi",h:"कसूरी मेथी",q:0.15,u:"g"}],
+  "Dal-E-Ambria":[{n:"Urad Dal Whole",h:"उड़द साबुत",q:15.0,u:"g"},{n:"Moong Dal Whole",h:"मूंग साबुत",q:3.0,u:"g"},{n:"Tomato Puree",h:"टमाटर प्यूरी",q:10.0,u:"g"},{n:"Onion",h:"प्याज़",q:10.0,u:"g"},{n:"Butter",h:"मक्खन",q:3.0,u:"g"},{n:"Fresh Cream",h:"फ्रेश क्रीम",q:5.0,u:"ml"},{n:"Oil",h:"तेल",q:2.5,u:"ml"},{n:"Ginger Garlic Paste",h:"अदरक-लहसुन पेस्ट",q:2.0,u:"g"},{n:"Kasuri Methi",h:"कसूरी मेथी",q:0.1,u:"g"}],
+  "Palak Paneer":[{n:"Paneer",h:"पनीर",q:25.0,u:"g"},{n:"Palak (Spinach)",h:"पालक",q:30.0,u:"g"},{n:"Onion",h:"प्याज़",q:7.5,u:"g"},{n:"Tomato Paste",h:"टमाटर पेस्ट",q:5.0,u:"g"},{n:"Cream",h:"क्रीम",q:1.5,u:"g"},{n:"Ghee",h:"घी",q:1.0,u:"g"},{n:"Oil",h:"तेल",q:3.0,u:"ml"}],
+  "Diwan-e-Handi":[{n:"Paneer",h:"पनीर",q:15.0,u:"g"},{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:15.0,u:"g"},{n:"Onion",h:"प्याज़",q:10.0,u:"g"},{n:"Cream",h:"क्रीम",q:2.5,u:"ml"},{n:"Cashew",h:"काजू",q:1.5,u:"g"}],
+  "Malai Kofta":[{n:"Paneer",h:"पनीर",q:15.0,u:"g"},{n:"Potato (boiled)",h:"आलू उबला",q:10.0,u:"g"},{n:"Cashew",h:"काजू",q:3.0,u:"g"},{n:"Cream",h:"क्रीम",q:4.0,u:"ml"},{n:"Oil (frying)",h:"तेल तलने",q:15.0,u:"ml"}],
+  "Dum Aloo Kashmiri":[{n:"Baby Potato",h:"छोटे आलू",q:30.0,u:"g"},{n:"Dahi (Yogurt)",h:"दही",q:7.5,u:"g"},{n:"Oil",h:"तेल",q:5.0,u:"ml"},{n:"Kashmiri Mirch",h:"कश्मीरी मिर्च",q:0.5,u:"g"}],
+  "Kadhi Pakoda":[{n:"Besan",h:"बेसन",q:12.5,u:"g"},{n:"Dahi (Yogurt)",h:"दही",q:20.0,u:"g"},{n:"Oil (frying)",h:"तेल तलने",q:10.0,u:"ml"},{n:"Onion",h:"प्याज़",q:5.0,u:"g"}],
+  "Amritsari Pindi Choley":[{n:"Kabuli Chana",h:"काबुली चना",q:25.0,u:"g"},{n:"Onion",h:"प्याज़",q:10.0,u:"g"},{n:"Tea Bag",h:"टी बैग",q:0.05,u:"pcs"},{n:"Chole Masala",h:"छोले मसाला",q:1.0,u:"g"}],
+  "Sarson Ka Saag":[{n:"Sarson (Mustard Leaves)",h:"सरसों",q:40.0,u:"g"},{n:"Palak",h:"पालक",q:10.0,u:"g"},{n:"Bathua",h:"बथुआ",q:5.0,u:"g"},{n:"Makkai Atta",h:"मक्की आटा",q:2.5,u:"g"},{n:"Ghee",h:"घी",q:2.5,u:"g"}],
+  "Butter Chicken":[{n:"Chicken",h:"चिकन",q:60.0,u:"g"},{n:"Yogurt",h:"दही",q:7.5,u:"g"},{n:"Butter",h:"मक्खन",q:7.5,u:"g"},{n:"Cream",h:"क्रीम",q:5.0,u:"ml"},{n:"Tomato",h:"टमाटर",q:25.0,u:"g"},{n:"Cashew",h:"काजू",q:2.5,u:"g"}],
+  "Mutton Beliram":[{n:"Mutton",h:"मटन",q:60.0,u:"g"},{n:"Onion (fried)",h:"प्याज़ तला",q:15.0,u:"g"},{n:"Yogurt",h:"दही",q:7.5,u:"g"},{n:"Oil",h:"तेल",q:7.5,u:"ml"}],
+  "Mutton Rogan Josh":[{n:"Mutton",h:"मटन",q:60.0,u:"g"},{n:"Dahi",h:"दही",q:7.5,u:"g"},{n:"Kashmiri Mirch",h:"कश्मीरी मिर्च",q:0.75,u:"g"},{n:"Oil",h:"तेल",q:5.0,u:"ml"}],
+  "Murgh Lababdar":[{n:"Chicken",h:"चिकन",q:60.0,u:"g"},{n:"Onion",h:"प्याज़",q:15.0,u:"g"},{n:"Cream",h:"क्रीम",q:4.0,u:"ml"},{n:"Cashew",h:"काजू",q:2.5,u:"g"}],
+  "Hyderabadi Subz Biryani":[{n:"Basmati Rice",h:"बासमती चावल",q:30.0,u:"g"},{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:20.0,u:"g"},{n:"Onion (fried)",h:"तली प्याज़",q:10.0,u:"g"},{n:"Dahi",h:"दही",q:5.0,u:"g"},{n:"Ghee",h:"घी",q:4.0,u:"g"},{n:"Saffron",h:"केसर",q:0.03,u:"g"}],
+  "Mirch Ka Salan":[{n:"Green Chilli (Bhavnagri)",h:"भवनगरी मिर्च",q:5.0,u:"g"},{n:"Peanut",h:"मूंगफली",q:1.5,u:"g"},{n:"Sesame",h:"तिल",q:1.0,u:"g"},{n:"Coconut",h:"नारियल",q:1.0,u:"g"},{n:"Tamarind",h:"इमली",q:0.5,u:"g"}],
+  "Chicken Dum Biryani":[{n:"Chicken",h:"चिकन",q:60.0,u:"g"},{n:"Basmati Rice",h:"बासमती चावल",q:30.0,u:"g"},{n:"Onion (fried)",h:"तली प्याज़",q:15.0,u:"g"},{n:"Dahi",h:"दही",q:7.5,u:"g"},{n:"Ghee",h:"घी",q:5.0,u:"g"},{n:"Saffron",h:"केसर",q:0.03,u:"g"}],
+  "Bhindi Do Pyaza":[{n:"Bhindi (Okra)",h:"भिंडी",q:25.0,u:"g"},{n:"Onion",h:"प्याज़",q:15.0,u:"g"},{n:"Oil",h:"तेल",q:5.0,u:"ml"}],
+  "Gobhi Masala":[{n:"Cauliflower",h:"फूलगोभी",q:35.0,u:"g"},{n:"Onion",h:"प्याज़",q:10.0,u:"g"},{n:"Tomato",h:"टमाटर",q:10.0,u:"g"},{n:"Oil",h:"तेल",q:4.0,u:"ml"}],
+  "Aloo Methi":[{n:"Potato",h:"आलू",q:30.0,u:"g"},{n:"Methi (Fenugreek)",h:"मेथी",q:10.0,u:"g"},{n:"Oil",h:"तेल",q:3.0,u:"ml"}],
+  "Subz Miloni":[{n:"Mixed Vegetables",h:"मिक्स सब्ज़ी",q:30.0,u:"g"},{n:"Onion",h:"प्याज़",q:7.5,u:"g"},{n:"Cream",h:"क्रीम",q:2.5,u:"ml"}],
+  "Dhaba Chicken":[{n:"Chicken",h:"चिकन",q:60.0,u:"g"},{n:"Onion",h:"प्याज़",q:15.0,u:"g"},{n:"Tomato",h:"टमाटर",q:15.0,u:"g"},{n:"Oil",h:"तेल",q:5.0,u:"ml"}],
+  "Egg Curry":[{n:"Eggs",h:"अंडे",q:2.0,u:"pcs"},{n:"Onion",h:"प्याज़",q:10.0,u:"g"},{n:"Tomato",h:"टमाटर",q:10.0,u:"g"},{n:"Oil",h:"तेल",q:2.5,u:"ml"}],
+  "Dal Tarka":[{n:"Toor Dal",h:"तूर दाल",q:15.0,u:"g"},{n:"Moong Dal",h:"मूंग दाल",q:7.5,u:"g"},{n:"Onion",h:"प्याज़",q:5.0,u:"g"},{n:"Ghee",h:"घी",q:2.5,u:"g"}],
+  "Steamed Rice":[{n:"Basmati Rice",h:"बासमती चावल",q:30.0,u:"g"},{n:"Ghee",h:"घी",q:1.0,u:"g"},{n:"Cumin",h:"जीरा",q:0.25,u:"g"}],
+  "Fish Goan Curry":[{n:"Fish",h:"मछली",q:40.0,u:"g"},{n:"Coconut Milk",h:"नारियल दूध",q:10.0,u:"ml"},{n:"Onion",h:"प्याज़",q:7.5,u:"g"},{n:"Tamarind",h:"इमली",q:1.0,u:"g"}],
+  "Golgappe":[{n:"Semolina",h:"सूजी",q:5,u:"g"},{n:"Wheat Flour",h:"गेहूं आटा",q:3,u:"g"},{n:"Tamarind",h:"इमली",q:3,u:"g"},{n:"Mint",h:"पुदीना",q:2,u:"g"},{n:"Chickpeas (boiled)",h:"छोले उबले",q:5,u:"g"},{n:"Potato (boiled)",h:"आलू उबला",q:5,u:"g"}],
+};
+
 const RECIPE_DB = {
   cats:[
+    {id:"halwai",name:"Halwai & Savoury",icon:"🫓",count:8},
+    {id:"tandoor",name:"Indian Tandoor",icon:"🔥",count:15},
+    {id:"chinese",name:"Chinese & Pan-Asian",icon:"🥢",count:9},
+    {id:"beverages",name:"Beverages",icon:"☕",count:8},
+    {id:"indian",name:"Indian Main Course",icon:"🍛",count:25},
     {id:"sweets",name:"Indian Desserts",icon:"🍮",count:32},
   ],
   recipes:{
+    halwai:[
+      {n:"Aloo Pakoda",sub:"Veg",steps:[{t:"Mesa",i:"आलू छीलकर 3-4mm गोल स्लाइस काटें",tm:900},{t:"Batter",i:"बेसन + कुटी मिर्च + हरी मिर्च + नमक + बेकिंग पाउडर + पानी — गाढ़ा बेटर बनाएं",tm:300},{t:"Frying",i:"तेल 175-180°C गरम करें, आलू बेटर में डुबोकर सुनहरा तलें",tm:1800,ccp:"तेल 175-180°C — कम गर्मी पर तेलीय होगा"},{t:"Drain",i:"छलनी पर निकालें, नमक छिड़कें",tm:120},{t:"Serve",i:"हरी चटनी और इमली चटनी के साथ गर्म परोसें",tm:60,ccp:"तुरंत सर्व — ठंडा होने पर नरम पड़ जाता है"}]},
+      {n:"Gobhi Pakoda",sub:"Veg",steps:[{t:"Mesa",i:"गोभी छोटे फूलों में तोड़ें, धोकर सुखाएं",tm:600,ccp:"गोभी पूरी सूखी हो"},{t:"Batter",i:"बेसन + मसाला बेटर बनाएं",tm:300},{t:"Frying",i:"गोभी बेटर में डुबोकर 175°C तेल में तलें",tm:1800,ccp:"तेल 175-180°C"},{t:"Serve",i:"चटनी के साथ गर्म परोसें",tm:60}]},
+      {n:"Pyaz Pakoda",sub:"Veg",steps:[{t:"Mesa",i:"प्याज पतले छल्लों में काटें",tm:600},{t:"Batter",i:"बेसन + हरी मिर्च + धनिया + मसाला बेटर — प्याज के साथ मिलाएं",tm:300},{t:"Frying",i:"बेटर मिश्रण को छोटे-छोटे हिस्से गर्म तेल में तलें",tm:1500,ccp:"तेल 175-180°C"},{t:"Serve",i:"गर्म चटनी के साथ",tm:60}]},
+      {n:"Palak Pakoda",sub:"Veg",steps:[{t:"Mesa",i:"पालक पत्ते धोकर सुखाएं, बड़े पत्ते चुनें",tm:600,ccp:"पालक पूरी सूखी हो"},{t:"Batter",i:"पतला बेसन बेटर बनाएं + मसाला",tm:300},{t:"Frying",i:"पालक पत्तों को बेटर में डुबोकर कुरकुरा तलें",tm:1200,ccp:"तेल 175°C — पत्ता जले नहीं"},{t:"Serve",i:"तुरंत गर्म परोसें",tm:60,ccp:"तुरंत सर्व करें"}]},
+      {n:"Aloo Paratha",sub:"Veg",steps:[{t:"Dough",i:"आटा + नमक + पानी से नरम आटा गूंधें, 20 मिनट आराम दें",tm:1800},{t:"Filling prep",i:"उबले आलू मैश करें, हरी मिर्च + धनिया + अमचूर + मसाला मिलाएं",tm:600},{t:"Rolling",i:"आटे की लोई लें, भरावन भरें, बेलें",tm:300},{t:"Cooking",i:"तवे पर घी लगाकर दोनों तरफ सुनहरा पकाएं",tm:360,ccp:"तवा गर्म हो — पराठा कच्चा न रहे"},{t:"Serve",i:"घी लगाकर दही/चटनी/अचार के साथ परोसें",tm:60}]},
+      {n:"Samosa Mini",sub:"Veg",steps:[{t:"Dough",i:"मैदा + अजवाइन + नमक + घी मोयन — कड़क आटा गूंधें, 30 मिनट आराम",tm:2100},{t:"Filling prep",i:"आलू उबालकर मैश करें, हरी मिर्च + अमचूर + गरम मसाला + धनिया मिलाएं",tm:900},{t:"Shaping",i:"लोई बेलें, भरावन भरें, त्रिकोण आकार में बंद करें",tm:600},{t:"Frying",i:"धीमी आंच (160°C) पर सुनहरा कुरकुरा तलें",tm:2400,ccp:"धीमी आंच — अंदर तक पकने दें"},{t:"Serve",i:"इमली/हरी चटनी के साथ",tm:60}]},
+      {n:"Arbi Ka Jhol",sub:"Veg",steps:[{t:"Mesa",i:"अरबी उबालकर छीलें, टुकड़ों में काटें",tm:1800},{t:"Shallow fry",i:"तेल में अरबी हल्की क्रिस्पी करें",tm:900},{t:"Masala",i:"इमली + धनिया-जीरा पाउडर + अमचूर + गर्म मसाला ग्रेवी बनाएं",tm:600},{t:"Combine",i:"अरबी ग्रेवी में डालें, 10 मिनट सिमर",tm:600},{t:"Garnish",i:"हरा धनिया डालें",tm:120}]},
+      {n:"Butterscotch Caramel Kheer",sub:"Cold",steps:[{t:"Rice prep",i:"चावल धोकर भिगोएं, दरदरा पीसें",tm:1800},{t:"Kheer cook",i:"दूध उबालें, पिसे चावल डालें, गाढ़ा होने तक पकाएं",tm:2400,ccp:"लगातार चलाएं"},{t:"Caramel",i:"चीनी से कैरेमल बनाएं, खीर में मिलाएं",tm:600,ccp:"कैरेमल जले नहीं"},{t:"Chill",i:"ठंडा करें, बटरस्कॉच चिप्स डालें",tm:3600},{t:"Serve",i:"ग्लास में सर्व करें, व्हिप्ड क्रीम से गार्निश",tm:120}]}
+    ],
+    tandoor:[
+      {n:"Paneer Tikka",sub:"Veg",steps:[{t:"Marination",i:"पनीर क्यूब को दही + सरसों तेल + मसाला में 1-2 घंटे मैरिनेट करें",tm:7200,ccp:"कम से कम 1 घंटा मैरिनेशन"},{t:"Skewering",i:"पनीर + शिमला मिर्च + प्याज + टमाटर बदल-बदलकर सींक में लगाएं",tm:300},{t:"Tandoor",i:"तंदूर 250°C पर — 8-10 मिनट पकाएं, बीच में घुमाएं",tm:600,ccp:"तंदूर 250°C — बाहर धब्बे, अंदर नरम"},{t:"Brush",i:"बाहर निकालकर मक्खन लगाएं, चाट मसाला छिड़कें",tm:60},{t:"Serve",i:"लेमन वेज + हरी चटनी + प्याज सलाद के साथ",tm:60}]},
+      {n:"Soya Chaap Malai",sub:"Veg",steps:[{t:"Marination",i:"सोया चाप क्रीम + काजू पेस्ट + इलायची + मसाला में 1 घंटे मैरिनेट करें",tm:3600},{t:"Tandoor",i:"तंदूर में 8-10 मिनट पकाएं",tm:600,ccp:"अंदर नरम, बाहर हल्के धब्बे"},{t:"Serve",i:"मक्खन लगाकर हरी चटनी के साथ",tm:60}]},
+      {n:"Dahi Ke Sholay",sub:"Veg",steps:[{t:"Filling prep",i:"हंग दही + हरी मिर्च + धनिया + मसाला मिलाएं",tm:300},{t:"Assembly",i:"ब्रेड क्रस्ट में भरावन भरें, बंद करें",tm:600},{t:"Frying",i:"170°C तेल में सुनहरा तलें",tm:600,ccp:"अंदर ठंडा दही — बाहर गर्म क्रस्ट"},{t:"Serve",i:"तुरंत गर्म परोसें",tm:60,ccp:"तुरंत सर्व — ठंडे होने पर नरम"}]},
+      {n:"Golden Coin",sub:"Veg",steps:[{t:"Topping prep",i:"पनीर + कॉर्न + शिमला मिर्च + मसाला टॉपिंग बनाएं",tm:300},{t:"Assembly",i:"ब्रेड डिस्क पर टॉपिंग लगाएं",tm:300},{t:"Frying",i:"170°C तेल में हल्का तलें या बेक करें",tm:600,ccp:"ज्यादा न तलें — रंग सुनहरा"},{t:"Serve",i:"सॉस के साथ तुरंत सर्व",tm:60}]},
+      {n:"Veg Galauti",sub:"Veg",steps:[{t:"Mesa",i:"कच्चा केला + आलू उबालकर मैश करें, बारीक पीसें",tm:1200},{t:"Mixing",i:"खोया + गलौटी मसाला + इत्र मिलाएं, मुलायम होने तक गूंधें",tm:600,ccp:"मिश्रण बिल्कुल चिकना हो"},{t:"Shaping",i:"पतले गोल कटलेट आकार दें",tm:300},{t:"Cooking",i:"तवे पर घी डालकर दोनों तरफ हल्के हाथ से पकाएं",tm:480,ccp:"बहुत नाजुक है — धीरे पलटें"},{t:"Serve",i:"उल्टे तवे पर सर्व, रुमाली रोटी + प्याज सलाद के साथ",tm:60}]},
+      {n:"Mushroom Galauti",sub:"Veg",steps:[{t:"Mesa",i:"मशरूम बारीक काटें, पानी सुखाएं",tm:900,ccp:"नमी पूरी निकले — नहीं तो बिखरेगा"},{t:"Mixing",i:"उबला आलू + खोया + गलौटी मसाला मिलाएं",tm:600},{t:"Cooking",i:"तवे पर घी में पतला फैलाकर पकाएं",tm:480,ccp:"बहुत नाजुक — धीरे पलटें"},{t:"Serve",i:"रुमाली रोटी के साथ",tm:60}]},
+      {n:"Tandoori Broccoli",sub:"Veg",steps:[{t:"Marination",i:"ब्रोकली दही + मसाला + सरसों तेल में 30 मिनट मैरिनेट",tm:1800},{t:"Tandoor",i:"तंदूर में 6-8 मिनट पकाएं",tm:450,ccp:"ज्यादा न पकाएं — क्रंची रहे"},{t:"Serve",i:"चाट मसाला + लेमन + चटनी",tm:60}]},
+      {n:"Chicken Seekh Kebab",sub:"Non-Veg",steps:[{t:"Mesa",i:"कीमा बारीक पीसें, प्याज-अदरक-लहसुन बारीक काटें, पानी निकालें",tm:900,ccp:"कीमे में नमी न हो"},{t:"Mixing",i:"कीमा + मसाले + धनिया + हरी मिर्च + कच्चा पपीता पेस्ट मिलाएं",tm:600},{t:"Shaping",i:"सींक पर बराबर लंबाई में लपेटें",tm:600},{t:"Tandoor",i:"तंदूर में 12-15 मिनट पकाएं, बीच में पलटें",tm:840,ccp:"चिकन 74°C — कच्चा न रहे"},{t:"Serve",i:"मक्खन लगाकर, प्याज + नींबू के साथ",tm:60}]},
+      {n:"Mutton Seekh Kebab",sub:"Non-Veg",steps:[{t:"Mesa",i:"मटन कीमा + पपीता पेस्ट + मसाले मिलाएं, 2 घंटे रखें",tm:7200,ccp:"पपीता पेस्ट मटन को नरम करता है"},{t:"Shaping",i:"सींक पर मोटा आकार दें",tm:600},{t:"Tandoor",i:"तंदूर में 15-18 मिनट — बीच में पलटें, घी लगाएं",tm:1080,ccp:"मटन 71°C — अंदर तक पका हो"},{t:"Serve",i:"घी + चाट मसाला + प्याज + नींबू",tm:60}]},
+      {n:"Tangri Kebab",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन टांग में गहरे cuts लगाएं, दोहरी मैरिनेट — 6-8 घंटे",tm:25200,ccp:"6-8 घंटे मैरिनेशन जरूरी"},{t:"Tandoor",i:"तंदूर में 18-22 मिनट — बीच में पलटें, मक्खन लगाएं",tm:1200,ccp:"चिकन 74°C — हड्डी के पास भी पका हो"},{t:"Serve",i:"मक्खन, चाट मसाला, सलाद के साथ",tm:60}]},
+      {n:"Murgh Malai Tikka",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन को क्रीम + चीज़ + इलायची + सफ़ेद मसाला में 4-6 घंटे मैरिनेट",tm:21600,ccp:"कम से कम 4 घंटे"},{t:"Tandoor",i:"250°C तंदूर में 12-15 मिनट",tm:840,ccp:"चिकन 74°C — सफेद रंग बना रहे"},{t:"Serve",i:"मक्खन, सलाद, हरी चटनी के साथ",tm:60}]},
+      {n:"Chicken Tikka",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन दही + कश्मीरी मिर्च + मसाला में 4-6 घंटे",tm:21600,ccp:"कम से कम 4 घंटे"},{t:"Tandoor",i:"250°C तंदूर में 12-15 मिनट, धब्बे पड़ने दें",tm:840,ccp:"चिकन 74°C"},{t:"Serve",i:"नींबू + प्याज + हरी चटनी",tm:60}]},
+      {n:"Fish Tikka",sub:"Non-Veg",steps:[{t:"Marination",i:"मछली के टुकड़े + दही + अजवाइन + मसाला — 30 मिनट",tm:1800},{t:"Skewering",i:"सींक में लगाएं, सब्ज़ियों के साथ",tm:180},{t:"Tandoor",i:"250°C में 8-10 मिनट — मछली नाजुक होती है",tm:540,ccp:"मछली 63°C — ज्यादा न पकाएं वरना बिखरेगी"},{t:"Serve",i:"नींबू + चाट मसाला + पुदीना चटनी",tm:60}]},
+      {n:"Mint Chutney",sub:"Veg",steps:[{t:"Blend",i:"पुदीना + धनिया + हरी मिर्च + अदरक + नींबू रस + थोड़ा पानी — पीस लें",tm:180},{t:"Adjust",i:"नमक + काला नमक एडजस्ट करें",tm:60},{t:"Serve",i:"ताज़ी परोसें या ठंडा करके रखें",tm:60,ccp:"1 घंटे से ज्यादा न रखें — रंग काला पड़ता है"}]},
+      {n:"Naan",sub:"Bread",steps:[{t:"Dough",i:"मैदा + दही + नमक + बेकिंग पाउडर + पानी — नरम आटा, 30 मिनट आराम",tm:2100},{t:"Roll",i:"तिकोना या गोल बेलें, लहसुन/तिल ऑप्शन",tm:60},{t:"Tandoor",i:"तंदूर की दीवार पर थपकाएं, 2-3 मिनट",tm:150,ccp:"फूलना चाहिए — तंदूर गर्म हो"},{t:"Serve",i:"मक्खन लगाकर गर्म परोसें",tm:30}]}
+    ],
+    chinese:[
+      {n:"Honey Chilli Potatoes",sub:"Veg",steps:[{t:"Prep",i:"आलू फिंगर कट — कॉर्नफ्लोर + नमक बेटर में कोट",tm:1200},{t:"Frying",i:"175-180°C तेल में कुरकुरा तलें",tm:1500,ccp:"तेल 175-180°C — कुरकुरा बने"},{t:"Sauce",i:"वॉक में लहसुन + अदरक भूनें, टोमैटो + चिली सॉस + शहद डालें",tm:480},{t:"Toss",i:"तले आलू डालकर तेज़ आंच पर टॉस करें, तिल + स्प्रिंग अनियन",tm:180,ccp:"शहद आखिर में — जलने से बचाएं"},{t:"Serve",i:"तुरंत सर्व करें",tm:60,ccp:"तुरंत सर्व — ठंडे होने पर नरम"}]},
+      {n:"Schezwan Mushroom",sub:"Veg",steps:[{t:"Prep",i:"मशरूम कॉर्नफ्लोर में कोट करें",tm:300},{t:"Fry",i:"170°C तेल में तलें",tm:600,ccp:"ज्यादा न तलें — नमी रहे"},{t:"Sauce",i:"वॉक में लहसुन + शिमला मिर्च + स्चेज़वान सॉस डालें",tm:480},{t:"Toss",i:"मशरूम डालकर टॉस करें, स्प्रिंग अनियन",tm:180},{t:"Serve",i:"तुरंत सर्व",tm:60}]},
+      {n:"Chilli Paneer",sub:"Veg",steps:[{t:"Prep",i:"पनीर क्यूब कॉर्नफ्लोर + सोया मैरिनेट में डुबोएं",tm:600},{t:"Fry",i:"170°C में सुनहरा तलें",tm:600,ccp:"पनीर मुलायम रहे — ज्यादा न तलें"},{t:"Sauce",i:"लहसुन + प्याज + शिमला मिर्च + सोया + विनेगर + चिली सॉस",tm:480},{t:"Toss",i:"पनीर डालकर टॉस करें",tm:180},{t:"Serve",i:"स्प्रिंग अनियन से गार्निश, तुरंत सर्व",tm:60}]},
+      {n:"Veg Spring Roll",sub:"Veg",steps:[{t:"Filling",i:"सब्ज़ी + नूडल्स + सोया + मसाला — स्टर फ्राई करें, ठंडा करें",tm:900},{t:"Roll",i:"शीट पर भरावन रखें, कसकर रोल करें, मैदा-पानी से सील करें",tm:600},{t:"Fry",i:"175°C में कुरकुरा सुनहरा तलें",tm:480,ccp:"तेल 175°C — सील मजबूत हो नहीं तो खुलेगा"},{t:"Serve",i:"चिली सॉस + स्वीट चिली के साथ",tm:60}]},
+      {n:"Veg Momos",sub:"Veg",steps:[{t:"Dough",i:"मैदा + नमक + पानी — कड़क आटा, 20 मिनट आराम",tm:1800},{t:"Filling",i:"पत्तागोभी + गाजर + प्याज + सोया + मसाला भरावन",tm:600},{t:"Shaping",i:"पतली पूरी बेलें, भरें, प्लीट बनाएं",tm:900,ccp:"प्लीट कसी हों — भाप में खुले नहीं"},{t:"Steam",i:"10-12 मिनट भाप में पकाएं",tm:720,ccp:"पूरी तरह पका हो — पारदर्शी दिखे"},{t:"Serve",i:"मोमो चटनी / स्चेज़वान के साथ",tm:60}]},
+      {n:"Green Thai Curry Veg",sub:"Veg",steps:[{t:"Paste",i:"ग्रीन थाई पेस्ट + लेमनग्रास + कफ़िर लाइम भूनें",tm:300},{t:"Coconut milk",i:"नारियल दूध डालें, उबालें",tm:600},{t:"Vegetables",i:"सब्ज़ियां डालें, 10 मिनट पकाएं",tm:600,ccp:"सब्ज़ी क्रंची रहे"},{t:"Season",i:"फिश सॉस (veg: soy) + गुड़/चीनी + नींबू रस",tm:180},{t:"Serve",i:"स्टीम्ड राइस के साथ",tm:60}]},
+      {n:"Chicken Red Thai Curry",sub:"Non-Veg",steps:[{t:"Paste",i:"रेड थाई पेस्ट + तेल में भूनें",tm:300},{t:"Chicken",i:"चिकन डालें, सील करें",tm:600,ccp:"चिकन 74°C"},{t:"Coconut milk",i:"नारियल दूध डालें, 15 मिनट सिमर",tm:900},{t:"Season",i:"फिश सॉस + गुड़ + बेसिल + नींबू रस",tm:180},{t:"Serve",i:"जैस्मीन राइस के साथ",tm:60}]},
+      {n:"Veg Hakka Noodles",sub:"Veg",steps:[{t:"Boil noodles",i:"नूडल्स al dente उबालें, ठंडे पानी से धोएं, तेल लगाएं",tm:480,ccp:"ओवरकुक नहीं — चिपकेंगे"},{t:"Stir fry",i:"वॉक में तेल + सब्ज़ियां हाई फ्लेम पर भूनें",tm:300},{t:"Noodles",i:"नूडल्स + सोया + विनेगर + सॉस + काली मिर्च टॉस करें",tm:300,ccp:"हाई फ्लेम — तेज़ आंच पर 2 मिनट"},{t:"Serve",i:"स्प्रिंग अनियन + चिली सॉस",tm:60}]},
+      {n:"Garlic Onion Fried Rice",sub:"Veg",steps:[{t:"Rice prep",i:"चावल पहले पकाएं, ठंडा करें — ताज़ा चावल नहीं",tm:1800,ccp:"चावल एकदम ठंडा हो — नहीं तो चिपकेगा"},{t:"Stir fry",i:"वॉक में तेल + लहसुन + प्याज हाई फ्लेम पर भूनें",tm:300},{t:"Add rice",i:"ठंडा चावल डालें, तेज आंच पर टॉस करें",tm:300,ccp:"हाई फ्लेम — wok hei के लिए"},{t:"Season",i:"सोया सॉस + काली मिर्च + नमक + सिरका",tm:120},{t:"Serve",i:"स्प्रिंग अनियन से गार्निश",tm:60}]}
+    ],
+    beverages:[
+      {n:"Green Tea",sub:"Hot",steps:[{t:"Heat water",i:"पानी 80°C तक गरम करें — उबलता पानी नहीं",tm:180,ccp:"80°C — उबलते पानी में ग्रीन टी कड़वी होती है"},{t:"Steep",i:"टी बैग डालें — ठीक 2-3 मिनट",tm:150,ccp:"3 मिनट से ज्यादा नहीं — कसैला होगा"},{t:"Finish",i:"शहद + नींबू रस मिलाएं",tm:30},{t:"Serve",i:"सॉसर में रखकर ताज़ा सर्व करें",tm:30,ccp:"हर बार ताज़ा बनाएं — बैच ब्रू न करें"}]},
+      {n:"Masala Chai",sub:"Hot",steps:[{t:"Spice prep",i:"अदरक कुचलें, इलायची फोड़ें, दालचीनी तोड़ें",tm:120},{t:"Boil",i:"पानी + मसाले उबालें, 3-4 मिनट सिमर",tm:360},{t:"Tea",i:"चाय पत्ती डालें, 1 मिनट",tm:60,ccp:"ज्यादा न उबालें — कसैली होगी"},{t:"Milk",i:"दूध डालें, उबाल आने दें, 2 मिनट",tm:180},{t:"Strain + serve",i:"छानकर कुल्हड़ में तुरंत सर्व",tm:30,ccp:"15 मिनट से ज्यादा न रखें — दोबारा उबाली चाय का स्वाद जाता है"}]},
+      {n:"Virgin Mojito",sub:"Mocktail",steps:[{t:"Muddle",i:"ग्लास में नींबू + पुदीना + शुगर सिरप मडल करें",tm:60},{t:"Ice",i:"क्रश्ड बर्फ भरें",tm:30},{t:"Top up",i:"सोडा भरें, हल्के से स्टिर करें",tm:30},{t:"Garnish",i:"पुदीना + नींबू वेज",tm:30,ccp:"तुरंत सर्व — सोडा फ्लैट होता है"}]},
+      {n:"Jaljeera",sub:"Mocktail",steps:[{t:"Base prep",i:"जलजीरा मसाला + इमली पानी + पुदीना + ब्लैक सॉल्ट पेस्ट बनाएं",tm:300},{t:"Mix",i:"ठंडे पानी में बेस मिलाएं, स्वाद एडजस्ट करें",tm:120},{t:"Serve",i:"बर्फ के साथ छोटे गिलास में, पुदीना + बूंदी गार्निश",tm:60}]},
+      {n:"Shikanji",sub:"Mocktail",steps:[{t:"Mix",i:"नींबू रस + चीनी + काला नमक + भुना जीरा पाउडर मिलाएं",tm:60},{t:"Water",i:"ठंडा पानी + बर्फ डालें",tm:30},{t:"Serve",i:"पुदीना पत्ते से गार्निश",tm:30}]},
+      {n:"Mango Michelada",sub:"Mocktail",steps:[{t:"Rim glass",i:"ग्लास रिम पर चिली सॉल्ट लगाएं",tm:30},{t:"Mix",i:"आम प्यूरी + नींबू रस + मसाला + बर्फ मिलाएं",tm:60},{t:"Top up",i:"सोडा डालें",tm:30},{t:"Serve",i:"आम के टुकड़े + नींबू से गार्निश",tm:30}]},
+      {n:"Spicy Jamun Shots",sub:"Mocktail",steps:[{t:"Mix",i:"जामुन प्यूरी + नींबू रस + जलजीरा पाउडर + काला नमक मिलाएं",tm:60},{t:"Chill",i:"बर्फ के साथ शेक करें",tm:30},{t:"Serve",i:"शॉट ग्लास में — रिम पर चाट मसाला",tm:30}]},
+      {n:"Caribbean Citrus Cooler",sub:"Mocktail",steps:[{t:"Mix",i:"संतरे का रस + अनानास रस + नींबू रस + ग्रेनाडाइन मिलाएं",tm:60},{t:"Ice",i:"ग्लास में बर्फ भरें",tm:20},{t:"Top",i:"सोडा डालें",tm:20},{t:"Garnish",i:"संतरे की स्लाइस + पुदीना",tm:30}]}
+    ],
+    indian:[
+      {n:"Paneer Lababdar",sub:"Veg",steps:[{t:"Mesa",i:"टमाटर-काजू पेस्ट तैयार करें। प्याज़ बारीक काटें। सभी मसाले मापकर रखें।",tm:900},{t:"Gravy base",i:"तेल+मक्खन गरम करें, प्याज़ सुनहरा भूनें, अदरक-लहसुन पेस्ट डालें",tm:900,ccp:"प्याज़ हल्का सुनहरा हो"},{t:"Paste + cook",i:"टमाटर-काजू पेस्ट डालें, खोया+चीज़ मिलाएं, तेल अलग होने तक पकाएं",tm:900},{t:"Cream + paneer",i:"दूध+क्रीम डालें, पनीर के टुकड़े मिलाएं",tm:600,ccp:"लगातार चलाएं — फटे नहीं"},{t:"Finishing",i:"गरम मसाला, कसूरी मेथी, चीनी, हरा धनिया डालें। नमक एडजस्ट करें।",tm:300},{t:"Garnish",i:"ऊपर से क्रीम स्वर्ल, मक्खन और हरा धनिया",tm:120}]},
+      {n:"Dal-E-Ambria",sub:"Veg",steps:[{t:"Soaking",i:"उड़द+मूंग दाल धोकर रात भर (8-10 घंटे) भिगोएं",tm:36000},{t:"Pressure cook",i:"भीगी दाल को नमक+हल्दी के साथ 7-8 सीटी तक उबालें, मैश करें",tm:3600,ccp:"दाल पूरी तरह गली हो"},{t:"Tadka base",i:"तेल+मक्खन गरम करें, प्याज़ सुनहरा भूनें, अदरक-लहसुन पेस्ट+मसाले भूनें",tm:900},{t:"Slow cook",i:"दाल को तड़के में मिलाएं, धीमी आंच पर 30-40 मिनट पकाएं",tm:2400,ccp:"लगातार चलाएं — नीचे न लगे"},{t:"Finishing",i:"फ्रेश क्रीम, मक्खन, कसूरी मेथी डालें। नमक एडजस्ट करें।",tm:300,ccp:"क्रीम आखिर में — फटे नहीं"},{t:"Garnish",i:"मक्खन का टुकड़ा, क्रीम स्वर्ल, हरा धनिया",tm:120}]},
+      {n:"Palak Paneer",sub:"Veg",steps:[{t:"Mesa",i:"पालक धोकर ब्लांच करें, बर्फ के पानी में डालें, पीस लें",tm:900},{t:"Gravy base",i:"तेल+घी में प्याज़ भूनें, अदरक-लहसुन+टमाटर पेस्ट डालें",tm:900},{t:"Palak mix",i:"पालक प्यूरी डालें, मसाले मिलाएं, 10-15 मिनट पकाएं",tm:900,ccp:"ज्यादा न पकाएं — रंग बना रहे"},{t:"Paneer add",i:"पनीर टुकड़े डालें, 5 मिनट धीमी आंच पर पकाएं",tm:300},{t:"Finishing",i:"क्रीम, कसूरी मेथी, गरम मसाला डालें",tm:180}]},
+      {n:"Diwan-e-Handi",sub:"Veg",steps:[{t:"Mesa",i:"सब्ज़ियां काटें, पनीर क्यूब करें, काजू भिगोकर पेस्ट बनाएं",tm:900},{t:"Gravy",i:"प्याज़ सुनहरा भूनें, टमाटर+काजू पेस्ट डालें, पकाएं",tm:900},{t:"Cooking",i:"सब्ज़ियां+पनीर डालें, क्रीम मिलाएं, ढककर दम पर पकाएं",tm:1200,ccp:"सब्ज़ी गली न हो"},{t:"Finishing",i:"गरम मसाला, कसूरी मेथी, घी डालें",tm:180}]},
+      {n:"Malai Kofta",sub:"Veg",steps:[{t:"Kofta prep",i:"पनीर+आलू+मेवा मिलाकर गोले बनाएं, ठंडा करें",tm:1200},{t:"Frying",i:"गोले गरम तेल में सुनहरे तलें",tm:900,ccp:"तेल 160°C — धीमी आंच"},{t:"Gravy",i:"प्याज़-काजू-टमाटर ग्रेवी बनाएं, क्रीम+खोया मिलाएं",tm:1200},{t:"Assembly",i:"सर्विंग बाउल में ग्रेवी डालें, कोफ़्ते ऊपर रखें",tm:300,ccp:"कोफ़्ते ग्रेवी में आखिर में डालें"},{t:"Garnish",i:"क्रीम स्वर्ल, कसूरी मेथी, धनिया",tm:120}]},
+      {n:"Dum Aloo Kashmiri",sub:"Veg",steps:[{t:"Mesa",i:"आलू उबालें, छीलें, चाकू से चीरा लगाएं",tm:1800},{t:"Frying",i:"आलू तलें जब तक सुनहरे हों",tm:900,ccp:"बाहर कुरकुरे, अंदर नरम"},{t:"Gravy",i:"दही+कश्मीरी मसाला ग्रेवी बनाएं",tm:900},{t:"Dum cook",i:"आलू ग्रेवी में डालें, ढककर दम पर 20 मिनट पकाएं",tm:1200,ccp:"आलू में मसाला अंदर तक जाए"},{t:"Finishing",i:"केसर दूध, गरम मसाला, धनिया डालें",tm:180}]},
+      {n:"Kadhi Pakoda",sub:"Veg",steps:[{t:"Pakoda batter",i:"बेसन+प्याज़+पालक+मसाले मिलाकर घोल बनाएं",tm:600},{t:"Fry pakodas",i:"गरम तेल में पकोड़े सुनहरे तलें",tm:900,ccp:"तेल 180°C"},{t:"Kadhi prep",i:"बेसन+दही का घोल फेंटें, उबालें, 20 मिनट पकाएं",tm:1500},{t:"Assembly",i:"पकोड़े कढ़ी में डालें, 10 मिनट सिमर करें",tm:600},{t:"Tadka",i:"घी में जीरा+करी पत्ता+सूखी मिर्च का तड़का लगाएं",tm:180}]},
+      {n:"Amritsari Pindi Choley",sub:"Veg",steps:[{t:"Soaking",i:"छोले रात भर टी बैग के साथ भिगोएं",tm:36000},{t:"Pressure cook",i:"छोले प्रेशर कुकर में नरम होने तक उबालें",tm:2400},{t:"Masala prep",i:"प्याज़ सुनहरा भूनें, टमाटर+छोले मसाला+अमचूर डालें",tm:900},{t:"Cooking",i:"छोले मसाले में मिलाएं, 30 मिनट धीमी आंच पर पकाएं",tm:1800,ccp:"गाढ़ा ग्रेवी बने"},{t:"Garnish",i:"अदरक जुलिएन, हरा धनिया, नींबू",tm:120}]},
+      {n:"Sarson Ka Saag",sub:"Veg",steps:[{t:"Blanch greens",i:"सरसों+पालक+बथुआ धोकर उबालें, पीस लें",tm:1800},{t:"Cooking",i:"मक्की आटा मिलाकर धीमी आंच पर 45 मिनट पकाएं",tm:2700,ccp:"लगातार चलाएं"},{t:"Tadka",i:"घी में लहसुन+अदरक+सूखी मिर्च का तड़का",tm:300},{t:"Finishing",i:"मक्खन का टुकड़ा ऊपर, मक्की रोटी के साथ सर्व",tm:120}]},
+      {n:"Butter Chicken",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन को दही+मसाले में 4 घंटे मैरिनेट करें",tm:14400},{t:"Tandoor cook",i:"तंदूर/ग्रिल में चिकन पकाएं",tm:900,ccp:"अंदर का तापमान 74°C"},{t:"Makhani gravy",i:"टमाटर-काजू ग्रेवी बनाएं, मक्खन+क्रीम मिलाएं",tm:1200},{t:"Combine",i:"तंदूरी चिकन ग्रेवी में मिलाएं, 15 मिनट सिमर",tm:900},{t:"Finishing",i:"शहद, क्रीम, कसूरी मेथी डालें",tm:180}]},
+      {n:"Mutton Beliram",sub:"Non-Veg",steps:[{t:"Mesa",i:"मटन धोकर साफ करें, प्याज़ बारीक काटें, मसाले तैयार रखें",tm:900},{t:"Sear mutton",i:"तेल में मटन सील करें, प्याज़ भूनें",tm:1200},{t:"Slow cook",i:"दही+मसाले डालें, ढककर 90 मिनट धीमी आंच पर पकाएं",tm:5400,ccp:"मटन अंदर तक गला हो — 71°C"},{t:"Finishing",i:"गरम मसाला, तली प्याज़, हरा धनिया",tm:300}]},
+      {n:"Mutton Rogan Josh",sub:"Non-Veg",steps:[{t:"Mesa",i:"मटन साफ करें, कश्मीरी मिर्च भिगोकर पेस्ट बनाएं",tm:900},{t:"Brown mutton",i:"तेल में मटन भूनें, प्याज़+अदरक-लहसुन डालें",tm:1200},{t:"Slow cook",i:"दही+रोगन जोश मसाला डालें, 90 मिनट धीमी आंच पर पकाएं",tm:5400,ccp:"मटन गला हो — 71°C"},{t:"Finishing",i:"गरम मसाला, केसर, हरा धनिया",tm:180}]},
+      {n:"Murgh Lababdar",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन दही+मसाले में 2 घंटे मैरिनेट करें",tm:7200},{t:"Gravy prep",i:"टमाटर-काजू ग्रेवी बनाएं",tm:900},{t:"Cook chicken",i:"मैरिनेटेड चिकन पकाएं, ग्रेवी डालें, 20 मिनट सिमर",tm:1200,ccp:"चिकन 74°C"},{t:"Finishing",i:"क्रीम, शिमला मिर्च, कसूरी मेथी डालें",tm:300}]},
+      {n:"Hyderabadi Subz Biryani",sub:"Veg",steps:[{t:"Rice prep",i:"चावल धोकर 30 मिनट भिगोएं, 70% उबालें",tm:2400},{t:"Masala prep",i:"सब्ज़ी+दही+बिरयानी मसाला ग्रेवी बनाएं",tm:1200},{t:"Layering",i:"हांडी में ग्रेवी → चावल → तली प्याज़ → केसर दूध लेयर करें",tm:600},{t:"Dum cook",i:"आटे से सील कर 45 मिनट दम दें",tm:2700,ccp:"धीमी आंच — चावल न टूटे"},{t:"Serve",i:"गेंती मारें, रायता+मिर्च सलन के साथ सर्व",tm:300}]},
+      {n:"Mirch Ka Salan",sub:"Veg",steps:[{t:"Mesa",i:"मिर्च धोकर चीरा लगाएं, मूंगफली+तिल+नारियल भूनकर पीस लें",tm:900},{t:"Fry chillies",i:"तेल में मिर्च हल्की भूनें",tm:600},{t:"Gravy",i:"प्याज़ भूनें, पेस्ट+इमली+गुड़ डालें, 15 मिनट पकाएं",tm:900},{t:"Combine",i:"मिर्च ग्रेवी में डालें, 10 मिनट सिमर",tm:600}]},
+      {n:"Chicken Dum Biryani",sub:"Non-Veg",steps:[{t:"Marination",i:"चिकन दही+बिरयानी मसाला+कश्मीरी मिर्च में 4 घंटे मैरिनेट",tm:14400},{t:"Rice prep",i:"चावल धोकर भिगोएं, 70% उबालें, छानें",tm:2400},{t:"Cook chicken",i:"मैरिनेटेड चिकन आधा पकाएं",tm:1200,ccp:"चिकन कच्चा न रहे"},{t:"Layering",i:"हांडी में चिकन → चावल → तली प्याज़ → केसर दूध → घी",tm:600},{t:"Dum cook",i:"आटे से सील कर 45 मिनट दम दें",tm:2700,ccp:"धीमी आंच, चावल न टूटे"},{t:"Serve",i:"गेंती मारकर सर्व — रायता+मिर्च सलन साथ में",tm:300}]},
+      {n:"Bhindi Do Pyaza",sub:"Veg",steps:[{t:"Mesa",i:"भिंडी धोकर सुखाएं, काटें। प्याज़ रिंग्स काटें।",tm:900,ccp:"भिंडी पूरी सूखी हो"},{t:"Fry bhindi",i:"तेल में भिंडी कुरकुरी तलें",tm:1200,ccp:"चिपचिपी न हो"},{t:"Masala",i:"प्याज़ भूनें, मसाले+टमाटर डालें",tm:600},{t:"Combine",i:"तली भिंडी मसाले में मिलाएं, 5 मिनट पकाएं",tm:300}]},
+      {n:"Gobhi Masala",sub:"Veg",steps:[{t:"Mesa",i:"गोभी फूल तोड़ें, धोएं। प्याज़-टमाटर काटें।",tm:600},{t:"Fry gobhi",i:"गोभी हल्की तलें या तवे पर भूनें",tm:900},{t:"Masala",i:"प्याज़ भूनें, टमाटर+मसाले डालें, पकाएं",tm:600},{t:"Cooking",i:"गोभी मसाले में मिलाएं, ढककर 10 मिनट पकाएं",tm:600,ccp:"गोभी गली न हो"},{t:"Finishing",i:"गरम मसाला, हरा धनिया, हरी मिर्च",tm:120}]},
+      {n:"Aloo Methi",sub:"Veg",steps:[{t:"Mesa",i:"आलू उबालकर काटें, मेथी धोकर काटें",tm:1200},{t:"Cooking",i:"तेल में जीरा+आलू भूनें, मेथी+मसाले डालें",tm:900},{t:"Finish",i:"ढककर 10 मिनट धीमी आंच, अमचूर+गरम मसाला",tm:600}]},
+      {n:"Subz Miloni",sub:"Veg",steps:[{t:"Mesa",i:"सब्ज़ियां काटें (गाजर, बीन्स, मटर, शिमला मिर्च)",tm:900},{t:"Gravy",i:"प्याज़ भूनें, टमाटर+मसाले डालें, पकाएं",tm:900},{t:"Cooking",i:"सब्ज़ियां डालें, ढककर 15 मिनट पकाएं",tm:900,ccp:"सब्ज़ी क्रंची रहे"},{t:"Finishing",i:"क्रीम, गरम मसाला, धनिया",tm:180}]},
+      {n:"Dhaba Chicken",sub:"Non-Veg",steps:[{t:"Mesa",i:"चिकन साफ करें, प्याज़-टमाटर काटें",tm:600},{t:"Sear",i:"तेल में चिकन सील करें, निकालें",tm:600,ccp:"बाहर सुनहरा"},{t:"Masala",i:"प्याज़ गहरा भूनें, टमाटर+ढाबा मसाला डालें",tm:900},{t:"Cook",i:"चिकन वापस डालें, 25 मिनट पकाएं",tm:1500,ccp:"चिकन 74°C"},{t:"Finishing",i:"कसूरी मेथी, घी, धनिया",tm:180}]},
+      {n:"Egg Curry",sub:"Non-Veg",steps:[{t:"Boil eggs",i:"अंडे उबालें, छीलें, चाकू से चीरा लगाएं",tm:900},{t:"Gravy",i:"प्याज़ भूनें, टमाटर+मसाले डालें, ग्रेवी बनाएं",tm:900},{t:"Combine",i:"अंडे ग्रेवी में डालें, 10 मिनट सिमर",tm:600},{t:"Finishing",i:"गरम मसाला, धनिया",tm:120}]},
+      {n:"Dal Tarka",sub:"Veg",steps:[{t:"Wash + cook",i:"दाल धोकर प्रेशर कुकर में नरम उबालें",tm:2400},{t:"Mash",i:"दाल मैश करें, पानी से कंसिस्टेंसी एडजस्ट",tm:300},{t:"Tadka",i:"घी में जीरा+लहसुन+सूखी मिर्च+करी पत्ता+प्याज़ तड़का",tm:600},{t:"Combine",i:"तड़का दाल में डालें, 10 मिनट उबालें",tm:600},{t:"Garnish",i:"हरा धनिया, नींबू रस",tm:60}]},
+      {n:"Steamed Rice",sub:"Veg",steps:[{t:"Wash + soak",i:"चावल धोकर 20 मिनट भिगोएं",tm:1200},{t:"Boil",i:"पानी+नमक+तेज पत्ता में चावल उबालें",tm:900,ccp:"चावल खिले-खिले — ओवरकुक न हो"},{t:"Drain + steam",i:"छानें, 5 मिनट दम दें",tm:300},{t:"Finishing",i:"जीरा घी का तड़का, धनिया गार्निश",tm:180}]},
+      {n:"Fish Goan Curry",sub:"Non-Veg",steps:[{t:"Mesa",i:"मछली साफ करें, टुकड़े करें, नमक+हल्दी लगाएं",tm:600},{t:"Masala",i:"प्याज़+लहसुन भूनें, नारियल+कश्मीरी मिर्च पेस्ट डालें",tm:900},{t:"Gravy",i:"नारियल दूध+इमली पानी डालें, 10 मिनट उबालें",tm:600},{t:"Cook fish",i:"मछली ग्रेवी में डालें, 10 मिनट सिमर",tm:600,ccp:"मछली 63°C — ज्यादा न पकाएं"},{t:"Finishing",i:"करी पत्ता, धनिया, नींबू रस",tm:120}]}
+    ],
     sweets:[
       {n:"Gajar Ka Halwa",sub:"Hot",steps:[{t:"Mesa",i:"गाजर धोकर छीलें और कद्दूकस करें",tm:900},{t:"Cooking",i:"कढ़ाही में कसी गाजर + दूध डालें, मध्यम आँच पर 30-35 मिनट पकाएं",tm:2100,ccp:"बीच-बीच में चलाते रहें"},{t:"Sugar",i:"दूध गाढ़ा होने पर चीनी डालें, लगातार चलाएं",tm:600},{t:"Ghee roast",i:"घी डालकर धीमी आँच पर भूनें जब तक घी अलग न हो जाए",tm:900,ccp:"जलने न दें"},{t:"Khoya",i:"खोया डालकर अच्छे से मिक्स करें",tm:300},{t:"Garnish",i:"काजू, इलायची पाउडर डालें, अंतिम बार भूनें",tm:180,ccp:"टेक्सचर स्मूद और चमकदार हो"}]},
       {n:"Moong Dal Halwa",sub:"Hot",steps:[{t:"Soaking",i:"मूंग दाल को 10-15 मिनट भिगोएं, दरदरा पीस लें",tm:1200},{t:"Roasting",i:"कढ़ाही में घी गरम करें, पिसी दाल 35-40 मिनट भूनें",tm:2400,ccp:"कच्ची दाल की खुशबू खत्म होनी चाहिए"},{t:"Sugar + water",i:"चीनी और पानी डालें, उबालें, गाढ़ा होने तक पकाएं",tm:1200,ccp:"लगातार चलाते रहें"},{t:"Garnish",i:"काजू और इलायची पाउडर डालकर मिक्स करें",tm:120}]},
@@ -4368,14 +5036,93 @@ function getFullSteps(name){
 }
 
 // ─── PREP PLAN COMPONENT ─────────────────────────────────────────────────
-function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) {
+
+// ─── DISH IMAGE MAP (Unsplash food photos) ───────────────────────────────────
+function getDishImageUrl(dishName) {
+  const DISH_IMAGES = {
+    "Paneer Lababdar":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
+    "Dal Makhani":"https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=70",
+    "Dal-E-Ambria":"https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=70",
+    "Palak Paneer":"https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&q=70",
+    "Malai Kofta":"https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=400&q=70",
+    "Butter Chicken":"https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400&q=70",
+    "Murgh Lababdar":"https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400&q=70",
+    "Mutton Rogan Josh":"https://images.unsplash.com/photo-1545247181-516773cae754?w=400&q=70",
+    "Mutton Beliram":"https://images.unsplash.com/photo-1545247181-516773cae754?w=400&q=70",
+    "Dum Aloo Kashmiri":"https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70",
+    "Amritsari Pindi Choley":"https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&q=70",
+    "Kadhi Pakoda":"https://images.unsplash.com/photo-1630851840633-f96999247032?w=400&q=70",
+    "Sarson Ka Saag":"https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70",
+    "Hyderabadi Subz Biryani":"https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&q=70",
+    "Chicken Dum Biryani":"https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&q=70",
+    "Gobhi Masala":"https://images.unsplash.com/photo-1574653853027-5382a3d23a15?w=400&q=70",
+    "Diwan-e-Handi":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
+    "Paneer Tikka Shashlik":"https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&q=70",
+    "Paneer Tikka":"https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&q=70",
+    "Murgh Malai Tikka":"https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=400&q=70",
+    "Mutton Seekh Kebab":"https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70",
+    "Tandoori Roti":"https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400&q=70",
+    "Naan":"https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400&q=70",
+    "Steamed Rice":"https://images.unsplash.com/photo-1516684732162-798a0062be99?w=400&q=70",
+    "Veg Biryani":"https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&q=70",
+    "Jeera Rice":"https://images.unsplash.com/photo-1516684732162-798a0062be99?w=400&q=70",
+    "Golgappe with Varieties of Water":"https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70",
+    "Golgappe":"https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70",
+    "Crispy Aloo Tikki":"https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&q=70",
+    "Honey Chilli Potatoes":"https://images.unsplash.com/photo-1576402187878-974f70c890a5?w=400&q=70",
+    "Veg Manchurian Gravy":"https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=400&q=70",
+    "Vegetable Hakka Noodles":"https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=400&q=70",
+    "Chilli Chicken Dry":"https://images.unsplash.com/photo-1610057099431-d73a1c9d2f2f?w=400&q=70",
+    "Gajar Ka Halwa":"https://images.unsplash.com/photo-1576158113928-4c240eaaf360?w=400&q=70",
+    "Gulab Jamun":"https://images.unsplash.com/photo-1607920591413-4ec007e70023?w=400&q=70",
+    "Ras Malai":"https://images.unsplash.com/photo-1611270418597-a6c77f4b7271?w=400&q=70",
+    "Phirni":"https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&q=70",
+    "Gulab Kheer":"https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&q=70",
+    "Kaju Katli":"https://images.unsplash.com/photo-1519676867240-f03562e64548?w=400&q=70",
+    "Jalebi":"https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&q=70",
+    "Tilla Kulfi":"https://images.unsplash.com/photo-1559703248-dcaaec9fab78?w=400&q=70",
+    "Rasgulla":"https://images.unsplash.com/photo-1581424089014-81c0c5ca0bd7?w=400&q=70",
+    "Moong Dal Halwa":"https://images.unsplash.com/photo-1576158113928-4c240eaaf360?w=400&q=70",
+    "Shahi Tukda":"https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&q=70",
+    "Fruit Cream":"https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&q=70",
+    "Fruit Custard":"https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&q=70",
+    "Bhindi Do Pyaza":"https://images.unsplash.com/photo-1674825810891-4e3c0e92da19?w=400&q=70",
+    "Dal Tarka":"https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=70",
+    "Fish Goan Curry":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
+    "Egg Curry":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
+    "Dhaba Chicken":"https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400&q=70",
+    "Subz Miloni":"https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&q=70",
+    "Aloo Methi":"https://images.unsplash.com/photo-1574653853027-5382a3d23a15?w=400&q=70",
+    "Mirch Ka Salan":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
+  };
+  // Exact match
+  if(DISH_IMAGES[dishName]) return DISH_IMAGES[dishName];
+  // Partial match
+  const key = Object.keys(DISH_IMAGES).find(k=>dishName.toLowerCase().includes(k.toLowerCase())||k.toLowerCase().includes(dishName.split(" ")[0].toLowerCase()));
+  if(key) return DISH_IMAGES[key];
+  // Fallback by section keyword
+  const dl = dishName.toLowerCase();
+  if(dl.includes("paneer")||dl.includes("tofu")) return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70";
+  if(dl.includes("chicken")||dl.includes("murgh")) return "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400&q=70";
+  if(dl.includes("mutton")||dl.includes("lamb")) return "https://images.unsplash.com/photo-1545247181-516773cae754?w=400&q=70";
+  if(dl.includes("biryani")||dl.includes("rice")||dl.includes("pulao")) return "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&q=70";
+  if(dl.includes("dal")||dl.includes("lentil")) return "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=70";
+  if(dl.includes("naan")||dl.includes("roti")||dl.includes("bread")) return "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400&q=70";
+  if(dl.includes("tikka")||dl.includes("kebab")||dl.includes("seekh")) return "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&q=70";
+  if(dl.includes("halwa")||dl.includes("kheer")||dl.includes("sweet")||dl.includes("rabri")) return "https://images.unsplash.com/photo-1576158113928-4c240eaaf360?w=400&q=70";
+  if(dl.includes("chaat")||dl.includes("golgapp")||dl.includes("papdi")) return "https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&q=70";
+  return "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=70";
+}
+
+function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false }) {
   const T2 = s => T(s, lang);
-  const evList = safeArr(events);
+  const evList0 = safeArr(events);
+  const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
   const todayEvs = evList.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
   const tomorrowEvs = evList.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
 
-  const [tab, setTab] = useState("today");
+  const [tab, setTab] = useState(()=>todayEvs.length>0?"today":"d1");
   const [expandedDish, setExpandedDish] = useState(null); // "evId|idx"
   const [expandedSecs, setExpandedSecs] = useState({});
   const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
@@ -4384,7 +5131,51 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
   const [sopCat, setSopCat] = useState(null);
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
+  const [scaleDish, setScaleDish] = useState("");
+  const [scaleMode, setScaleMode] = useState("single");
+  const [scalePkg, setScalePkg] = useState("");
+  const [scaleMultiSel, setScaleMultiSel] = useState({});
+  const [scaleOverrides, setScaleOverrides] = useState({});
+  const [scaleEditing, setScaleEditing] = useState(null);
+  const [scalePercent, setScalePercent] = useState(100); // % multiplier
+  const [scaleEventId, setScaleEventId] = useState("manual"); // "manual" | eventId
+  const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
+  const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
+  // Helper: get effective scaling % for an event
+  function getEventScale(evId){return appliedScales[evId]?.percent||100;}
+  // Apply scaling to a raw per-pax quantity
+  function applyScale(q, evId){return q*(getEventScale(evId)/100);}
   const [tick, setTick] = useState(0);
+
+  // ── Chef Photo on Mark as Complete ──
+  const [readyModal, setReadyModal] = useState(null); // {evId,idx,dishName}
+  const [readyPhoto, setReadyPhoto] = useState(null);
+  const [readyCamOn, setReadyCamOn] = useState(false);
+  const readyVidRef = useRef(null);
+  const readyStreamRef = useRef(null);
+  function startReadyCam(){
+    setReadyCamOn(true);
+    setTimeout(()=>{
+      navigator.mediaDevices?.getUserMedia({video:{facingMode:"user",width:480,height:360}})
+        .then(s=>{readyStreamRef.current=s;if(readyVidRef.current){readyVidRef.current.srcObject=s;readyVidRef.current.play();}})
+        .catch(()=>{setReadyCamOn(false);});
+    },200);
+  }
+  function stopReadyCam(){if(readyStreamRef.current){readyStreamRef.current.getTracks().forEach(t=>t.stop());readyStreamRef.current=null;}setReadyCamOn(false);}
+  function snapReady(){
+    if(!readyVidRef.current||!readyCamOn) return null;
+    const c=document.createElement("canvas");c.width=320;c.height=240;
+    c.getContext("2d").drawImage(readyVidRef.current,0,0,320,240);
+    return c.toDataURL("image/jpeg",0.7);
+  }
+
+  // ── Store Step: stoppable timer + quality remarks ──
+  const [storeRemarks, setStoreRemarks] = useState({}); // {"evId_idx_si": {rating:"",text:""}}
+  function stopStoreStep(evId,idx,si){
+    const d=ds(evId,idx);
+    setDs(evId,idx,{manual:{...(d.manual||{}),[si]:true},storeEndAt:{...(d.storeEndAt||{}),[si]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}});
+  }
+  function saveStoreRemark(key,field,val){setStoreRemarks(p=>({...p,[key]:{...(p[key]||{rating:"",text:""}),[field]:val}}))}
 
   // Global 1-second tick drives all running timers
   useEffect(()=>{const t=setInterval(()=>setTick(k=>k+1),1000);return()=>clearInterval(t);},[]);
@@ -4421,7 +5212,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
     setDs(evId,idx,{manual:{...(d.manual||{}),[si]:true}});
   }
   function markComplete(evId,idx){setDs(evId,idx,{complete:true,completeAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}
-  function markReady(evId,idx){setDs(evId,idx,{ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}
+  function markReady(evId,idx,dishName){setReadyModal({evId,idx,dishName});setReadyPhoto(null);setTimeout(startReadyCam,100);}
   function markDishDispatch(evId,idx){setDs(evId,idx,{dispatchReady:true,dispatchAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}
   function markDispatch(evId){setEvMeta(evId,"__dispatch_ready",true);setEvMeta(evId,"__dispatch_time",new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}));}
   // Venues that need dispatch (not base kitchen)
@@ -4434,24 +5225,198 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
     return{rdy,total:kitchenMenu.length,allRdy:rdy===kitchenMenu.length&&kitchenMenu.length>0,dispatched:!!(kt[ev.id]?.__dispatch_ready)};
   }
 
-  const TABS=[{v:"today",l:`🔥 ${T2("Today's Tasks")}`},{v:"d1",l:`📋 ${T2("D-1 Tomorrow Prep")}`},{v:"sops",l:`📖 ${T2("Recipe SOPs")}`},{v:"menus",l:`📜 ${T2("Menu Packages")}`}];
+  const tomorrowLabel = new Date(TOMORROW+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{day:"numeric",month:"short"});
+  const todayLabel2   = new Date(TODAY+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{day:"numeric",month:"short"});
+  const dayAfterLabel = new Date(DAY_AFTER+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{day:"numeric",month:"short"});
+  const hasTodayEvs   = todayEvs.length > 0;
+  const hasTomorrowEvs = tomorrowEvs.length > 0;
+  const hasDayAfterEvs = evList.filter(e=>e.date===DAY_AFTER).length > 0;
+
+  const tomorrowEv0 = tomorrowEvs[0];
+  const dayAfterEv0 = evList.find(e=>e.date===DAY_AFTER);
+
+  // Tab 1:
+  // No event today  → "🔥 31 May — D-1 for 1 Jun"
+  // Event today     → "🔥 1 Jun  — Final Cooking"
+  const todayTabL = hasTodayEvs
+    ? `🔥 ${todayLabel2} — ${T2("Final Cooking")} (${todayEvs.reduce((s,e)=>s+(+e.pax||0),0)} pax)`
+    : `🔥 ${todayLabel2} — D-1 ${T2("for")} ${tomorrowLabel} (${tomorrowEvs.reduce((s,e)=>s+(+e.pax||0),0)} pax)`;
+
+  // Tab 2:
+  // No event today  → "Continue of 31 May D-1 & D-1 for 2 Jun"  (Jun 1 event day = continuation + new D-1 for Jun 2)
+  // Event today     → "Continue of [today] D-1 & D-1 for [dayAfter]"
+  const contDate    = hasTodayEvs ? todayLabel2 : todayLabel2;
+  const nextD1Date  = hasTodayEvs ? dayAfterLabel : dayAfterLabel;
+  const nextD1Ev    = hasTodayEvs ? dayAfterEv0 : dayAfterEv0;
+  const d1ForDate   = hasTodayEvs ? DAY_AFTER : TOMORROW;
+  const d1ForLabel  = hasTodayEvs ? dayAfterLabel : tomorrowLabel;
+  const d1Ev        = hasTodayEvs ? dayAfterEv0 : tomorrowEv0;
+
+  const contPax  = hasTodayEvs ? todayEvs.reduce((s,e)=>s+(+e.pax||0),0) : tomorrowEvs.reduce((s,e)=>s+(+e.pax||0),0);
+  const newD1Pax = evList.filter(e=>e.date===DAY_AFTER).reduce((s,e)=>s+(+e.pax||0),0);
+  const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
+
+  const TABS=[
+    {v:"today", l:todayTabL},
+    {v:"d1",    l:d1TabL},
+    {v:"scale", l:`⚖️ ${T2("Pax Scaling")}`},
+    {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
+    {v:"menus", l:`📜 ${T2("Menu")}`},
+  ];
 
   // ── Inline dish card (shows live progress) ──
 
   return(
-    <div>
+    <div style={{position:"relative"}}>
+
+      {/* ── Chef Photo Modal ── */}
+      {readyModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.surface,borderRadius:20,padding:"28px 24px",maxWidth:400,width:"100%",border:`2px solid ${C.greenBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
+            <div style={{textAlign:"center",marginBottom:16}}>
+              <div style={{fontSize:32,marginBottom:8}}>📸</div>
+              <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2("Dish Ready!")}</div>
+              <div style={{fontSize:14,color:C.gold,marginTop:4,fontWeight:600}}>{readyModal.dishName}</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Take a photo of the completed dish before marking as done")}</div>
+            </div>
+            <div style={{borderRadius:14,overflow:"hidden",background:"#000",marginBottom:14,minHeight:200,position:"relative"}}>
+              {!readyPhoto?<video ref={readyVidRef} autoPlay playsInline muted style={{width:"100%",height:200,objectFit:"cover",display:"block"}}/>
+                          :<img src={readyPhoto} alt="dish" style={{width:"100%",height:200,objectFit:"cover",display:"block"}}/>}
+              {!readyCamOn&&!readyPhoto&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>📷 {T2("Starting camera…")}</div>}
+            </div>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {!readyPhoto
+                ?<button onClick={()=>{const s=snapReady();if(s){setReadyPhoto(s);stopReadyCam();}}} style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:46}}>📸 {T2("Capture Photo")}</button>
+                :<button onClick={()=>{setReadyPhoto(null);startReadyCam();}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:46}}>🔄 {T2("Retake")}</button>
+              }
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>{
+                const {evId,idx}=readyModal;
+                setDs(evId,idx,{ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),readyPhoto:readyPhoto||null});
+                stopReadyCam();setReadyModal(null);setReadyPhoto(null);
+              }} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#1E6634)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:50,fontFamily:"var(--font-display)",letterSpacing:.5}}>
+                ✅ {T2("Confirm Ready")}
+              </button>
+              <button onClick={()=>{stopReadyCam();setReadyModal(null);setReadyPhoto(null);}} style={{padding:"14px 18px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:50}}>✕</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TABS */}
       <div style={{display:"flex",gap:8,marginBottom:18}}>
         {TABS.map(t=>(
-          <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"14px 24px",borderRadius:24,fontSize:15,fontWeight:600,cursor:"pointer",minHeight:48,background:tab===t.v?C.gold:"transparent",color:tab===t.v?"#0A0A0F":C.muted,border:`2px solid ${tab===t.v?C.gold:C.border}`}}>{t.l}</button>
+          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"14px 24px",borderRadius:24,fontSize:15,fontWeight:600,cursor:"pointer",minHeight:48,background:tab===t.v?C.gold:"transparent",color:tab===t.v?"#0A0A0F":C.muted,border:`2px solid ${tab===t.v?C.gold:C.border}`}}>{t.l}</button>
         ))}
       </div>
 
       {/* ═══ D-1 PREP ═══ */}
       {/* ═══ D-1 PREP — CONSOLIDATED ═══ */}
       {tab==="today"&&(()=>{
+        // If no event today → this tab IS the D-1 prep for tomorrow's function
+        if(!hasTodayEvs) {
+          const evs=tomorrowEvs;
+          if(evs.length===0) return <Card style={{padding:"32px 24px",textAlign:"center"}}><div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{fontSize:14,color:C.muted}}>{T2("No upcoming functions to prep for")}</div></Card>;
+          const byDish={};
+          evs.forEach(ev=>{
+            const sp=ev.special||"";
+            const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
+            safeArr(ev.menu).forEach((name,idx)=>{
+              if(guessSectionForDish(name)==="Beverages") return;
+              if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+              byDish[name].totalPax+=ev.pax||0;
+              byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
+              if(isSpecial) byDish[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
+            });
+          });
+          const bySec={};Object.entries(byDish).forEach(([n,info])=>{if(!bySec[info.sec])bySec[info.sec]=[];bySec[info.sec].push({name:n,...info});});
+          const secKeys=Object.keys(bySec).sort();const totalU=Object.keys(byDish).length;
+          return(
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>
+                📋 D-1 {T2("for")} {tomorrowLabel} — {evs.map(e=>e.guest).join(" · ")}
+              </div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{evs.map(e=>`${e.pax} pax`).join(" + ")} · {T2("Advance prep today")}</div>
+              <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"center"}}>
+                <span style={{fontSize:18}}>💡</span>
+                <div style={{fontSize:12,color:C.gold}}>{T2("These are advance prep steps — Mesa, marination, grinding, cutting, dough. Actual cooking will happen on the event day")} ({tomorrowLabel}).</div>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.gold}}>{totalU}</div><div style={{fontSize:11,color:C.muted}}>{T2("unique dishes")}</div></div>
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.text}}>{evs.reduce((s,e)=>s+(e.pax||0),0)}</div><div style={{fontSize:11,color:C.muted}}>{T2("total pax")}</div></div>
+              </div>
+              {secKeys.map(sec=>{
+                const items=bySec[sec];const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                const mesaDone2=items.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+                const d1Pct=Math.round(mesaDone2/items.length*100);
+                const d1Open=isSecOpen("d1t_"+sec);
+                const d1Specials=[...new Map(items.flatMap(d=>d.specials||[]).map(sp=>[sp.guest+"|"+sp.instruction,sp])).values()];
+                return(<Card key={sec} style={{marginBottom:12,padding:0,overflow:"hidden"}}>
+                  <div onClick={()=>toggleSec("d1t_"+sec)} style={{padding:"14px 16px",background:m2.color+"10",borderBottom:d1Open?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:14,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)}</span>
+                        <span style={{fontSize:11,color:C.muted}}>{items.length} {T2("dishes")}</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{width:48,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:d1Pct+"%",background:mesaDone2===items.length?C.green:C.amber,borderRadius:3}}/></div>
+                        <span style={{fontSize:13,fontWeight:700,color:mesaDone2===items.length?C.green:d1Pct>0?C.amber:C.muted,minWidth:40,textAlign:"right"}}>{d1Pct}%</span>
+                        {d1Specials.length>0&&<span onClick={e=>{e.stopPropagation();setSpecialOpen(specialOpen==="d1t_"+sec?null:"d1t_"+sec);}} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer",fontWeight:700}}>🚫 {d1Specials.length}</span>}
+                        <span style={{fontSize:14,color:C.muted,transform:d1Open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                      </div>
+                    </div>
+                  </div>
+                  {specialOpen==="d1t_"+sec&&d1Specials.length>0&&<div style={{padding:"10px 16px",background:C.redBg+"80",borderBottom:`1px solid ${C.redBorder}`}} onClick={e=>e.stopPropagation()}>
+                    {d1Specials.map((sp,si)=><div key={si} style={{fontSize:12,color:C.red,padding:"6px 0",borderBottom:si<d1Specials.length-1?`1px solid ${C.redBorder}40`:"none"}}>🚫 <b>{sp.pax} {T2("pax")}</b> — {sp.guest}: {sp.instruction}</div>)}
+                  </div>}
+                  {d1Open&&<div style={{padding:"10px 16px"}}>{items.map((dish,di)=>{
+                    const cKey=`d1t_${dish.fEvId}_${dish.fIdx}`;const isExp2=expandedDish===cKey;const d2=ds(dish.fEvId,dish.fIdx);
+                    const allStepsTmp=getStepsForDish(dish.name);
+                    const steps2=allStepsTmp.length>0?allStepsTmp:[{t:"Mesa",i:"Wash, cut, measure all ingredients as per recipe",tm:600},{t:"Primary prep",i:"Prepare base masala / paste / marinade",tm:480}];
+                    const allDone2=!!d2.mesaDone;
+                    return(<div key={di} style={{marginBottom:6}}>
+                      <div onClick={()=>setExpandedDish(isExp2?null:cKey)} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 8px",borderRadius:10,cursor:"pointer",background:allDone2?C.greenBg:C.surface,border:`1px solid ${allDone2?C.greenBorder:C.border}`}}>
+                        <div style={{width:28,height:28,borderRadius:8,border:`2px solid ${allDone2?C.green:C.border}`,background:allDone2?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{allDone2&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:700,color:allDone2?C.green:C.text}}>{dish.name}</div>
+                          <div style={{fontSize:12,color:C.gold}}>{dish.totalPax} {T2("pax")} · {steps2.length} {T2("mesa steps")}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{dish.fns.map(f=>`${f.g} (${f.p})`).join(" · ")}</div>
+                        </div>
+                        <span style={{fontSize:14,color:C.muted,transform:isExp2?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                      </div>
+                      {isExp2&&(<div style={{padding:"8px 8px 8px 44px"}}>{steps2.map((step,si)=>{
+                        const running2=!!(d2.starts?.[`mesa_${si}`])&&!(d2.manual?.[`mesa_${si}`])&&!(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000)>=step.tm));
+                        const sDone2=!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm));
+                        const el3=running2?Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000):0;const rem2=Math.max(0,(step.tm||0)-el3);
+                        const pct3=step.tm>0?Math.min(100,Math.round(el3/step.tm*100)):(sDone2?100:0);
+                        const prevOk2=si===0||!!(d2.manual?.[`mesa_${si-1}`])||(d2.starts?.[`mesa_${si-1}`]&&steps2[si-1]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si-1}`]||0))/1000)>=steps2[si-1].tm));
+                        return(<div key={si} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:si<steps2.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                          <div style={{width:26,height:26,borderRadius:8,background:sDone2?C.green:running2?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone2||running2?"#0A0A0F":C.muted,flexShrink:0}}>{sDone2?"✓":si+1}</div>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:12,fontWeight:600,color:sDone2?C.green:C.text}}>{step.t}</div>
+                            {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted}}>{step.i||step.desc}</div>}
+                            {step.ccp&&<div style={{fontSize:11,color:C.red,marginTop:2}}>🔴 CCP: {step.ccp}</div>}
+                            {step.tm>0&&<div style={{height:6,background:C.border,borderRadius:2,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:pct3+"%",background:sDone2?C.green:C.amber,borderRadius:2,transition:"width .5s"}}/></div>}
+                            {running2&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⏱ {fmtT(el3)}/{fmtT(step.tm)} — {fmtT(rem2)} {T2("left")}</div>}
+                          </div>
+                          {!running2&&!sDone2&&step.tm>0&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2.starts||{}),[`mesa_${si}`]:Date.now()}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>▶ {fmtT(step.tm)}</button>}
+                          {!running2&&!sDone2&&!step.tm&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2.manual||{}),[`mesa_${si}`]:true}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>✓</button>}
+                        </div>);})}
+                        {steps2.every((_,si)=>!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&steps2[si]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=steps2[si].tm)))&&!allDone2&&(
+                          <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginTop:6,minHeight:40}}>✅ {T2("Mesa Complete")} — {dish.name} ({dish.totalPax} {T2("pax")})</button>
+                        )}
+                      </div>)}
+                    </div>);
+                  })}</div>}
+                </Card>);
+              })}
+            </div>
+          );
+        }
+
+        // Event today → show full cooking tasks
         const evs=todayEvs;
-        if(evs.length===0) return <div><div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:16}}>🔥 {T2("Today's Plan of Action")}</div><div style={{textAlign:"center",padding:40,background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🔥</div>{T2("No events today")}</div></div>;
         const byDish={};
         evs.forEach(ev=>{
           const sp=ev.special||"";
@@ -4470,8 +5435,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
         const allDishesReady=totalReady===totalU&&totalU>0;
         return(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:4}}>🔥 {T2("Today's Tasks")} — {TODAY_LABEL}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Consolidated cooking — one batch per dish for all functions")}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🔥 {T2("Today's Tasks")} — {TODAY_LABEL}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:6}}>
+              {evs.length>0?`${T2("Event day cooking for")} ${evs.map(e=>e.guest).join(" · ")} (${evs.reduce((s,e)=>s+(+e.pax||0),0)} ${T2("pax")})`:T2("No events today — focus on D-1 prep below")}
+            </div>
             {(()=>{const d1Count=Object.values(byDish).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;const d1Total=totalU;return d1Count>0?(
               <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10,padding:"10px 14px",marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
                 <span style={{fontSize:18}}>✅</span>
@@ -4490,11 +5457,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.text}}>{evs.length}</div><div style={{fontSize:11,color:C.muted}}>{T2("functions")}</div></div>
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.text}}>{evs.reduce((s,e)=>s+(e.pax||0),0)}</div><div style={{fontSize:11,color:C.muted}}>{T2("total pax")}</div></div>
             </div>
+            {secKeys.length===0&&(
+              <Card style={{padding:"32px 24px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:36,marginBottom:12}}>📋</div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>{T2("No events today")}</div>
+                <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>{T2("Today is a D-1 prep day.")}<br/>{T2("Switch to the D-1 tab to see all advance prep tasks for tomorrow's function.")}</div>
+                <button onClick={()=>setTab("d1")} style={{marginTop:16,padding:"12px 24px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+                  📋 {T2("Go to D-1 Prep")} →
+                </button>
+              </Card>
+            )}
             {secKeys.map(sec=>{const items=bySec[sec];const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
               const secReady=items.filter(d=>ds(d.fEvId,d.fIdx).ready).length;
               const secPct=Math.round(secReady/items.length*100);
               const secOpen=isSecOpen("today_"+sec);
-              const secSpecials=items.flatMap(d=>d.specials||[]);
+              const secSpecials=[...new Map(items.flatMap(d=>d.specials||[]).map(sp=>[sp.guest+"|"+sp.instruction,sp])).values()];
               return(<Card key={sec} style={{marginBottom:12,padding:0,overflow:"hidden"}}>
                 <div onClick={()=>toggleSec("today_"+sec)} style={{padding:"14px 16px",background:m2.color+"10",borderBottom:secOpen?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -4518,34 +5495,36 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
                   const runSi=steps3.findIndex((_,si)=>d3.starts?.[si]&&!stepDone(d3,si));
                   const doneSi=steps3.filter((_,si)=>stepDone(d3,si)).length;const pctA=safePct(doneSi,steps3.length);
                   const isExp3=expandedDish===dk(dish.fEvId,dish.fIdx);
-                  return(<div key={di} style={{marginBottom:6,background:C.surface,border:`1.5px solid ${d3.ready?C.greenBorder:runSi>=0?C.amberBorder:C.border}`,borderRadius:12,overflow:"hidden"}}>
-                    <div onClick={()=>setExpandedDish(isExp3?null:dk(dish.fEvId,dish.fIdx))} style={{padding:"12px 16px",cursor:"pointer",display:"flex",gap:12,alignItems:"center"}}>
-                      <div style={{width:32,height:32,borderRadius:8,background:d3.ready?C.green:runSi>=0?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:d3.ready||runSi>=0?"#0A0A0F":C.muted,flexShrink:0}}>{d3.ready?"✓":runSi>=0?"⏱":di+1}</div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:d3.ready?C.green:C.text}}>{dish.name}</div>
-                        <div style={{fontSize:12,color:C.gold}}>{dish.totalPax} {T2("pax")} · {dish.fns.map(f=>f.g+" ("+f.p+")").join(" · ")}</div>
-                        {dish.specials.length>0&&<div style={{marginTop:3}}>
-                          {dish.specials.map((sp,si)=>(
-                            <div key={si} style={{fontSize:11,color:C.red,marginTop:2}}>🚫 {sp.pax} {T2("pax")} — {sp.guest}: {sp.instruction}</div>
-                          ))}
-                        </div>}
-                        <div style={{fontSize:12,color:C.muted}}>{doneSi}/{steps3.length} {T2("steps")} {d3.readyAt?"· ✅ "+d3.readyAt:""}</div>
-                        {!d3.ready&&<div style={{height:5,background:C.border,borderRadius:2,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:pctA+"%",background:runSi>=0?C.amber:C.muted,borderRadius:2,transition:"width .5s"}}/></div>}
+                  const imgUrl=getDishImageUrl(dish.name);
+                  return(<div key={di} style={{marginBottom:8,border:`1.5px solid ${d3.ready?C.greenBorder:runSi>=0?C.amberBorder:C.border}`,borderRadius:14,overflow:"hidden",boxShadow:"0 4px 16px rgba(0,0,0,.4)"}}>
+                    <div onClick={()=>setExpandedDish(isExp3?null:dk(dish.fEvId,dish.fIdx))} style={{cursor:"pointer",position:"relative",minHeight:72}}>
+                      {/* Dish image background */}
+                      <div style={{position:"absolute",inset:0,backgroundImage:`url(${imgUrl})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(.35) saturate(.8)"}}/>
+                      <div style={{position:"absolute",inset:0,background:`linear-gradient(90deg, rgba(10,9,8,.92) 45%, rgba(10,9,8,.4) 100%)`}}/>
+                      {/* Content over image */}
+                      <div style={{position:"relative",padding:"12px 16px",display:"flex",gap:12,alignItems:"center"}}>
+                        <div style={{width:36,height:36,borderRadius:10,background:d3.ready?C.green:runSi>=0?C.amber:C.darkCard+"CC",border:`2px solid ${d3.ready?C.green:runSi>=0?C.amber:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:d3.ready||runSi>=0?"#0A0A0F":C.muted,flexShrink:0,backdropFilter:"blur(4px)"}}>{d3.ready?"✓":runSi>=0?"⏱":di+1}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:14,fontWeight:700,color:d3.ready?C.green:C.cream,letterSpacing:.2,textShadow:"0 1px 4px rgba(0,0,0,.5)"}}>{dish.name}</div>
+                          <div style={{fontSize:11,color:C.gold,marginTop:2,textShadow:"0 1px 3px rgba(0,0,0,.4)"}}>{dish.totalPax} {T2("pax")} · {dish.fns.map(f=>f.g+" ("+f.p+")").join(" · ")}</div>
+                          <div style={{fontSize:11,color:d3.readyAt?C.green:C.muted,marginTop:1}}>{doneSi}/{steps3.length} {T2("steps")} {d3.readyAt?"· ✅ "+d3.readyAt:""}</div>
+                          {!d3.ready&&<div style={{height:3,background:"rgba(255,255,255,.1)",borderRadius:2,marginTop:5,overflow:"hidden"}}><div style={{height:"100%",width:pctA+"%",background:runSi>=0?C.amber:C.muted,borderRadius:2,transition:"width .5s"}}/></div>}
+                        </div>
+                        {runSi>=0&&(()=>{const el4=elapsed(d3,runSi);const tm4=d3.stepTm?.[runSi]||0;return <div style={{fontSize:16,fontWeight:700,color:C.amber,flexShrink:0,textShadow:"0 1px 4px rgba(0,0,0,.5)"}}>{fmtT(Math.max(0,tm4-el4))}</div>;})()}
+                        <span style={{fontSize:16,color:"rgba(255,255,255,.5)",transform:isExp3?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>▾</span>
                       </div>
-                      {runSi>=0&&(()=>{const el4=elapsed(d3,runSi);const tm4=d3.stepTm?.[runSi]||0;return <div style={{fontSize:14,fontWeight:700,color:C.amber,flexShrink:0}}>{fmtT(Math.max(0,tm4-el4))}</div>;})()}
-                      <span style={{fontSize:16,color:C.muted,transform:isExp3?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>▾</span>
                     </div>
                     {isExp3&&(<div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
                       {/* D-1 Mesa Status */}
                       {(()=>{
-                        const mesaSteps2=getStepsForDish(dish.name).filter(s=>/mesa|masala|prep|mix|shap|boil|soak|marin|grind|batter|dough|cut|chop|blanch|peel/i.test(s.t||""));
+                        const mesaAllSteps=getStepsForDish(dish.name);
                         const mesaDone2=!!d3.mesaDone;
-                        const mesaCount=mesaSteps2.length||1;
+                        const mesaCount=mesaAllSteps.length||1;
                         return (
                           <div style={{background:mesaDone2?C.greenBg:C.amberBg,border:`1px solid ${mesaDone2?C.greenBorder:C.amberBorder}`,borderRadius:10,padding:"10px 14px",marginBottom:10}}>
                             <div style={{fontSize:12,fontWeight:700,color:mesaDone2?C.green:C.amber}}>{mesaDone2?"✅":"⏳"} D-1 Mesa: {mesaDone2?T2("Completed"):T2("Pending")}</div>
                             <div style={{fontSize:11,color:C.muted,marginTop:3}}>{mesaDone2?T2("All advance prep was done yesterday. Continue with cooking steps below."):T2("Mesa prep not done on D-1. Start from Mesa steps first.")}</div>
-                            {mesaDone2&&mesaSteps2.length>0&&<div style={{fontSize:11,color:C.green,marginTop:4}}>{mesaSteps2.map(s=>s.t).join(" → ")} ✓</div>}
+                            {mesaDone2&&mesaAllSteps.length>0&&<div style={{fontSize:11,color:C.green,marginTop:4}}>{mesaAllSteps.filter(s=>/mesa|prep|marin|grind|dough|cut/i.test(s.t||"")).map(s=>s.t).join(" → ")} ✓</div>}
                           </div>
                         );
                       })()}
@@ -4556,22 +5535,119 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
                           <div style={{width:32,height:32,borderRadius:8,background:done3?C.green:running3?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:done3||running3?"#0A0A0F":C.muted,flexShrink:0}}>{done3?"✓":si+1}</div>
                           <div style={{flex:1}}>
                             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                              <span style={{fontSize:12,fontWeight:700,color:done3?C.green:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</span>
+                              <span style={{fontSize:12,fontWeight:700,color:done3?C.green:step.store?C.gold:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</span>
                               {d1Done&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>D-1 ✅</span>}
+                              {step.store&&done3&&d3.storeEndAt?.[si]&&<span style={{fontSize:10,color:C.green,marginLeft:4}}>⏹ {d3.storeEndAt[si]}</span>}
                             </div>
                             {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{step.i}</div>}
                             {step.ccp&&<div style={{fontSize:11,color:C.red,background:C.redBg,padding:"6px 10px",borderRadius:4,display:"inline-block",marginTop:3}}>🔴 CCP: {step.ccp}</div>}
-                            {tm5>0&&<div style={{marginTop:6}}><div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:done3?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/></div><div style={{fontSize:11,color:running3?C.amber:done3?C.green:C.muted}}>{running3?`⏱ ${fmtT(el5)} / ${fmtT(tm5)} — ${fmtT(rem3)} ${T2("left")}`:done3?`✓ ${fmtT(tm5)}`:`⏱ ${fmtT(tm5)}`}</div></div>}
-                            {!running3&&!done3&&tm5>0&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
-                            {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
-                            {!running3&&!done3&&!prevOk3&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
+
+                            {step.store?(
+                              <div style={{marginTop:8}}>
+                                {/* Scaling badge if applied */}
+                                {(()=>{
+                                  const evScale=appliedScales[dish.fEvId]||appliedScales["manual"];
+                                  if(evScale&&evScale.percent!==100&&evScale.dishes.includes(dish.name)){
+                                    return(
+                                      <div style={{background:evScale.percent<100?C.amberBg:C.greenBg,border:`1px solid ${evScale.percent<100?C.amberBorder:C.greenBorder}`,borderRadius:8,padding:"6px 12px",marginBottom:8,fontSize:11,display:"flex",gap:8,alignItems:"center"}}>
+                                        <span style={{fontWeight:700,color:evScale.percent<100?C.amber:C.green}}>📐 {evScale.percent}% scaling applied</span>
+                                        <span style={{color:C.muted}}>· {evScale.eventName||"Manual"} · {evScale.appliedAt}</span>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                {/* Scaled ingredient list */}
+                                {RECIPE_INGREDIENTS[dish.name]&&(()=>{
+                                  const evPct=(appliedScales[dish.fEvId]||appliedScales["manual"])?.percent||100;
+                                  const ev=evList.find(e=>e.id===dish.fEvId);
+                                  const pax=ev?+ev.pax:0;
+                                  const ing=RECIPE_INGREDIENTS[dish.name];
+                                  if(!pax) return null;
+                                  return(
+                                    <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
+                                      <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:6}}>🧺 {T2("Items to collect")} — {pax} pax {evPct!==100?`@ ${evPct}%`:""}</div>
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
+                                        {ing.filter(i=>i.q>0).map((i,ii)=>{
+                                          const raw=i.q*pax*(evPct/100);
+                                          const qty=i.u==="g"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g":i.u==="ml"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml":i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;
+                                          return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <strong style={{color:C.gold}}>{qty}</strong></span>;
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                {!running3&&!done3&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,3600);}} style={{padding:"12px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,display:"flex",gap:8,alignItems:"center"}}>🏃 {T2("Go Collect Items")} — {T2("1 hr timer")}</button>}
+                                {running3&&<div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:12,padding:"14px 16px"}}>
+                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                                    <div>
+                                      <div style={{fontSize:15,fontWeight:700,color:C.amber}}>⏱ {fmtT(el5)} {T2("elapsed")}</div>
+                                      <div style={{fontSize:11,color:C.muted}}>{fmtT(Math.max(0,3600-el5))} {T2("remaining of 1 hr limit")}</div>
+                                    </div>
+                                    <button onClick={e=>{e.stopPropagation();stopStoreStep(dish.fEvId,dish.fIdx,si);}} style={{padding:"10px 18px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>✅ {T2("Done")}</button>
+                                  </div>
+                                  <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:10}}>
+                                    <div style={{height:"100%",width:Math.min(100,Math.round(el5/3600*100))+"%",background:el5>3000?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                                  </div>
+                                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📝 {T2("Quality Remarks")}</div>
+                                  {/* Quality rating buttons */}
+                                  {(()=>{
+                                    const rKey=dish.fEvId+"_"+dish.fIdx+"_"+si;
+                                    const rm=storeRemarks[rKey]||{rating:"",text:""};
+                                    const RATINGS=[
+                                      {v:"excellent",l:"🌟 "+T2("Excellent"),c:"#22C55E",bg:"#052E16"},
+                                      {v:"good",l:"✅ "+T2("Good"),c:C.green,bg:C.greenBg},
+                                      {v:"average",l:"🟡 "+T2("Average"),c:C.amber,bg:C.amberBg},
+                                      {v:"poor",l:"🔴 "+T2("Poor Quality"),c:C.red,bg:C.redBg},
+                                      {v:"missing",l:"⚠️ "+T2("Items Missing"),c:"#F97316",bg:"#2D1B00"},
+                                    ];
+                                    return(
+                                      <div>
+                                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                                          {RATINGS.map(r=>(
+                                            <button key={r.v} onClick={e=>{e.stopPropagation();saveStoreRemark(rKey,"rating",rm.rating===r.v?"":r.v);}}
+                                              style={{padding:"8px 12px",borderRadius:10,border:`2px solid ${rm.rating===r.v?r.c:C.border}`,background:rm.rating===r.v?r.bg:"transparent",color:rm.rating===r.v?r.c:C.muted,fontSize:12,fontWeight:rm.rating===r.v?700:400,cursor:"pointer",minHeight:38}}>
+                                              {r.l}
+                                            </button>
+                                          ))}
+                                        </div>
+                                        <textarea value={rm.text||""} onChange={e=>{e.stopPropagation();saveStoreRemark(rKey,"text",e.target.value);}} onClick={e=>e.stopPropagation()} placeholder={T2("e.g. Paneer fresh, tomatoes slightly overripe, onion good quality…")} rows={2} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,resize:"none",boxSizing:"border-box"}}/>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>}
+                                {done3&&<div style={{marginTop:4}}>
+                                  <span style={{fontSize:12,color:C.green}}>✅ {T2("Collected")} {d3.storeEndAt?.[si]?"· "+d3.storeEndAt[si]:""}</span>
+                                  {(()=>{
+                                    const rKey=dish.fEvId+"_"+dish.fIdx+"_"+si;
+                                    const rm=storeRemarks[rKey]||{};
+                                    if(!rm.rating&&!rm.text) return null;
+                                    const RATING_COLORS={excellent:"#22C55E",good:C.green,average:C.amber,poor:C.red,missing:"#F97316"};
+                                    const RATING_LABELS={excellent:"🌟 Excellent",good:"✅ Good",average:"🟡 Average",poor:"🔴 Poor Quality",missing:"⚠️ Items Missing"};
+                                    return(
+                                      <div style={{background:C.surface,borderRadius:10,padding:"8px 12px",marginTop:6,border:`1px solid ${C.border}`}}>
+                                        {rm.rating&&<span style={{fontSize:11,fontWeight:700,color:RATING_COLORS[rm.rating]||C.muted,marginRight:8}}>{RATING_LABELS[rm.rating]||rm.rating}</span>}
+                                        {rm.text&&<span style={{fontSize:11,color:C.muted}}>— {rm.text}</span>}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>}
+                              </div>
+                            ):(
+                              <div>
+                                {tm5>0&&<div style={{marginTop:6}}><div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:done3?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/></div><div style={{fontSize:11,color:running3?C.amber:done3?C.green:C.muted}}>{running3?`⏱ ${fmtT(el5)} / ${fmtT(tm5)} — ${fmtT(rem3)} ${T2("left")}`:done3?`✓ ${fmtT(tm5)}`:`⏱ ${fmtT(tm5)}`}</div></div>}
+                                {!running3&&!done3&&tm5>0&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
+                                {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                {!running3&&!done3&&!prevOk3&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
+                              </div>
+                            )}
                           </div>
                         </div>);
                       })}
 
                       {/* Mark as Complete */}
                       {steps3.every((_,si)=>stepDone(d3,si))&&!d3.ready&&(
-                        <button onClick={e=>{e.stopPropagation();markReady(dish.fEvId,dish.fIdx);}}
+                        <button onClick={e=>{e.stopPropagation();markReady(dish.fEvId,dish.fIdx,dish.name);}}
                           style={{width:"100%",padding:"16px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:10,minHeight:52}}>
                           ✅ {T2("Mark as Complete")} — {dish.name}
                         </button>
@@ -4625,110 +5701,536 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
         );
       })()}
       {tab==="d1"&&(()=>{
-        const evs=tomorrowEvs;
-        if(evs.length===0) return <div><div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:16}}>📋 {T2("D-1 Advance Preparation")}</div><div style={{textAlign:"center",padding:40,background:C.surface,borderRadius:14,border:`1px solid ${C.border}`,color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>📋</div>{T2("No functions tomorrow")}</div></div>;
-        const byDish={};
-        evs.forEach(ev=>{
+        // D-1 logic: if today has an event, prep for DAY_AFTER. If no event today, prep for TOMORROW.
+        // Section 1: Continuation of today's D-1 = tomorrowEvs (event day cooking)
+        // Section 2: New D-1 prep = dayAfterEvs (advance prep for day-after)
+        const continuationEvs = hasTodayEvs ? todayEvs : tomorrowEvs;
+        const newD1Evs = hasTodayEvs
+          ? evList.filter(e=>e.date===DAY_AFTER)
+          : evList.filter(e=>e.date===DAY_AFTER);
+        const d1ForLabel = hasTodayEvs ? dayAfterLabel : dayAfterLabel;
+        const contLabel = hasTodayEvs ? todayLabel2 : tomorrowLabel;
+        const newD1Label = dayAfterLabel;
+
+        // Build dishes for Section 1 (continuation - final cooking)
+        const byDishCont={};
+        continuationEvs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
-            if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
-            byDish[name].totalPax+=ev.pax||0;
-            byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
-            if(isSpecial) byDish[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
+            if(!byDishCont[name])byDishCont[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+            byDishCont[name].totalPax+=ev.pax||0;
+            byDishCont[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
+            if(isSpecial)byDishCont[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
           });
         });
-        const bySec={};Object.entries(byDish).forEach(([n,info])=>{if(!bySec[info.sec])bySec[info.sec]=[];bySec[info.sec].push({name:n,...info});});
-        const secKeys=Object.keys(bySec).sort();const totalU=Object.keys(byDish).length;
+
+        // Build dishes for Section 2 (new D-1 prep)
+        const byDishNew={};
+        newD1Evs.forEach(ev=>{
+          const sp=ev.special||"";
+          const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
+          safeArr(ev.menu).forEach((name,idx)=>{
+            if(guessSectionForDish(name)==="Beverages") return;
+            if(!byDishNew[name])byDishNew[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+            byDishNew[name].totalPax+=ev.pax||0;
+            byDishNew[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
+            if(isSpecial) byDishNew[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
+          });
+        });
+        const bySecCont={};Object.entries(byDishCont).forEach(([n,info])=>{if(!bySecCont[info.sec])bySecCont[info.sec]=[];bySecCont[info.sec].push({name:n,...info});});
+        const bySecNew={};Object.entries(byDishNew).forEach(([n,info])=>{if(!bySecNew[info.sec])bySecNew[info.sec]=[];bySecNew[info.sec].push({name:n,...info});});
+        const secKeysCont=Object.keys(bySecCont).sort();
+        const secKeysNew=Object.keys(bySecNew).sort();
+        // ── Merge dishes from both sources by section ──
+        const allSecs = [...new Set([
+          ...Object.keys(bySecCont),
+          ...Object.keys(bySecNew)
+        ])].sort();
+
+        const totalContDone = Object.values(byDishCont).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+        const totalNewDone  = Object.values(byDishNew).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+        const totalCont = Object.keys(byDishCont).length;
+        const totalNew  = Object.keys(byDishNew).length;
+
         return(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:4}}>📋 {T2("D-1 Advance Preparation")} — {new Date(TOMORROW+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{weekday:"long",day:"numeric",month:"long"})}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Mesa prep for tomorrow. Cooking will happen on live day.")}</div>
-            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-              <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.gold}}>{totalU}</div><div style={{fontSize:11,color:C.muted}}>{T2("unique dishes")}</div></div>
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.text}}>{evs.length}</div><div style={{fontSize:11,color:C.muted}}>{T2("functions")}</div></div>
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 14px"}}><div style={{fontSize:18,fontWeight:700,color:C.text}}>{evs.reduce((s,e)=>s+(e.pax||0),0)}</div><div style={{fontSize:11,color:C.muted}}>{T2("total pax")}</div></div>
+            {/* ── Header strip ── */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+              <div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:12,padding:"12px 14px"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>🔥 {T2("Continue")} {todayLabel2} D-1</div>
+                <div style={{fontSize:20,fontWeight:800,color:C.amber,lineHeight:1}}>{contPax} <span style={{fontSize:11,fontWeight:400}}>pax</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:3}}>{totalContDone}/{totalCont} {T2("dishes done")}</div>
+                <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:totalCont>0?Math.round(totalContDone/totalCont*100)+"%":"0%",background:C.amber,borderRadius:2}}/></div>
+              </div>
+              <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:12,padding:"12px 14px"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>📋 D-1 {T2("for")} {dayAfterLabel}</div>
+                <div style={{fontSize:20,fontWeight:800,color:C.gold,lineHeight:1}}>{newD1Pax||"—"} <span style={{fontSize:11,fontWeight:400}}>pax</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:3}}>{totalNewDone}/{totalNew} {T2("dishes done")}</div>
+                <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:totalNew>0?Math.round(totalNewDone/totalNew*100)+"%":"0%",background:C.gold,borderRadius:2}}/></div>
+              </div>
             </div>
-            {secKeys.map(sec=>{const items=bySec[sec];const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
-              const mesaDone2=items.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
-              const d1Pct=Math.round(mesaDone2/items.length*100);
-              const d1Open=isSecOpen("d1_"+sec);
-              const d1Specials=items.flatMap(d=>d.specials||[]);
-              return(<Card key={sec} style={{marginBottom:12,padding:0,overflow:"hidden"}}>
-                <div onClick={()=>toggleSec("d1_"+sec)} style={{padding:"14px 16px",background:m2.color+"10",borderBottom:d1Open?`1px solid ${C.border}`:"none",cursor:"pointer"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+
+            {/* ── 3-column header: Cont D-1 | D-1 New | Collective ── */}
+            {(()=>{
+              const totalCollectivePax=(contPax||0)+(newD1Pax||0);
+              const totalCollDone=totalContDone+totalNewDone;
+              const totalColl=totalCont+totalNew;
+              return(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
+                  {[
+                    {label:`🔥 ${T2("Continue")} ${todayLabel2} D-1`,pax:contPax,done:totalContDone,total:totalCont,c:C.amber,bg:C.amberBg,bdr:C.amberBorder,view:"cont"},
+                    {label:`📋 D-1 ${T2("for")} ${dayAfterLabel}`,pax:newD1Pax,done:totalNewDone,total:totalNew,c:C.gold,bg:C.goldBg,bdr:C.goldBorder,view:"new"},
+                    {label:`📦 ${T2("Collective")}`,pax:totalCollectivePax,done:totalCollDone,total:totalColl,c:C.blue,bg:C.blueBg,bdr:C.blueBorder,view:"all"},
+                  ].map(h=>{
+                    const pct=h.total>0?Math.round(h.done/h.total*100):0;
+                    const isSel=d1View===h.view;
+                    return(
+                      <div key={h.view} onClick={()=>setD1View(h.view)}
+                        style={{background:isSel?h.bg:"transparent",border:`2px solid ${isSel?h.c:C.border}`,borderRadius:12,padding:"12px 10px",cursor:"pointer",transition:"all .2s"}}>
+                        <div style={{fontSize:9,fontWeight:700,color:isSel?h.c:C.faint,textTransform:"uppercase",letterSpacing:.8,marginBottom:4,lineHeight:1.3}}>{h.label}</div>
+                        <div style={{fontSize:20,fontWeight:800,color:isSel?h.c:C.muted,lineHeight:1}}>{h.pax||"—"} <span style={{fontSize:10,fontWeight:400}}>pax</span></div>
+                        <div style={{fontSize:10,color:isSel?h.c:C.faint,marginTop:3}}>{h.done}/{h.total} done</div>
+                        <div style={{height:3,background:C.border,borderRadius:2,marginTop:5,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:isSel?h.c:C.border,borderRadius:2,transition:"width .3s"}}/></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* ── Filter info ── */}
+            {d1View!=="all"&&<div style={{fontSize:11,color:C.muted,marginBottom:10,padding:"6px 12px",background:C.darkCard,borderRadius:8,border:`1px solid ${C.border}`}}>
+              {d1View==="cont"?`🔥 ${T2("Showing")} ${tomorrowLabel} ${T2("function dishes only")}`:
+                               `📋 ${T2("Showing")} ${dayAfterLabel} ${T2("function dishes only")}`}
+              &nbsp;<span style={{color:C.gold,cursor:"pointer",fontWeight:700}} onClick={()=>setD1View("all")}>→ {T2("Show all")}</span>
+            </div>}
+
+            {/* ── Section-wise view ── */}
+            {allSecs.map(sec=>{
+              const contItems = bySecCont[sec]||[];
+              const newItems  = bySecNew[sec]||[];
+              const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+              const secOpen = isSecOpen("d1sec_"+sec);
+
+              // Filter dish names based on selected view
+              const activeDishNames = d1View==="cont" ? contItems.map(d=>d.name)
+                                    : d1View==="new"  ? newItems.map(d=>d.name)
+                                    : [...new Set([...contItems.map(d=>d.name),...newItems.map(d=>d.name)])];
+              const allDishNames = [...new Set(activeDishNames)];
+
+              if(allDishNames.length===0) return null;
+
+              // Progress counts for header — based on active view only
+              const activeContItems = d1View!=="new" ? contItems : [];
+              const activeNewItems  = d1View!=="cont" ? newItems  : [];
+              const doneCount = [...activeContItems,...activeNewItems].filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+              const totalCount = allDishNames.length;
+
+              return(
+                <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden"}}>
+                  {/* Section header */}
+                  <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",background:m2.color+"12",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:14,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)}</span>
-                      <span style={{fontSize:11,color:C.muted}}>{items.length} {T2("dishes")}</span>
+                      <span style={{fontSize:11,color:C.muted}}>{allDishNames.length} {T2("dishes")}</span>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{width:48,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:d1Pct+"%",background:mesaDone2===items.length?C.green:C.amber,borderRadius:3}}/></div>
-                      <span style={{fontSize:13,fontWeight:700,color:mesaDone2===items.length?C.green:d1Pct>0?C.amber:C.muted,minWidth:40,textAlign:"right"}}>{d1Pct}%</span>
-                      {d1Specials.length>0&&<span onClick={(e)=>{e.stopPropagation();setSpecialOpen(specialOpen==="d1_"+sec?null:"d1_"+sec);}} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer",fontWeight:700}}>🚫 {d1Specials.length}</span>}
-                      <span style={{fontSize:14,color:C.muted,transform:d1Open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      {d1View!=="new"&&<span style={{fontSize:11,color:C.amber}}>{contItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{contItems.length}</span>}
+                      {d1View==="all"&&<span style={{fontSize:11,color:C.faint}}>|</span>}
+                      {d1View!=="cont"&&<span style={{fontSize:11,color:C.gold}}>{newItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{newItems.length}</span>}
+                      <span style={{fontSize:11,color:C.gold}}>{newItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{newItems.length}</span>
+                      <span style={{fontSize:13,color:C.muted,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                     </div>
                   </div>
-                </div>
-                {specialOpen==="d1_"+sec&&d1Specials.length>0&&<div style={{padding:"10px 16px",background:C.redBg+"80",borderBottom:`1px solid ${C.redBorder}`}} onClick={e=>e.stopPropagation()}>
-                  {d1Specials.map((sp,si)=><div key={si} style={{fontSize:12,color:C.red,padding:"6px 0",borderBottom:si<d1Specials.length-1?`1px solid ${C.redBorder}40`:"none"}}>🚫 <b>{sp.pax} {T2("pax")}</b> — {sp.guest}: {sp.instruction}</div>)}
-                </div>}
-                {d1Open&&<div style={{padding:"10px 16px"}}>{items.map((dish,di)=>{
-                  const cKey=`d1_${dish.fEvId}_${dish.fIdx}`;const isExp2=expandedDish===cKey;const d2=ds(dish.fEvId,dish.fIdx);
-                  const mesaSteps2=getStepsForDish(dish.name).filter(s=>/mesa|masala|prep|mix|shap|boil|soak|marin|grind|batter|dough|cut|chop|blanch|peel/i.test(s.t||""));
-                  const steps2=mesaSteps2.length>0?mesaSteps2:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600}];
-                  const allDone2=!!d2.mesaDone;
-                  return(<div key={di} style={{marginBottom:6}}>
-                    <div onClick={()=>setExpandedDish(isExp2?null:cKey)} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 8px",borderRadius:10,cursor:"pointer",background:allDone2?C.greenBg:C.surface,border:`1px solid ${allDone2?C.greenBorder:C.border}`}}>
-                      <div style={{width:28,height:28,borderRadius:8,border:`2px solid ${allDone2?C.green:C.border}`,background:allDone2?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{allDone2&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:700,color:allDone2?C.green:C.text}}>{dish.name}</div>
-                        <div style={{fontSize:12,color:C.gold}}>{dish.totalPax} {T2("pax")} · {dish.fns.length} {T2("functions")}</div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{dish.fns.map(f=>`${f.g} (${f.p})`).join(" · ")}</div>
-                        {dish.specials.length>0&&<div style={{marginTop:4}}>
-                          {dish.specials.map((sp,si)=>(
-                            <div key={si} style={{display:"flex",gap:6,alignItems:"center",marginTop:3,background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"4px 10px"}}>
-                              <span style={{fontSize:11,color:C.red,fontWeight:700}}>🚫 {sp.pax} {T2("pax")}</span>
-                              <span style={{fontSize:11,color:C.red}}>{sp.guest} — {sp.instruction}</span>
+
+                  {secOpen&&<div style={{padding:"8px 12px"}}>
+                    {allDishNames.map(dishName=>{
+                      const cDish = contItems.find(d=>d.name===dishName);
+                      const nDish = newItems.find(d=>d.name===dishName);
+                      const inBoth = cDish && nDish;
+                      const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
+                      const isExp = expandedDish===cKey;
+
+                      // Get steps for this dish
+                      const allStepsFn = getStepsForDish(dishName);
+                      const steps = allStepsFn.length>0?allStepsFn:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600},{t:"Primary prep",i:"Prepare base masala / paste",tm:480}];
+
+                      const cDone = cDish ? !!ds(cDish.fEvId,cDish.fIdx).mesaDone : null;
+                      const nDone = nDish ? !!ds(nDish.fEvId,nDish.fIdx).mesaDone : null;
+
+                      return(
+                        <div key={dishName} style={{marginBottom:6}}>
+                          {/* Dish row — side by side pax */}
+                          <div onClick={()=>setExpandedDish(isExp?null:cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                            {/* Top: dish name */}
+                            <div style={{padding:"9px 14px",background:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dishName}</div>
+                              <span style={{fontSize:13,color:C.muted,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                             </div>
-                          ))}
-                        </div>}
-                      </div>
-                      <span style={{fontSize:14,color:C.muted,transform:isExp2?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-                    </div>
-                    {isExp2&&(<div style={{padding:"8px 8px 8px 44px"}}>{steps2.map((step,si)=>{
-                      const running2=!!(d2.starts?.[`mesa_${si}`])&&!(d2.manual?.[`mesa_${si}`])&&!(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000)>=step.tm));
-                      const sDone2=!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm));
-                      const el3=running2?Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000):0;const rem2=Math.max(0,(step.tm||0)-el3);
-                      const pct3=step.tm>0?Math.min(100,Math.round(el3/step.tm*100)):(sDone2?100:0);
-                      const prevOk2=si===0||!!(d2.manual?.[`mesa_${si-1}`])||(d2.starts?.[`mesa_${si-1}`]&&steps2[si-1].tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si-1}`]||0))/1000)>=steps2[si-1].tm));
-                      return(<div key={si} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:si<steps2.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                        <div style={{width:26,height:26,borderRadius:8,background:sDone2?C.green:running2?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone2||running2?"#0A0A0F":C.muted,flexShrink:0}}>{sDone2?"✓":si+1}</div>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:12,fontWeight:600,color:sDone2?C.green:C.text}}>{step.t}</div>
-                          {step.i&&<div style={{fontSize:11,color:C.muted}}>{step.i}</div>}
-                          {step.tm>0&&<div style={{height:8,background:C.border,borderRadius:2,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:pct3+"%",background:sDone2?C.green:C.amber,borderRadius:2,transition:"width .5s"}}/></div>}
-                          {running2&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⏱ {fmtT(el3)}/{fmtT(step.tm)} — {fmtT(rem2)} {T2("left")}</div>}
+                            {/* Side-by-side pax columns — only show relevant columns */}
+                            <div style={{display:"grid",gridTemplateColumns:d1View==="all"?"1fr 1fr":d1View==="cont"?"1fr":"1fr",gap:0}}>
+                              {/* Left: Continue D-1 — only if view is cont or all */}
+                              {d1View!=="new"&&(
+                              <div style={{padding:"8px 12px",background:cDish?C.amberBg+"40":"transparent",borderRight:d1View==="all"?`1px solid ${C.border}`:"none"}}>
+                                {cDish?(
+                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                    <div style={{width:18,height:18,borderRadius:5,background:cDone?C.green:C.amber,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                      {cDone&&<span style={{fontSize:9,fontWeight:700,color:"#0A0A0F"}}>✓</span>}
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:11,fontWeight:700,color:cDone?C.green:C.amber}}>{cDish.totalPax} pax</div>
+                                      <div style={{fontSize:9,color:C.faint}}>{tomorrowLabel}</div>
+                                    </div>
+                                  </div>
+                                ):<div style={{fontSize:10,color:C.faint}}>—</div>}
+                              </div>
+                              )}
+                              {/* Right: New D-1 — only if view is new or all */}
+                              {d1View!=="cont"&&(
+                              <div style={{padding:"8px 12px",background:nDish?C.goldBg+"40":"transparent"}}>
+                                {nDish?(
+                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                    <div style={{width:18,height:18,borderRadius:5,background:nDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                      {nDone&&<span style={{fontSize:9,fontWeight:700,color:"#0A0A0F"}}>✓</span>}
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:11,fontWeight:700,color:nDone?C.green:C.gold}}>{nDish.totalPax} pax</div>
+                                      <div style={{fontSize:9,color:C.faint}}>{dayAfterLabel}</div>
+                                    </div>
+                                  </div>
+                                ):<div style={{fontSize:10,color:C.faint}}>—</div>}
+                              </div>
+                              )}
+                            </div>
+                            {/* Collective row if in both */}
+                            {inBoth&&<div style={{padding:"6px 12px",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <span style={{fontSize:10,color:C.muted}}>📦 {T2("Collective")}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:C.text}}>{(cDish.totalPax||0)+(nDish.totalPax||0)} pax {T2("total")}</span>
+                            </div>}
+                          </div>
+
+                          {/* Expanded steps */}
+                          {isExp&&(
+                            <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
+                              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
+                              {steps.map((step,si)=>{
+                                // Use cDish tracking if available, else nDish
+                                const trackDish = cDish||nDish;
+                                const d2 = trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
+                                const done = !!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm);
+                                const isD1s = /mesa|masala|prep|mix|shap|boil|soak|marin|grind|batter|dough|cut|chop|blanch|peel/i.test(step.t||"");
+                                return(
+                                  <div key={si} style={{display:"flex",gap:8,padding:"7px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                    <div style={{width:24,height:24,borderRadius:6,background:done?C.green:isD1s?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:done?"#0A0A0F":C.muted,flexShrink:0}}>{done?"✓":si+1}</div>
+                                    <div style={{flex:1}}>
+                                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                                        <span style={{fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{step.t}</span>
+                                        {isD1s&&!done&&<span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:C.amberBg,color:C.amber,border:`1px solid ${C.amberBorder}`}}>D-1</span>}
+                                      </div>
+                                      {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{step.i||step.desc}</div>}
+                                      {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {step.ccp}</div>}
+                                      {step.tm&&<div style={{fontSize:10,color:C.amber}}>⏱ {fmtT(step.tm)}</div>}
+                                    </div>
+                                    {!done&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{manual:{...(ds(trackDish.fEvId,trackDish.fIdx).manual||{}),[`mesa_${si}`]:true}});}} style={{padding:"5px 10px",borderRadius:7,background:C.gold,color:"#0A0908",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                  </div>
+                                );
+                              })}
+                              {/* Mark all done buttons — only for active view */}
+                              <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                                {d1View!=="new"&&cDish&&!cDone&&<button onClick={e=>{e.stopPropagation();setDs(cDish.fEvId,cDish.fIdx,{mesaDone:true});}} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.amber},#A05010)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {tomorrowLabel} — {cDish.totalPax} pax</button>}
+                                {d1View!=="cont"&&nDish&&!nDone&&<button onClick={e=>{e.stopPropagation();setDs(nDish.fEvId,nDish.fIdx,{mesaDone:true});}} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {dayAfterLabel} — {nDish.totalPax} pax</button>}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        {!running2&&!sDone2&&step.tm>0&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2.starts||{}),[`mesa_${si}`]:Date.now()}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>▶ {fmtT(step.tm)}</button>}
-                        {!running2&&!sDone2&&!step.tm&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2.manual||{}),[`mesa_${si}`]:true}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>✓</button>}
-                      </div>);
+                      );
                     })}
-                    {steps2.every((_,si)=>!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&steps2[si].tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=steps2[si].tm)))&&!allDone2&&(
-                      <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginTop:6,minHeight:40}}>✅ {T2("Mesa Complete")} — {dish.name} ({dish.totalPax} {T2("pax")})</button>
-                    )}</div>)}
-                  </div>);})}</div>}
-              </Card>);
+                  </div>}
+                </Card>
+              );
             })}
+
+            {allSecs.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></Card>}
           </div>
         );
       })()}
 
-      {/* ═══ TODAY'S PLAN — CONSOLIDATED ═══ */}
+      {/* ═══ PAX SCALING LOGIC PANEL ═══ */}
+      {tab==="scale"&&(()=>{
+        const MENU_APPLICABILITY={
+          "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
+          "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
+          "Double Magnum Veg":    {code:"DMVM", ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Veg"},
+          "Double Magnum Non-Veg":{code:"DMNVM",ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Non-Veg"},
+          "Multi-Cuisine Veg":    {code:"MCVM", ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Veg"},
+          "Multi-Cuisine Non-Veg":{code:"MCNVM",ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Non-Veg"},
+          "Luxury Veg":           {code:"LVM",  ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Veg"},
+          "Luxury Non-Veg":       {code:"LNVM", ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Non-Veg"},
+        };
+        const PAX_BANDS=[{v:100},{v:200},{v:250},{v:300},{v:400},{v:500},{v:600},{v:700},{v:800},{v:900},{v:1000},{v:1100}];
+        const PAX_COLS=[100,200,300,400,500,600,700,800,900,1000,1100];
+        const BASE_PAX=1100;
+        function isApplicable(pkg,pax){const m=MENU_APPLICABILITY[pkg];return m?m.ranges.some(r=>pax>=r.min&&pax<=r.max):false;}
+        function fmtScaled(q,u,pax,pct){
+          if(!q||q===0) return "—";
+          const raw=q*pax*(( pct||100)/100);
+          if(u==="g") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g";
+          if(u==="ml") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml";
+          if(u==="pcs") return Math.ceil(raw)+" pcs";
+          return Math.round(raw)+" "+u;
+        }
+
+        // Effective % from selected event or manual
+        const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date===DAY_AFTER)];
+        const linkedEv = scaleEventId!=="manual" ? allEvs.find(e=>e.id===scaleEventId) : null;
+        const autoPercent = linkedEv ? Math.round((+linkedEv.pax/BASE_PAX)*100) : null;
+        const effectivePct = scaleEventId==="manual" ? (scalePercent||100) : (autoPercent||100);
+        const pctLabel = scaleEventId==="manual" ? `${effectivePct}%` : `${effectivePct}% (auto from ${linkedEv?.guest||""} · ${linkedEv?.pax||0} pax)`;
+
+        const mode=scaleMode||"single";
+        const pkgNames=Object.keys(MENU_PACKAGES);
+        const selPkg=scalePkg||pkgNames[0];
+        const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]);
+        const multiSel=scaleMultiSel||{};
+        const activeDishes=mode==="single"?(scaleDish&&RECIPE_INGREDIENTS[scaleDish]?[scaleDish]:[]):mode==="multi"?Object.keys(multiSel).filter(d=>multiSel[d]):pkgDishes;
+
+        return(
+          <div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Menu applicability matrix + ingredient quantities. Base: 1100 pax")} <span style={{color:"#FF6B35"}}>★</span></div>
+
+            {/* ── % SCALING CONTROL PANEL ── */}
+            <Card style={{marginBottom:16,padding:"16px 18px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📐 {T2("Scaling Control")}</div>
+
+              {/* Source: Event or Manual */}
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scale based on")}</div>
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                <button onClick={()=>setScaleEventId("manual")} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:scaleEventId==="manual"?700:400,cursor:"pointer",background:scaleEventId==="manual"?C.gold:C.surface,color:scaleEventId==="manual"?"#0A0908":C.muted,border:`1.5px solid ${scaleEventId==="manual"?C.gold:C.border}`,minHeight:38}}>
+                  ✏️ {T2("Manual %")}
+                </button>
+                {allEvs.map(ev=>{
+                  const autoPct=Math.round((+ev.pax/BASE_PAX)*100);
+                  const isSel=scaleEventId===ev.id;
+                  return(
+                    <button key={ev.id} onClick={()=>{setScaleEventId(ev.id);setScalePercent(autoPct);}}
+                      style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#0A0908":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:38}}>
+                      📅 {ev.guest.split(" ")[0]} · {ev.pax} pax → {autoPct}%
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* % input (only for manual mode) */}
+              {scaleEventId==="manual"&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scaling %")}</div>
+                  {/* Quick buttons */}
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+                    {[25,50,75,80,100,110,120,125,150].map(p=>(
+                      <button key={p} onClick={()=>setScalePercent(p)}
+                        style={{padding:"7px 14px",borderRadius:10,fontSize:13,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:38}}>
+                        {p}%
+                      </button>
+                    ))}
+                    <input type="number" value={scalePercent} onChange={e=>setScalePercent(Math.max(1,Math.min(500,+e.target.value||100)))} min={1} max={500}
+                      style={{width:72,padding:"8px 10px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:14,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:38}}/>
+                    <span style={{fontSize:12,color:C.muted}}>%</span>
+                  </div>
+                  {/* Drag slider */}
+                  <div style={{position:"relative",marginTop:4}}>
+                    <input type="range" min={10} max={200} step={5} value={Math.min(200,scalePercent)}
+                      onChange={e=>setScalePercent(+e.target.value)}
+                      style={{width:"100%",accentColor:scalePercent<100?C.amber:scalePercent>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:9,color:C.faint}}>
+                      <span>10%</span><span style={{color:C.gold,fontWeight:700}}>100%</span><span>200%</span>
+                    </div>
+                    {/* Tick at 100% */}
+                    <div style={{position:"absolute",left:"47.4%",top:0,width:2,height:14,background:C.gold+"60",borderRadius:1,pointerEvents:"none"}}/>
+                  </div>
+                </div>
+              )}
+
+              {/* Effective % display */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg,borderRadius:10,padding:"10px 14px"}}>
+                <div>
+                  <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
+                  {linkedEv&&<div style={{fontSize:11,color:C.muted}}>auto from {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
+                </div>
+                {effectivePct!==100&&activeDishes.length>0&&(
+                  <button onClick={()=>{
+                    const evId=scaleEventId==="manual"?null:scaleEventId;
+                    // Save scaling to appliedScales + kitchenTracking
+                    const entry={percent:effectivePct,appliedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
+                    setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
+                    if(evId&&setKitchenTracking){
+                      setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),__scaling:{percent:effectivePct,dishes:activeDishes,appliedAt:entry.appliedAt}};return o;});
+                    }
+                  }} style={{padding:"10px 18px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#1A5030)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                    ✅ {T2("Apply to D-1 & Event Day")}
+                  </button>
+                )}
+                {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>{T2("100% = SOP quantities (no change)")}</div>}
+              </div>
+
+              {/* Applied scaling badges */}
+              {Object.values(appliedScales).length>0&&(
+                <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {Object.values(appliedScales).map((s,i)=>(
+                    <div key={i} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:s.percent<100?C.amberBg:C.greenBg,border:`1px solid ${s.percent<100?C.amberBorder:C.greenBorder}`,color:s.percent<100?C.amber:C.green}}>
+                      ✅ {s.eventName} — {s.percent}% · {s.dishes.length} dishes · {s.appliedAt}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+            <Card style={{marginBottom:16,padding:0,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text}}>📊 {T2("Menu Applicability by Pax")}</div>
+                <div style={{fontSize:10,color:C.muted}}>✅ {T2("Applicable")} · — {T2("Not recommended")}</div>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
+                  <thead>
+                    <tr style={{background:C.darkCard}}>
+                      <th style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontWeight:700,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:150}}>{T2("Menu")}</th>
+                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:48}}>Code</th>
+                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:42}}>V/NV</th>
+                      {PAX_BANDS.map(b=><th key={b.v} style={{padding:"9px 6px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:46}}>{b.v}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(MENU_APPLICABILITY).map(([pkg,meta],ri)=>(
+                      <tr key={pkg} style={{borderTop:`1px solid ${C.borderLight}`,background:ri%2===0?C.surface:C.darkCard}}>
+                        <td style={{padding:"9px 12px",position:"sticky",left:0,background:ri%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`,fontWeight:600,color:meta.color,fontSize:11}}>{pkg}</td>
+                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
+                          <span style={{fontSize:10,fontWeight:700,color:meta.color,background:meta.color+"15",padding:"2px 7px",borderRadius:6}}>{meta.code}</span>
+                        </td>
+                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
+                          <span style={{fontSize:11,color:meta.type==="Veg"?C.green:C.amber}}>{meta.type==="Veg"?"🌿":"🍗"}</span>
+                        </td>
+                        {PAX_BANDS.map(b=>{
+                          const ok=isApplicable(pkg,b.v);
+                          return(
+                            <td key={b.v} onClick={ok?()=>{setScalePkg(pkg);setScaleMode("bulk");}:undefined}
+                              style={{padding:"8px 4px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`,cursor:ok?"pointer":"default",background:ok?meta.color+"12":"transparent"}}>
+                              {ok?<span style={{fontSize:14,color:meta.color}}>✅</span>:<span style={{color:C.faint}}>—</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted}}>💡 {T2("Tap any ✅ to load that menu's scaling below")}</div>
+            </Card>
+
+            {/* ── Mode selector ── */}
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>⚖️ {T2("Ingredient Scaling")}</div>
+            <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:14}}>
+              {[{v:"single",l:"🍽 Single"},{v:"multi",l:"📋 Multiple"},{v:"bulk",l:"📦 Full Menu"}].map(m=>(
+                <button key={m.v} onClick={()=>{setScaleMode(m.v);if(m.v==="single")setScaleDish("");if(m.v!=="single")setScaleMultiSel({});}}
+                  style={{flex:1,padding:"11px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="single"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
+                  <div style={{fontSize:12,fontWeight:mode===m.v?700:400,color:mode===m.v?C.gold:C.muted}}>{m.l}</div>
+                </button>
+              ))}
+            </div>
+
+            {mode==="single"&&(
+              <select value={scaleDish||""} onChange={e=>setScaleDish(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:14}}>
+                <option value="">— {T2("Select a dish")} —</option>
+                {pkgNames.map(pkg=>(
+                  <optgroup key={pkg} label={"📦 "+pkg+" ("+MENU_APPLICABILITY[pkg]?.code+")"}>
+                    {(MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]).map(d=><option key={d} value={d}>{d}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+            {(mode==="multi"||mode==="bulk")&&(
+              <div style={{marginBottom:14}}>
+                <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setScaleMultiSel({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:mode==="multi"?8:0}}>
+                  {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} dishes</option>)}
+                </select>
+                {mode==="multi"&&(
+                  <div style={{background:C.darkCard,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                      <div style={{fontSize:11,color:C.muted}}>{Object.values(multiSel).filter(Boolean).length} {T2("selected")}</div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>setScaleMultiSel(Object.fromEntries(pkgDishes.map(d=>[d,true])))} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer"}}>{T2("All")}</button>
+                        <button onClick={()=>setScaleMultiSel({})} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer"}}>{T2("Clear")}</button>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                      {pkgDishes.map(d=><button key={d} onClick={()=>setScaleMultiSel(p=>({...p,[d]:!p[d]}))} style={{padding:"5px 10px",borderRadius:8,fontSize:10,cursor:"pointer",background:multiSel[d]?C.goldBg:C.surface,border:`1.5px solid ${multiSel[d]?C.gold:C.border}`,color:multiSel[d]?C.gold:C.muted,fontWeight:multiSel[d]?700:400}}>{multiSel[d]?"✓ ":""}{d}</button>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Scaling tables ── */}
+            {activeDishes.map(dish=>{
+              const ingr=RECIPE_INGREDIENTS[dish]||[];
+              return(
+                <div key={dish} style={{marginBottom:18}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:6,fontFamily:"var(--font-display)",display:"flex",gap:8,alignItems:"center"}}>
+                    {dish}
+                    {Object.keys(scaleOverrides).some(k=>k.startsWith(dish+"|"))&&<button onClick={()=>setScaleOverrides(p=>{const n={...p};Object.keys(n).filter(k=>k.startsWith(dish+"|")).forEach(k=>delete n[k]);return n;})} style={{fontSize:9,padding:"2px 7px",borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer"}}>↺</button>}
+                  </div>
+                  <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+                    <table style={{borderCollapse:"collapse",fontSize:10,minWidth:"100%"}}>
+                      <thead>
+                        <tr style={{background:C.darkCard}}>
+                          <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:120}}>Ingredient</th>
+                          {PAX_COLS.map(p=><th key={p} style={{padding:"8px 6px",textAlign:"center",fontWeight:p===BASE_PAX?800:500,color:p===BASE_PAX?"#FF6B35":C.muted,background:p===BASE_PAX?"#2A0D00":C.darkCard,borderLeft:`1px solid ${C.border}`,minWidth:58,whiteSpace:"nowrap"}}>{p===BASE_PAX?`★${p}`:p}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ingr.map((ing,ii)=>{
+                          const isAcc=!ing.q||ing.q===0;
+                          return(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"8px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.n}</div>
+                                {ing.h&&<div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
+                                {isAcc&&<div style={{fontSize:9,color:C.amber}}>acc. to taste</div>}
+                              </td>
+                              {PAX_COLS.map(p=>{
+                                const ovKey=`${dish}|${ing.n}|${p}`;
+                                const isBase=p===BASE_PAX;
+                                const hasOv=scaleOverrides[ovKey]!==undefined;
+                                const dv=isAcc?"—":(hasOv?scaleOverrides[ovKey]:fmtScaled(ing.q,ing.u,p,effectivePct));
+                                return(
+                                  <td key={p} style={{padding:"5px 3px",textAlign:"center",background:isBase?"#2A0D0080":undefined,borderLeft:`1px solid ${C.borderLight}`}}>
+                                    {isAcc?<span style={{color:C.faint}}>—</span>:scaleEditing===ovKey
+                                      ?<input autoFocus type="text" defaultValue={dv} onBlur={e=>{setScaleOverrides(p2=>({...p2,[ovKey]:e.target.value}));setScaleEditing(null);}} onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){setScaleOverrides(p2=>({...p2,[ovKey]:e.target.value}));setScaleEditing(null);}}} style={{width:52,padding:"2px 3px",borderRadius:4,border:`1px solid ${C.gold}`,fontSize:10,color:C.text,background:C.bg,textAlign:"center"}}/>
+                                      :<span onClick={()=>setScaleEditing(ovKey)} style={{display:"block",padding:"3px 2px",cursor:"pointer",color:isBase?"#FF6B35":hasOv?C.amber:C.text,fontWeight:isBase?700:hasOv?600:400,minWidth:50,borderRadius:3}}>{dv}</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+            {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{mode==="single"?T2("Select a dish above"):mode==="multi"?T2("Select dishes from the package"):T2("Select a menu package")}</div></Card>}
+          </div>
+        );
+      })()}
+
+      {/* ═══ RECIPE SOPs TAB ═══ */}
       {tab==="sops"&&(
         <div>
-          <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:6}}>📖 {T2("Recipe SOPs")}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>Ambria Indian Desserts — 32 {T2("recipes")} · {T2("Procedures in Hindi")}</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>📖 {T2("Recipe SOPs")}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>97 {T2("recipes")} · 6 {T2("categories")} · {T2("Procedures in Hindi")}</div>
           <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipes…")} style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",marginBottom:16,minHeight:48}}/>
           {!sopRecipe?(
             !sopCat?(
@@ -4753,7 +6255,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
             <div>
               <button onClick={()=>setSopRecipe(null)} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("Back")}</button>
               <Card style={{padding:"20px 24px"}}>
-                <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:4}}>{sopRecipe.n}</div>
+                <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>{sopRecipe.n}</div>
                 <div style={{fontSize:12,color:C.gold,marginBottom:16}}>{sopRecipe.sub} · {safeArr(sopRecipe.steps).length} {T2("steps")}</div>
                 {safeArr(sopRecipe.steps).map((step,si)=>(
                   <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
@@ -4772,7 +6274,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en" }) 
         </div>
       )}
 
-      {/* ═══ MENU PACKAGES TAB ═══ */}
+      {/* ═══ MENU TAB ═══ */}
       {tab==="menus"&&<MenuPackagesView lang={lang}/>}
 
     </div>
@@ -4841,7 +6343,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
     "DL1LAN1814":{lat:28.5910,lng:77.0465,status:"At Base",  speed:0, lastUpdate:"Just now"},
     "DL1LAN2125":{lat:28.5900,lng:77.0490,status:"En Route", speed:28,lastUpdate:"Just now"},
     "DL1LW5357": {lat:28.5895,lng:77.0480,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL9CBD3260":{lat:28.5880,lng:77.0520,status:T2("At Venue"), speed:0, lastUpdate:"Just now"},
+    "DL9CBD3260":{lat:28.5880,lng:77.0520,status:"At Venue", speed:0, lastUpdate:"Just now"},
     "DL9CAR4073":{lat:28.5885,lng:77.0510,status:"At Base",  speed:0, lastUpdate:"Just now"},
     "DL4ERB3958":{lat:28.5870,lng:77.0500,status:"At Base",  speed:0, lastUpdate:"Just now"},
     "DL4ERB4678":{lat:28.5875,lng:77.0505,status:"At Base",  speed:0, lastUpdate:"Just now"},
@@ -4911,7 +6413,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
         <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>🚛 Transport & Dispatch</div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🚛 Transport & Dispatch</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>Fleet: {fleetList.length} vehicles · {safeEvs.length} events</div>
         </div>
         <div style={{display:"flex",gap:8}}>
@@ -5014,7 +6516,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
                   <div>
                     <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
                       <span style={{fontSize:12,fontWeight:700,padding:"2px 10px",borderRadius:20,background:p.c,color:"#fff"}}>{p.code}</span>
-                      <span style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{ev.guest}</span>
+                      <span style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{ev.guest}</span>
                     </div>
                     <div style={{fontSize:11,color:C.muted}}>{ev.venue} · {ev.type}</div>
                   </div>
@@ -5069,7 +6571,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
                         <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>{
                           setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
                         }} style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                        <span style={{fontSize:12,fontWeight:700,color:C.wine}}>{asgn.dispatchTime}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
                         <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
                       </div>
                       <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6}}>
@@ -5176,7 +6678,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
                             <div style={{display:"flex",gap:8,alignItems:"center"}}>
                               <span style={{fontSize:16}}>{v2.icon}</span>
                               <span style={{fontSize:12,fontWeight:700,color:C.text}}>{v2.name}</span>
-                              <span style={{fontSize:11,color:C.wine,fontWeight:600}}>{asgn.dispatchTime}</span>
+                              <span style={{fontSize:11,color:C.gold,fontWeight:600}}>{asgn.dispatchTime}</span>
                             </div>
                             <div style={{display:"flex",gap:8}}>
                               <span style={{fontSize:11,color:loadDone===asgn.loadingList.length?C.green:C.amber}}>📦 {loadDone}/{asgn.loadingList.length}</span>
@@ -5301,7 +6803,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
                           </select>
                           <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
                             style={{flex:1,minWidth:100,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                          <span style={{fontSize:12,fontWeight:700,color:C.wine}}>{asgn.dispatchTime}</span>
+                          <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
                           <button onClick={()=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}))}
                             style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer",minHeight:36}}>✕</button>
                         </div>
@@ -5477,18 +6979,18 @@ function ODCModule() {
   if(!odc) return null;
   return (
     <div>
-      <div style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:4,fontFamily:"Georgia,'Times New Roman',serif"}}>🏕 Outdoor Catering</div>
+      <div style={{fontSize:20,fontWeight:700,color:C.text,marginBottom:4,fontFamily:"var(--font-display)"}}>🏕 Outdoor Catering</div>
       <div style={{background:C.wineBg,border:`1.5px solid ${C.wineBorder}`,borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
-        <Avatar name="Gopal" size={36} index={0}/><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:C.wine}}>Gopal — ODC Lead</div><div style={{fontSize:11,color:C.wine,opacity:.8}}>On ODC day venue rounds suspended.</div></div>
+        <Avatar name="Gopal" size={36} index={0}/><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:C.gold}}>Gopal — ODC Lead</div><div style={{fontSize:11,color:C.gold,opacity:.8}}>On ODC day venue rounds suspended.</div></div>
         <div style={{textAlign:"right"}}><div style={{fontSize:12,color:C.muted}}>AP Anchor</div><div style={{fontSize:12,fontWeight:600,color:C.text}}>Yatender</div></div>
       </div>
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
           <div><div style={{fontSize:15,fontWeight:700,color:C.text}}>{odc.guest}</div><div style={{fontSize:11,color:C.muted}}>{odc.date} · {odc.time} · {odc.pax} pax · {odc.distance}</div></div>
-          <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:700,color:C.wine}}>{overallPct}%</div><div style={{fontSize:11,color:C.muted}}>overall</div></div>
+          <div style={{textAlign:"right"}}><div style={{fontSize:22,fontWeight:700,color:C.gold}}>{overallPct}%</div><div style={{fontSize:11,color:C.muted}}>overall</div></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-          <div style={{background:C.wineBg,borderRadius:7,padding:"8px 10px"}}><div style={{fontSize:11,color:C.wine,fontWeight:600}}>LEAD</div><div style={{fontSize:12,fontWeight:600,color:C.wine}}>Gopal</div></div>
+          <div style={{background:C.wineBg,borderRadius:7,padding:"8px 10px"}}><div style={{fontSize:11,color:C.gold,fontWeight:600}}>LEAD</div><div style={{fontSize:12,fontWeight:600,color:C.gold}}>Gopal</div></div>
           <div style={{background:C.amberBg,borderRadius:7,padding:"8px 10px"}}><div style={{fontSize:11,color:C.amber,fontWeight:600}}>AE IN-CHARGE</div><div style={{fontSize:12,fontWeight:600,color:C.amber}}>{odc.inchargeAE}</div></div>
         </div>
         <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
@@ -6285,6 +7787,14 @@ function StoreModule({events, lang="en"}) {
   const [orderQty, setOrderQty] =useState("");
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
+  const [transactions, setTransactions] = useState([]); // [{id,itemId,itemName,type:"in"|"out",qty,reason,time}]
+  const [scanMode, setScanMode] = useState("in"); // "in" or "out"
+  const [scanItem, setScanItem] = useState(null); // matched item after scan
+  const [scanQty, setScanQty] = useState("");
+  const [scanReason, setScanReason] = useState("Purchase");
+  const [scanLookup, setScanLookup] = useState(null); // {name,brand,image,energy,weight,source}
+  const [issueDate, setIssueDate] = useState("all");
+  const [issuedItems, setIssuedItems] = useState({});
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   function stopScan(){
@@ -6300,16 +7810,110 @@ function StoreModule({events, lang="en"}) {
       setTimeout(()=>{
         if(scanVideoRef.current){scanVideoRef.current.srcObject=stream;scanVideoRef.current.play();}
         if(window.BarcodeDetector){
-          const det=new window.BarcodeDetector({formats:["ean_13","ean_8","qr_code","code_128","upc_a"]});
+          const det=new window.BarcodeDetector({formats:["ean_13","ean_8","qr_code","code_128","upc_a","upc_e","itf","code_39"]});
           function detect(){
             if(!scanVideoRef.current||!scanStreamRef.current) return;
             det.detect(scanVideoRef.current).then(codes=>{
-              if(codes.length>0){setScanResult(codes[0].rawValue);setNewItem(p=>({...p,barcode:codes[0].rawValue}));stopScan();}
+              if(codes.length>0){
+                const bc=codes[0].rawValue;
+                setScanResult(bc);
+                setNewItem(p=>({...p,barcode:bc}));
+                stopScan();
+
+                // 1. Check master data first
+                const found=items.find(i=>(i.barcode||"")===bc);
+                if(found){setScanItem(found);setScanError("✅ Found in your inventory: "+found.name);return;}
+
+                // 2. Try multiple product databases in cascade
+                setScanError("🔍 Looking up in product databases…");
+
+                async function lookupProduct(barcode){
+                  // A. Open Food Facts (global food database — 3M+ products)
+                  try{
+                    const r1=await fetch("https://world.openfoodfacts.org/api/v2/product/"+barcode+".json",{signal:AbortSignal.timeout(5000)});
+                    const d1=await r1.json();
+                    if(d1.status===1&&d1.product){
+                      const p=d1.product;
+                      const nm=p.product_name||p.product_name_en||p.generic_name||"";
+                      if(nm){
+                        const br=p.brands||"";
+                        const wt=p.quantity||p.net_weight||"";
+                        const cat=p.categories_tags?.[0]?.replace("en:","").replace(/-/g," ")||"";
+                        const nutr=p.nutriments||{};
+                        return {
+                          name:nm,brand:br,barcode,
+                          unit:wt.toLowerCase().includes("ml")||wt.toLowerCase().includes("litre")?"ml":wt.toLowerCase().includes("kg")?"kg":wt.toLowerCase().includes("g")?"g":"pcs",
+                          cat:guessCategory(nm,cat),
+                          weight:wt,
+                          image:p.image_thumb_url||p.image_url||"",
+                          source:"Open Food Facts",
+                          energy:nutr["energy-kcal_100g"]?""+Math.round(nutr["energy-kcal_100g"])+" kcal/100g":"",
+                        };
+                      }
+                    }
+                  }catch(e){}
+
+                  // B. UPC Item DB (US/Global barcode database)
+                  try{
+                    const r2=await fetch("https://api.upcitemdb.com/prod/trial/lookup?upc="+barcode,{signal:AbortSignal.timeout(5000)});
+                    const d2=await r2.json();
+                    if(d2.code==="OK"&&d2.items?.length>0){
+                      const item=d2.items[0];
+                      return {
+                        name:item.title||"",brand:item.brand||"",barcode,
+                        unit:guessUnit(item.title||""),
+                        cat:guessCategory(item.title||"",item.category||""),
+                        weight:item.size||"",
+                        image:item.images?.[0]||"",
+                        source:"UPC Item DB",
+                        energy:"",
+                      };
+                    }
+                  }catch(e){}
+
+                  return null;
+                }
+
+                function guessUnit(name){
+                  const n=name.toLowerCase();
+                  if(n.includes(" ml")||n.includes("litre")||n.includes("liter")) return "ml";
+                  if(n.includes(" kg")||n.includes("kilogram")) return "kg";
+                  if(n.includes(" gm")||n.includes(" g ")||n.includes("gram")) return "g";
+                  if(n.includes(" l ")||n.includes(" ltr")) return "L";
+                  if(n.includes("dozen")||n.includes("pack of")) return "pcs";
+                  return "pcs";
+                }
+
+                function guessCategory(name,cat){
+                  const n=(name+" "+cat).toLowerCase();
+                  if(n.includes("chicken")||n.includes("mutton")||n.includes("fish")||n.includes("meat")||n.includes("prawn")) return "Meat & Poultry";
+                  if(n.includes("milk")||n.includes("paneer")||n.includes("cream")||n.includes("butter")||n.includes("cheese")||n.includes("curd")||n.includes("yogurt")||n.includes("ghee")||n.includes("khoya")) return "Dairy";
+                  if(n.includes("oil")||n.includes("atta")||n.includes("flour")||n.includes("rice")||n.includes("dal")||n.includes("lentil")||n.includes("sugar")||n.includes("salt")||n.includes("spice")||n.includes("masala")) return "Dry Goods";
+                  if(n.includes("onion")||n.includes("tomato")||n.includes("potato")||n.includes("carrot")||n.includes("vegetable")||n.includes("sabzi")) return "Fresh Vegetables";
+                  if(n.includes("apple")||n.includes("mango")||n.includes("banana")||n.includes("fruit")) return "Fruits";
+                  if(n.includes("juice")||n.includes("drink")||n.includes("water")||n.includes("soda")||n.includes("cold drink")) return "Beverages";
+                  if(n.includes("soap")||n.includes("detergent")||n.includes("cleaner")||n.includes("sanitizer")) return "Cleaning & Hygiene";
+                  if(n.includes("foil")||n.includes("plastic")||n.includes("wrap")||n.includes("bag")||n.includes("box")||n.includes("pack")) return "Packaging";
+                  if(n.includes("gas")||n.includes("cylinder")||n.includes("fuel")) return "Gas & Fuel";
+                  return "Dry Goods";
+                }
+
+                lookupProduct(bc).then(result=>{
+                  if(result&&result.name){
+                    setNewItem(prev=>({...prev,name:result.name,brand:result.brand,barcode:bc,unit:result.unit,cat:result.cat}));
+                    setScanLookup(result);
+                    setScanError("✅ "+result.source+": "+result.name+(result.brand?" · "+result.brand:"")+(result.weight?" · "+result.weight:""));
+                  } else {
+                    setScanError("❌ Product not found. Fill details manually.");
+                    setScanLookup(null);
+                  }
+                });
+              }
               else scanAnimRef.current=requestAnimationFrame(detect);
             }).catch(()=>{scanAnimRef.current=requestAnimationFrame(detect);});
           }
           scanAnimRef.current=requestAnimationFrame(detect);
-        } else { setScanError("Barcode scanning not supported. Enter manually."); }
+        } else { setScanError("Barcode scanning not supported on this browser. Enter barcode manually."); }
       },300);
     } catch(e){ setScanError("Camera access denied. Enter barcode manually."); setScanning(false); }
   }
@@ -6333,39 +7937,23 @@ function StoreModule({events, lang="en"}) {
   return (
     <div>
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>🧯 Equipment & Store</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>Inventory · Orders · Auto-requirements from events</div>
+          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>📦 {T2("Store & Inventory")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:3}}>{items.length} {T2("items")} · {orders.filter(o=>o.status==="Ordered").length} {T2("pending orders")}</div>
         </div>
-        <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.wine} style={{fontSize:12,padding:"7px 16px"}}>{showAdd?"✕ Cancel":"+ Add Item"}</Btn>
-      </div>
-
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:14}}>
-        {[
-          {l:T2("Total Items"),   v:items.length,                                    c:C.wine, bg:C.wineBg, i:"📦"},
-          {l:T2("Low / Out"),     v:items.filter(i=>i.inStock<=i.minStock).length,   c:C.red,  bg:C.redBg,  i:"⚠️"},
-          {l:T2("Pending Orders"),v:orders.filter(o=>o.status==="Ordered").length,   c:C.amber,bg:C.amberBg,i:"🛒"},
-          {l:T2("Upcoming Events"),v:upcoming.length,                                c:C.blue, bg:C.blueBg, i:"📅"},
-        ].map(m=>(
-          <div key={m.l} style={{background:m.bg,borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
-            <div style={{fontSize:20,marginBottom:3}}>{m.i}</div>
-            <div style={{fontSize:22,fontWeight:700,color:m.c,lineHeight:1.1}}>{m.v}</div>
-            <div style={{fontSize:10,color:m.c,opacity:.8,marginTop:2}}>{m.l}</div>
-          </div>
-        ))}
+        <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.gold} style={{fontSize:12,padding:"10px 18px",borderRadius:12}}>{showAdd?"✕ Cancel":"+ "+T2("Add Item")}</Btn>
       </div>
 
       {/* Add form */}
       {showAdd&&(
         <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:12,padding:"14px 18px",marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.wine,marginBottom:10}}>📦 Add New Inventory Item</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📦 Add New Inventory Item</div>
           {/* Scanner */}
           <div style={{background:"rgba(107,24,24,.06)",borderRadius:9,padding:"9px 12px",marginBottom:10,border:`1px dashed ${C.wineBorder}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanning?8:0}}>
-              <div><div style={{fontSize:12,fontWeight:600,color:C.wine}}>📷 Scan Barcode</div><div style={{fontSize:12,color:C.muted}}>Point camera at barcode · or enter manually below</div></div>
-              {!scanning?<button onClick={startScan} style={{padding:"5px 12px",borderRadius:7,background:C.wine,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>📷 Scan</button>
+              <div><div style={{fontSize:12,fontWeight:600,color:C.gold}}>📷 Scan Barcode</div><div style={{fontSize:12,color:C.muted}}>Point camera at barcode · or enter manually below</div></div>
+              {!scanning?<button onClick={startScan} style={{padding:"5px 12px",borderRadius:7,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>📷 Scan</button>
                         :<button onClick={stopScan}  style={{padding:"5px 10px",borderRadius:7,background:C.red, color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕</button>}
             </div>
             {scanning&&<video ref={scanVideoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:160,borderRadius:7,objectFit:"cover",background:"#000",display:"block"}}/>}
@@ -6374,34 +7962,34 @@ function StoreModule({events, lang="en"}) {
           </div>
           {/* Fields */}
           <div style={{marginBottom:7}}>
-            <div style={{fontSize:11,color:C.wine,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Item Name *</div>
+            <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Item Name *</div>
             <input value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} placeholder="e.g. Dinner Plates (10 inch)" style={{...fld,fontSize:12}}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:7}}>
             {[{l:"Barcode",k:"barcode",ph:"Auto or manual"},{l:"Brand",k:"brand",ph:"Brand name"},{l:"Supplier",k:"supplier",ph:"Supplier name"}].map(f=>(
               <div key={f.k}>
-                <div style={{fontSize:11,color:C.wine,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
+                <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={fld}/>
               </div>
             ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 80px 80px 110px",gap:8,marginBottom:10}}>
             <div>
-              <div style={{fontSize:11,color:C.wine,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
+              <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
               <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={fld}>
                 {CATEGORIES.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
             {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Per Pax",k:"perPax",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
               <div key={f.k}>
-                <div style={{fontSize:11,color:C.wine,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
+                <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={fld}/>
               </div>
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn onClick={()=>{setShowAdd(false);stopScan();setScanResult("");setScanError("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-            <Btn onClick={addItem} color={C.wine} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>
+            <Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>
           </div>
         </div>
       )}
@@ -6428,61 +8016,380 @@ function StoreModule({events, lang="en"}) {
       )}
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"orders",l:T2("🛒 Orders")},{v:"requirements",l:T2("📋 Event Requirements")}].map(t=>(
-          <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",background:tab===t.v?C.wine:"transparent",color:tab===t.v?"#fff":C.muted,border:`1.5px solid ${tab===t.v?C.wine:C.border}`}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
+      <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},{v:"requirements",l:T2("📋 Event Requirements")}].map(t=>(
+          <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
+            background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
+            boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
         ))}
       </div>
 
       {/* ── INVENTORY ── */}
       {tab==="inventory"&&(
         <div>
-          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("🔍 Search by name, barcode, brand…")}
-              style={{flex:1,minWidth:160,padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/>
-            <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
-              <option value="All">All Categories</option>
-              {CATEGORIES.map(ct=><option key={ct}>{ct}</option>)}
+          {/* Search + filter row */}
+          <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200,position:"relative"}}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search items…")}
+                style={{width:"100%",padding:"12px 16px 12px 40px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:44}}/>
+              <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:15,color:C.muted,pointerEvents:"none"}}>🔍</span>
+            </div>
+            <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={{padding:"10px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:44,appearance:"auto"}}>
+              <option value="All">{T2("All Categories")} ({items.length})</option>
+              {CATEGORIES.map(ct=><option key={ct}>{ct} ({items.filter(i=>i.cat===ct).length})</option>)}
             </select>
           </div>
-          <div style={{border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 80px 80px 90px 80px",background:C.bg,padding:"7px 14px",borderBottom:`1px solid ${C.border}`}}>
-              {["Item",T2("Category"),"In Stock","Min","Status","Order"].map(h=><div key={h} style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
-            </div>
+
+          {/* Quick stats bar */}
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {[
+              {l:T2("Total"),v:filteredItems.length,c:C.text,bg:C.surface},
+              {l:T2("In Stock"),v:filteredItems.filter(i=>i.inStock>0&&i.inStock>i.minStock).length,c:C.green,bg:C.greenBg},
+              {l:T2("Low Stock"),v:filteredItems.filter(i=>i.inStock>0&&i.inStock<=i.minStock).length,c:C.amber,bg:C.amberBg},
+              {l:T2("Out of Stock"),v:filteredItems.filter(i=>i.inStock<=0).length,c:C.red,bg:C.redBg},
+            ].map(s=>(
+              <div key={s.l} style={{flex:1,background:s.bg,borderRadius:10,padding:"8px 12px",textAlign:"center",border:`1px solid ${s.c}20`}}>
+                <div style={{fontSize:16,fontWeight:700,color:s.c}}>{s.v}</div>
+                <div style={{fontSize:10,color:C.muted}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Items list — clean card rows */}
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
             {filteredItems.map((item,idx)=>{
-              const low=item.inStock<=item.minStock;
+              const low=item.inStock>0&&item.inStock<=item.minStock;
               const out=item.inStock<=0;
               const sc=out?C.red:low?C.amber:C.green;
-              const sb=out?C.redBg:low?C.amberBg:C.greenBg;
+              const isEditing=editStock===item.id;
               return (
-                <div key={item.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr 80px 80px 90px 80px",padding:"8px 14px",borderBottom:`1px solid ${C.borderLight}`,alignItems:"center",background:idx%2===0?C.surface:"#FAFAFA"}}>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:500,color:C.text}}>{item.name}{item.h&&<span style={{fontSize:10,color:C.muted,marginLeft:5}}>({item.h})</span>}</div>
-                    <div style={{fontSize:11,color:C.muted}}>{item.location||"—"}{item.barcode?" · "+item.barcode:""}{item.brand?" · "+item.brand:""}</div>
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:idx%2===0?C.surface:C.darkCard,borderRadius:12,border:`1px solid ${C.border}`,minHeight:52}}>
+                  {/* Status dot */}
+                  <div style={{width:8,height:8,borderRadius:"50%",background:sc,flexShrink:0,boxShadow:`0 0 6px ${sc}50`}}/>
+
+                  {/* Name + meta */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:500,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}{item.h&&<span style={{fontSize:11,color:C.muted,marginLeft:6}}>({item.h})</span>}</div>
+                    <div style={{fontSize:11,color:C.faint,marginTop:1}}>{item.cat}{item.brand?" · "+item.brand:""}</div>
                   </div>
-                  <div style={{fontSize:12,color:C.muted}}>{(item.cat||"").split(" ")[0]}</div>
-                  {editStock===item.id?(
-                    <div style={{gridColumn:"3/5",display:"flex",gap:6}}>
-                      <input type="number" value={editVal} onChange={e=>setEditVal(e.target.value)} style={{width:56,padding:"3px 5px",borderRadius:8,border:`1px solid ${C.wine}`,fontSize:11}} autoFocus/>
-                      <button onClick={()=>{setItems(p=>p.map(i=>i.id!==item.id?i:{...i,inStock:+editVal||0}));setEditStock(null);}} style={{padding:"6px 10px",borderRadius:8,background:C.wine,color:"#fff",border:"none",fontSize:10,cursor:"pointer"}}>✓</button>
-                      <button onClick={()=>setEditStock(null)} style={{padding:"3px 5px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer"}}>✕</button>
+
+                  {/* Stock display or edit */}
+                  {isEditing?(
+                    <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                      <input type="number" value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus
+                        style={{width:60,padding:"8px 10px",borderRadius:10,border:`2px solid ${C.gold}`,fontSize:14,fontWeight:700,color:C.text,background:C.bg,textAlign:"center"}}/>
+                      <button onClick={()=>{setItems(p=>p.map(i=>i.id!==item.id?i:{...i,inStock:+editVal||0}));setEditStock(null);}}
+                        style={{width:36,height:36,borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✓</button>
+                      <button onClick={()=>setEditStock(null)}
+                        style={{width:36,height:36,borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                     </div>
                   ):(
-                    <>
-                      <div style={{fontSize:13,fontWeight:700,color:sc,cursor:"pointer"}} onClick={()=>{setEditStock(item.id);setEditVal(String(item.inStock));}} title="Click to edit stock">{item.inStock}<span style={{fontSize:11,color:C.muted,fontWeight:400,marginLeft:2}}>{item.unit}</span></div>
-                      <div style={{fontSize:11,color:C.muted}}>{item.minStock}</div>
-                    </>
+                    <div onClick={()=>{setEditStock(item.id);setEditVal(String(item.inStock));}}
+                      style={{minWidth:70,textAlign:"right",cursor:"pointer",flexShrink:0,padding:"6px 10px",borderRadius:8,background:sc+"10",border:`1px solid ${sc}20`}}>
+                      <div style={{fontSize:15,fontWeight:700,color:sc}}>{item.inStock}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{item.unit}</div>
+                    </div>
                   )}
-                  <span style={{fontSize:12,fontWeight:700,padding:"2px 7px",borderRadius:10,background:sb,color:sc,whiteSpace:"nowrap"}}>{out?"Out":low?"Low":"OK"}</span>
+
+                  {/* Status badge */}
+                  <div style={{flexShrink:0,minWidth:44,textAlign:"center"}}>
+                    <span style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:8,background:out?C.redBg:low?C.amberBg:C.greenBg,color:sc,border:`1px solid ${sc}20`}}>{out?T2("Out"):low?T2("Low"):T2("OK")}</span>
+                  </div>
+
+                  {/* Order button */}
                   <button onClick={()=>{setShowOrder(item.id);setOrderQty(String(Math.max(item.minStock-item.inStock,item.minStock)));}}
-                    style={{padding:"4px 9px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer",background:C.wine,color:"#fff",border:"none"}}>Order</button>
+                    style={{padding:"8px 14px",borderRadius:10,fontSize:11,fontWeight:600,cursor:"pointer",background:"transparent",color:C.gold,border:`1px solid ${C.gold}30`,minHeight:36,flexShrink:0}}>{T2("Order")}</button>
                 </div>
               );
             })}
-            {filteredItems.length===0&&<div style={{textAlign:"center",padding:20,fontSize:12,color:C.muted}}>{T2("No items found.")}</div>}
+            {filteredItems.length===0&&<div style={{textAlign:"center",padding:40,background:C.surface,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No items found.")}</div>}
           </div>
+
+          <div style={{marginTop:12,fontSize:11,color:C.faint,textAlign:"center"}}>{T2("Tap stock number to edit")} · {filteredItems.length} {T2("items")}</div>
         </div>
       )}
+
+      {/* ── SCAN & STOCK IN/OUT ── */}
+      {tab==="scan"&&(
+        <div>
+          {/* Mode toggle */}
+          <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`}}>
+            <button onClick={()=>setScanMode("in")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
+              background:scanMode==="in"?"#1A3A1A":"transparent",color:scanMode==="in"?C.green:C.muted}}>📥 {T2("Stock In")}</button>
+            <button onClick={()=>setScanMode("out")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
+              background:scanMode==="out"?"#3A1A1A":"transparent",color:scanMode==="out"?C.red:C.muted}}>📤 {T2("Stock Out")}</button>
+          </div>
+
+          {/* Scanner */}
+          <Card style={{marginBottom:12,padding:"14px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanning?10:0}}>
+              <div><div style={{fontSize:14,fontWeight:700,color:C.text}}>📷 {T2("Scan Barcode")}</div><div style={{fontSize:12,color:C.muted}}>{T2("Point camera at barcode")}</div></div>
+              {!scanning?<button onClick={()=>{setScanItem(null);setScanResult("");setScanError("");startScan();}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>📷 {T2("Scan")}</button>
+                        :<button onClick={stopScan} style={{padding:"8px 14px",borderRadius:10,background:C.red,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✕ {T2("Stop")}</button>}
+            </div>
+            {scanning&&<video ref={scanVideoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:200,borderRadius:10,objectFit:"cover",background:"#000",display:"block",marginBottom:8}}/>}
+            {scanning&&<div style={{fontSize:12,color:C.amber,textAlign:"center"}}>📡 {T2("Scanning…")}</div>}
+          </Card>
+
+          {/* Manual search fallback */}
+          <div style={{marginBottom:12}}>
+            <input value={search} onChange={e=>{setSearch(e.target.value);setScanItem(null);}} placeholder={T2("Search items…")+" / "+T2("Barcode")}
+              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:44}}/>
+            {search.trim()&&!scanItem&&(
+              <div style={{maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,marginTop:6}}>
+                {items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||(i.h||"").includes(search)||(i.barcode||"").includes(search)).slice(0,10).map(i=>(
+                  <div key={i.id} onClick={()=>{setScanItem(i);setSearch("");}} style={{padding:"10px 14px",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",display:"flex",justifyContent:"space-between"}}>
+                    <div><div style={{fontSize:12,fontWeight:600,color:C.text}}>{i.name}{i.h?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({i.h})</span>:""}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{i.cat} · {i.barcode||"No barcode"}</div></div>
+                    <div style={{fontSize:12,fontWeight:700,color:i.inStock>0?C.green:C.red}}>{i.inStock} {i.unit}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Scanned / Selected item */}
+          {scanItem&&(
+            <Card style={{marginBottom:12,padding:"16px",border:`2px solid ${scanMode==="in"?C.green:C.red}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>{scanItem.name}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{scanItem.h||""} · {scanItem.cat} · {scanItem.barcode||"No barcode"}</div>
+                </div>
+                <div style={{textAlign:"center",padding:"8px 14px",borderRadius:10,background:scanItem.inStock>0?C.greenBg:C.redBg}}>
+                  <div style={{fontSize:20,fontWeight:700,color:scanItem.inStock>0?C.green:C.red}}>{scanItem.inStock}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{scanItem.unit} {T2("Current Stock")}</div>
+                </div>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{T2("Qty")} *</div>
+                  <input type="number" value={scanQty} onChange={e=>setScanQty(e.target.value)} placeholder="0"
+                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",textAlign:"center",minHeight:44}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{T2("Reason")}</div>
+                  <select value={scanReason} onChange={e=>setScanReason(e.target.value)}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,appearance:"auto",minHeight:44}}>
+                    {scanMode==="in"
+                      ?["Purchase","Return","Transfer In","Opening Stock","Correction"].map(r=><option key={r} value={r}>{T2(r)}</option>)
+                      :["Event Use","Damage","Expired","Transfer Out","Correction"].map(r=><option key={r} value={r}>{T2(r)}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <button onClick={()=>{
+                const qty=+scanQty;if(!qty||qty<=0) return;
+                const newStock=scanMode==="in"?scanItem.inStock+qty:Math.max(0,scanItem.inStock-qty);
+                setItems(p=>p.map(i=>i.id!==scanItem.id?i:{...i,inStock:newStock}));
+                setTransactions(p=>[{id:"tx-"+Date.now(),itemId:scanItem.id,itemName:scanItem.name,type:scanMode,qty,reason:scanReason,time:new Date().toLocaleString("en-IN"),newStock},...p]);
+                setScanItem({...scanItem,inStock:newStock});setScanQty("");
+              }} disabled={!scanQty||+scanQty<=0}
+                style={{width:"100%",padding:"14px",borderRadius:12,border:"none",fontSize:14,fontWeight:700,cursor:scanQty&&+scanQty>0?"pointer":"not-allowed",minHeight:48,
+                  background:scanMode==="in"?`linear-gradient(135deg,${C.green},#1A5A30)`:`linear-gradient(135deg,${C.red},#5A1A1A)`,
+                  color:"#fff",opacity:scanQty&&+scanQty>0?1:.4}}>
+                {scanMode==="in"?`📥 ${T2("Stock In")} +${scanQty||0} ${scanItem.unit}`:`📤 ${T2("Stock Out")} −${scanQty||0} ${scanItem.unit}`}
+              </button>
+            </Card>
+          )}
+
+          {/* Scan result for new items */}
+          {scanResult&&!scanItem&&(
+            <Card style={{marginBottom:12,padding:0,overflow:"hidden",border:`1px solid ${scanLookup?C.greenBorder:C.amberBorder}`}}>
+              {/* Product image + details from API */}
+              {scanLookup&&(
+                <div style={{display:"flex",gap:0}}>
+                  {scanLookup.image&&<img src={scanLookup.image} alt={scanLookup.name} style={{width:90,height:90,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
+                  <div style={{flex:1,padding:"12px 14px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:700,color:C.text}}>{scanLookup.name}</div>
+                        {scanLookup.brand&&<div style={{fontSize:12,color:C.gold,marginTop:2}}>{scanLookup.brand}</div>}
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+                          {scanLookup.weight&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted}}>📦 {scanLookup.weight}</span>}
+                          {scanLookup.energy&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted}}>🔥 {scanLookup.energy}</span>}
+                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>✅ {scanLookup.source}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {!scanLookup&&<div style={{padding:"12px 14px",background:C.amberBg}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.amber}}>🔍 {T2("Barcode")}: {scanResult}</div>
+                <div style={{fontSize:11,color:C.amber,marginTop:3}}>{scanError}</div>
+              </div>}
+              {scanLookup&&<div style={{fontSize:11,color:C.green,padding:"0 14px 6px",fontStyle:"italic"}}>{scanError}</div>}
+              <div style={{padding:"10px 14px",borderTop:scanLookup?`1px solid ${C.border}`:"none",display:"flex",gap:8}}>
+                <button onClick={()=>{setShowAdd(true);}} style={{flex:1,padding:"10px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>+ {T2("Save to Inventory")}</button>
+                <button onClick={()=>{setScanResult("");setScanLookup(null);setScanItem(null);setScanError("");}} style={{padding:"10px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>✕</button>
+              </div>
+            </Card>
+          )}
+
+          {/* Recent transactions */}
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase"}}>{T2("Transaction History")} ({transactions.length})</div>
+          {transactions.length===0&&<div style={{textAlign:"center",padding:20,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No transactions yet. Scan an item to begin.")}</div>}
+          {transactions.slice(0,20).map(tx=>(
+            <div key={tx.id} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,marginBottom:4}}>
+              <div style={{width:32,height:32,borderRadius:8,background:tx.type==="in"?C.greenBg:C.redBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
+                {tx.type==="in"?"📥":"📤"}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{tx.itemName}</div>
+                <div style={{fontSize:11,color:C.muted}}>{tx.reason} · {tx.time}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:14,fontWeight:700,color:tx.type==="in"?C.green:C.red}}>{tx.type==="in"?"+":"-"}{tx.qty}</div>
+                <div style={{fontSize:10,color:C.muted}}>→ {tx.newStock}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── SMART ISSUE — auto-calculate dept-wise ingredient bags ── */}
+      {tab==="issue"&&(()=>{
+        const issueEvs = safeEvs.filter(e=>e.date===TODAY||e.date===TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+        const filtEvs = issueDate==="all"?issueEvs:issueEvs.filter(e=>e.date===issueDate);
+
+        // Calculate all ingredients needed, grouped by kitchen section
+        const sectionBags = {};
+        filtEvs.forEach(ev=>{
+          const pax = +ev.pax||0;
+          safeArr(ev.menu).forEach(dishName=>{
+            const sec = guessSectionForDish(dishName);
+            if(sec==="Beverages") return;
+            const ingr = RECIPE_INGREDIENTS[dishName];
+            if(!ingr) return;
+            if(!sectionBags[sec]) sectionBags[sec] = {items:{},events:[],totalPax:0};
+            if(!sectionBags[sec].events.find(e=>e.id===ev.id)) sectionBags[sec].events.push(ev);
+            sectionBags[sec].totalPax += pax;
+            ingr.forEach(ing=>{
+              const key = ing.n;
+              if(!sectionBags[sec].items[key]) sectionBags[sec].items[key] = {name:ing.n,hindi:ing.h||"",unit:ing.u,totalQty:0,dishes:[]};
+              const qty = ing.q * pax;
+              sectionBags[sec].items[key].totalQty += qty;
+              sectionBags[sec].items[key].dishes.push({dish:dishName,pax,qty});
+            });
+          });
+        });
+
+        function fmtQty(q, u){
+          if(u==="g"&&q>=1000) return (q/1000).toFixed(1)+" kg";
+          if(u==="ml"&&q>=1000) return (q/1000).toFixed(1)+" L";
+          return Math.round(q)+" "+u;
+        }
+
+        const secKeys = Object.keys(sectionBags).sort();
+        const totalIngredients = secKeys.reduce((s,k)=>s+Object.keys(sectionBags[k].items).length,0);
+        const totalIssued = Object.values(issuedItems).filter(Boolean).length;
+
+        return(
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧮 {T2("Smart Issue")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Auto-calculated ingredient bags per kitchen section based on event menus and pax")}</div>
+
+            {/* Date filter */}
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              {[{v:"all",l:T2("All")},{v:TODAY,l:T2("Today")},{v:TOMORROW,l:T2("Tomorrow")}].map(d=>(
+                <button key={d.v} onClick={()=>setIssueDate(d.v)} style={{padding:"8px 16px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36,
+                  background:issueDate===d.v?C.gold+"20":"transparent",color:issueDate===d.v?C.gold:C.muted,border:`1px solid ${issueDate===d.v?C.gold:C.border}`}}>{d.l}</button>
+              ))}
+              <div style={{flex:1}}/>
+              <div style={{fontSize:12,color:C.green,fontWeight:700,padding:"8px 14px",borderRadius:10,background:C.greenBg}}>{totalIssued}/{totalIngredients} {T2("issued")}</div>
+            </div>
+
+            {/* Summary */}
+            <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.gold}}>{filtEvs.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("Events")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{filtEvs.reduce((s,e)=>s+(+e.pax||0),0)}</div><div style={{fontSize:10,color:C.muted}}>{T2("Total Pax")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{secKeys.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("Sections")}</div>
+              </div>
+              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
+                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{totalIngredients}</div><div style={{fontSize:10,color:C.muted}}>{T2("Items")}</div>
+              </div>
+            </div>
+
+            {secKeys.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events with recipe data. Add recipes with ingredients to enable Smart Issue.")}</div>}
+
+            {/* Section-wise bags */}
+            {secKeys.map(sec=>{
+              const bag = sectionBags[sec];
+              const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+              const ingList = Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
+              const secIssued = ingList.filter(ing=>issuedItems[sec+"_"+ing.name]).length;
+              const allDone = secIssued===ingList.length;
+
+              return(
+                <Card key={sec} style={{marginBottom:12,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
+                  {/* Section header */}
+                  <div style={{padding:"14px 16px",background:m2.color+"10",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <span style={{fontSize:16,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)}</span>
+                        {allDone&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.green,color:"#0A0A0F",fontWeight:700}}>✅ {T2("All Issued")}</span>}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{bag.events.map(e=>e.guest+"("+e.pax+")").join(" + ")} = {bag.totalPax} pax</div>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{fontSize:16,fontWeight:700,color:allDone?C.green:C.amber}}>{secIssued}/{ingList.length}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{T2("issued")}</div>
+                    </div>
+                  </div>
+
+                  {/* Ingredient list */}
+                  <div style={{padding:"8px 12px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"32px 1fr 100px 32px",gap:4,padding:"6px 4px",borderBottom:`1px solid ${C.border}`,marginBottom:4}}>
+                      <span/>
+                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{T2("Item")}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",textAlign:"right"}}>{T2("Qty")}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textAlign:"center"}}>✓</span>
+                    </div>
+                    {ingList.map((ing,ii)=>{
+                      const key=sec+"_"+ing.name;
+                      const done=!!issuedItems[key];
+                      const storeItem=items.find(i=>i.name.toLowerCase().includes(ing.name.split(" ")[0].toLowerCase())||(i.h||"").includes(ing.hindi));
+                      const hasStock=storeItem&&storeItem.inStock>0;
+                      return(
+                        <div key={ii} style={{display:"grid",gridTemplateColumns:"32px 1fr 100px 32px",gap:4,padding:"8px 4px",borderBottom:ii<ingList.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center",background:done?C.greenBg+"40":"transparent"}}>
+                          <div style={{fontSize:12,color:C.muted,textAlign:"center"}}>{ii+1}</div>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name} {ing.hindi?<span style={{fontSize:10,color:C.muted}}>({ing.hindi})</span>:""}</div>
+                            {storeItem&&<div style={{fontSize:10,color:hasStock?C.green:C.red}}>{T2("In Stock")}: {storeItem.inStock} {storeItem.unit}</div>}
+                            {!storeItem&&<div style={{fontSize:10,color:C.amber}}>⚠ {T2("Not in inventory")}</div>}
+                          </div>
+                          <div style={{textAlign:"right",fontSize:13,fontWeight:700,color:done?C.green:C.text}}>{fmtQty(ing.totalQty,ing.unit)}</div>
+                          <div onClick={()=>setIssuedItems(p=>({...p,[key]:!done}))}
+                            style={{width:28,height:28,borderRadius:6,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
+                            {done&&<span style={{color:"#0A0A0F",fontSize:12,fontWeight:700}}>✓</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Issue all button */}
+                  {!allDone&&(
+                    <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
+                      <button onClick={()=>{const up={};ingList.forEach(ing=>{up[sec+"_"+ing.name]=true;});setIssuedItems(p=>({...p,...up}));}}
+                        style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${m2.color},${m2.color}80)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                        ✅ {T2("Issue All")} — {sec} ({ingList.length} {T2("items")})
+                      </button>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ── ORDERS ── */}
       {tab==="orders"&&(
@@ -6523,8 +8430,8 @@ function StoreModule({events, lang="en"}) {
       {tab==="requirements"&&(
         <div>
           <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.wine,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:2}}>📋 Auto-Requirements for Upcoming Events</div>
-            <div style={{fontSize:11,color:C.wine,opacity:.8}}>{upcoming.length} events · {totalPax.toLocaleString()} total pax</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"var(--font-display)",marginBottom:2}}>📋 Auto-Requirements for Upcoming Events</div>
+            <div style={{fontSize:11,color:C.gold,opacity:.8}}>{upcoming.length} events · {totalPax.toLocaleString()} total pax</div>
           </div>
           {upcoming.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:10,fontSize:12,color:C.muted}}>No upcoming events. Add from Dashboard.</div>}
           {upcoming.length>0&&(
@@ -6588,7 +8495,7 @@ function MenuPackagesView({lang="en"}) {
   // ── Package list (default view) ──
   if(!selPkg) return (
     <div>
-      <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif",marginBottom:4}}>📜 {T2("Menu Packages")}</div>
+      <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>📜 {T2("Menu")}</div>
       <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{pkgNames.length} {T2("packages")} · {T2("Full catering menus for all events")}</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
         {pkgNames.map(pkg=>{
@@ -6622,7 +8529,7 @@ function MenuPackagesView({lang="en"}) {
       <div style={{display:"flex",gap:14,alignItems:"center",marginBottom:20}}>
         <div style={{fontSize:40}}>{pm.icon}</div>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{selPkg}</div>
+          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{selPkg}</div>
           <div style={{fontSize:13,color:pm.c,marginTop:3}}>{menu.length} {T2("dishes")} · {Object.keys(bySection).length} {T2("sections")}</div>
         </div>
       </div>
@@ -6646,145 +8553,296 @@ function MenuPackagesView({lang="en"}) {
   );
 }
 
-function RepairMaintenance({lang="en"}) {
+function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"}) {
   const T2 = s => T(s, lang);
-  const ASSIGN_TO = [
-    {id:"akhtar",name:"Akhtar",role:T2("Equipment Servicing"),icon:"🔧",color:"#185FA5"},
-    {id:"rajender",name:"Rajender Chef",role:T2("Equipment Purchasing"),icon:"🛒",color:"#B05A10"},
-    {id:"gopal",name:"Gopal",role:T2("Quality / Operations"),icon:"📋",color:"#1A7A42"},
-    {id:"yatender",name:"Yatender",role:T2("AP Base Kitchen"),icon:"🏠",color:C.gold},
+
+  // ─── Master config ───────────────────────────────────────────────
+  const ASSIGN_POOL = [
+    {id:"akhtar",     name:"Akhtar",        role:"Equipment Servicing", dept:"maintenance", icon:"🔧", color:"#185FA5", phone:"98100-10001"},
+    {id:"rajender",   name:"Rajender Chef", role:"Equipment Purchasing",dept:"maintenance", icon:"🛒", color:"#B05A10", phone:"98100-10002"},
+    {id:"gopal",      name:"Gopal",         role:"Quality / Operations",dept:"kitchen",     icon:"📋", color:"#1A7A42", phone:"98100-10003"},
+    {id:"yatender",   name:"Yatender",      role:"AP Base Kitchen",     dept:"kitchen",     icon:"🏠", color:C.gold,    phone:"98100-10004"},
+    {id:"lokesh",     name:"Lokesh",        role:"Chinese Section",     dept:"kitchen",     icon:"🥢", color:"#C084FC", phone:"98100-10005"},
+    {id:"pushpander", name:"Pushpander",    role:"Transport",           dept:"transport",   icon:"🚛", color:C.teal,    phone:"98100-10006"},
+    {id:"self",       name:"Self / Manager",role:"Self-assigned",       dept:"all",         icon:"👤", color:C.muted,   phone:""},
   ];
   const CATEGORIES = [
-    {v:"Gas & Burner",l:T2("Gas & Burner"),icon:"🔥"},
-    {v:"Refrigeration",l:T2("Refrigeration"),icon:"❄️"},
-    {v:"Exhaust & Chimney",l:T2("Exhaust & Chimney"),icon:"💨"},
-    {v:"Tandoor",l:T2("Tandoor"),icon:"🫓"},
-    {v:"Electrical",l:T2("Electrical"),icon:"⚡"},
-    {v:"Plumbing",l:T2("Plumbing"),icon:"🚿"},
-    {v:"Utensils & Crockery",l:T2("Utensils & Crockery"),icon:"🍽"},
-    {v:"Vehicle",l:T2("Vehicle"),icon:"🚛"},
-    {v:"Other",l:T2("Other"),icon:"📦"},
+    {v:"Gas & Burner",         icon:"🔥"}, {v:"Refrigeration",    icon:"❄️"},
+    {v:"Exhaust & Chimney",    icon:"💨"}, {v:"Tandoor",          icon:"🫓"},
+    {v:"Electrical",           icon:"⚡"}, {v:"Plumbing",         icon:"🚿"},
+    {v:"Utensils & Crockery",  icon:"🍽"}, {v:"Vehicle",          icon:"🚛"},
+    {v:"Furniture & Civil",    icon:"🪑"}, {v:"IT / Software",    icon:"💻"},
+    {v:"Other",                icon:"📦"},
   ];
-  const PRI = [{v:"Low",c:C.green},{v:"Medium",c:C.amber},{v:"High",c:C.red},{v:"Urgent",c:"#D06040"}];
+  const DEPT_LABELS = {kitchen:"Kitchen",service:"Service",crockery:"Crockery",beverages:"Beverages",transport:"Transport",odc:"ODC",management:"Management"};
+  const PRI = [{v:"Low",c:C.green},{v:"Medium",c:C.amber},{v:"High",c:C.red},{v:"Urgent",c:"#E05030"}];
+  const STATUS_FLOW = ["Open","In Progress","Pending Approval","Resolved","Closed"];
+  const STATUS_COLORS = {"Open":C.red,"In Progress":C.amber,"Pending Approval":"#8A70C8","Resolved":C.green,"Closed":C.faint};
   const VENUES_R = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Ambria Restro","All Properties"];
 
   const [tickets, setTickets] = useState([
-    {id:"RM-001",title:"Tandoor #2 clay lining cracked",cat:"Tandoor",venue:"Ambria Pushpanjali",priority:"High",assignTo:"akhtar",status:"In Progress",createdBy:"Lokesh",date:relDate(-2),notes:"Crack visible on inner wall. Not safe for use above 200°C.",updates:[{by:"Akhtar",date:relDate(-1),msg:"Ordered new clay lining. ETA 2 days."}]},
-    {id:"RM-002",title:"Walk-in fridge compressor noise",cat:"Refrigeration",venue:"Ambria Pushpanjali",priority:"Urgent",assignTo:"akhtar",status:"Open",createdBy:"Bipin",date:relDate(-1),notes:"Loud grinding noise from compressor. Temperature fluctuating.",updates:[]},
-    {id:"RM-003",title:"Chinese wok burner low flame",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",status:"Open",createdBy:"Lokesh",date:TODAY,notes:"Wok station #3 flame too low for stir-fry. Gas pressure issue.",updates:[]},
-    {id:"RM-004",title:"Need 20 new copper handi",cat:"Utensils & Crockery",venue:"All Properties",priority:"Low",assignTo:"rajender",status:"Pending Approval",createdBy:"Gopal",date:relDate(-3),notes:"Current copper handis dented and discolored. Need for luxury functions.",updates:[{by:"Rajender",date:relDate(-2),msg:"Got 3 vendor quotes. Best: ₹850/pc from Rewari supplier."}]},
-    {id:"RM-005",title:"Fridge truck AC not cooling properly",cat:"Vehicle",venue:"All Properties",priority:"High",assignTo:"akhtar",status:"In Progress",createdBy:"Abhi",date:relDate(-1),notes:"Temperature not holding below 4°C during transport.",updates:[{by:"Akhtar",date:TODAY,msg:"Mechanic visiting tomorrow morning. Gas refill needed."}]},
+    {id:"RM-001",title:"Tandoor #2 clay lining cracked",cat:"Tandoor",venue:"Ambria Pushpanjali",priority:"High",assignTo:"akhtar",status:"In Progress",dept:"kitchen",createdBy:"Lokesh",date:relDate(-2),notes:"Crack visible on inner wall. Not safe for use above 200°C.",updates:[{by:"Akhtar",date:relDate(-1),msg:"Ordered new clay lining. ETA 2 days."}]},
+    {id:"RM-002",title:"Walk-in fridge compressor noise",cat:"Refrigeration",venue:"Ambria Pushpanjali",priority:"Urgent",assignTo:"akhtar",status:"Open",dept:"kitchen",createdBy:"Bipin",date:relDate(-1),notes:"Loud grinding noise from compressor. Temperature fluctuating.",updates:[]},
+    {id:"RM-003",title:"Chinese wok burner low flame",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",status:"Open",dept:"kitchen",createdBy:"Lokesh",date:TODAY,notes:"Wok station #3 flame too low for stir-fry. Gas pressure issue.",updates:[]},
+    {id:"RM-004",title:"Need 20 new copper handi",cat:"Utensils & Crockery",venue:"All Properties",priority:"Low",assignTo:"rajender",status:"Pending Approval",dept:"crockery",createdBy:"Gopal",date:relDate(-3),notes:"Current copper handis dented and discolored. Need for luxury functions.",updates:[{by:"Rajender",date:relDate(-2),msg:"Got 3 vendor quotes. Best: ₹850/pc from Rewari supplier."}]},
+    {id:"RM-005",title:"Fridge truck AC not cooling properly",cat:"Vehicle",venue:"All Properties",priority:"High",assignTo:"akhtar",status:"In Progress",dept:"transport",createdBy:"Abhi",date:relDate(-1),notes:"Temperature not holding below 4°C during transport.",updates:[{by:"Akhtar",date:TODAY,msg:"Mechanic visiting tomorrow morning. Gas refill needed."}]},
+    {id:"RM-006",title:"Service station exhaust fan broken",cat:"Exhaust & Chimney",venue:"Ambria Exotica",priority:"Medium",assignTo:"akhtar",status:"Open",dept:"service",createdBy:"Raghvendra",date:TODAY,notes:"Fan not running. Kitchen getting smoky during service.",updates:[]},
   ]);
-  const [showNew, setShowNew] = useState(false);
-  const [selTicket, setSelTicket] = useState(null);
-  const [filter, setFilter] = useState("All");
-  const [newT, setNewT] = useState({title:"",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",notes:""});
+  const [showNew, setShowNew]   = useState(false);
+  const [selId, setSelId]       = useState(null);
+  const [updMsg, setUpdMsg]     = useState("");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterDept, setFilterDept]     = useState("All");
+  const [filterAssign, setFilterAssign] = useState("All");
+  const [sortBy, setSortBy]     = useState("date"); // "date" | "priority"
+  const [newT, setNewT] = useState({
+    title:"", cat:"Gas & Burner", venue:"Ambria Pushpanjali",
+    priority:"Medium", assignTo:"akhtar", dept:currentDept||"kitchen", notes:"",
+  });
 
   function addTicket(){
-    if(!newT.title) return;
-    const id = `RM-${String(tickets.length+1).padStart(3,"0")}`;
-    setTickets(p=>[{id,title:newT.title,cat:newT.cat,venue:newT.venue,priority:newT.priority,assignTo:newT.assignTo,status:"Open",createdBy:"You",date:TODAY,notes:newT.notes,updates:[]},...p]);
-    setNewT({title:"",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",notes:""});
+    if(!newT.title.trim()) return;
+    const id=`RM-${String(Date.now()).slice(-4)}`;
+    setTickets(p=>[{id,title:newT.title.trim(),cat:newT.cat,venue:newT.venue,priority:newT.priority,
+      assignTo:newT.assignTo,status:"Open",dept:newT.dept,
+      createdBy:currentUser?.name||"Staff",date:TODAY,notes:newT.notes,updates:[]},...p]);
+    setNewT({title:"",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",dept:currentDept||"kitchen",notes:""});
     setShowNew(false);
   }
-  function updStatus(id,status){setTickets(p=>p.map(t=>t.id===id?{...t,status}:t));}
+  function updStatus(id, st){ setTickets(p=>p.map(t=>t.id===id?{...t,status:st}:t)); }
+  function addUpdate(id){
+    if(!updMsg.trim()) return;
+    setTickets(p=>p.map(t=>t.id!==id?t:{...t,updates:[...t.updates,{by:currentUser?.name||"Staff",date:TODAY,msg:updMsg.trim()}]}));
+    setUpdMsg("");
+  }
+  function reassign(id, assignTo){ setTickets(p=>p.map(t=>t.id===id?{...t,assignTo}:t)); }
 
-  const filteredT = filter==="All"?tickets:tickets.filter(t=>t.status===filter);
-  const openCt = tickets.filter(t=>t.status==="Open").length;
-  const ipCt = tickets.filter(t=>t.status==="In Progress").length;
-  const urgCt = tickets.filter(t=>t.priority==="Urgent"||t.priority==="High").length;
+  // Filtering + sorting
+  let visible = tickets.filter(t=>
+    (filterStatus==="All"||t.status===filterStatus)&&
+    (filterDept==="All"||t.dept===filterDept)&&
+    (filterAssign==="All"||t.assignTo===filterAssign)
+  );
+  if(sortBy==="priority"){
+    const pri_order={"Urgent":0,"High":1,"Medium":2,"Low":3};
+    visible=[...visible].sort((a,b)=>(pri_order[a.priority]||3)-(pri_order[b.priority]||3));
+  } else {
+    visible=[...visible].sort((a,b)=>b.date.localeCompare(a.date));
+  }
 
-  return (
+  const openCt   = tickets.filter(t=>t.status==="Open").length;
+  const ipCt     = tickets.filter(t=>t.status==="In Progress").length;
+  const urgCt    = tickets.filter(t=>t.priority==="Urgent"||t.priority==="High").length;
+  const resolCt  = tickets.filter(t=>t.status==="Resolved"||t.status==="Closed").length;
+
+  const fld={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:40};
+
+  return(
     <div>
-      {/* Stats */}
+      {/* ── Header ── */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.4}}>🔧 {T2("Repair & Maintenance")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Shared pool — all departments")}</div>
+        </div>
+        <button onClick={()=>setShowNew(!showNew)} style={{padding:"11px 18px",borderRadius:12,background:showNew?C.surface:`linear-gradient(135deg,${C.gold},#A8891E)`,color:showNew?C.muted:"#0A0908",border:showNew?`1px solid ${C.border}`:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+          {showNew?"✕ Cancel":"+ "+T2("New Request")}
+        </button>
+      </div>
+
+      {/* ── Stats tiles ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-        {[
-          {l:T2("Open"),v:openCt,c:C.red,bg:C.redBg},
-          {l:T2("In Progress"),v:ipCt,c:C.amber,bg:C.amberBg},
-          {l:T2("High/Urgent"),v:urgCt,c:"#D06040",bg:C.redBg},
-          {l:T2("Total"),v:tickets.length,c:C.muted,bg:C.bg},
-        ].map(s=>(
-          <div key={s.l} style={{background:s.bg,borderRadius:10,padding:"10px",textAlign:"center"}}>
-            <div style={{fontSize:22,fontWeight:700,color:s.c}}>{s.v}</div>
-            <div style={{fontSize:11,color:s.c,fontWeight:600}}>{s.l}</div>
+        {[{l:T2("Open"),v:openCt,c:C.red,bg:C.redBg},{l:T2("In Progress"),v:ipCt,c:C.amber,bg:C.amberBg},{l:T2("High/Urgent"),v:urgCt,c:"#E05030",bg:C.redBg},{l:T2("Resolved"),v:resolCt,c:C.green,bg:C.greenBg}].map(s=>(
+          <div key={s.l} onClick={()=>setFilterStatus(s.l===T2("Open")?"Open":s.l===T2("In Progress")?"In Progress":s.l===T2("High/Urgent")?"All":s.l===T2("Resolved")?"Resolved":"All")}
+            style={{background:s.bg,borderRadius:12,padding:"12px 10px",textAlign:"center",border:`1px solid ${s.c}20`,cursor:"pointer"}}>
+            <div style={{fontSize:22,fontWeight:800,color:s.c,lineHeight:1}}>{s.v}</div>
+            <div style={{fontSize:10,color:s.c,fontWeight:600,marginTop:4}}>{s.l}</div>
           </div>
         ))}
       </div>
 
-      {/* Filter + New btn */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div style={{display:"flex",gap:6}}>
-          {["All","Open","In Progress","Pending Approval","Resolved","Closed"].map(f=>(
-            <button key={f} onClick={()=>setFilter(f)} style={{padding:"6px 12px",borderRadius:14,fontSize:10,fontWeight:filter===f?700:400,cursor:"pointer",background:filter===f?C.wine:"transparent",color:filter===f?"#fff":C.muted,border:`1px solid ${filter===f?C.wine:C.border}`}}>{T2(f)}</button>
-          ))}
-        </div>
-        <Btn onClick={()=>setShowNew(!showNew)} color={C.wine} style={{fontSize:11,padding:"6px 14px"}}>{showNew?T2("Cancel"):(`+ ${T2("New Request")}`)}</Btn>
-      </div>
-
-      {/* New request form */}
+      {/* ── New Request Form ── */}
       {showNew&&(
-        <Card style={{marginBottom:14,padding:"14px 18px",border:`2px solid ${C.wine}30`}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>🔧 {T2("New Repair / Maintenance Request")}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("ISSUE TITLE")} *</div><input value={newT.title} onChange={e=>setNewT(p=>({...p,title:e.target.value}))} placeholder={lang==="hi"?"समस्या का विवरण":"e.g. Tandoor clay cracked"} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,boxSizing:"border-box"}} autoFocus/></div>
-            <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("Category")}</div><select value={newT.cat} onChange={e=>setNewT(p=>({...p,cat:e.target.value}))} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}>{CATEGORIES.map(c=><option key={c.v} value={c.v}>{c.icon} {c.l}</option>)}</select></div>
-            <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("VENUE")}</div><select value={newT.venue} onChange={e=>setNewT(p=>({...p,venue:e.target.value}))} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}>{VENUES_R.map(v=><option key={v}>{v}</option>)}</select></div>
-            <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("Priority")}</div><select value={newT.priority} onChange={e=>setNewT(p=>({...p,priority:e.target.value}))} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}>{PRI.map(p=><option key={p.v}>{p.v}</option>)}</select></div>
-            <div><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("Assign To")}</div><select value={newT.assignTo} onChange={e=>setNewT(p=>({...p,assignTo:e.target.value}))} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}>{ASSIGN_TO.map(a=><option key={a.id} value={a.id}>{a.icon} {a.name} — {a.role}</option>)}</select></div>
-            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>{T2("Notes")}</div><textarea value={newT.notes} onChange={e=>setNewT(p=>({...p,notes:e.target.value}))} placeholder={lang==="hi"?"विवरण लिखें...":"Describe the issue..."} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,height:48,resize:"none",boxSizing:"border-box"}}/></div>
+        <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"80"}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>🔧 {T2("New Repair / Maintenance Request")}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Issue Title")} *</div>
+              <input value={newT.title} onChange={e=>setNewT(p=>({...p,title:e.target.value}))} placeholder={lang==="hi"?"समस्या का विवरण लिखें…":"e.g. Tandoor #2 clay lining cracked"} style={{...fld,fontSize:13}} autoFocus/>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Category")}</div>
+              <select value={newT.cat} onChange={e=>setNewT(p=>({...p,cat:e.target.value}))} style={fld}>{CATEGORIES.map(c=><option key={c.v} value={c.v}>{c.icon} {T2(c.v)}</option>)}</select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Venue")}</div>
+              <select value={newT.venue} onChange={e=>setNewT(p=>({...p,venue:e.target.value}))} style={fld}>{VENUES_R.map(v=><option key={v}>{v}</option>)}</select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Priority")}</div>
+              <select value={newT.priority} onChange={e=>setNewT(p=>({...p,priority:e.target.value}))} style={fld}>{PRI.map(p=><option key={p.v}>{T2(p.v)}</option>)}</select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Raise From Dept")}</div>
+              <select value={newT.dept} onChange={e=>setNewT(p=>({...p,dept:e.target.value}))} style={fld}>
+                {Object.entries(DEPT_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Assign To")}</div>
+              <select value={newT.assignTo} onChange={e=>setNewT(p=>({...p,assignTo:e.target.value}))} style={fld}>
+                {ASSIGN_POOL.map(a=><option key={a.id} value={a.id}>{a.icon} {a.name} — {a.role}</option>)}
+              </select>
+            </div>
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Notes")}</div>
+              <textarea value={newT.notes} onChange={e=>setNewT(p=>({...p,notes:e.target.value}))} placeholder={lang==="hi"?"विवरण लिखें…":"Describe the issue in detail…"} rows={2} style={{...fld,resize:"none",height:60}}/>
+            </div>
           </div>
-          <Btn onClick={addTicket} color={C.wine} style={{fontSize:12,padding:"8px 20px"}} disabled={!newT.title}>{T2("Submit Request")} ✓</Btn>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <button onClick={addTicket} disabled={!newT.title.trim()} style={{padding:"12px 24px",borderRadius:12,background:newT.title.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:newT.title.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:newT.title.trim()?"pointer":"not-allowed",minHeight:44}}>
+              ✓ {T2("Submit Request")}
+            </button>
+            <div style={{fontSize:11,color:C.faint}}>{T2("Ticket will be visible to all departments")}</div>
+          </div>
         </Card>
       )}
 
-      {/* Ticket list */}
-      {filteredT.map(tk=>{
-        const isOpen2 = selTicket===tk.id;
-        const assign = ASSIGN_TO.find(a=>a.id===tk.assignTo)||{name:tk.assignTo,icon:"👤",color:C.muted};
-        const cat = CATEGORIES.find(c=>c.v===tk.cat)||{icon:"📦",l:tk.cat};
-        const pri = PRI.find(p=>p.v===tk.priority)||{c:C.muted};
-        const daysSince = Math.round((new Date(TODAY+"T00:00")-new Date(tk.date+"T00:00"))/(864e5));
-        return (
-          <Card key={tk.id} style={{marginBottom:8,padding:0,overflow:"hidden",border:isOpen2?`2px solid ${pri.c}40`:`1.5px solid ${C.border}`}}>
-            <div onClick={()=>setSelTicket(isOpen2?null:tk.id)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",gap:10,alignItems:"flex-start"}}>
-              <div style={{width:36,height:36,borderRadius:8,background:pri.c+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{cat.icon}</div>
+      {/* ── Filters + Sort ── */}
+      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        {/* Status filter */}
+        <div style={{display:"flex",gap:4,overflowX:"auto"}}>
+          {["All",...STATUS_FLOW].map(f=>(
+            <button key={f} onClick={()=>setFilterStatus(f)} style={{padding:"7px 12px",borderRadius:10,fontSize:11,fontWeight:filterStatus===f?700:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:36,background:filterStatus===f?C.gold+"20":"transparent",color:filterStatus===f?C.gold:C.muted,border:`1px solid ${filterStatus===f?C.gold+"60":C.border}`}}>{T2(f)}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+          {/* Sort */}
+          <button onClick={()=>setSortBy(s=>s==="date"?"priority":"date")} style={{padding:"7px 12px",borderRadius:10,fontSize:11,cursor:"pointer",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,minHeight:36}}>
+            {sortBy==="date"?"⏱ Date":"⚠ Priority"}
+          </button>
+        </div>
+      </div>
+
+      {/* Dept filter pills */}
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+        {["All",...Object.keys(DEPT_LABELS)].map(d=>(
+          <button key={d} onClick={()=>setFilterDept(d)} style={{padding:"5px 10px",borderRadius:8,fontSize:10,fontWeight:filterDept===d?700:400,cursor:"pointer",background:filterDept===d?C.purple+"20":"transparent",color:filterDept===d?C.purple:C.faint,border:`1px solid ${filterDept===d?C.purple+"50":C.borderLight}`}}>
+            {d==="All"?T2("All Depts"):(DEPT_LABELS[d]||d)}
+          </button>
+        ))}
+        <div style={{marginLeft:4,display:"flex",gap:4}}>
+          {ASSIGN_POOL.slice(0,5).map(a=>(
+            <button key={a.id} onClick={()=>setFilterAssign(filterAssign===a.id?"All":a.id)} style={{padding:"5px 10px",borderRadius:8,fontSize:10,fontWeight:filterAssign===a.id?700:400,cursor:"pointer",background:filterAssign===a.id?a.color+"20":"transparent",color:filterAssign===a.id?a.color:C.faint,border:`1px solid ${filterAssign===a.id?a.color+"50":C.borderLight}`}}>
+              {a.icon} {a.name.split(" ")[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Ticket list ── */}
+      {visible.length===0&&<div style={{textAlign:"center",padding:28,background:C.surface,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No tickets found")}</div>}
+      {visible.map(tk=>{
+        const isExp=selId===tk.id;
+        const assign=ASSIGN_POOL.find(a=>a.id===tk.assignTo)||{name:tk.assignTo,icon:"👤",color:C.muted};
+        const cat=CATEGORIES.find(c=>c.v===tk.cat)||{icon:"📦",v:tk.cat};
+        const pri=PRI.find(p=>p.v===tk.priority)||{c:C.muted};
+        const sc=STATUS_COLORS[tk.status]||C.muted;
+        const daysSince=Math.round((new Date(TODAY+"T00:00")-new Date(tk.date+"T00:00"))/(864e5));
+        return(
+          <Card key={tk.id} style={{marginBottom:8,padding:0,overflow:"hidden",border:`1.5px solid ${isExp?pri.c+"40":C.border}`}}>
+            {/* Card header */}
+            <div onClick={()=>setSelId(isExp?null:tk.id)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+              <div style={{width:40,height:40,borderRadius:10,background:pri.c+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{cat.icon}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:2}}>
-                  <span style={{fontSize:10,fontWeight:700,color:C.muted}}>{tk.id}</span>
-                  <span style={{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:8,background:pri.c+"15",color:pri.c}}>{T2(tk.priority)}</span>
-                  <span style={{fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:8,background:tk.status==="Open"?C.redBg:tk.status==="In Progress"?C.amberBg:tk.status==="Resolved"?C.greenBg:C.bg,color:tk.status==="Open"?C.red:tk.status==="In Progress"?C.amber:tk.status==="Resolved"?C.green:C.muted}}>{T2(tk.status)}</span>
+                <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:C.faint,fontWeight:600}}>{tk.id}</span>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:pri.c+"18",color:pri.c}}>{T2(tk.priority)}</span>
+                  <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:sc+"18",color:sc}}>{T2(tk.status)}</span>
+                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.purple+"18",color:C.purple}}>{DEPT_LABELS[tk.dept]||tk.dept}</span>
                 </div>
-                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:2}}>{tk.title}</div>
-                <div style={{fontSize:11,color:C.muted}}>📍 {tk.venue} · {assign.icon} {assign.name} · {daysSince===0?T2("Today"):daysSince+"d ago"}</div>
+                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:3}}>{tk.title}</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:C.muted}}>
+                  <span>📍 {tk.venue}</span>
+                  <span style={{color:assign.color,fontWeight:600}}>{assign.icon} {assign.name}</span>
+                  <span>🧑 {tk.createdBy}</span>
+                  <span>{daysSince===0?T2("Today"):daysSince===1?T2("Yesterday"):daysSince+"d ago"}</span>
+                </div>
               </div>
-              <span style={{fontSize:14,color:C.muted,transform:isOpen2?"rotate(180deg)":"rotate(0)",transition:"transform .2s"}}>▾</span>
+              <span style={{fontSize:14,color:C.muted,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>▾</span>
             </div>
-            {isOpen2&&(
-              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.bg}}>
-                {tk.notes&&<div style={{fontSize:11,color:C.text,marginBottom:8,padding:"6px 10px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>{tk.notes}</div>}
+
+            {/* Expanded detail */}
+            {isExp&&(
+              <div style={{borderTop:`1px solid ${C.border}`,background:C.bg}}>
+                {/* Notes */}
+                {tk.notes&&<div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>📋 {T2("Notes")}</div>
+                  <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{tk.notes}</div>
+                </div>}
+
+                {/* Reassign */}
+                <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>🔄 {T2("Reassign")}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {ASSIGN_POOL.map(a=>(
+                      <button key={a.id} onClick={()=>reassign(tk.id,a.id)}
+                        style={{padding:"7px 12px",borderRadius:10,fontSize:11,fontWeight:tk.assignTo===a.id?700:400,cursor:"pointer",
+                          background:tk.assignTo===a.id?a.color+"20":"transparent",color:tk.assignTo===a.id?a.color:C.muted,
+                          border:`1.5px solid ${tk.assignTo===a.id?a.color:C.border}`,minHeight:36}}>
+                        {a.icon} {a.name.split(" ")[0]}
+                        {tk.assignTo===a.id&&<span style={{fontSize:9,marginLeft:3}}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Status change */}
+                <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>📊 {T2("Update Status")}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {STATUS_FLOW.map(st=>{
+                      const stc=STATUS_COLORS[st]||C.muted;
+                      return(
+                        <button key={st} onClick={()=>updStatus(tk.id,st)}
+                          style={{padding:"7px 14px",borderRadius:10,fontSize:11,fontWeight:tk.status===st?700:400,cursor:"pointer",
+                            background:tk.status===st?stc+"20":"transparent",color:tk.status===st?stc:C.muted,
+                            border:`1.5px solid ${tk.status===st?stc:C.border}`,minHeight:36}}>
+                          {tk.status===st?"● ":""}{T2(st)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Updates timeline */}
-                {(tk.updates||[]).length>0&&(
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:4}}>{T2("Updates")}</div>
-                    {(tk.updates||[]).map((u,ui)=>(
-                      <div key={ui} style={{display:"flex",gap:8,marginBottom:4,paddingLeft:8,borderLeft:`2px solid ${C.border}`}}>
-                        <div style={{fontSize:10,color:C.text}}><strong>{u.by}</strong> ({u.date}) — {u.msg}</div>
+                {tk.updates.length>0&&(
+                  <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>📅 {T2("Timeline")}</div>
+                    {tk.updates.map((u,ui)=>(
+                      <div key={ui} style={{display:"flex",gap:10,marginBottom:8,paddingLeft:10,borderLeft:`2px solid ${C.gold}`}}>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:700,color:C.gold}}>{u.by} <span style={{color:C.faint,fontWeight:400}}>· {u.date}</span></div>
+                          <div style={{fontSize:12,color:C.text,marginTop:2,lineHeight:1.5}}>{u.msg}</div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
-                {/* Status change */}
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {["Open","In Progress","Pending Approval","Resolved","Closed"].map(st=>(
-                    <button key={st} onClick={()=>updStatus(tk.id,st)} style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:tk.status===st?700:400,cursor:"pointer",background:tk.status===st?C.wine:C.surface,color:tk.status===st?"#fff":C.muted,border:`1px solid ${tk.status===st?C.wine:C.border}`}}>{T2(st)}</button>
-                  ))}
+
+                {/* Add update */}
+                <div style={{padding:"10px 16px",display:"flex",gap:8}}>
+                  <input value={updMsg} onChange={e=>setUpdMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addUpdate(tk.id)} placeholder={T2("Add update, comment or action taken…")}
+                    style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:40}}/>
+                  <button onClick={()=>addUpdate(tk.id)} disabled={!updMsg.trim()} style={{padding:"10px 16px",borderRadius:10,background:updMsg.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:updMsg.trim()?"#0A0908":C.faint,border:"none",fontSize:12,fontWeight:700,cursor:updMsg.trim()?"pointer":"not-allowed",minHeight:40}}>
+                    {T2("Post")}
+                  </button>
                 </div>
               </div>
             )}
           </Card>
         );
       })}
-      {filteredT.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No tickets found")}</div>}
     </div>
   );
 }
@@ -6836,7 +8894,7 @@ function VendorDirectory({lang="en"}) {
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>🤝 {T2("Vendor Directory")}</div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🤝 {T2("Vendor Directory")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{vendors.length} vendors · Outside chefs, suppliers, service partners</div>
         </div>
         <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.wine} style={{fontSize:12,padding:"7px 16px"}}>{showAdd?"✕ Cancel":"+ Add Vendor"}</Btn>
@@ -6926,7 +8984,7 @@ function VendorDirectory({lang="en"}) {
                     <Avatar name={v.name} size={34} index={i+10}/>
                     <div>
                       <div style={{fontSize:13,fontWeight:700,color:C.text}}>{v.name}</div>
-                      <div style={{fontSize:10,color:C.wine,fontWeight:600,marginTop:1}}>{v.id}</div>
+                      <div style={{fontSize:10,color:C.gold,fontWeight:600,marginTop:1}}>{v.id}</div>
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6}}>
@@ -6961,6 +9019,7 @@ export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
   const [lang,setLang]               = useState("en");
+  const [repairs,setRepairs]         = useState([]);
   const T2 = s => T(s, lang);
   const [attendance,setAttendance_raw] = useState([]);
   const setAttendance = (updater) => {
@@ -7050,6 +9109,7 @@ export default function App() {
       {id:"kitchen",label:"Kitchen",icon:"👨‍🍳"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     service: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -7068,21 +9128,20 @@ export default function App() {
     beverages: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_beverages",label:"Beverage Operations",icon:"🥤"},
-      {id:"menus",label:"Menu Packages",icon:"📜"},
+      {id:"menus",label:"Menu",icon:"📜"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     odc: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
-      {id:"kitchen",label:"Kitchen",icon:"👨‍🍳"},
-      {id:"menus",label:"Menu Packages",icon:"📜"},
-      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
   };
 
@@ -7096,7 +9155,7 @@ export default function App() {
   };
 
   const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
-  const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.wine};
+  const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
   const gAlerts   = attendance.filter(a=>a.date===TODAY&&a.groomingFailed).length;
   const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
@@ -7125,13 +9184,13 @@ export default function App() {
 
   function renderScreen(s){
     switch(s){
-      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang}/>;
+      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang}/>;
       case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept}/>;
       case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang}/>;
       case "menus":          return <MenuPackagesView lang={lang}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang}/>;
       case "store":          return <StoreModule events={events} lang={lang}/>;
-      case "repair":         return <RepairMaintenance lang={lang}/>;
+      case "repair":         return <RepairMaintenance lang={lang} currentDept="management"/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
@@ -7142,78 +9201,82 @@ export default function App() {
   }
 
   return (
-    <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif",background:C.bg,overflow:"hidden"}}>
-      {/* ── SIDEBAR (tablet: 240px, larger touch) ── */}
-      <div style={{width:240,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+    <div style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:C.bg,overflow:"hidden"}}>
+      {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
+      <div style={{width:260,background:`linear-gradient(180deg, ${C.surface} 0%, #0C0B0A 100%)`,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
+        {/* Decorative gold accent line */}
+        <div style={{position:"absolute",top:0,right:0,width:1,height:"100%",background:`linear-gradient(180deg, ${C.gold}30, transparent 50%, ${C.gold}10)`}}/>
+
         {/* Dept badge + branding */}
-        <div style={{padding:"16px 16px 12px",borderBottom:`1px solid ${C.borderLight}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{width:38,height:38,borderRadius:"50%",background:curDeptMeta.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:"#fff"}}>{curDeptMeta.icon}</div>
+        <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+            <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}90)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",boxShadow:`0 4px 12px ${curDeptMeta.color}30`}}>{curDeptMeta.icon}</div>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{T2(curDeptMeta.name)}</div>
-              <div style={{fontSize:12,color:C.muted}}>Ambria Cuisines</div>
+              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2(curDeptMeta.name)}</div>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:.3}}>Ambria Cuisines</div>
             </div>
           </div>
-          <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6,minHeight:44}}>
+          <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,minHeight:44,fontWeight:500}}>
             🔄 {T2("Change Department")}
           </button>
         </div>
 
         {/* Nav items (tablet: larger touch targets) */}
-        <nav style={{flex:1,padding:"8px 10px",overflowY:"auto"}}>
+        <nav style={{flex:1,padding:"10px 12px",overflowY:"auto"}}>
           {curNav.map(item=>{
             const active=screen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
             return(
               <button key={item.id} onClick={()=>setScreen(item.id)} style={{
                 display:"flex",alignItems:"center",justifyContent:"space-between",
-                width:"100%",padding:"12px 14px",borderRadius:10,marginBottom:4,
-                cursor:"pointer",textAlign:"left",minHeight:44,
+                width:"100%",padding:"13px 16px",borderRadius:12,marginBottom:5,
+                cursor:"pointer",textAlign:"left",minHeight:48,
                 background:active?curDeptMeta.color+"12":"transparent",
-                border:active?`1.5px solid ${curDeptMeta.color}30`:"1.5px solid transparent",
-                borderLeft:active?`3px solid ${curDeptMeta.color}`:"4px solid transparent",
+                border:active?`1.5px solid ${curDeptMeta.color}25`:"1.5px solid transparent",
+                borderLeft:active?`3px solid ${curDeptMeta.color}`:"3px solid transparent",
                 color:active?curDeptMeta.color:C.muted,
-                fontSize:13,fontWeight:active?600:400,
+                fontSize:13,fontWeight:active?600:400,letterSpacing:.3,
+                boxShadow:active?`0 2px 12px ${curDeptMeta.color}10`:"none",
               }}>
-                <span style={{display:"flex",alignItems:"center",gap:10}}>
-                  <span style={{fontSize:16}}>{item.icon}</span>{T(item.label,lang)}
+                <span style={{display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:17,opacity:active?1:.7}}>{item.icon}</span>{T(item.label,lang)}
                 </span>
-                {badge>0&&<span style={{background:curDeptMeta.color,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10}}>{badge}</span>}
+                {badge>0&&<span style={{background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}80)`,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,boxShadow:`0 2px 6px ${curDeptMeta.color}30`}}>{badge}</span>}
               </button>
             );
           })}
         </nav>
 
-        {/* User + lang + logout (tablet: larger buttons) */}
-        <div style={{padding:"14px 14px",borderTop:`1px solid ${C.borderLight}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <Avatar name={currentUser?.name||"A"} size={32} index={0}/>
+        {/* User + lang + logout */}
+        <div style={{padding:"16px 16px",borderTop:`1px solid ${C.borderLight}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+            <Avatar name={currentUser?.name||"A"} size={34} index={0}/>
             <div>
-              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{currentUser?.name}</div>
-              <div style={{fontSize:12,color:C.muted}}>{currentUser?.id}</div>
+              <div style={{fontSize:12,fontWeight:600,color:C.text,letterSpacing:.3}}>{currentUser?.name}</div>
+              <div style={{fontSize:11,color:C.muted}}>{currentUser?.id}</div>
             </div>
           </div>
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:curDeptMeta.color,fontSize:11,padding:"8px 10px",cursor:"pointer",fontWeight:600,minHeight:40}}>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:11,padding:"10px 10px",cursor:"pointer",fontWeight:600,minHeight:42}}>
               {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
             </button>
-            <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:11,padding:"8px 10px",cursor:"pointer",minHeight:40}}>{T("Sign out",lang)}</button>
+            <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.muted,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
           </div>
         </div>
       </div>
 
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"14px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div style={{background:`linear-gradient(90deg, ${C.surface}, ${C.darkCard})`,borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,boxShadow:`0 2px 12px ${C.shadow}`}}>
           <div>
-            <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"Georgia,'Times New Roman',serif"}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
-            <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
+            <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
           </div>
-          <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:curDeptMeta.color,fontSize:12,padding:"8px 14px",cursor:"pointer",fontWeight:600,minHeight:40}}>
+          <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:12,padding:"10px 16px",cursor:"pointer",fontWeight:600,minHeight:42,letterSpacing:.3}}>
             {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
           </button>
         </div>
-        <div style={{flex:1,overflowY:"auto",padding:"28px 32px"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"28px 32px",scrollBehavior:"smooth"}}>
           <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
         </div>
       </div>
