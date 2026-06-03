@@ -385,84 +385,7 @@ const STAFF_LIST = [
 // PIN is 4-digit. Role: admin | headchef | staff
 // IDs: AM = Ambria Management, KIT = Kitchen
 const EMPLOYEE_DB_INIT = [
-  // Management — AM001 keeps admin; everyone else starts as kiosk_gate (no access)
-  {id:"AM001",name:"Abhi",             role:"admin",      custom_screens:null, section:"Management",     dept:"Operations",     joining:"2022-01-01",pin:"0000",active:true},
-  {id:"AM002",name:"Gopal",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"kitchen",        joining:"2019-03-15",pin:"0000",active:true},
-  {id:"AM003",name:"Yatender",         role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"kitchen",        joining:"2018-06-01",pin:"0000",active:true},
-  // Beverages
-  {id:"CAF01",name:"Caonty",           role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2021-04-10",pin:"0000",active:true},
-  {id:"CAF02",name:"Rahul",            role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2022-07-01",pin:"0000",active:true},
-  {id:"CAF03",name:"Kareena",          role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2023-01-15",pin:"0000",active:true},
-  {id:"CAF04",name:"Noor Alam",        role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2022-11-01",pin:"0000",active:true},
-  {id:"CAF05",name:"Deepu (Café)",     role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2023-05-01",pin:"0000",active:true},
-  // Indian Curries
-  {id:"IND01",name:"Devendar",         role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2020-02-01",pin:"0000",active:true},
-  {id:"IND02",name:"Anas",             role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2021-08-15",pin:"0000",active:true},
-  {id:"IND03",name:"Bhopal",           role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2019-12-01",pin:"0000",active:true},
-  {id:"IND04",name:"Jeetu",            role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2022-03-01",pin:"0000",active:true},
-  {id:"IND05",name:"Hina",             role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2023-02-15",pin:"0000",active:true},
-  {id:"IND06",name:"Roshan",           role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2021-06-01",pin:"0000",active:true},
-  // Chinese
-  {id:"CHN01",name:"Kishor",           role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2020-05-01",pin:"0000",active:true},
-  {id:"CHN02",name:"Lokesh",           role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2019-09-01",pin:"0000",active:true},
-  {id:"CHN03",name:"Monu",             role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2022-01-15",pin:"0000",active:true},
-  {id:"CHN04",name:"Vichesh",          role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2021-11-01",pin:"0000",active:true},
-  {id:"CHN05",name:"Sandeep",          role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2023-04-01",pin:"0000",active:true},
-  // Tandoor
-  {id:"TAN01",name:"Bipin",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2020-08-01",pin:"0000",active:true},
-  {id:"TAN02",name:"Yetender",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2021-01-15",pin:"0000",active:true},
-  {id:"TAN03",name:"Rawat",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2019-07-01",pin:"0000",active:true},
-  {id:"TAN04",name:"Surender",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2022-06-01",pin:"0000",active:true},
-  {id:"TAN05",name:"Prabhash",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TAN06",name:"Kushal Pal",       role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2023-07-01",pin:"0000",active:true},
-  // Chaat
-  {id:"CHA01",name:"Raghvendra",       role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2020-01-01",pin:"0000",active:true},
-  {id:"CHA02",name:"Purushotam",       role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-03-15",pin:"0000",active:true},
-  {id:"CHA03",name:"Balram",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-09-01",pin:"0000",active:true},
-  {id:"CHA04",name:"Ajay",             role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-07-01",pin:"0000",active:true},
-  {id:"CHA05",name:"Golu",             role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-01-01",pin:"0000",active:true},
-  {id:"CHA06",name:"Kuldeep",          role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-04-15",pin:"0000",active:true},
-  {id:"CHA07",name:"Anurag",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CHA08",name:"Satyendra",        role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-02-01",pin:"0000",active:true},
-  {id:"CHA09",name:"Sahdev",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-10-15",pin:"0000",active:true},
-  {id:"CHA10",name:"Badal",            role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-08-01",pin:"0000",active:true},
-  // Sweets
-  {id:"SWT01",name:"Bachchan",         role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2019-11-01",pin:"0000",active:true},
-  {id:"SWT02",name:"Anil",             role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2020-09-15",pin:"0000",active:true},
-  {id:"SWT03",name:"Ramu",             role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2021-05-01",pin:"0000",active:true},
-  {id:"SWT04",name:"Yogesh",           role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2022-08-01",pin:"0000",active:true},
-  {id:"SWT05",name:"Vrindhavan",       role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2020-12-15",pin:"0000",active:true},
-  {id:"SWT06",name:"Radheshyam",       role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2021-09-01",pin:"0000",active:true},
-  {id:"SWT07",name:"Abhishek",         role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2022-05-15",pin:"0000",active:true},
-  {id:"SWT08",name:"Deepu (Sweets)",   role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SWT09",name:"Saurab",           role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2023-09-01",pin:"0000",active:true},
-  // Service
-  {id:"SRV01",name:"Ramesh (Captain)", role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2022-06-01",pin:"0000",active:true},
-  {id:"SRV02",name:"Dinesh",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-01-15",pin:"0000",active:true},
-  {id:"SRV03",name:"Mohan",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-04-01",pin:"0000",active:true},
-  {id:"SRV04",name:"Suresh",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-07-01",pin:"0000",active:true},
-  {id:"SRV05",name:"Vikram",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-08-01",pin:"0000",active:true},
-  {id:"SRV06",name:"Pappu",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SRV07",name:"Ajay (Service)",   role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-10-01",pin:"0000",active:true},
-  {id:"SRV08",name:"Rajan",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2024-01-01",pin:"0000",active:true},
-  // Crockery
-  {id:"CRK01",name:"Mukesh",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2022-03-01",pin:"0000",active:true},
-  {id:"CRK02",name:"Satish",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2023-05-01",pin:"0000",active:true},
-  {id:"CRK03",name:"Bhola",            role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CRK04",name:"Kishan",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2024-02-01",pin:"0000",active:true},
-  {id:"CRK05",name:"Ramu",             role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2024-03-01",pin:"0000",active:true},
-  // Transportation
-  {id:"TRN01",name:"Harish (Driver)",  role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2022-01-01",pin:"0000",active:true},
-  {id:"TRN02",name:"Kamal (Driver)",   role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2022-08-01",pin:"0000",active:true},
-  {id:"TRN03",name:"Sunil (Driver)",   role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TRN04",name:"Prem (Loader)",    role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2023-11-01",pin:"0000",active:true},
-  {id:"TRN05",name:"Jitender (Loader)",role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2024-01-01",pin:"0000",active:true},
-  // ODC
-  {id:"ODC01",name:"Akhtar",           role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC02",name:"Rajender Chef",    role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC03",name:"Sanjay (ODC)",     role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2023-04-01",pin:"0000",active:true},
-  {id:"ODC04",name:"Bittu (ODC)",      role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2023-09-01",pin:"0000",active:true},
-  {id:"ODC05",name:"Rahul (ODC)",      role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2024-06-01",pin:"0000",active:true},
+  {staffListId:"AM001",staff_id:"AM001",name:"Abhi",section:"Management",dept:"management",role:"admin",pin:"0000",is_active:true,joining:"2025-01-01"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -9743,9 +9666,12 @@ export default function App() {
   const [empDb, setEmpDb] = useState(()=>{
     try {
       const saved = localStorage.getItem('ambria_empdb_v2');
-      return saved ? JSON.parse(saved) : EMPLOYEE_DB_INIT;
-    } catch(e) { return EMPLOYEE_DB_INIT; }
+      if(saved){ const parsed=JSON.parse(saved); if(Array.isArray(parsed)&&parsed.length>0) return parsed; }
+    } catch(e) {}
+    return EMPLOYEE_DB_INIT;
   });
+  // One-time cache bust — clears any stale 67-staff list so fresh start begins with only AM001
+  useEffect(()=>{ localStorage.removeItem('ambria_empdb_v2'); localStorage.removeItem('ambria_emp_db'); },[]);
   const [sessionChecked,setSessionChecked] = useState(false);
 
   useEffect(()=>{
