@@ -9220,6 +9220,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   const [pinError, setPinError]     = useState("");
   const [editForm, setEditForm]     = useState({});
   const [formError, setFormError]   = useState("");
+  const [delId, setDelId]           = useState(null);
 
   // ── Derived data ──
   const allStaff  = safeArr(empDb);
@@ -9241,7 +9242,10 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   }
   function savePerms(){
     const sid=getSid(editUser);
-    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,custom_screens:{...permsForm}}:s));
+    setEmpDb(prev=>prev.map(s=>getSid(s)===sid
+      ? {...s, custom_screens:{...permsForm}}
+      : s
+    ));
     setView("list"); setEditUser(null);
   }
   function applyTemplate(roleKey){
@@ -9262,15 +9266,20 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   function saveForm(){
     if(!editForm.name?.trim()){setFormError(lang==="hi"?"नाम आवश्यक है":"Name is required");return;}
     const sid=getSid(editUser);
-    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,name:editForm.name,role:editForm.role,section:editForm.section}:s));
+    setEmpDb(prev=>prev.map(s=>getSid(s)===sid
+      ? {...s, name:editForm.name.trim(), role:editForm.role, section:editForm.section}
+      : s
+    ));
     setView("list"); setEditUser(null); setFormError("");
   }
-  function toggleSuspend(sid){
-    setEmpDb(p=>safeArr(p).map(s=>{
-      if(getSid(s)!==sid) return s;
-      const wasActive=isActive(s);
-      return {...s,is_active:!wasActive,active:!wasActive};
-    }));
+  function toggleActive(sid){
+    setEmpDb(prev=>prev.map(s=>
+      getSid(s)===sid ? {...s, is_active:!isActive(s), active:!isActive(s)} : s
+    ));
+  }
+  function deleteStaff(sid){
+    setEmpDb(prev=>prev.filter(s=>getSid(s)!==sid));
+    setDelId(null); setView("list");
   }
 
   // ── Back button shared style ──
@@ -9451,12 +9460,32 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   // ── VIEW: LIST ──
   return(
     <div>
+      {/* Delete confirm modal */}
+      {delId&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <Card style={{padding:"28px 24px",maxWidth:360,width:"100%",textAlign:"center",border:`2px solid ${C.redBorder}`}}>
+            <div style={{fontSize:28,marginBottom:10}}>⚠️</div>
+            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>{T2("Permanently Delete Staff?")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>{T2("This removes their login access forever.")}</div>
+            <div style={{fontSize:11,color:C.amber,marginBottom:16,padding:"8px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>{T2("💡 Prefer Deactivate to block login while keeping their records.")}</div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>deleteStaff(delId)} style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${C.red},#8A1010)`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>{T2("🗑 Confirm Delete")}</button>
+              <button onClick={()=>setDelId(null)} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
         </div>
+        <button onClick={()=>{if(window.confirm("Reset ALL staff to default permissions? This cannot be undone.")){localStorage.removeItem('ambria_emp_db');window.location.reload();}}}
+          style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36,whiteSpace:"nowrap",flexShrink:0}}>
+          ↺ Reset defaults
+        </button>
       </div>
 
       {/* Stats: Total | Has Access | No Access */}
@@ -9521,9 +9550,10 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
               </button>
               <button onClick={()=>openPin(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>🔑 PIN</button>
               <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",minHeight:36}}>✏️ {T2("Edit")}</button>
-              <button onClick={()=>toggleSuspend(sid)} style={{padding:"8px 14px",borderRadius:8,background:active?C.amberBg:C.greenBg,border:`1px solid ${active?C.amberBorder:C.greenBorder}`,color:active?C.amber:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>
+              <button onClick={()=>toggleActive(sid)} style={{padding:"8px 14px",borderRadius:8,background:active?C.amberBg:C.greenBg,border:`1px solid ${active?C.amberBorder:C.greenBorder}`,color:active?C.amber:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>
                 {active?"⏸ "+T2("Suspend"):"▶ "+T2("Restore")}
               </button>
+              <button onClick={()=>setDelId(sid)} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:36}}>🗑</button>
             </div>
           </Card>
         );
@@ -9580,19 +9610,12 @@ export default function App() {
   const [kitchenTracking,setKitchenTracking] = useState({});
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
-  const [empDb,setEmpDb_raw]          = useState(EMPLOYEE_DB_INIT);
-  const setEmpDb = (updater) => {
-    setEmpDb_raw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save PIN changes to backend
-      try {
-        const pins = {};
-        safeArr(next).forEach(e => { if(e.pin !== "0000") pins[e.id] = e.pin; });
-        window.storage?.set("ambria_pins", JSON.stringify(pins));
-      } catch(e) {}
-      return next;
-    });
-  };
+  const [empDb, setEmpDb] = useState(()=>{
+    try {
+      const saved = localStorage.getItem('ambria_emp_db');
+      return saved ? JSON.parse(saved) : EMPLOYEE_DB_INIT;
+    } catch(e) { return EMPLOYEE_DB_INIT; }
+  });
   const [sessionChecked,setSessionChecked] = useState(false);
 
   useEffect(()=>{
@@ -9602,7 +9625,7 @@ export default function App() {
         if(su?.value){ try { const emp=JSON.parse(su.value); if(emp&&emp.id) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
         // Load saved PINs
         const savedPins = await window.storage?.get("ambria_pins");
-        if(savedPins?.value){ try { const pins=JSON.parse(savedPins.value); setEmpDb_raw(prev=>prev.map(e=>pins[e.id]?{...e,pin:pins[e.id]}:e)); } catch(e){} }
+        if(savedPins?.value){ try { const pins=JSON.parse(savedPins.value); setEmpDb(prev=>prev.map(e=>pins[e.id]?{...e,pin:pins[e.id]}:e)); } catch(e){} }
         // Load saved leaves
         const savedLeaves = await window.storage?.get("ambria_leaves");
         if(savedLeaves?.value){ try { const lv=JSON.parse(savedLeaves.value); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
@@ -9610,6 +9633,11 @@ export default function App() {
       setSessionChecked(true);
     })();
   },[]);
+
+  // Auto-save empDb to localStorage whenever it changes
+  useEffect(()=>{
+    try { localStorage.setItem('ambria_emp_db', JSON.stringify(empDb)); } catch(e) {}
+  }, [empDb]);
 
   async function handleLogin(emp){
     setCurrentUser(emp);
