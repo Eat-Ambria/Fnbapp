@@ -385,84 +385,84 @@ const STAFF_LIST = [
 // PIN is 4-digit. Role: admin | headchef | staff
 // IDs: AM = Ambria Management, KIT = Kitchen
 const EMPLOYEE_DB_INIT = [
-  // Management
-  {id:"AM001",name:"Abhi",          role:"admin",    section:"Management",     dept:"Operations",    joining:"2022-01-01",pin:"0000",active:true},
-  {id:"AM002",name:"Gopal",         role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2019-03-15",pin:"0000",active:true},
-  {id:"AM003",name:"Yatender",      role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2018-06-01",pin:"0000",active:true},
-  // Café
-  {id:"CAF01",name:"Caonty",        role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2021-04-10",pin:"0000",active:true},
-  {id:"CAF02",name:"Rahul",         role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2022-07-01",pin:"0000",active:true},
-  {id:"CAF03",name:"Kareena",       role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2023-01-15",pin:"0000",active:true},
-  {id:"CAF04",name:"Noor Alam",     role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2022-11-01",pin:"0000",active:true},
-  {id:"CAF05",name:"Deepu (Café)",  role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2023-05-01",pin:"0000",active:true},
+  // Management — AM001 keeps admin; everyone else starts as kiosk_gate (no access)
+  {id:"AM001",name:"Abhi",             role:"admin",      custom_screens:null, section:"Management",     dept:"Operations",     joining:"2022-01-01",pin:"0000",active:true},
+  {id:"AM002",name:"Gopal",            role:"kiosk_gate", custom_screens:null, section:"Management",     dept:"F&B Kitchen",    joining:"2019-03-15",pin:"0000",active:true},
+  {id:"AM003",name:"Yatender",         role:"kiosk_gate", custom_screens:null, section:"Management",     dept:"F&B Kitchen",    joining:"2018-06-01",pin:"0000",active:true},
+  // Beverages
+  {id:"CAF01",name:"Caonty",           role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2021-04-10",pin:"0000",active:true},
+  {id:"CAF02",name:"Rahul",            role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2022-07-01",pin:"0000",active:true},
+  {id:"CAF03",name:"Kareena",          role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2023-01-15",pin:"0000",active:true},
+  {id:"CAF04",name:"Noor Alam",        role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2022-11-01",pin:"0000",active:true},
+  {id:"CAF05",name:"Deepu (Café)",     role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2023-05-01",pin:"0000",active:true},
   // Indian Curries
-  {id:"IND01",name:"Devendar",      role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2020-02-01",pin:"0000",active:true},
-  {id:"IND02",name:"Anas",          role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2021-08-15",pin:"0000",active:true},
-  {id:"IND03",name:"Bhopal",        role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2019-12-01",pin:"0000",active:true},
-  {id:"IND04",name:"Jeetu",         role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2022-03-01",pin:"0000",active:true},
-  {id:"IND05",name:"Hina",          role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2023-02-15",pin:"0000",active:true},
-  {id:"IND06",name:"Roshan",        role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2021-06-01",pin:"0000",active:true},
+  {id:"IND01",name:"Devendar",         role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2020-02-01",pin:"0000",active:true},
+  {id:"IND02",name:"Anas",             role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2021-08-15",pin:"0000",active:true},
+  {id:"IND03",name:"Bhopal",           role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2019-12-01",pin:"0000",active:true},
+  {id:"IND04",name:"Jeetu",            role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2022-03-01",pin:"0000",active:true},
+  {id:"IND05",name:"Hina",             role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2023-02-15",pin:"0000",active:true},
+  {id:"IND06",name:"Roshan",           role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"F&B Kitchen",    joining:"2021-06-01",pin:"0000",active:true},
   // Chinese
-  {id:"CHN01",name:"Kishor",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2020-05-01",pin:"0000",active:true},
-  {id:"CHN02",name:"Lokesh",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2019-09-01",pin:"0000",active:true},
-  {id:"CHN03",name:"Monu",          role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2022-01-15",pin:"0000",active:true},
-  {id:"CHN04",name:"Vichesh",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2021-11-01",pin:"0000",active:true},
-  {id:"CHN05",name:"Sandeep",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2023-04-01",pin:"0000",active:true},
+  {id:"CHN01",name:"Kishor",           role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2020-05-01",pin:"0000",active:true},
+  {id:"CHN02",name:"Lokesh",           role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2019-09-01",pin:"0000",active:true},
+  {id:"CHN03",name:"Monu",             role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2022-01-15",pin:"0000",active:true},
+  {id:"CHN04",name:"Vichesh",          role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2021-11-01",pin:"0000",active:true},
+  {id:"CHN05",name:"Sandeep",          role:"kiosk_gate", custom_screens:null, section:"Chinese",        dept:"F&B Kitchen",    joining:"2023-04-01",pin:"0000",active:true},
   // Tandoor
-  {id:"TAN01",name:"Bipin",         role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2020-08-01",pin:"0000",active:true},
-  {id:"TAN02",name:"Yetender",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2021-01-15",pin:"0000",active:true},
-  {id:"TAN03",name:"Rawat",         role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2019-07-01",pin:"0000",active:true},
-  {id:"TAN04",name:"Surender",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2022-06-01",pin:"0000",active:true},
-  {id:"TAN05",name:"Prabhash",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TAN06",name:"Kushal Pal",    role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2023-07-01",pin:"0000",active:true},
+  {id:"TAN01",name:"Bipin",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2020-08-01",pin:"0000",active:true},
+  {id:"TAN02",name:"Yetender",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2021-01-15",pin:"0000",active:true},
+  {id:"TAN03",name:"Rawat",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2019-07-01",pin:"0000",active:true},
+  {id:"TAN04",name:"Surender",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2022-06-01",pin:"0000",active:true},
+  {id:"TAN05",name:"Prabhash",         role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2023-03-01",pin:"0000",active:true},
+  {id:"TAN06",name:"Kushal Pal",       role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"F&B Kitchen",    joining:"2023-07-01",pin:"0000",active:true},
   // Chaat
-  {id:"CHA01",name:"Raghvendra",    role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2020-01-01",pin:"0000",active:true},
-  {id:"CHA02",name:"Purushotam",    role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-03-15",pin:"0000",active:true},
-  {id:"CHA03",name:"Balram",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-09-01",pin:"0000",active:true},
-  {id:"CHA04",name:"Ajay",          role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-07-01",pin:"0000",active:true},
-  {id:"CHA05",name:"Golu",          role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-01-01",pin:"0000",active:true},
-  {id:"CHA06",name:"Kuldeep",       role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-04-15",pin:"0000",active:true},
-  {id:"CHA07",name:"Anurag",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CHA08",name:"Satyendra",     role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-02-01",pin:"0000",active:true},
-  {id:"CHA09",name:"Sahdev",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-10-15",pin:"0000",active:true},
-  {id:"CHA10",name:"Badal",         role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-08-01",pin:"0000",active:true},
+  {id:"CHA01",name:"Raghvendra",       role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2020-01-01",pin:"0000",active:true},
+  {id:"CHA02",name:"Purushotam",       role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-03-15",pin:"0000",active:true},
+  {id:"CHA03",name:"Balram",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-09-01",pin:"0000",active:true},
+  {id:"CHA04",name:"Ajay",             role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-07-01",pin:"0000",active:true},
+  {id:"CHA05",name:"Golu",             role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-01-01",pin:"0000",active:true},
+  {id:"CHA06",name:"Kuldeep",          role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-04-15",pin:"0000",active:true},
+  {id:"CHA07",name:"Anurag",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-06-01",pin:"0000",active:true},
+  {id:"CHA08",name:"Satyendra",        role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2022-02-01",pin:"0000",active:true},
+  {id:"CHA09",name:"Sahdev",           role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2021-10-15",pin:"0000",active:true},
+  {id:"CHA10",name:"Badal",            role:"kiosk_gate", custom_screens:null, section:"Chaat",          dept:"F&B Kitchen",    joining:"2023-08-01",pin:"0000",active:true},
   // Sweets
-  {id:"SWT01",name:"Bachchan",      role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2019-11-01",pin:"0000",active:true},
-  {id:"SWT02",name:"Anil",          role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2020-09-15",pin:"0000",active:true},
-  {id:"SWT03",name:"Ramu",          role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2021-05-01",pin:"0000",active:true},
-  {id:"SWT04",name:"Yogesh",        role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2022-08-01",pin:"0000",active:true},
-  {id:"SWT05",name:"Vrindhavan",    role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2020-12-15",pin:"0000",active:true},
-  {id:"SWT06",name:"Radheshyam",    role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2021-09-01",pin:"0000",active:true},
-  {id:"SWT07",name:"Abhishek",      role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2022-05-15",pin:"0000",active:true},
-  {id:"SWT08",name:"Deepu (Sweets)",role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SWT09",name:"Saurab",        role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2023-09-01",pin:"0000",active:true},
-  // ── SERVICE ──
-  {id:"SRV01",name:"Ramesh (Captain)",role:"staff",  section:"Service",        dept:"Service",       joining:"2022-06-01",pin:"0000",active:true},
-  {id:"SRV02",name:"Dinesh",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-01-15",pin:"0000",active:true},
-  {id:"SRV03",name:"Mohan",          role:"staff",   section:"Service",        dept:"Service",       joining:"2023-04-01",pin:"0000",active:true},
-  {id:"SRV04",name:"Suresh",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-07-01",pin:"0000",active:true},
-  {id:"SRV05",name:"Vikram",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-08-01",pin:"0000",active:true},
-  {id:"SRV06",name:"Pappu",          role:"staff",   section:"Service",        dept:"Service",       joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SRV07",name:"Ajay (Service)", role:"staff",   section:"Service",        dept:"Service",       joining:"2023-10-01",pin:"0000",active:true},
-  {id:"SRV08",name:"Rajan",          role:"staff",   section:"Service",        dept:"Service",       joining:"2024-01-01",pin:"0000",active:true},
-  // ── CROCKERY ──
-  {id:"CRK01",name:"Mukesh",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2022-03-01",pin:"0000",active:true},
-  {id:"CRK02",name:"Satish",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2023-05-01",pin:"0000",active:true},
-  {id:"CRK03",name:"Bhola",          role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CRK04",name:"Kishan",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2024-02-01",pin:"0000",active:true},
-  {id:"CRK05",name:"Ramu",           role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2024-03-01",pin:"0000",active:true},
-  // ── TRANSPORTATION ──
-  {id:"TRN01",name:"Harish (Driver)",role:"staff",   section:"Transportation", dept:"Transportation", joining:"2022-01-01",pin:"0000",active:true},
-  {id:"TRN02",name:"Kamal (Driver)", role:"staff",   section:"Transportation", dept:"Transportation", joining:"2022-08-01",pin:"0000",active:true},
-  {id:"TRN03",name:"Sunil (Driver)", role:"staff",   section:"Transportation", dept:"Transportation", joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TRN04",name:"Prem (Loader)",  role:"staff",   section:"Transportation", dept:"Transportation", joining:"2023-11-01",pin:"0000",active:true},
-  {id:"TRN05",name:"Jitender (Loader)",role:"staff", section:"Transportation", dept:"Transportation", joining:"2024-01-01",pin:"0000",active:true},
-  // ── ODC ──
-  {id:"ODC01",name:"Akhtar",         role:"staff",   section:"ODC",            dept:"ODC",           joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC02",name:"Rajender Chef",  role:"staff",   section:"ODC",            dept:"ODC",           joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC03",name:"Sanjay (ODC)",   role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-04-01",pin:"0000",active:true},
-  {id:"ODC04",name:"Bittu (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-09-01",pin:"0000",active:true},
-  {id:"ODC05",name:"Rahul (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2024-06-01",pin:"0000",active:true},
+  {id:"SWT01",name:"Bachchan",         role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2019-11-01",pin:"0000",active:true},
+  {id:"SWT02",name:"Anil",             role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2020-09-15",pin:"0000",active:true},
+  {id:"SWT03",name:"Ramu",             role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2021-05-01",pin:"0000",active:true},
+  {id:"SWT04",name:"Yogesh",           role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2022-08-01",pin:"0000",active:true},
+  {id:"SWT05",name:"Vrindhavan",       role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2020-12-15",pin:"0000",active:true},
+  {id:"SWT06",name:"Radheshyam",       role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2021-09-01",pin:"0000",active:true},
+  {id:"SWT07",name:"Abhishek",         role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2022-05-15",pin:"0000",active:true},
+  {id:"SWT08",name:"Deepu (Sweets)",   role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2023-02-01",pin:"0000",active:true},
+  {id:"SWT09",name:"Saurab",           role:"kiosk_gate", custom_screens:null, section:"Sweets",         dept:"F&B Kitchen",    joining:"2023-09-01",pin:"0000",active:true},
+  // Service
+  {id:"SRV01",name:"Ramesh (Captain)", role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2022-06-01",pin:"0000",active:true},
+  {id:"SRV02",name:"Dinesh",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-01-15",pin:"0000",active:true},
+  {id:"SRV03",name:"Mohan",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-04-01",pin:"0000",active:true},
+  {id:"SRV04",name:"Suresh",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-07-01",pin:"0000",active:true},
+  {id:"SRV05",name:"Vikram",           role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-08-01",pin:"0000",active:true},
+  {id:"SRV06",name:"Pappu",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-02-01",pin:"0000",active:true},
+  {id:"SRV07",name:"Ajay (Service)",   role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2023-10-01",pin:"0000",active:true},
+  {id:"SRV08",name:"Rajan",            role:"kiosk_gate", custom_screens:null, section:"Service",        dept:"Service",        joining:"2024-01-01",pin:"0000",active:true},
+  // Crockery
+  {id:"CRK01",name:"Mukesh",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2022-03-01",pin:"0000",active:true},
+  {id:"CRK02",name:"Satish",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2023-05-01",pin:"0000",active:true},
+  {id:"CRK03",name:"Bhola",            role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2023-06-01",pin:"0000",active:true},
+  {id:"CRK04",name:"Kishan",           role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2024-02-01",pin:"0000",active:true},
+  {id:"CRK05",name:"Ramu",             role:"kiosk_gate", custom_screens:null, section:"Crockery",       dept:"Crockery",       joining:"2024-03-01",pin:"0000",active:true},
+  // Transportation
+  {id:"TRN01",name:"Harish (Driver)",  role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2022-01-01",pin:"0000",active:true},
+  {id:"TRN02",name:"Kamal (Driver)",   role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2022-08-01",pin:"0000",active:true},
+  {id:"TRN03",name:"Sunil (Driver)",   role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2023-03-01",pin:"0000",active:true},
+  {id:"TRN04",name:"Prem (Loader)",    role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2023-11-01",pin:"0000",active:true},
+  {id:"TRN05",name:"Jitender (Loader)",role:"kiosk_gate", custom_screens:null, section:"Transportation", dept:"Transportation",  joining:"2024-01-01",pin:"0000",active:true},
+  // ODC
+  {id:"ODC01",name:"Akhtar",           role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2021-06-01",pin:"0000",active:true},
+  {id:"ODC02",name:"Rajender Chef",    role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2021-06-01",pin:"0000",active:true},
+  {id:"ODC03",name:"Sanjay (ODC)",     role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2023-04-01",pin:"0000",active:true},
+  {id:"ODC04",name:"Bittu (ODC)",      role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2023-09-01",pin:"0000",active:true},
+  {id:"ODC05",name:"Rahul (ODC)",      role:"kiosk_gate", custom_screens:null, section:"ODC",            dept:"ODC",            joining:"2024-06-01",pin:"0000",active:true},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -1292,6 +1292,19 @@ const HI = {
   "Show all":"सभी दिखाएं",
 
   // ── ACCESS MANAGER ──
+  "Has Access":"एक्सेस है",
+  "No Access":"कोई एक्सेस नहीं",
+  "screens active":"स्क्रीन सक्रिय",
+  "No app access":"कोई ऐप एक्सेस नहीं",
+  "Set Access":"एक्सेस दें",
+  "Edit Access":"एक्सेस संपादित करें",
+  "Suspend":"निलंबित करें",
+  "Restore":"पुनर्स्थापित करें",
+  "Suspended":"निलंबित",
+  "PIN Management":"PIN प्रबंधन",
+  "Showing role defaults":"डिफ़ॉल्ट भूमिका दिखा रहे हैं",
+  "Search staff by name or ID…":"स्टाफ नाम या ID से खोजें…",
+  "Staff":"स्टाफ",
   "Access Manager":"एक्सेस मैनेजर",
   "Manage staff accounts, roles & permissions — Admin only":"स्टाफ खाते, भूमिकाएं व अनुमतियां प्रबंधित करें — केवल एडमिन",
   "+ Add Staff":"+ स्टाफ जोड़ें",
@@ -9111,6 +9124,8 @@ function VendorDirectory({lang="en"}) {
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
 function AccessManager({lang="en", empDb, setEmpDb}) {
   const T2 = s => T(s, lang);
+
+  // ── PRESET_ROLES: default screen access per role ──
   const PRESET_ROLES = {
     admin:              {label:"👑 Admin — Full Access",         permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:true,repair:true,dept_service:true,dept_crockery:true,dept_beverages:true,access:true}},
     head_chef:          {label:"👨‍🍳 Head Chef",                  permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:false,repair:true,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
@@ -9175,102 +9190,133 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
   ];
   const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Service","Crockery","Beverages","Transportation","ODC","Continental"];
-  const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
   const fld = {width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:40};
 
-  // ── State ──
-  const [showAdd, setShowAdd]             = useState(false);
-  const [editId, setEditId]               = useState(null);
-  const [delId, setDelId]                 = useState(null);
-  const [delConfirmText, setDelConfirmText] = useState("");
-  const [search, setSearch]               = useState("");
-  const [roleFilter, setRoleFilter]       = useState("all");
-  const [form, setForm]                   = useState({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"",is_active:true});
-  const [showChangePIN, setShowChangePIN] = useState(false);
-  const [pinError, setPinError]           = useState("");
-  const [viewPerms, setViewPerms]         = useState(null);
-  const [permsForm, setPermsForm]         = useState({});
-  const [templatePreview, setTemplatePreview] = useState(null);
+  // ── Helpers ──
+  const getSid   = s => String(s.staffListId||s.staff_id||s.id||"");
+  const isActive = s => s.is_active!==false && s.active!==false;
+  function getPermissions(s) {
+    if(s.custom_screens) return s.custom_screens;
+    if(s.permissions)    return s.permissions; // backward compat
+    return PRESET_ROLES[s.role]?.permissions || {};
+  }
+  const hasAppAccess = s => Object.values(getPermissions(s)).some(v=>v);
+  function roleShort(role) {
+    if(!role||role==="kiosk_gate"||role==="staff") return T2("Staff");
+    if(role.startsWith("section_")) return lang==="hi"?"शेफ":"Chef";
+    const m={admin:"Admin",head_chef:"Head Chef",headchef:"Head Chef",service:"Service",crockery:"Crockery",beverages:"Beverages",transport:"Transport"};
+    return T2(m[role]||role);
+  }
 
-  const allStaff = safeArr(empDb);
-  const staff = allStaff.filter(s=>{
-    const sid = s.staffListId||s.staff_id;
-    const matchSearch = !search || s.name?.toLowerCase().includes(search.toLowerCase()) || sid?.toLowerCase().includes(search.toLowerCase());
-    const matchRole = roleFilter==="all" || s.role===roleFilter;
-    return matchSearch && matchRole;
+  // ── State (view-based navigation) ──
+  const [view,  setView]  = useState("list"); // "list" | "perms" | "pin" | "edit"
+  const [editUser, setEditUser] = useState(null); // staff object being viewed/edited
+  const [permsForm, setPermsForm]   = useState({});
+  const [templatePreview, setTemplatePreview] = useState(null);
+  const [search, setSearch]         = useState("");
+  const [sectionFilter, setSectionFilter] = useState("All");
+  const [pinChangeMode, setPinChangeMode] = useState(false);
+  const [newPin, setNewPin]         = useState("");
+  const [pinError, setPinError]     = useState("");
+  const [editForm, setEditForm]     = useState({});
+  const [formError, setFormError]   = useState("");
+
+  // ── Derived data ──
+  const allStaff  = safeArr(empDb);
+  const hasCnt    = allStaff.filter(hasAppAccess).length;
+  const noCnt     = allStaff.length - hasCnt;
+  const allSections = ["All",...Array.from(new Set(allStaff.map(s=>s.section).filter(Boolean))).sort()];
+  const staffList = allStaff.filter(s=>{
+    const sid = getSid(s);
+    const matchSearch = !search || s.name?.toLowerCase().includes(search.toLowerCase()) || sid.toLowerCase().includes(search.toLowerCase());
+    return matchSearch && (sectionFilter==="All" || s.section===sectionFilter);
   });
 
-  function openAdd(){
-    setForm({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"",is_active:true});
-    setEditId(null); setShowAdd(true); setShowChangePIN(false); setPinError("");
-  }
-  function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"",is_active:s.is_active!==false});
-    setEditId(s.staffListId||s.staff_id); setShowAdd(true); setShowChangePIN(false); setPinError("");
-  }
-  function saveForm(){
-    if(!form.name.trim()||!form.staff_id.trim()) return;
-    if(!editId && form.pin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
-    if(showChangePIN && form.pin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
-    setPinError("");
-    if(editId){
-      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===editId?{...s,name:form.name,role:form.role,section:form.section,...(showChangePIN?{pin:form.pin}:{}),is_active:form.is_active}:s));
-    } else {
-      const defPerms = {...(PRESET_ROLES[form.role]?.permissions||PRESET_ROLES.section_indian.permissions)};
-      const ns={staffListId:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.role,permissions:defPerms};
-      setEmpDb(p=>[...safeArr(p),ns]);
-    }
-    setShowAdd(false); setEditId(null);
-  }
-  function deleteStaff(id){
-    if(delConfirmText!=="DELETE") return;
-    setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id)!==id));
-    setDelId(null); setDelConfirmText("");
-  }
-  function toggleActive(id){
-    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===id?{...s,is_active:!s.is_active}:s));
-  }
+  // ── Actions ──
   function openPerms(s){
-    const sid=s.staffListId||s.staff_id;
-    setViewPerms(sid); setPermsForm({...getPermissions(s)}); setTemplatePreview(null);
+    setEditUser(s);
+    setPermsForm({...(s.custom_screens || s.permissions || PRESET_ROLES[s.role]?.permissions || {})});
+    setTemplatePreview(null);
+    setView("perms");
   }
   function savePerms(){
-    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===viewPerms?{...s,permissions:{...permsForm}}:s));
-    setViewPerms(null);
+    const sid=getSid(editUser);
+    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,custom_screens:{...permsForm}}:s));
+    setView("list"); setEditUser(null);
   }
   function applyTemplate(roleKey){
-    const tpl=PRESET_ROLES[roleKey]?.permissions;
-    if(!tpl) return;
+    const tpl=PRESET_ROLES[roleKey]?.permissions; if(!tpl) return;
     setPermsForm({...tpl});
-    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===viewPerms?{...s,role:roleKey,permissions:{...tpl}}:s));
+    const sid=getSid(editUser);
+    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,role:roleKey,custom_screens:{...tpl}}:s));
     setTemplatePreview(null);
   }
+  function openPin(s){ setEditUser(s); setPinChangeMode(false); setNewPin(""); setPinError(""); setView("pin"); }
+  function saveNewPin(){
+    if(newPin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
+    const sid=getSid(editUser);
+    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,pin:newPin}:s));
+    setView("list"); setEditUser(null);
+  }
+  function openEdit(s){ setEditUser(s); setEditForm({name:s.name||"",role:s.role||"kiosk_gate",section:s.section||"Management"}); setFormError(""); setView("edit"); }
+  function saveForm(){
+    if(!editForm.name?.trim()){setFormError(lang==="hi"?"नाम आवश्यक है":"Name is required");return;}
+    const sid=getSid(editUser);
+    setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,name:editForm.name,role:editForm.role,section:editForm.section}:s));
+    setView("list"); setEditUser(null); setFormError("");
+  }
+  function toggleSuspend(sid){
+    setEmpDb(p=>safeArr(p).map(s=>{
+      if(getSid(s)!==sid) return s;
+      const wasActive=isActive(s);
+      return {...s,is_active:!wasActive,active:!wasActive};
+    }));
+  }
 
-  // ── PERMISSIONS EDITOR VIEW ──
-  if(viewPerms){
-    const sm=allStaff.find(s=>(s.staffListId||s.staff_id)===viewPerms);
+  // ── Back button shared style ──
+  const backBtn={padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600};
+
+  // ── VIEW: PERMS ──
+  if(view==="perms"&&editUser){
     const canKeys=ALL_SCREEN_KEYS.filter(k=>permsForm[k]);
     const cantKeys=ALL_SCREEN_KEYS.filter(k=>!permsForm[k]);
     const previewPerms=templatePreview?PRESET_ROLES[templatePreview]?.permissions:null;
-
+    const isCustom=!!(editUser.custom_screens);
     return(
       <div>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
-          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600}}>{T2("← Back")}</button>
+          <button onClick={()=>{setView("list");setEditUser(null);setTemplatePreview(null);}} style={backBtn}>{T2("← Back")}</button>
           <div>
             <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{T2("🔑 Screen Permissions")}</div>
-            <div style={{fontSize:12,color:C.muted}}>{sm?.name||viewPerms} · <span style={{color:C.gold}}>{ROLE_MAP[sm?.role]||sm?.role||"—"}</span></div>
+            <div style={{fontSize:12,color:C.muted}}>{editUser.name} · <span style={{color:C.gold}}>{editUser.section}</span></div>
           </div>
         </div>
+
+        {/* Current-access status banner — Fix 3 */}
+        <Card style={{marginBottom:14,padding:"14px 16px",border:`1px solid ${canKeys.length>0?C.greenBorder:C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text}}>{editUser.name}</div>
+              <div style={{fontSize:11,color:C.muted}}>{editUser.section} · {roleShort(editUser.role)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              {canKeys.length>0
+                ? <div style={{fontSize:12,fontWeight:700,color:C.green}}>✅ {canKeys.length} {T2("screens active")}</div>
+                : <div style={{fontSize:12,color:C.red}}>🚫 {T2("No app access")}</div>
+              }
+              {!isCustom&&<div style={{fontSize:10,color:C.amber,marginTop:2}}>{T2("Showing role defaults")}</div>}
+            </div>
+          </div>
+        </Card>
 
         {/* Role Templates */}
         <Card style={{marginBottom:14,padding:"16px 18px",border:`1px solid ${C.goldBorder}`}}>
           <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:.8}}>{T2("⚡ Role Templates — Quick Apply")}</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:templatePreview?12:0}}>
             {ROLE_OPTIONS.map(r=>(
-              <button key={r.v} onClick={()=>setTemplatePreview(templatePreview===r.v?null:r.v)}
+              <button key={r.v} onClick={()=>setTemplatePreview(p=>p===r.v?null:r.v)}
                 style={{padding:"6px 12px",borderRadius:8,background:templatePreview===r.v?C.gold:C.darkCard,border:`1px solid ${templatePreview===r.v?C.gold:C.border}`,color:templatePreview===r.v?"#0A0908":C.muted,fontSize:11,fontWeight:templatePreview===r.v?700:400,cursor:"pointer"}}>
-                {r.l}
+                {T2(r.l)}
               </button>
             ))}
           </div>
@@ -9278,10 +9324,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
             <div style={{padding:"14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.goldBorder}`}}>
               <div style={{fontSize:11,color:C.gold,fontWeight:700,marginBottom:8}}>{T2("Preview —")} {T2(ROLE_OPTIONS.find(r=>r.v===templatePreview)?.l||"")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
-                {ALL_SCREEN_KEYS.map(k=>{
-                  const si=screenInfo(k); const on=previewPerms[k];
-                  return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:on?C.greenBg:C.darkCard,border:`1px solid ${on?C.greenBorder:C.border}`,color:on?C.green:C.faint}}>{si?.icon} {T2(si?.label||"")}</span>;
-                })}
+                {ALL_SCREEN_KEYS.map(k=>{const si=screenInfo(k);const on=previewPerms[k];return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:on?C.greenBg:C.darkCard,border:`1px solid ${on?C.greenBorder:C.border}`,color:on?C.green:C.faint}}>{si?.icon} {T2(si?.label||"")}</span>;})}
               </div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>applyTemplate(templatePreview)} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>{T2("✓ Apply This Template")}</button>
@@ -9291,14 +9334,14 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
           )}
         </Card>
 
-        {/* Preview Access */}
-        <Card style={{marginBottom:14,padding:"14px 16px",border:`1px solid ${C.greenBorder}`,background:C.greenBg+"30"}}>
+        {/* Access preview */}
+        <Card style={{marginBottom:14,padding:"14px 16px",border:`1px solid ${C.greenBorder}`,background:C.greenBg+"28"}}>
           <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>{T2("👁 Access Preview")}</div>
           {canKeys.length>0
-            ? <div style={{fontSize:12,color:C.text,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> {T2("will access:")} <span style={{color:C.green}}>{canKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}</span>.</div>
-            : <div style={{fontSize:12,color:C.red,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> {T2("will have NO screen access.")}</div>
+            ? <div style={{fontSize:12,color:C.text,marginBottom:4}}><strong>{editUser.name}</strong> {T2("will access:")} <span style={{color:C.green}}>{canKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}</span>.</div>
+            : <div style={{fontSize:12,color:C.red,marginBottom:4}}><strong>{editUser.name}</strong> {T2("will have NO screen access.")}</div>
           }
-          {cantKeys.length>0&&<div style={{fontSize:12,color:C.faint}}>{T2("Will NOT see:")} <span style={{color:C.muted}}>{cantKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}</span>.</div>}
+          {cantKeys.length>0&&<div style={{fontSize:12,color:C.faint}}>{T2("Will NOT see:")} {cantKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}.</div>}
         </Card>
 
         {/* Screen groups */}
@@ -9307,13 +9350,10 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
             <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",paddingLeft:2}}>── {T2(group.label)} ──</div>
             <Card style={{padding:"2px 0",overflow:"hidden"}}>
               {group.screens.map((scr,i)=>{
-                const isLocked=scr.locked;
-                const isOn=isLocked?false:!!permsForm[scr.key];
+                const isLocked=scr.locked; const isOn=isLocked?false:!!permsForm[scr.key];
                 return(
                   <div key={scr.key} onClick={()=>{if(!isLocked)setPermsForm(p=>({...p,[scr.key]:!p[scr.key]}));}}
-                    style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",cursor:isLocked?"not-allowed":"pointer",
-                      background:isOn?"rgba(62,170,104,.04)":C.darkCard,borderTop:i>0?`1px solid ${C.borderLight}`:"none",
-                      minHeight:56,opacity:isLocked?.45:1,transition:"background .15s"}}>
+                    style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",cursor:isLocked?"not-allowed":"pointer",background:isOn?"rgba(62,170,104,.04)":C.darkCard,borderTop:i>0?`1px solid ${C.borderLight}`:"none",minHeight:56,opacity:isLocked?.45:1,transition:"background .15s"}}>
                     <div style={{width:38,height:38,borderRadius:10,background:isOn?C.greenBg:C.surface,border:`1px solid ${isOn?C.greenBorder:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{scr.icon}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:600,color:isOn?C.text:C.muted}}>{T2(scr.label)}</div>
@@ -9331,185 +9371,164 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
 
         <div style={{display:"flex",gap:10,marginTop:4,marginBottom:24}}>
           <button onClick={savePerms} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48}}>{T2("✓ Save Permissions")}</button>
-          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>{T2("Cancel")}</button>
+          <button onClick={()=>{setView("list");setEditUser(null);setTemplatePreview(null);}} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>{T2("Cancel")}</button>
         </div>
       </div>
     );
   }
 
-  // ── MAIN LIST VIEW ──
-  return(
-    <div>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
-        </div>
-        <button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>{T2("+ Add Staff")}</button>
+  // ── VIEW: PIN ──
+  if(view==="pin"&&editUser){
+    return(
+      <div style={{maxWidth:400,margin:"0 auto",paddingTop:20}}>
+        <button onClick={()=>{setView("list");setEditUser(null);}} style={{...backBtn,marginBottom:20}}>{T2("← Back")}</button>
+        <Card style={{padding:"32px 28px",textAlign:"center",border:`1px solid ${C.goldBorder}`}}>
+          <div style={{fontSize:26,marginBottom:6}}>🔑</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:2}}>{editUser.name}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:24}}>{T2("PIN Management")} · {editUser.section}</div>
+          {!pinChangeMode?(
+            <>
+              <div style={{letterSpacing:14,fontSize:32,color:C.gold,marginBottom:24,fontFamily:"monospace"}}>●●●●</div>
+              <button onClick={()=>{setPinChangeMode(true);setNewPin("");}} style={{width:"100%",padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44,fontWeight:600}}>{T2("Change PIN")}</button>
+            </>
+          ):(
+            <>
+              <input value={newPin} onChange={e=>{setNewPin(e.target.value.replace(/\D/g,"").slice(0,4));setPinError("");}} placeholder={T2("New 4-digit PIN")} maxLength={4} style={{...fld,letterSpacing:10,textAlign:"center",fontSize:22,fontWeight:700,marginBottom:8}} type="password" autoFocus/>
+              {pinError&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>{pinError}</div>}
+              <button onClick={saveNewPin} style={{width:"100%",padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:8,minHeight:44}}>{T2("Save")}</button>
+              <button onClick={()=>setPinChangeMode(false)} style={{width:"100%",padding:"10px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>{T2("Cancel")}</button>
+            </>
+          )}
+        </Card>
       </div>
+    );
+  }
 
-      {/* Stats bar */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:14}}>
-        {[
-          {l:T2("Total"),   v:allStaff.length,                                           c:C.gold},
-          {l:T2("Active"),  v:allStaff.filter(s=>s.is_active!==false).length,            c:C.green},
-          {l:T2("Inactive"),v:allStaff.filter(s=>s.is_active===false).length,            c:C.red},
-          {l:T2("Admins"),  v:allStaff.filter(s=>s.role==="admin").length,               c:C.purple},
-          {l:T2("Tablets"), v:allStaff.filter(s=>s.role?.startsWith("section_")).length, c:C.amber},
-        ].map(st=>(
-          <div key={st.l} style={{background:C.darkCard,borderRadius:12,padding:"10px 8px",textAlign:"center",border:`1px solid ${st.c}22`}}>
-            <div style={{fontSize:20,fontWeight:800,color:st.c,lineHeight:1}}>{st.v}</div>
-            <div style={{fontSize:10,color:st.c,fontWeight:600,marginTop:3}}>{st.l}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Search + role filter */}
-      <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search by name or ID…")} style={{...fld,flex:1,fontSize:13}}/>
-        <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)} style={{...fld,width:"auto",fontSize:11,paddingRight:24,flexShrink:0}}>
-          <option value="all">{T2("All Roles")}</option>
-          {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{T2(r.l)}</option>)}
-        </select>
-      </div>
-
-      {/* Add / Edit form */}
-      {showAdd&&(
-        <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"55"}}>
-          <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>{editId?"✏️ "+T2("Edit Staff"):"➕ "+T2("Add New Staff")}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+  // ── VIEW: EDIT (Fix 1) ──
+  if(view==="edit"&&editUser){
+    const sid=getSid(editUser);
+    const canSave=!!editForm.name?.trim();
+    return(
+      <div style={{maxWidth:560,margin:"0 auto",paddingTop:20}}>
+        <button onClick={()=>{setView("list");setEditUser(null);}} style={{...backBtn,marginBottom:20}}>{T2("← Back")}</button>
+        <Card style={{padding:"24px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"44"}}>
+          <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:16}}>✏️ {T2("Edit Staff")} — {editUser.name}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Staff ID *")}</div>
-              <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="e.g. KT004" style={fld} disabled={!!editId}/>
+              <input value={sid} disabled style={{...fld,opacity:.55,cursor:"not-allowed"}}/>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Full Name *")}</div>
-              <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Ramesh Kumar" style={fld}/>
+              <input value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Ramesh Kumar" style={fld} autoFocus/>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Role / Access Level")}</div>
-              <select value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))} style={fld}>
+              <select value={editForm.role} onChange={e=>setEditForm(p=>({...p,role:e.target.value}))} style={fld}>
                 {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{T2(r.l)}</option>)}
               </select>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Section")}</div>
-              <select value={form.section} onChange={e=>setForm(p=>({...p,section:e.target.value}))} style={fld}>
+              <select value={editForm.section} onChange={e=>setEditForm(p=>({...p,section:e.target.value}))} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
-            <div style={{gridColumn:"1/-1"}}>
-              {editId?(
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN</div>
-                  {!showChangePIN?(
-                    <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                      <div style={{...fld,flex:1,display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:8,fontSize:18,color:C.faint,userSelect:"none"}}>{"●●●●"}</div>
-                      <button onClick={()=>{setShowChangePIN(true);setForm(p=>({...p,pin:""}));}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",minHeight:40}}>{T2("Change PIN")}</button>
-                    </div>
-                  ):(
-                    <div>
-                      <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder={T2("New 4-digit PIN")} maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
-                      {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
-                    </div>
-                  )}
-                </div>
-              ):(
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN (4 digits) *</div>
-                  <input value={form.pin} onChange={e=>{setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}));setPinError("");}} placeholder={T2("Enter 4-digit PIN")} maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
-                  {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
-                </div>
-              )}
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{fontSize:12,color:C.muted}}>{T2("Status:")}</div>
-              <button onClick={()=>setForm(p=>({...p,is_active:!p.is_active}))}
-                style={{padding:"8px 16px",borderRadius:10,background:form.is_active?C.greenBg:C.redBg,border:`1px solid ${form.is_active?C.greenBorder:C.redBorder}`,color:form.is_active?C.green:C.red,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                {form.is_active?"✅ "+T2("Active"):"🔴 "+T2("Inactive")}
-              </button>
-            </div>
           </div>
+          {formError&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>{formError}</div>}
           <div style={{display:"flex",gap:10}}>
-            <button onClick={saveForm} disabled={!form.name.trim()||!form.staff_id.trim()}
-              style={{flex:1,padding:"12px",borderRadius:12,background:form.name.trim()&&form.staff_id.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:form.name.trim()&&form.staff_id.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-              {editId?"✓ "+T2("Save Changes"):T2("✓ Add Staff Member")}
+            <button onClick={saveForm} disabled={!canSave}
+              style={{flex:1,padding:"12px",borderRadius:12,background:canSave?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:canSave?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:canSave?"pointer":"not-allowed",minHeight:44}}>
+              ✓ {T2("Save Changes")}
             </button>
-            <button onClick={()=>{setShowAdd(false);setEditId(null);setPinError("");}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
+            <button onClick={()=>{setView("list");setEditUser(null);}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
           </div>
         </Card>
-      )}
+      </div>
+    );
+  }
 
-      {/* Delete confirm modal */}
-      {delId&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <Card style={{padding:"28px 24px",maxWidth:380,width:"100%",textAlign:"center",border:`2px solid ${C.redBorder}`}}>
-            <div style={{fontSize:30,marginBottom:10}}>⚠️</div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>{T2("Permanently Delete Staff?")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>{T2("This removes their login access forever.")}</div>
-            <div style={{fontSize:11,color:C.amber,marginBottom:14,padding:"8px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>{T2("💡 Prefer Deactivate to block login while keeping their records.")}</div>
-            <div style={{fontSize:12,color:C.red,fontWeight:600,marginBottom:6}}>{T2("Type DELETE to confirm:")}</div>
-            <input value={delConfirmText} onChange={e=>setDelConfirmText(e.target.value)} placeholder={T2("Type DELETE here")}
-              style={{...fld,textAlign:"center",fontSize:14,fontWeight:700,letterSpacing:2,marginBottom:14,border:`1px solid ${delConfirmText==="DELETE"?C.red:C.border}`}}/>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>deleteStaff(delId)} disabled={delConfirmText!=="DELETE"}
-                style={{flex:1,padding:"12px",borderRadius:12,background:delConfirmText==="DELETE"?`linear-gradient(135deg,${C.red},#8A1010)`:"#2A2A2A",color:delConfirmText==="DELETE"?"#fff":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:delConfirmText==="DELETE"?"pointer":"not-allowed",minHeight:44}}>{T2("🗑 Confirm Delete")}</button>
-              <button onClick={()=>{setDelId(null);setDelConfirmText("");}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
-            </div>
-          </Card>
+  // ── VIEW: LIST ──
+  return(
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
         </div>
-      )}
+      </div>
 
-      {/* Staff list */}
-      {staff.map(s=>{
-        const roleLabel=ROLE_MAP[s.role||"section_indian"]||s.role||"—";
-        const isActive=s.is_active!==false;
-        const sid=s.staffListId||s.staff_id;
+      {/* Stats: Total | Has Access | No Access */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+        {[
+          {l:T2("Total"),      v:allStaff.length, c:C.gold,   bg:C.goldBg},
+          {l:T2("Has Access"), v:hasCnt,           c:C.green,  bg:C.greenBg},
+          {l:T2("No Access"),  v:noCnt,            c:C.red,    bg:C.redBg},
+        ].map(st=>(
+          <div key={st.l} style={{background:st.bg,borderRadius:12,padding:"14px 10px",textAlign:"center",border:`1px solid ${st.c}22`}}>
+            <div style={{fontSize:28,fontWeight:800,color:st.c,lineHeight:1}}>{st.v}</div>
+            <div style={{fontSize:11,color:st.c,fontWeight:600,marginTop:4}}>{st.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search staff by name or ID…")} style={{...fld,marginBottom:10,fontSize:13}}/>
+
+      {/* Section filter pills */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
+        {allSections.map(sec=>(
+          <button key={sec} onClick={()=>setSectionFilter(sec)}
+            style={{padding:"6px 14px",borderRadius:20,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",
+              background:sectionFilter===sec?C.gold:"transparent",color:sectionFilter===sec?"#0A0908":C.muted,
+              border:`1px solid ${sectionFilter===sec?C.gold:C.border}`,fontWeight:sectionFilter===sec?700:400,minHeight:32}}>
+            {sec==="All"?T2("All"):T2(sec)||sec}
+          </button>
+        ))}
+      </div>
+
+      {/* Staff cards */}
+      {staffList.map((s,i)=>{
+        const sid=getSid(s);
+        const active=isActive(s);
+        const hasAccess=hasAppAccess(s);
         const perms=getPermissions(s);
         const canKeys=ALL_SCREEN_KEYS.filter(k=>perms[k]);
-        const cantKeys=ALL_SCREEN_KEYS.filter(k=>!perms[k]);
         return(
-          <Card key={sid} style={{marginBottom:10,padding:"14px 16px",opacity:isActive?1:.58,border:`1px solid ${isActive?C.border:C.redBorder}`}}>
-            {/* Name + role row */}
+          <Card key={sid||i} style={{marginBottom:8,padding:"14px 16px",opacity:active?1:.55,border:`1px solid ${active?C.border:C.redBorder}`}}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
-              <div style={{width:44,height:44,borderRadius:12,background:C.gold+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
-                {roleLabel.split(" ")[0]}
-              </div>
+              <Avatar name={s.name||"?"} size={40} index={i}/>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
                   <span style={{fontSize:14,fontWeight:700,color:C.text}}>{s.name||"—"}</span>
-                  <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"15",color:C.gold,fontWeight:700}}>{sid}</span>
-                  {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>{T2("Inactive")}</span>}
+                  <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"15",color:C.gold,fontWeight:700}}>#{sid}</span>
+                  {!active&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>{T2("Suspended")}</span>}
                 </div>
-                <div style={{display:"inline-flex",alignItems:"center",padding:"3px 10px",borderRadius:8,background:C.gold+"12",border:`1px solid ${C.goldBorder}`,marginBottom:4}}>
-                  <span style={{fontSize:11,color:C.gold,fontWeight:700}}>{roleLabel}</span>
-                </div>
-                {s.section&&<div style={{fontSize:11,color:C.faint,marginTop:2}}>📍 {s.section}</div>}
-                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: ●●●● · {lang==="hi"?"शामिल हुए:":"Joined:"} {s.joining||"—"}</div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6}}>{s.section||"—"} · {roleShort(s.role)}</div>
+                {hasAccess?(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {T2(si?.label||"")}</span>;})}
+                  </div>
+                ):(
+                  <div style={{fontSize:12,color:C.red}}>🚫 {T2("No app access")}</div>
+                )}
               </div>
             </div>
-
-            {/* Access pills */}
-            <div style={{marginBottom:10}}>
-              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:.6}}>{T2("Screen Access")}</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {T2(si?.label||"")}</span>;})}
-                {cantKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint}}>{si?.icon} {T2(si?.label||"")}</span>;})}
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <button onClick={()=>openPerms(s)} style={{padding:"8px 14px",borderRadius:8,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{T2("🔑 Edit Permissions")}</button>
-              <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✏️ {T2("Edit")}</button>
-              <button onClick={()=>toggleActive(sid)} style={{padding:"8px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{isActive?"🔴 "+T2("Deactivate"):"✅ "+T2("Activate")}</button>
-              <button onClick={()=>{setDelId(sid);setDelConfirmText("");}} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36}}>🗑 {T2("Delete")}</button>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",borderTop:`1px solid ${C.borderLight}`,paddingTop:10}}>
+              <button onClick={()=>openPerms(s)} style={{padding:"8px 14px",borderRadius:8,background:hasAccess?C.goldBg:C.purpleBg,border:`1px solid ${hasAccess?C.goldBorder:C.purpleBorder}`,color:hasAccess?C.gold:C.purple,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>
+                {hasAccess?"✏️ "+T2("Edit Access"):"🔐 "+T2("Set Access")}
+              </button>
+              <button onClick={()=>openPin(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>🔑 PIN</button>
+              <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",minHeight:36}}>✏️ {T2("Edit")}</button>
+              <button onClick={()=>toggleSuspend(sid)} style={{padding:"8px 14px",borderRadius:8,background:active?C.amberBg:C.greenBg,border:`1px solid ${active?C.amberBorder:C.greenBorder}`,color:active?C.amber:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>
+                {active?"⏸ "+T2("Suspend"):"▶ "+T2("Restore")}
+              </button>
             </div>
           </Card>
         );
       })}
-      {staff.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:12}}>{T2("No staff found")}</div>}
+      {staffList.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:12}}>{T2("No staff found")}</div>}
     </div>
   );
 }
