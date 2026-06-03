@@ -309,8 +309,8 @@ const COLD_ITEMS = [
 ];
 
 const STAFF_LIST = [
-  {id:1, name:"Gopal",           role:"Head Chef",  section:"Management",     shift:"Morning"},
-  {id:2, name:"Yatender",        role:"Head Chef",  section:"Management",     shift:"Evening"},
+  {id:1, name:"Gopal",           role:"Head Chef",  section:"Tandoor",        shift:"Morning"},
+  {id:2, name:"Yatender",        role:"Head Chef",  section:"Indian Curries", shift:"Evening"},
   {id:3, name:"Caonty",          role:"Chef",       section:"Beverages",           shift:"Morning"},
   {id:4, name:"Rahul",           role:"Chef",       section:"Beverages",           shift:"Morning"},
   {id:5, name:"Kareena",         role:"Chef",       section:"Beverages",           shift:"Morning"},
@@ -387,8 +387,8 @@ const STAFF_LIST = [
 const EMPLOYEE_DB_INIT = [
   // Management — AM001 keeps admin; everyone else starts as kiosk_gate (no access)
   {id:"AM001",name:"Abhi",             role:"admin",      custom_screens:null, section:"Management",     dept:"Operations",     joining:"2022-01-01",pin:"0000",active:true},
-  {id:"AM002",name:"Gopal",            role:"kiosk_gate", custom_screens:null, section:"Management",     dept:"F&B Kitchen",    joining:"2019-03-15",pin:"0000",active:true},
-  {id:"AM003",name:"Yatender",         role:"kiosk_gate", custom_screens:null, section:"Management",     dept:"F&B Kitchen",    joining:"2018-06-01",pin:"0000",active:true},
+  {id:"AM002",name:"Gopal",            role:"kiosk_gate", custom_screens:null, section:"Tandoor",        dept:"kitchen",        joining:"2019-03-15",pin:"0000",active:true},
+  {id:"AM003",name:"Yatender",         role:"kiosk_gate", custom_screens:null, section:"Indian Curries", dept:"kitchen",        joining:"2018-06-01",pin:"0000",active:true},
   // Beverages
   {id:"CAF01",name:"Caonty",           role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2021-04-10",pin:"0000",active:true},
   {id:"CAF02",name:"Rahul",            role:"kiosk_gate", custom_screens:null, section:"Beverages",      dept:"Beverages",      joining:"2022-07-01",pin:"0000",active:true},
@@ -1292,6 +1292,7 @@ const HI = {
   "Show all":"सभी दिखाएं",
 
   // ── ACCESS MANAGER ──
+  "Changes saved":"परिवर्तन सहेजे गए",
   "Has Access":"एक्सेस है",
   "No Access":"कोई एक्सेस नहीं",
   "screens active":"स्क्रीन सक्रिय",
@@ -1623,8 +1624,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         if(rrem?.value==="true" && rid?.value && rpin?.value){
           const id  = rid.value.trim().toUpperCase();
           const pin2 = rpin.value.trim();
-          const emp  = (empDb||[]).find(e=>String(e.id).toUpperCase()===id);
-          if(emp && emp.active && String(emp.pin)===pin2){
+          const emp  = (empDb||[]).find(e=>(e.staffListId||e.staff_id||String(e.id||"")).toUpperCase()===id);
+          if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
             // credentials valid — auto-login immediately
             const sl = STAFF_LIST.find(s=>s.name===emp.name);
             onLogin({...emp, staffListId:sl?.id||null});
@@ -1643,9 +1644,9 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   async function handleLogin(){
     setError(""); setLoading(true);
     const id  = empId.trim().toUpperCase();
-    const emp = safeDb.find(e=>String(e.id).toUpperCase()===id);
+    const emp = safeDb.find(e=>(e.staffListId||e.staff_id||String(e.id||"")).toUpperCase()===id);
     if(!emp){setError("Employee ID not found.");setLoading(false);return;}
-    if(!emp.active){setError("Account inactive. Contact manager.");setLoading(false);return;}
+    if(emp.active===false||emp.is_active===false){setError("Account inactive. Contact manager.");setLoading(false);return;}
     if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
     try{
       if(remember){
@@ -9221,6 +9222,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   const [editForm, setEditForm]     = useState({});
   const [formError, setFormError]   = useState("");
   const [delId, setDelId]           = useState(null);
+  const [saved, setSaved]           = useState(false);
 
   // ── Derived data ──
   const allStaff  = safeArr(empDb);
@@ -9232,6 +9234,8 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     const matchSearch = !search || s.name?.toLowerCase().includes(search.toLowerCase()) || sid.toLowerCase().includes(search.toLowerCase());
     return matchSearch && (sectionFilter==="All" || s.section===sectionFilter);
   });
+
+  function showSaved(){ setSaved(true); setTimeout(()=>setSaved(false), 2000); }
 
   // ── Actions ──
   function openPerms(s){
@@ -9246,7 +9250,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
       ? {...s, custom_screens:{...permsForm}}
       : s
     ));
-    setView("list"); setEditUser(null);
+    showSaved(); setView("list"); setEditUser(null);
   }
   function applyTemplate(roleKey){
     const tpl=PRESET_ROLES[roleKey]?.permissions; if(!tpl) return;
@@ -9260,7 +9264,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     if(newPin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
     const sid=getSid(editUser);
     setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,pin:newPin}:s));
-    setView("list"); setEditUser(null);
+    showSaved(); setView("list"); setEditUser(null);
   }
   function openEdit(s){ setEditUser(s); setEditForm({name:s.name||"",role:s.role||"kiosk_gate",section:s.section||"Management"}); setFormError(""); setView("edit"); }
   function saveForm(){
@@ -9270,12 +9274,13 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
       ? {...s, name:editForm.name.trim(), role:editForm.role, section:editForm.section}
       : s
     ));
-    setView("list"); setEditUser(null); setFormError("");
+    showSaved(); setView("list"); setEditUser(null); setFormError("");
   }
   function toggleActive(sid){
     setEmpDb(prev=>prev.map(s=>
       getSid(s)===sid ? {...s, is_active:!isActive(s), active:!isActive(s)} : s
     ));
+    showSaved();
   }
   function deleteStaff(sid){
     setEmpDb(prev=>prev.filter(s=>getSid(s)!==sid));
@@ -9285,6 +9290,9 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   // ── Back button shared style ──
   const backBtn={padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600};
 
+  // Shared toast element (rendered in any sub-view)
+  const SavedToast = saved ? <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:C.green,color:"#fff",padding:"10px 28px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.4)",whiteSpace:"nowrap"}}>✅ {T2("Changes saved")}</div> : null;
+
   // ── VIEW: PERMS ──
   if(view==="perms"&&editUser){
     const canKeys=ALL_SCREEN_KEYS.filter(k=>permsForm[k]);
@@ -9292,7 +9300,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     const previewPerms=templatePreview?PRESET_ROLES[templatePreview]?.permissions:null;
     const isCustom=!!(editUser.custom_screens);
     return(
-      <div>
+      <div>{SavedToast}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
           <button onClick={()=>{setView("list");setEditUser(null);setTemplatePreview(null);}} style={backBtn}>{T2("← Back")}</button>
           <div>
@@ -9389,7 +9397,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   // ── VIEW: PIN ──
   if(view==="pin"&&editUser){
     return(
-      <div style={{maxWidth:400,margin:"0 auto",paddingTop:20}}>
+      <div style={{maxWidth:400,margin:"0 auto",paddingTop:20}}>{SavedToast}
         <button onClick={()=>{setView("list");setEditUser(null);}} style={{...backBtn,marginBottom:20}}>{T2("← Back")}</button>
         <Card style={{padding:"32px 28px",textAlign:"center",border:`1px solid ${C.goldBorder}`}}>
           <div style={{fontSize:26,marginBottom:6}}>🔑</div>
@@ -9418,7 +9426,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     const sid=getSid(editUser);
     const canSave=!!editForm.name?.trim();
     return(
-      <div style={{maxWidth:560,margin:"0 auto",paddingTop:20}}>
+      <div style={{maxWidth:560,margin:"0 auto",paddingTop:20}}>{SavedToast}
         <button onClick={()=>{setView("list");setEditUser(null);}} style={{...backBtn,marginBottom:20}}>{T2("← Back")}</button>
         <Card style={{padding:"24px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"44"}}>
           <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:16}}>✏️ {T2("Edit Staff")} — {editUser.name}</div>
@@ -9460,6 +9468,9 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   // ── VIEW: LIST ──
   return(
     <div>
+      {/* Save toast */}
+      {SavedToast}
+
       {/* Delete confirm modal */}
       {delId&&(
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -9482,7 +9493,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
         </div>
-        <button onClick={()=>{if(window.confirm("Reset ALL staff to default permissions? This cannot be undone.")){localStorage.removeItem('ambria_emp_db');window.location.reload();}}}
+        <button onClick={()=>{if(window.confirm("Reset ALL staff to default permissions? This cannot be undone.")){localStorage.removeItem('ambria_empdb_v2');window.location.reload();}}}
           style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36,whiteSpace:"nowrap",flexShrink:0}}>
           ↺ Reset defaults
         </button>
@@ -9612,7 +9623,7 @@ export default function App() {
   const [currentUser,setCurrentUser] = useState(null);
   const [empDb, setEmpDb] = useState(()=>{
     try {
-      const saved = localStorage.getItem('ambria_emp_db');
+      const saved = localStorage.getItem('ambria_empdb_v2');
       return saved ? JSON.parse(saved) : EMPLOYEE_DB_INIT;
     } catch(e) { return EMPLOYEE_DB_INIT; }
   });
@@ -9636,7 +9647,7 @@ export default function App() {
 
   // Auto-save empDb to localStorage whenever it changes
   useEffect(()=>{
-    try { localStorage.setItem('ambria_emp_db', JSON.stringify(empDb)); } catch(e) {}
+    try { localStorage.setItem('ambria_empdb_v2', JSON.stringify(empDb)); } catch(e) {}
   }, [empDb]);
 
   async function handleLogin(emp){
