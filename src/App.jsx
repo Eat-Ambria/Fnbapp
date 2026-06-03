@@ -9288,7 +9288,6 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   const [delId, setDelId]           = useState(null);
   const [toast, setToast]           = useState("");
   const [selected, setSelected]     = useState(new Set());
-  const [bulkConfirm, setBulkConfirm] = useState(null); // "remove" | "deactivate"
 
   // ── Derived data ──
   const allStaff  = safeArr(empDb);
@@ -9355,13 +9354,23 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     setEmpDb(prev=>prev.filter(s=>getSid(s)!==sid));
     setDelId(null); setView("list");
   }
-  function bulkRemoveAccess(){
+  function handleBulkRemoveAccess(){
+    if(!window.confirm(`Remove access for ${selected.size} staff members? They will have no app access.`)) return;
+    const n=selected.size;
     setEmpDb(prev=>prev.map(s=>selected.has(getSid(s))?{...s,role:"kiosk_gate",custom_screens:null}:s));
-    setSelected(new Set()); setBulkConfirm(null); showSaved();
+    setSelected(new Set()); showSaved(`✅ Access removed for ${n} staff`);
   }
-  function bulkDeactivate(){
+  function handleBulkDeactivate(){
+    if(!window.confirm(`Deactivate ${selected.size} staff members? They will not be able to log in.`)) return;
+    const n=selected.size;
     setEmpDb(prev=>prev.map(s=>selected.has(getSid(s))?{...s,is_active:false,active:false}:s));
-    setSelected(new Set()); setBulkConfirm(null); showSaved();
+    setSelected(new Set()); showSaved(`✅ Deactivated ${n} staff`);
+  }
+  function handleBulkDelete(){
+    if(!window.confirm(`Permanently DELETE ${selected.size} staff members? This cannot be undone.`)) return;
+    const n=selected.size;
+    setEmpDb(prev=>prev.filter(s=>!selected.has(getSid(s))));
+    setSelected(new Set()); showSaved(`✅ Deleted ${n} staff`);
   }
   function toggleSelect(sid){
     setSelected(prev=>{ const n=new Set(prev); n.has(sid)?n.delete(sid):n.add(sid); return n; });
@@ -9571,25 +9580,14 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         </div>
       )}
 
-      {/* Bulk confirm modal */}
-      {bulkConfirm&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <Card style={{padding:"28px 24px",maxWidth:360,width:"100%",textAlign:"center",border:`2px solid ${bulkConfirm==="remove"?C.redBorder:C.amberBorder}`}}>
-            <div style={{fontSize:28,marginBottom:10}}>{bulkConfirm==="remove"?"🔒":"⏸"}</div>
-            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:8}}>
-              {bulkConfirm==="remove"?`Remove access for ${selected.size} staff?`:`Deactivate ${selected.size} staff members?`}
-            </div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:18}}>
-              {bulkConfirm==="remove"?"Their role will be reset to kiosk_gate with no screen access.":"They will be blocked from logging in."}
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={bulkConfirm==="remove"?bulkRemoveAccess:bulkDeactivate}
-                style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${bulkConfirm==="remove"?C.red:"#D4A843"},${bulkConfirm==="remove"?"#8A1010":"#A8891E"})`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-                ✓ Confirm
-              </button>
-              <button onClick={()=>setBulkConfirm(null)} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
-            </div>
-          </Card>
+      {/* Bulk action bar — fixed bottom */}
+      {selected.size>0&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:999,background:C.darkCard,borderTop:`2px solid ${C.gold}`,padding:"14px 20px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.gold,flex:1}}>{selected.size} {lang==="hi"?"चुने गए":"selected"}</div>
+          <button onClick={handleBulkRemoveAccess} style={{padding:"9px 18px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Remove Access</button>
+          <button onClick={handleBulkDeactivate}   style={{padding:"9px 18px",borderRadius:10,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer"}}>🔴 Deactivate</button>
+          <button onClick={handleBulkDelete}        style={{padding:"9px 18px",borderRadius:10,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 Delete</button>
+          <button onClick={()=>setSelected(new Set())} style={{padding:"9px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>✕ Cancel</button>
         </div>
       )}
 
@@ -9661,7 +9659,8 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                   <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"15",color:C.gold,fontWeight:700}}>#{sid}</span>
                   {!active&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>{T2("Suspended")}</span>}
                 </div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:6}}>{s.section||"—"} · {roleShort(s.role)}</div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{s.section||"—"} · {roleShort(s.role)}</div>
+                <div style={{fontSize:12,color:C.gold,fontWeight:700,background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:8,padding:"3px 10px",display:"inline-block",marginBottom:6,letterSpacing:3}}>PIN: {s.pin||"0000"}</div>
                 {hasAccess?(
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                     {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {T2(si?.label||"")}</span>;})}
