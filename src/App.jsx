@@ -1290,6 +1290,98 @@ const HI = {
   "Continue":"कंटिन्यू","Final Cooking":"फाइनल कुकिंग",
   "Collective":"कुल मिलाकर","Showing":"दिखा रहे हैं","function dishes only":"फंक्शन के व्यंजन",
   "Show all":"सभी दिखाएं",
+
+  // ── ACCESS MANAGER ──
+  "Access Manager":"एक्सेस मैनेजर",
+  "Manage staff accounts, roles & permissions — Admin only":"स्टाफ खाते, भूमिकाएं व अनुमतियां प्रबंधित करें — केवल एडमिन",
+  "+ Add Staff":"+ स्टाफ जोड़ें",
+  "Admins":"एडमिन",
+  "Tablets":"टैबलेट",
+  "Search by name or ID…":"नाम या ID से खोजें…",
+  "All Roles":"सभी भूमिकाएं",
+  "Edit Staff":"स्टाफ संपादित करें",
+  "Add New Staff":"नया स्टाफ जोड़ें",
+  "Staff ID *":"स्टाफ ID *",
+  "Full Name *":"पूरा नाम *",
+  "Role / Access Level":"भूमिका / एक्सेस स्तर",
+  "Change PIN":"PIN बदलें",
+  "New 4-digit PIN":"नया 4 अंकों का PIN",
+  "PIN must be exactly 4 digits":"PIN बिल्कुल 4 अंकों का होना चाहिए",
+  "Status:":"स्थिति:",
+  "✓ Add Staff Member":"✓ स्टाफ सदस्य जोड़ें",
+  "Permanently Delete Staff?":"स्टाफ को स्थायी रूप से हटाएं?",
+  "This removes their login access forever.":"इससे उनकी लॉगिन एक्सेस हमेशा के लिए हटेगी।",
+  "💡 Prefer Deactivate to block login while keeping their records.":"💡 रिकॉर्ड सुरक्षित रखते हुए लॉगिन ब्लॉक करने के लिए डीएक्टिवेट करें।",
+  "Type DELETE to confirm:":"पुष्टि के लिए DELETE टाइप करें:",
+  "Type DELETE here":"यहाँ DELETE टाइप करें",
+  "🗑 Confirm Delete":"🗑 हटाने की पुष्टि करें",
+  "Screen Access":"स्क्रीन एक्सेस",
+  "🔑 Edit Permissions":"🔑 अनुमतियां संपादित करें",
+  "No staff found":"कोई स्टाफ नहीं मिला",
+  "← Back":"← वापस",
+  "🔑 Screen Permissions":"🔑 स्क्रीन अनुमतियां",
+  "⚡ Role Templates — Quick Apply":"⚡ भूमिका टेम्पलेट — त्वरित लागू",
+  "✓ Apply This Template":"✓ यह टेम्पलेट लागू करें",
+  "👁 Access Preview":"👁 एक्सेस पूर्वावलोकन",
+  "will access:":"एक्सेस कर सकेगा:",
+  "will have NO screen access.":"की कोई स्क्रीन एक्सेस नहीं होगी।",
+  "Will NOT see:":"नहीं देखेगा:",
+  "✓ Save Permissions":"✓ अनुमतियां सहेजें",
+  "Admin only — always locked":"केवल एडमिन — हमेशा लॉक",
+  "Preview —":"पूर्वावलोकन —",
+  // Screen group headings
+  "KITCHEN & OPS":"रसोई व संचालन",
+  "MANAGEMENT":"प्रबंधन",
+  "DEPARTMENTS":"विभाग",
+  "ADMIN ONLY":"केवल एडमिन",
+  // Screen labels (short)
+  "Kitchen Hub":"किचन हब",
+  "Menu Packages":"मेनू पैकेज",
+  "Repair & Maint.":"मरम्मत व रखरखाव",
+  "Service Ops":"सेवा संचालन",
+  "Crockery Ops":"क्रॉकरी संचालन",
+  "Beverages Ops":"पेय संचालन",
+  // Screen descriptions
+  "Prep tracking & live kitchen ops":"तैयारी ट्रैकिंग और लाइव किचन",
+  "Stock levels, issue & receive items":"स्टॉक स्तर और आइटम जारी करें",
+  "Event menus, packages & recipes":"इवेंट मेनू, पैकेज और रेसिपी",
+  "Dispatch & delivery tracking":"रवानगी और डिलीवरी ट्रैकिंग",
+  "Outside dining & catering ops":"बाहरी खाना और केटरिंग",
+  "Event overview, alerts & KPIs":"इवेंट अवलोकन, अलर्ट और KPIs",
+  "Attendance, leaves & staff records":"उपस्थिति, छुट्टियां और स्टाफ",
+  "Supplier contacts & orders":"सप्लायर संपर्क और ऑर्डर",
+  "Equipment repairs & tickets":"उपकरण मरम्मत और टिकट",
+  "Front-of-house & banquet service":"फ्रंट-ऑफ-हाउस और बैंक्वेट",
+  "Crockery inventory & breakage":"क्रॉकरी इन्वेंटरी और टूट-फूट",
+  "Beverage planning & bar ops":"पेय योजना और बार",
+  "Staff accounts, roles & permissions":"स्टाफ खाते, भूमिकाएं और अनुमतियां",
+  // Role option labels (full strings used in ROLE_OPTIONS)
+  "👑 Admin — Full Access":"👑 एडमिन — पूर्ण एक्सेस",
+  "👨‍🍳 Head Chef":"👨‍🍳 हेड शेफ",
+  "🥢 Chinese Section":"🥢 चाइनीज़ विभाग",
+  "🍛 Indian Curries":"🍛 इंडियन करी",
+  "🔥 Tandoor":"🔥 तंदूर",
+  "🍝 Continental":"🍝 कॉन्टिनेंटल",
+  "🍮 Sweets":"🍮 मिठाई",
+  "🥗 Chaat":"🥗 चाट",
+  "🍽 Service":"🍽 सेवा",
+  "🍶 Crockery":"🍶 क्रॉकरी",
+  "🥤 Beverages":"🥤 पेय पदार्थ",
+  "🚛 Transport":"🚛 ट्रांसपोर्ट",
+  "🏛 Gate Kiosk":"🏛 गेट किओस्क",
+
+  // ── VENDOR DIRECTORY (gaps) ──
+  "Outside chefs, suppliers, service partners":"बाहरी शेफ, सप्लायर, सेवा भागीदार",
+  "+ Add Vendor":"+ वेंडर जोड़ें",
+  "✓ Add Vendor":"✓ वेंडर जोड़ें",
+  "Added By":"जोड़ा:",
+  "Added by":"जोड़ा:",
+  "Edit —":"संपादित —",
+  "Remove":"हटाएं",
+
+  // ── REPAIR & MAINTENANCE (gaps) ──
+  "⏱ Date":"⏱ तारीख",
+  "⚠ Priority":"⚠ प्राथमिकता",
 };
 // T() — translate string if Hindi mode
 function T(key, lang) {
@@ -8685,7 +8777,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Raise From Dept")}</div>
               <select value={newT.dept} onChange={e=>setNewT(p=>({...p,dept:e.target.value}))} style={fld}>
-                {Object.entries(DEPT_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                {Object.entries(DEPT_LABELS).map(([k,v])=><option key={k} value={k}>{T2(v)}</option>)}
               </select>
             </div>
             <div>
@@ -8719,7 +8811,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
         <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
           {/* Sort */}
           <button onClick={()=>setSortBy(s=>s==="date"?"priority":"date")} style={{padding:"7px 12px",borderRadius:10,fontSize:11,cursor:"pointer",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,minHeight:36}}>
-            {sortBy==="date"?"⏱ Date":"⚠ Priority"}
+            {sortBy==="date"?T2("⏱ Date"):T2("⚠ Priority")}
           </button>
         </div>
       </div>
@@ -8728,7 +8820,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
       <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
         {["All",...Object.keys(DEPT_LABELS)].map(d=>(
           <button key={d} onClick={()=>setFilterDept(d)} style={{padding:"5px 10px",borderRadius:8,fontSize:10,fontWeight:filterDept===d?700:400,cursor:"pointer",background:filterDept===d?C.purple+"20":"transparent",color:filterDept===d?C.purple:C.faint,border:`1px solid ${filterDept===d?C.purple+"50":C.borderLight}`}}>
-            {d==="All"?T2("All Depts"):(DEPT_LABELS[d]||d)}
+            {d==="All"?T2("All Depts"):T2(DEPT_LABELS[d]||d)}
           </button>
         ))}
         <div style={{marginLeft:4,display:"flex",gap:4}}>
@@ -8759,7 +8851,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
                   <span style={{fontSize:10,color:C.faint,fontWeight:600}}>{tk.id}</span>
                   <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:pri.c+"18",color:pri.c}}>{T2(tk.priority)}</span>
                   <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:sc+"18",color:sc}}>{T2(tk.status)}</span>
-                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.purple+"18",color:C.purple}}>{DEPT_LABELS[tk.dept]||tk.dept}</span>
+                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.purple+"18",color:C.purple}}>{T2(DEPT_LABELS[tk.dept]||tk.dept)}</span>
                 </div>
                 <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:3}}>{tk.title}</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:C.muted}}>
@@ -8882,10 +8974,10 @@ function VendorDirectory({lang="en"}) {
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.surface,borderRadius:14,padding:"28px 32px",maxWidth:340,textAlign:"center"}}>
             <div style={{fontSize:32,marginBottom:8}}>🗑</div>
-            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:5}}>Remove {deleteConfirm.name}?</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:5}}>{T2("Remove")} {deleteConfirm.name}?</div>
             <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:14}}>
-              <Btn onClick={()=>{setVendors(p=>p.filter(v=>v.id!==deleteConfirm.id));setDeleteConfirm(null);}} color={C.red} style={{fontSize:12,padding:"7px 18px"}}>Remove</Btn>
-              <Btn onClick={()=>setDeleteConfirm(null)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
+              <Btn onClick={()=>{setVendors(p=>p.filter(v=>v.id!==deleteConfirm.id));setDeleteConfirm(null);}} color={C.red} style={{fontSize:12,padding:"7px 18px"}}>{T2("Remove")}</Btn>
+              <Btn onClick={()=>setDeleteConfirm(null)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>{T2("Cancel")}</Btn>
             </div>
           </div>
         </div>
@@ -8895,9 +8987,9 @@ function VendorDirectory({lang="en"}) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🤝 {T2("Vendor Directory")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{vendors.length} vendors · Outside chefs, suppliers, service partners</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{vendors.length} {lang==="hi"?"वेंडर ·":T2("vendors")} {T2("Outside chefs, suppliers, service partners")}</div>
         </div>
-        <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.wine} style={{fontSize:12,padding:"7px 16px"}}>{showAdd?"✕ Cancel":"+ Add Vendor"}</Btn>
+        <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.wine} style={{fontSize:12,padding:"7px 16px"}}>{showAdd?"✕ "+T2("Cancel"):T2("+ Add Vendor")}</Btn>
       </div>
 
       {/* Add form */}
@@ -8910,7 +9002,7 @@ function VendorDirectory({lang="en"}) {
               {l:T2("Phone *"),  k:"phone",  ph:"98100-XXXXX"},
               {l:T2("Email"),    k:"email",  ph:"email@example.com"},
               {l:T2("Address"),  k:"address",ph:"Area, Delhi"},
-              {l:"Added By", k:"addedBy",ph:"Your name"},
+              {l:T2("Added By"), k:"addedBy",ph:"Your name"},
               {l:T2("Notes"),    k:"notes",  ph:"Speciality, experience…"},
             ].map(f=>(
               <div key={f.k}>
@@ -8921,34 +9013,34 @@ function VendorDirectory({lang="en"}) {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 60px",gap:8,marginBottom:10}}>
             <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>Category</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>{T2("Category")}</div>
               <select value={form.cat} onChange={e=>setForm(p=>({...p,cat:e.target.value}))} style={fld}>
                 {VENDOR_CATEGORIES.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>Section Speciality</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>{T2("Section Speciality")}</div>
               <select value={form.section} onChange={e=>setForm(p=>({...p,section:e.target.value}))} style={fld}>
                 {SECTION_OPTS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>Rating</div>
+              <div style={{fontSize:11,color:C.muted,marginBottom:2,textTransform:"uppercase"}}>{T2("Rating")}</div>
               <select value={form.rating} onChange={e=>setForm(p=>({...p,rating:+e.target.value}))} style={fld}>
                 {[5,4,3,2,1].map(r=><option key={r} value={r}>{"★".repeat(r)}</option>)}
               </select>
             </div>
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>setShowAdd(false)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-            <Btn onClick={addVendor} color={C.wine} style={{fontSize:12,padding:"8px 20px"}}>✓ Add Vendor</Btn>
+            <Btn onClick={()=>setShowAdd(false)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>{T2("Cancel")}</Btn>
+            <Btn onClick={addVendor} color={C.wine} style={{fontSize:12,padding:"8px 20px"}}>{T2("✓ Add Vendor")}</Btn>
           </div>
         </div>
       )}
 
       {/* Search + filter */}
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search vendors…"
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("🔍 Search vendors…")}
           style={{flex:1,minWidth:160,padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/>
       </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
@@ -8963,9 +9055,9 @@ function VendorDirectory({lang="en"}) {
           <div key={v.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"13px 14px",opacity:v.active?1:.6}}>
             {editId===v.id?(
               <div>
-                <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Edit — {v.name}</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>{T2("Edit —")} {v.name}</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
-                  {[{l:"Phone",k:"phone"},{l:T2("Email"),k:"email"},{l:T2("Address"),k:"address"},{l:T2("Notes"),k:"notes"}].map(f=>(
+                  {[{l:T2("Phone"),k:"phone"},{l:T2("Email"),k:"email"},{l:T2("Address"),k:"address"},{l:T2("Notes"),k:"notes"}].map(f=>(
                     <div key={f.k}>
                       <div style={{fontSize:11,color:C.muted,marginBottom:2}}>{f.l}</div>
                       <input value={editForm[f.k]||""} onChange={e=>setEditForm(p=>({...p,[f.k]:e.target.value}))} style={{...fld,padding:"5px 7px"}}/>
@@ -8973,8 +9065,8 @@ function VendorDirectory({lang="en"}) {
                   ))}
                 </div>
                 <div style={{display:"flex",gap:5}}>
-                  <Btn onClick={()=>{setVendors(p=>p.map(x=>x.id!==v.id?x:{...x,...editForm}));setEditId(null);}} color={C.wine} style={{fontSize:11,padding:"5px 12px"}}>Save</Btn>
-                  <Btn onClick={()=>setEditId(null)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"5px 10px"}}>Cancel</Btn>
+                  <Btn onClick={()=>{setVendors(p=>p.map(x=>x.id!==v.id?x:{...x,...editForm}));setEditId(null);}} color={C.wine} style={{fontSize:11,padding:"5px 12px"}}>{T2("Save")}</Btn>
+                  <Btn onClick={()=>setEditId(null)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"5px 10px"}}>{T2("Cancel")}</Btn>
                 </div>
               </div>
             ):(
@@ -8988,8 +9080,8 @@ function VendorDirectory({lang="en"}) {
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>{setEditId(v.id);setEditForm({phone:v.phone,email:v.email,address:v.address,notes:v.notes});}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
-                    <button onClick={()=>setVendors(p=>p.map(x=>x.id!==v.id?x:{...x,active:!x.active}))} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:v.active?C.greenBg:C.redBg,color:v.active?C.green:C.red}}>{v.active?"Active":"Off"}</button>
+                    <button onClick={()=>{setEditId(v.id);setEditForm({phone:v.phone,email:v.email,address:v.address,notes:v.notes});}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>{T2("Edit")}</button>
+                    <button onClick={()=>setVendors(p=>p.map(x=>x.id!==v.id?x:{...x,active:!x.active}))} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:v.active?C.greenBg:C.redBg,color:v.active?C.green:C.red}}>{v.active?T2("Active"):T2("Off")}</button>
                     <button onClick={()=>setDeleteConfirm(v)} style={{padding:"3px 7px",borderRadius:8,fontSize:10,cursor:"pointer",border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red}}>🗑</button>
                   </div>
                 </div>
@@ -9003,7 +9095,7 @@ function VendorDirectory({lang="en"}) {
                 <div style={{fontSize:11,color:C.muted}}>{v.phone}{v.email?" · "+v.email:""}</div>
                 {v.address&&<div style={{fontSize:10,color:C.faint,marginTop:2}}>📍 {v.address}</div>}
                 {v.notes&&<div style={{marginTop:6,fontSize:11,color:C.muted,lineHeight:1.5}}>{v.notes}</div>}
-                <div style={{marginTop:6,fontSize:11,color:C.faint}}>Added by {v.addedBy} · {v.date}</div>
+                <div style={{marginTop:6,fontSize:11,color:C.faint}}>{T2("Added by")} {v.addedBy} · {v.date}</div>
               </div>
             )}
           </div>
@@ -9018,6 +9110,7 @@ function VendorDirectory({lang="en"}) {
 
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
 function AccessManager({lang="en", empDb, setEmpDb}) {
+  const T2 = s => T(s, lang);
   const PRESET_ROLES = {
     admin:              {label:"👑 Admin — Full Access",         permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:true,repair:true,dept_service:true,dept_crockery:true,dept_beverages:true,access:true}},
     head_chef:          {label:"👨‍🍳 Head Chef",                  permissions:{dashboard:true,kitchen:true,store:true,menus:true,transport:true,dept_odc:true,team:true,vendors:false,repair:true,dept_service:false,dept_crockery:false,dept_beverages:false,access:false}},
@@ -9117,8 +9210,8 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
-    if(!editId && form.pin.length!==4){setPinError("PIN must be exactly 4 digits");return;}
-    if(showChangePIN && form.pin.length!==4){setPinError("PIN must be exactly 4 digits");return;}
+    if(!editId && form.pin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
+    if(showChangePIN && form.pin.length!==4){setPinError(T2("PIN must be exactly 4 digits"));return;}
     setPinError("");
     if(editId){
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===editId?{...s,name:form.name,role:form.role,section:form.section,...(showChangePIN?{pin:form.pin}:{}),is_active:form.is_active}:s));
@@ -9163,16 +9256,16 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     return(
       <div>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
-          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600}}>← Back</button>
+          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600}}>{T2("← Back")}</button>
           <div>
-            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔑 Screen Permissions</div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{T2("🔑 Screen Permissions")}</div>
             <div style={{fontSize:12,color:C.muted}}>{sm?.name||viewPerms} · <span style={{color:C.gold}}>{ROLE_MAP[sm?.role]||sm?.role||"—"}</span></div>
           </div>
         </div>
 
         {/* Role Templates */}
         <Card style={{marginBottom:14,padding:"16px 18px",border:`1px solid ${C.goldBorder}`}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:.8}}>⚡ Role Templates — Quick Apply</div>
+          <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:10,textTransform:"uppercase",letterSpacing:.8}}>{T2("⚡ Role Templates — Quick Apply")}</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:templatePreview?12:0}}>
             {ROLE_OPTIONS.map(r=>(
               <button key={r.v} onClick={()=>setTemplatePreview(templatePreview===r.v?null:r.v)}
@@ -9183,16 +9276,16 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
           </div>
           {templatePreview&&previewPerms&&(
             <div style={{padding:"14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.goldBorder}`}}>
-              <div style={{fontSize:11,color:C.gold,fontWeight:700,marginBottom:8}}>Preview — {ROLE_OPTIONS.find(r=>r.v===templatePreview)?.l}</div>
+              <div style={{fontSize:11,color:C.gold,fontWeight:700,marginBottom:8}}>{T2("Preview —")} {T2(ROLE_OPTIONS.find(r=>r.v===templatePreview)?.l||"")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
                 {ALL_SCREEN_KEYS.map(k=>{
                   const si=screenInfo(k); const on=previewPerms[k];
-                  return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:on?C.greenBg:C.darkCard,border:`1px solid ${on?C.greenBorder:C.border}`,color:on?C.green:C.faint}}>{si?.icon} {si?.label}</span>;
+                  return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:on?C.greenBg:C.darkCard,border:`1px solid ${on?C.greenBorder:C.border}`,color:on?C.green:C.faint}}>{si?.icon} {T2(si?.label||"")}</span>;
                 })}
               </div>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>applyTemplate(templatePreview)} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✓ Apply This Template</button>
-                <button onClick={()=>setTemplatePreview(null)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Cancel</button>
+                <button onClick={()=>applyTemplate(templatePreview)} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>{T2("✓ Apply This Template")}</button>
+                <button onClick={()=>setTemplatePreview(null)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>{T2("Cancel")}</button>
               </div>
             </div>
           )}
@@ -9200,18 +9293,18 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
 
         {/* Preview Access */}
         <Card style={{marginBottom:14,padding:"14px 16px",border:`1px solid ${C.greenBorder}`,background:C.greenBg+"30"}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>👁 Access Preview</div>
+          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>{T2("👁 Access Preview")}</div>
           {canKeys.length>0
-            ? <div style={{fontSize:12,color:C.text,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> will access: <span style={{color:C.green}}>{canKeys.map(k=>screenInfo(k)?.label||k).join(", ")}</span>.</div>
-            : <div style={{fontSize:12,color:C.red,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> will have NO screen access.</div>
+            ? <div style={{fontSize:12,color:C.text,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> {T2("will access:")} <span style={{color:C.green}}>{canKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}</span>.</div>
+            : <div style={{fontSize:12,color:C.red,marginBottom:4}}><strong>{sm?.name||viewPerms}</strong> {T2("will have NO screen access.")}</div>
           }
-          {cantKeys.length>0&&<div style={{fontSize:12,color:C.faint}}>Will NOT see: <span style={{color:C.muted}}>{cantKeys.map(k=>screenInfo(k)?.label||k).join(", ")}</span>.</div>}
+          {cantKeys.length>0&&<div style={{fontSize:12,color:C.faint}}>{T2("Will NOT see:")} <span style={{color:C.muted}}>{cantKeys.map(k=>T2(screenInfo(k)?.label||k)).join(", ")}</span>.</div>}
         </Card>
 
         {/* Screen groups */}
         {SCREEN_GROUPS.map(group=>(
           <div key={group.label} style={{marginBottom:14}}>
-            <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",paddingLeft:2}}>── {group.label} ──</div>
+            <div style={{fontSize:10,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase",paddingLeft:2}}>── {T2(group.label)} ──</div>
             <Card style={{padding:"2px 0",overflow:"hidden"}}>
               {group.screens.map((scr,i)=>{
                 const isLocked=scr.locked;
@@ -9223,8 +9316,8 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                       minHeight:56,opacity:isLocked?.45:1,transition:"background .15s"}}>
                     <div style={{width:38,height:38,borderRadius:10,background:isOn?C.greenBg:C.surface,border:`1px solid ${isOn?C.greenBorder:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{scr.icon}</div>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:600,color:isOn?C.text:C.muted}}>{scr.label}</div>
-                      <div style={{fontSize:11,color:C.faint,marginTop:1}}>{scr.desc}{isLocked?" · Admin only — always locked":""}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:isOn?C.text:C.muted}}>{T2(scr.label)}</div>
+                      <div style={{fontSize:11,color:C.faint,marginTop:1}}>{T2(scr.desc)}{isLocked?" · "+T2("Admin only — always locked"):""}</div>
                     </div>
                     <div style={{width:46,height:26,borderRadius:13,background:isOn?C.green:C.border,transition:"background .2s",position:"relative",flexShrink:0}}>
                       <div style={{position:"absolute",top:3,left:isOn?22:3,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.3)"}}/>
@@ -9237,8 +9330,8 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         ))}
 
         <div style={{display:"flex",gap:10,marginTop:4,marginBottom:24}}>
-          <button onClick={savePerms} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48}}>✓ Save Permissions</button>
-          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>Cancel</button>
+          <button onClick={savePerms} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48}}>{T2("✓ Save Permissions")}</button>
+          <button onClick={()=>{setViewPerms(null);setTemplatePreview(null);}} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:48}}>{T2("Cancel")}</button>
         </div>
       </div>
     );
@@ -9250,20 +9343,20 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 Access Manager</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>Manage staff accounts, roles & permissions — Admin only</div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
         </div>
-        <button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>
+        <button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>{T2("+ Add Staff")}</button>
       </div>
 
       {/* Stats bar */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:14}}>
         {[
-          {l:"Total",   v:allStaff.length,                                           c:C.gold},
-          {l:"Active",  v:allStaff.filter(s=>s.is_active!==false).length,            c:C.green},
-          {l:"Inactive",v:allStaff.filter(s=>s.is_active===false).length,            c:C.red},
-          {l:"Admins",  v:allStaff.filter(s=>s.role==="admin").length,               c:C.purple},
-          {l:"Tablets", v:allStaff.filter(s=>s.role?.startsWith("section_")).length, c:C.amber},
+          {l:T2("Total"),   v:allStaff.length,                                           c:C.gold},
+          {l:T2("Active"),  v:allStaff.filter(s=>s.is_active!==false).length,            c:C.green},
+          {l:T2("Inactive"),v:allStaff.filter(s=>s.is_active===false).length,            c:C.red},
+          {l:T2("Admins"),  v:allStaff.filter(s=>s.role==="admin").length,               c:C.purple},
+          {l:T2("Tablets"), v:allStaff.filter(s=>s.role?.startsWith("section_")).length, c:C.amber},
         ].map(st=>(
           <div key={st.l} style={{background:C.darkCard,borderRadius:12,padding:"10px 8px",textAlign:"center",border:`1px solid ${st.c}22`}}>
             <div style={{fontSize:20,fontWeight:800,color:st.c,lineHeight:1}}>{st.v}</div>
@@ -9274,34 +9367,34 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
 
       {/* Search + role filter */}
       <div style={{display:"flex",gap:8,marginBottom:12}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or ID…" style={{...fld,flex:1,fontSize:13}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search by name or ID…")} style={{...fld,flex:1,fontSize:13}}/>
         <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)} style={{...fld,width:"auto",fontSize:11,paddingRight:24,flexShrink:0}}>
-          <option value="all">All Roles</option>
-          {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+          <option value="all">{T2("All Roles")}</option>
+          {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{T2(r.l)}</option>)}
         </select>
       </div>
 
       {/* Add / Edit form */}
       {showAdd&&(
         <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"55"}}>
-          <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>{editId?"✏️ Edit Staff":"➕ Add New Staff"}</div>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>{editId?"✏️ "+T2("Edit Staff"):"➕ "+T2("Add New Staff")}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Staff ID *</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Staff ID *")}</div>
               <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="e.g. KT004" style={fld} disabled={!!editId}/>
             </div>
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Full Name *</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Full Name *")}</div>
               <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Ramesh Kumar" style={fld}/>
             </div>
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Role / Access Level</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Role / Access Level")}</div>
               <select value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))} style={fld}>
-                {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+                {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{T2(r.l)}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Section</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>{T2("Section")}</div>
               <select value={form.section} onChange={e=>setForm(p=>({...p,section:e.target.value}))} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
@@ -9313,11 +9406,11 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                   {!showChangePIN?(
                     <div style={{display:"flex",gap:10,alignItems:"center"}}>
                       <div style={{...fld,flex:1,display:"flex",alignItems:"center",justifyContent:"center",letterSpacing:8,fontSize:18,color:C.faint,userSelect:"none"}}>{"●●●●"}</div>
-                      <button onClick={()=>{setShowChangePIN(true);setForm(p=>({...p,pin:""}));}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",minHeight:40}}>Change PIN</button>
+                      <button onClick={()=>{setShowChangePIN(true);setForm(p=>({...p,pin:""}));}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",minHeight:40}}>{T2("Change PIN")}</button>
                     </div>
                   ):(
                     <div>
-                      <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="New 4-digit PIN" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+                      <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder={T2("New 4-digit PIN")} maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
                       {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
                     </div>
                   )}
@@ -9325,25 +9418,25 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
               ):(
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN (4 digits) *</div>
-                  <input value={form.pin} onChange={e=>{setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}));setPinError("");}} placeholder="Enter 4-digit PIN" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+                  <input value={form.pin} onChange={e=>{setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}));setPinError("");}} placeholder={T2("Enter 4-digit PIN")} maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
                   {pinError&&<div style={{fontSize:11,color:C.red,marginTop:4}}>{pinError}</div>}
                 </div>
               )}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{fontSize:12,color:C.muted}}>Status:</div>
+              <div style={{fontSize:12,color:C.muted}}>{T2("Status:")}</div>
               <button onClick={()=>setForm(p=>({...p,is_active:!p.is_active}))}
                 style={{padding:"8px 16px",borderRadius:10,background:form.is_active?C.greenBg:C.redBg,border:`1px solid ${form.is_active?C.greenBorder:C.redBorder}`,color:form.is_active?C.green:C.red,fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                {form.is_active?"✅ Active":"🔴 Inactive"}
+                {form.is_active?"✅ "+T2("Active"):"🔴 "+T2("Inactive")}
               </button>
             </div>
           </div>
           <div style={{display:"flex",gap:10}}>
             <button onClick={saveForm} disabled={!form.name.trim()||!form.staff_id.trim()}
               style={{flex:1,padding:"12px",borderRadius:12,background:form.name.trim()&&form.staff_id.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:form.name.trim()&&form.staff_id.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-              {editId?"✓ Save Changes":"✓ Add Staff Member"}
+              {editId?"✓ "+T2("Save Changes"):T2("✓ Add Staff Member")}
             </button>
-            <button onClick={()=>{setShowAdd(false);setEditId(null);setPinError("");}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+            <button onClick={()=>{setShowAdd(false);setEditId(null);setPinError("");}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
           </div>
         </Card>
       )}
@@ -9353,16 +9446,16 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <Card style={{padding:"28px 24px",maxWidth:380,width:"100%",textAlign:"center",border:`2px solid ${C.redBorder}`}}>
             <div style={{fontSize:30,marginBottom:10}}>⚠️</div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>Permanently Delete Staff?</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>This removes their login access forever.</div>
-            <div style={{fontSize:11,color:C.amber,marginBottom:14,padding:"8px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>💡 Prefer <strong>Deactivate</strong> to block login while keeping their records.</div>
-            <div style={{fontSize:12,color:C.red,fontWeight:600,marginBottom:6}}>Type DELETE to confirm:</div>
-            <input value={delConfirmText} onChange={e=>setDelConfirmText(e.target.value)} placeholder="Type DELETE here"
+            <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>{T2("Permanently Delete Staff?")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>{T2("This removes their login access forever.")}</div>
+            <div style={{fontSize:11,color:C.amber,marginBottom:14,padding:"8px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>{T2("💡 Prefer Deactivate to block login while keeping their records.")}</div>
+            <div style={{fontSize:12,color:C.red,fontWeight:600,marginBottom:6}}>{T2("Type DELETE to confirm:")}</div>
+            <input value={delConfirmText} onChange={e=>setDelConfirmText(e.target.value)} placeholder={T2("Type DELETE here")}
               style={{...fld,textAlign:"center",fontSize:14,fontWeight:700,letterSpacing:2,marginBottom:14,border:`1px solid ${delConfirmText==="DELETE"?C.red:C.border}`}}/>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>deleteStaff(delId)} disabled={delConfirmText!=="DELETE"}
-                style={{flex:1,padding:"12px",borderRadius:12,background:delConfirmText==="DELETE"?`linear-gradient(135deg,${C.red},#8A1010)`:"#2A2A2A",color:delConfirmText==="DELETE"?"#fff":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:delConfirmText==="DELETE"?"pointer":"not-allowed",minHeight:44}}>🗑 Confirm Delete</button>
-              <button onClick={()=>{setDelId(null);setDelConfirmText("");}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+                style={{flex:1,padding:"12px",borderRadius:12,background:delConfirmText==="DELETE"?`linear-gradient(135deg,${C.red},#8A1010)`:"#2A2A2A",color:delConfirmText==="DELETE"?"#fff":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:delConfirmText==="DELETE"?"pointer":"not-allowed",minHeight:44}}>{T2("🗑 Confirm Delete")}</button>
+              <button onClick={()=>{setDelId(null);setDelConfirmText("");}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>{T2("Cancel")}</button>
             </div>
           </Card>
         </div>
@@ -9387,36 +9480,36 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
                   <span style={{fontSize:14,fontWeight:700,color:C.text}}>{s.name||"—"}</span>
                   <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"15",color:C.gold,fontWeight:700}}>{sid}</span>
-                  {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>Inactive</span>}
+                  {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontWeight:600}}>{T2("Inactive")}</span>}
                 </div>
                 <div style={{display:"inline-flex",alignItems:"center",padding:"3px 10px",borderRadius:8,background:C.gold+"12",border:`1px solid ${C.goldBorder}`,marginBottom:4}}>
                   <span style={{fontSize:11,color:C.gold,fontWeight:700}}>{roleLabel}</span>
                 </div>
                 {s.section&&<div style={{fontSize:11,color:C.faint,marginTop:2}}>📍 {s.section}</div>}
-                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: ●●●● · Joined: {s.joining||"—"}</div>
+                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: ●●●● · {lang==="hi"?"शामिल हुए:":"Joined:"} {s.joining||"—"}</div>
               </div>
             </div>
 
             {/* Access pills */}
             <div style={{marginBottom:10}}>
-              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:.6}}>Screen Access</div>
+              <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:.6}}>{T2("Screen Access")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {si?.label}</span>;})}
-                {cantKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint}}>{si?.icon} {si?.label}</span>;})}
+                {canKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:600}}>{si?.icon} {T2(si?.label||"")}</span>;})}
+                {cantKeys.map(k=>{const si=screenInfo(k);return <span key={k} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint}}>{si?.icon} {T2(si?.label||"")}</span>;})}
               </div>
             </div>
 
             {/* Action buttons */}
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              <button onClick={()=>openPerms(s)} style={{padding:"8px 14px",borderRadius:8,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>🔑 Edit Permissions</button>
-              <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✏️ Edit</button>
-              <button onClick={()=>toggleActive(sid)} style={{padding:"8px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{isActive?"🔴 Deactivate":"✅ Activate"}</button>
-              <button onClick={()=>{setDelId(sid);setDelConfirmText("");}} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36}}>🗑 Delete</button>
+              <button onClick={()=>openPerms(s)} style={{padding:"8px 14px",borderRadius:8,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{T2("🔑 Edit Permissions")}</button>
+              <button onClick={()=>openEdit(s)} style={{padding:"8px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✏️ {T2("Edit")}</button>
+              <button onClick={()=>toggleActive(sid)} style={{padding:"8px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>{isActive?"🔴 "+T2("Deactivate"):"✅ "+T2("Activate")}</button>
+              <button onClick={()=>{setDelId(sid);setDelConfirmText("");}} style={{padding:"8px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36}}>🗑 {T2("Delete")}</button>
             </div>
           </Card>
         );
       })}
-      {staff.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:12}}>No staff found</div>}
+      {staff.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:12}}>{T2("No staff found")}</div>}
     </div>
   );
 }
