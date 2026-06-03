@@ -3100,7 +3100,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.surface,borderRadius:14,padding:"22px 26px",maxWidth:320,textAlign:"center"}}>
             <div style={{fontSize:26,marginBottom:6}}>🗑</div>
-            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>{T2("Delete this function?")} {(safeEvs.find(e=>e.id===deleteId)||{}).guest}</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:14}}>{T2("Delete this function?")} {(()=>{const ev=safeEvs.find(e=>e.id===deleteId)||{};return ev.venue?gp(ev.venue).code+" · "+ev.type:"";})()}</div>
             <div style={{display:"flex",gap:10,justifyContent:"center"}}>
               <Btn onClick={()=>delEv(deleteId)} color={C.red} style={{fontSize:12,padding:"7px 18px"}}>{T2("Delete")}</Btn>
               <Btn onClick={()=>setDeleteId(null)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>{T2("Cancel")}</Btn>
@@ -3151,7 +3151,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
             {[
-              {icon:"🎉",l:T2("Today"),v:todayEvs.length,sub:todayPax?`${todayPax.toLocaleString()} pax`:`${upcoming.slice(0,1).map(e=>e.guest).join("")||T2("No events")}`,c:C.gold,bg:C.goldBg,bdr:C.goldBorder,action:()=>setScreen&&setScreen("kitchen")},
+              {icon:"🎉",l:T2("Today"),v:todayEvs.length,sub:todayPax?`${todayPax.toLocaleString()} pax`:`${upcoming.slice(0,1).map(e=>`${VP[e.venue]?.code||"EV"} · ${e.type}`).join("")||T2("No events")}`,c:C.gold,bg:C.goldBg,bdr:C.goldBorder,action:()=>setScreen&&setScreen("kitchen")},
               {icon:"📋",l:T2("This Month"),v:monthEvs.length,sub:`${monthPax.toLocaleString()} pax`,c:C.blue,bg:C.blueBg,bdr:C.blueBorder},
               {icon:"📅",l:T2("FY Total"),v:fyEvs.length,sub:`${fyUpcoming.length} ${T2("upcoming")}`,c:C.purple,bg:C.purpleBg,bdr:C.purpleBorder},
               {icon:"👨‍🍳",l:T2("Staff Today"),v:staffToday,sub:`${T2("of")} ${allStaff} ${T2("total")}`,c:staffToday>0?C.green:C.red,bg:staffToday>0?C.greenBg:C.redBg,bdr:staffToday>0?C.greenBorder:C.redBorder,action:()=>setScreen&&setScreen("team")},
@@ -3183,8 +3183,8 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     <div style={{fontSize:9,color:vp.c}}>{new Date(ev.date+"T00:00").toLocaleString("en",{month:"short"})}</div>
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.guest}</div>
-                    <div style={{fontSize:11,color:C.muted}}>{vp.code} · {ev.time} · {ev.pax} pax</div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{vp.code} · {ev.type} · {ev.pax} pax</div>
+                    <div style={{fontSize:11,color:C.muted}}>{ev.venue} · {ev.time}</div>
                   </div>
                   <div style={{textAlign:"center",flexShrink:0}}>
                     <div style={{fontSize:14,fontWeight:700,color:daysDiff===1?C.amber:vp.c}}>{daysDiff===1?"Tomorrow":daysDiff+"d"}</div>
@@ -3270,7 +3270,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     <div onClick={()=>setOpenEv(isO?null:ev.id)} style={{padding:"14px 16px",cursor:"pointer",borderLeft:`4px solid ${p.c}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:15,fontWeight:700,color:C.text}}>{ev.guest}</div>
+                          <div style={{fontSize:15,fontWeight:700,color:C.text}}>{p.code} · {TYPE_ICONS[ev.type]||"🎉"} {ev.type}</div>
                           <div style={{fontSize:12,color:C.muted,marginTop:3}}>⏰ {ev.time} · 👥 {ev.pax} {T2("pax")} · 📍 {ev.venue}</div>
                         </div>
                         <span style={{fontSize:13,fontWeight:700,padding:"4px 10px",borderRadius:8,background:p.bg,color:p.c}}>{p.code}</span>
@@ -3310,7 +3310,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                       <div>
                         <span style={{fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:8,background:p.bg,color:p.c}}>{p.code}</span>
-                        <div style={{fontSize:16,fontWeight:800,color:C.text,marginTop:6}}>{ev.guest}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:C.text,marginTop:6}}>{TYPE_ICONS[ev.type]||"🎉"} {ev.type}</div>
                       </div>
                       <div style={{textAlign:"right"}}>
                         <div style={{fontSize:20,fontWeight:700,color:p.c}}>{ev.pax}</div>
@@ -3354,7 +3354,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
               <div style={{position:"sticky",top:0,background:C.surface,padding:"18px 22px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:1}}>
                 <div>
                   <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📊 {T2("Event Closure Report")}</div>
-                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{ev.guest} · {ev.date} · {ev.pax} pax</div>
+                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{gp(ev.venue).code} · {ev.type} · {ev.date} · {ev.pax} pax</div>
                 </div>
                 <button onClick={()=>setClosureEv(null)} style={{background:"none",border:"none",fontSize:22,color:C.muted,cursor:"pointer",padding:4}}>✕</button>
               </div>
@@ -3456,9 +3456,9 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                 {/* Actions */}
                 <div style={{display:"flex",gap:10}}>
                   <button onClick={()=>{
-                    const report=`EVENT CLOSURE REPORT\n${"=".repeat(40)}\nEvent: ${ev.guest}\nDate: ${ev.date} · Time: ${ev.time}\nVenue: ${ev.venue}\nPax: ${ev.pax}\nMenu: ${ev.menuPackage||"Custom"}\n\nKITCHEN\nDishes Ready: ${readyDishes.length}/${menu.length}\nDispatched: ${dispatchDishes.length}/${menu.length}\n${notReady.length>0?"Pending: "+notReady.join(", ")+"\n":""}\nSTAFF\nPresent Today: ${allStaffToday.length}\n\nRATING: ${closureRating?.toUpperCase()||"Not rated"}\nREMARKS: ${closureRemark||"None"}\n\nGenerated: ${new Date().toLocaleString("en-IN")}`;
+                    const report=`EVENT CLOSURE REPORT\n${"=".repeat(40)}\nVenue: ${ev.venue} (${gp(ev.venue).code})\nType: ${ev.type}\nDate: ${ev.date} · Time: ${ev.time}\nPax: ${ev.pax}\nMenu: ${ev.menuPackage||"Custom"}\n\nKITCHEN\nDishes Ready: ${readyDishes.length}/${menu.length}\nDispatched: ${dispatchDishes.length}/${menu.length}\n${notReady.length>0?"Pending: "+notReady.join(", ")+"\n":""}\nSTAFF\nPresent Today: ${allStaffToday.length}\n\nRATING: ${closureRating?.toUpperCase()||"Not rated"}\nREMARKS: ${closureRemark||"None"}\n\nGenerated: ${new Date().toLocaleString("en-IN")}`;
                     const blob=new Blob([report],{type:"text/plain"});
-                    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`Closure_${ev.guest.replace(/\s/g,"_")}_${ev.date}.txt`;a.click();
+                    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`Closure_${gp(ev.venue).code}_${ev.date}.txt`;a.click();
                   }} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,fontFamily:"var(--font-display)"}}>
                     ⬇ {T2("Download Report")}
                   </button>
@@ -3611,8 +3611,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
 
   function reset(){ setPicked(null);setPunchAction("in");setPinInput("");setPinError("");setPhoto(null);setSearch("");setOutdoorForm({name:"",phone:"",role:"Helper",vendor:""});stopCam();setPhase(lockedSection?"select":"dept"); }
 
-  // Auto-reset after done
-  useEffect(()=>{if(phase==="done"){const t=setTimeout(reset,4000);return()=>clearTimeout(t);}});
+  // Auto-reset after done — handled by <AutoReset/> inside the "done" phase JSX
 
   const bg = {minHeight:"100vh",background:"#0A0A0F",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px",color:"#F0ECE0"};
   const cardStyle = {background:"#161514",borderRadius:20,border:`1px solid #2A2824`,padding:"28px 32px",maxWidth:600,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,.5)"};
@@ -3882,7 +3881,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
               );
             })()}
             {photo&&<img src={photo} style={{width:120,height:90,borderRadius:12,objectFit:"cover",marginTop:14,border:`2px solid ${punchAction==="out"?"#D06040":C.green}`}}/>}
-            <div style={{marginTop:16,fontSize:12,color:"#5A5750"}}>{T2("Returning in 4 seconds…")}</div>
+            <AutoReset delay={4000} onReset={reset}/>
           </div>
         </div>
       )}
@@ -3968,12 +3967,26 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
   );
 }
 function AutoReset({delay, onReset}){
-  const [count,setCount] = useState(Math.round(delay/1000));
+  const total = Math.round(delay/1000);
+  const [count,setCount] = useState(total);
   useEffect(()=>{
     const t = setInterval(()=>setCount(c=>{ if(c<=1){clearInterval(t);onReset();return 0;} return c-1; }),1000);
     return()=>clearInterval(t);
   },[]);
-  return <div style={{fontSize:13,color:"rgba(255,255,255,.3)",marginTop:4}}>Returning in {count}s…</div>;
+  const r=28, circ=2*Math.PI*r, pct=count/total;
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginTop:20,gap:6}}>
+      <div style={{position:"relative",width:72,height:72}}>
+        <svg width={72} height={72} style={{position:"absolute",top:0,left:0,transform:"rotate(-90deg)"}}>
+          <circle cx={36} cy={36} r={r} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth={5}/>
+          <circle cx={36} cy={36} r={r} fill="none" stroke="#4DAA6A" strokeWidth={5}
+            strokeDasharray={circ} strokeDashoffset={circ*(1-pct)} style={{transition:"stroke-dashoffset .9s linear"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:700,color:"#fff"}}>{count}</div>
+      </div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,.4)"}}>Returning in {count}s…</div>
+    </div>
+  );
 }
 
 function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept}) {
@@ -4003,6 +4016,44 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
   const [newEmpForm,setNewEmpForm] = useState({name:"",section:"Indian Curries",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+  const [exportMonth, setExportMonth] = useState(new Date().getMonth()+1);
+  const [exportYear,  setExportYear]  = useState(new Date().getFullYear());
+
+  function exportAttendanceExcel(){
+    const staff = safeArr(empDb).filter(s=>s.is_active!==false&&s.active!==false);
+    const daysInMonth = new Date(exportYear, exportMonth, 0).getDate();
+    const dates = Array.from({length:daysInMonth},(_,i)=>{
+      const d=i+1;
+      return `${exportYear}-${String(exportMonth).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    });
+    const headers = ["Staff ID","Name","Section","Role",...dates.map(d=>new Date(d+"T00:00").getDate()),"Present","Absent","Leave","Half Day","Daily Wages Days","Daily Wages Amt (Rs)"];
+    const rows = staff.map(s=>{
+      const sId = s.staffListId||s.staff_id||String(s.id||"");
+      const dayStatuses = dates.map(date=>{
+        const rec = safeArr(attendance).find(a=>(a.staffId===sId||a.staffId===String(s.id)||a.staffName===s.name)&&a.date===date);
+        if(!rec) return "";
+        if(rec.status==="Present") return "P";
+        if(rec.status==="Absent")  return "A";
+        if(rec.status==="Leave")   return "L";
+        if(rec.status==="Half Day")return "H";
+        return rec.status?.charAt(0)||"";
+      });
+      const present2 = dayStatuses.filter(x=>x==="P").length;
+      const absent2  = dayStatuses.filter(x=>x==="A").length;
+      const leave2   = dayStatuses.filter(x=>x==="L").length;
+      const half2    = dayStatuses.filter(x=>x==="H").length;
+      const wages    = safeArr(attendance).filter(a=>(a.staffId===sId||a.staffName===s.name)&&a.is_daily_wages&&dates.includes(a.date));
+      const wagesAmt = wages.reduce((sum,a)=>sum+(Number(a.wages_amount)||0),0);
+      return [sId,s.name,s.section||"",s.role||"",...dayStatuses,present2,absent2,leave2,half2,wages.length,wagesAmt];
+    });
+    const csvRows = [headers,...rows].map(row=>row.map(cell=>`"${String(cell).replace(/"/g,'""')}"`).join(","));
+    const csv = "﻿"+csvRows.join("\n");
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download=`Ambria_Attendance_${exportYear}_${String(exportMonth).padStart(2,"0")}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // Computed — filtered by active department
   const deptStaffList = deptSections ? STAFF_LIST.filter(s=>deptSections.includes(s.section)) : STAFF_LIST;
@@ -4183,6 +4234,19 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       {/* ── ATTENDANCE ── */}
       {tab==="attendance" && (
         <div>
+          {/* Export bar — admin/head chef only */}
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,padding:"10px 14px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:C.muted,fontWeight:600,marginRight:4}}>📥 Export:</span>
+            <select value={exportMonth} onChange={e=>setExportMonth(+e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:12,cursor:"pointer"}}>
+              {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+            </select>
+            <select value={exportYear} onChange={e=>setExportYear(+e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:12,cursor:"pointer"}}>
+              {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={exportAttendanceExcel} style={{padding:"7px 16px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>📥 Export Attendance (.csv)</button>
+            <span style={{fontSize:10,color:C.faint,marginLeft:4}}>P=Present · A=Absent · L=Leave · H=Half Day</span>
+          </div>
+
           {/* Section filter */}
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
             {allSecs.map(s=>(
@@ -9222,7 +9286,9 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   const [editForm, setEditForm]     = useState({});
   const [formError, setFormError]   = useState("");
   const [delId, setDelId]           = useState(null);
-  const [saved, setSaved]           = useState(false);
+  const [toast, setToast]           = useState("");
+  const [selected, setSelected]     = useState(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(null); // "remove" | "deactivate"
 
   // ── Derived data ──
   const allStaff  = safeArr(empDb);
@@ -9235,7 +9301,7 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     return matchSearch && (sectionFilter==="All" || s.section===sectionFilter);
   });
 
-  function showSaved(){ setSaved(true); setTimeout(()=>setSaved(false), 2000); }
+  function showSaved(msg){ setToast(msg||"✅ Saved"); setTimeout(()=>setToast(""), 2500); }
 
   // ── Actions ──
   function openPerms(s){
@@ -9266,14 +9332,17 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     setEmpDb(p=>safeArr(p).map(s=>getSid(s)===sid?{...s,pin:newPin}:s));
     showSaved(); setView("list"); setEditUser(null);
   }
-  function openEdit(s){ setEditUser(s); setEditForm({name:s.name||"",role:s.role||"kiosk_gate",section:s.section||"Management"}); setFormError(""); setView("edit"); }
+  function openEdit(s){ setEditUser(s); setEditForm({name:s.name||"",role:s.role||"kiosk_gate",section:s.section||"Management",pin:""}); setFormError(""); setView("edit"); }
   function saveForm(){
     if(!editForm.name?.trim()){setFormError(lang==="hi"?"नाम आवश्यक है":"Name is required");return;}
+    if(editForm.pin && editForm.pin.length>0 && editForm.pin.length!==4){setFormError(T2("PIN must be exactly 4 digits"));return;}
     const sid=getSid(editUser);
-    setEmpDb(prev=>prev.map(s=>getSid(s)===sid
-      ? {...s, name:editForm.name.trim(), role:editForm.role, section:editForm.section}
-      : s
-    ));
+    setEmpDb(prev=>prev.map(s=>{
+      if(getSid(s)!==sid) return s;
+      const update={...s, name:editForm.name.trim(), role:editForm.role, section:editForm.section};
+      if(editForm.pin && editForm.pin.length===4) update.pin=String(editForm.pin);
+      return update;
+    }));
     showSaved(); setView("list"); setEditUser(null); setFormError("");
   }
   function toggleActive(sid){
@@ -9286,12 +9355,23 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     setEmpDb(prev=>prev.filter(s=>getSid(s)!==sid));
     setDelId(null); setView("list");
   }
+  function bulkRemoveAccess(){
+    setEmpDb(prev=>prev.map(s=>selected.has(getSid(s))?{...s,role:"kiosk_gate",custom_screens:null}:s));
+    setSelected(new Set()); setBulkConfirm(null); showSaved();
+  }
+  function bulkDeactivate(){
+    setEmpDb(prev=>prev.map(s=>selected.has(getSid(s))?{...s,is_active:false,active:false}:s));
+    setSelected(new Set()); setBulkConfirm(null); showSaved();
+  }
+  function toggleSelect(sid){
+    setSelected(prev=>{ const n=new Set(prev); n.has(sid)?n.delete(sid):n.add(sid); return n; });
+  }
 
   // ── Back button shared style ──
   const backBtn={padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600};
 
   // Shared toast element (rendered in any sub-view)
-  const SavedToast = saved ? <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:C.green,color:"#fff",padding:"10px 28px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.4)",whiteSpace:"nowrap"}}>✅ {T2("Changes saved")}</div> : null;
+  const SavedToast = toast ? <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:C.green,color:"#fff",padding:"10px 28px",borderRadius:14,fontSize:13,fontWeight:700,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.4)",whiteSpace:"nowrap"}}>{toast}</div> : null;
 
   // ── VIEW: PERMS ──
   if(view==="perms"&&editUser){
@@ -9451,6 +9531,10 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
+            <div style={{gridColumn:"1/-1"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN ({lang==="hi"?"खाली रखें = कोई बदलाव नहीं":"leave blank = no change"})</div>
+              <input value={editForm.pin||""} onChange={e=>setEditForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="New 4-digit PIN" maxLength={4} type="password" style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700}}/>
+            </div>
           </div>
           {formError&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>{formError}</div>}
           <div style={{display:"flex",gap:10}}>
@@ -9487,16 +9571,44 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         </div>
       )}
 
+      {/* Bulk confirm modal */}
+      {bulkConfirm&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <Card style={{padding:"28px 24px",maxWidth:360,width:"100%",textAlign:"center",border:`2px solid ${bulkConfirm==="remove"?C.redBorder:C.amberBorder}`}}>
+            <div style={{fontSize:28,marginBottom:10}}>{bulkConfirm==="remove"?"🔒":"⏸"}</div>
+            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:8}}>
+              {bulkConfirm==="remove"?`Remove access for ${selected.size} staff?`:`Deactivate ${selected.size} staff members?`}
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:18}}>
+              {bulkConfirm==="remove"?"Their role will be reset to kiosk_gate with no screen access.":"They will be blocked from logging in."}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={bulkConfirm==="remove"?bulkRemoveAccess:bulkDeactivate}
+                style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${bulkConfirm==="remove"?C.red:"#D4A843"},${bulkConfirm==="remove"?"#8A1010":"#A8891E"})`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+                ✓ Confirm
+              </button>
+              <button onClick={()=>setBulkConfirm(null)} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {T2("Access Manager")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Manage staff accounts, roles & permissions — Admin only")}</div>
         </div>
-        <button onClick={()=>{if(window.confirm("Reset ALL staff to default permissions? This cannot be undone.")){localStorage.removeItem('ambria_empdb_v2');window.location.reload();}}}
-          style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36,whiteSpace:"nowrap",flexShrink:0}}>
-          ↺ Reset defaults
-        </button>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+          {staffList.length>0&&<button onClick={()=>setSelected(prev=>prev.size===staffList.length?new Set():new Set(staffList.map(s=>getSid(s))))}
+            style={{padding:"7px 12px",borderRadius:9,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>
+            {selected.size===staffList.length?"☑ Deselect All":"☐ Select All"}
+          </button>}
+          <button onClick={()=>{if(window.confirm("Reset ALL staff to default permissions? This cannot be undone.")){localStorage.removeItem('ambria_empdb_v2');window.location.reload();}}}
+            style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:36,whiteSpace:"nowrap"}}>
+            ↺ Reset defaults
+          </button>
+        </div>
       </div>
 
       {/* Stats: Total | Has Access | No Access */}
@@ -9536,9 +9648,13 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
         const perms=getPermissions(s);
         const canKeys=ALL_SCREEN_KEYS.filter(k=>perms[k]);
         return(
-          <Card key={sid||i} style={{marginBottom:8,padding:"14px 16px",opacity:active?1:.55,border:`1px solid ${active?C.border:C.redBorder}`}}>
+          <Card key={sid||i} style={{marginBottom:8,padding:"14px 16px",opacity:active?1:.55,border:`1px solid ${selected.has(sid)?C.gold:active?C.border:C.redBorder}`}}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
-              <Avatar name={s.name||"?"} size={40} index={i}/>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+                <input type="checkbox" checked={selected.has(sid)} onChange={()=>toggleSelect(sid)}
+                  style={{width:18,height:18,cursor:"pointer",accentColor:C.gold}}/>
+                <Avatar name={s.name||"?"} size={36} index={i}/>
+              </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
                   <span style={{fontSize:14,fontWeight:700,color:C.text}}>{s.name||"—"}</span>
@@ -9730,7 +9846,7 @@ export default function App() {
     </div>
   );
   // Login
-  if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
+  if(!currentUser) return <LoginScreen empDb={empDb} onLogin={setCurrentUser} lang={lang}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
   // ── DEPT SELECTOR (first screen for everyone) ──
   if(!activeDept) return (
