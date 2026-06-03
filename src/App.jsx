@@ -1624,8 +1624,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         if(rrem?.value==="true" && rid?.value && rpin?.value){
           const id  = rid.value.trim().toUpperCase();
           const pin2 = rpin.value.trim();
-          const emp  = (empDb||[]).find(e=>(e.staffListId||e.staff_id||String(e.id||"")).toUpperCase()===id);
-          if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
+          const emp  = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||String(s.id||"")).toUpperCase()===id&&String(s.pin)===pin2&&s.is_active!==false&&s.active!==false);
+          if(emp){
             // credentials valid — auto-login immediately
             const sl = STAFF_LIST.find(s=>s.name===emp.name);
             onLogin({...emp, staffListId:sl?.id||null});
@@ -1643,14 +1643,18 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
 
   async function handleLogin(){
     setError(""); setLoading(true);
-    const id  = empId.trim().toUpperCase();
-    const emp = safeDb.find(e=>(e.staffListId||e.staff_id||String(e.id||"")).toUpperCase()===id);
-    if(!emp){setError("Employee ID not found.");setLoading(false);return;}
-    if(emp.active===false||emp.is_active===false){setError("Account inactive. Contact manager.");setLoading(false);return;}
-    if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
+    const enteredId  = empId.trim().toUpperCase();
+    const enteredPin = pin.trim();
+    // Use safeArr(empDb) directly (not the pre-computed safeDb) to guarantee latest state
+    const emp = safeArr(empDb).find(s=>
+      (s.staffListId||s.staff_id||String(s.id||"")).toUpperCase()===enteredId &&
+      String(s.pin)===String(enteredPin) &&
+      s.is_active!==false && s.active!==false
+    );
+    if(!emp){setError("Employee ID or PIN is incorrect.");setLoading(false);return;}
     try{
       if(remember){
-        await Promise.all([window.storage?.set("ambria_emp_id",id),window.storage?.set("ambria_pin",pin.trim()),window.storage?.set("ambria_remember","true")]);
+        await Promise.all([window.storage?.set("ambria_emp_id",enteredId),window.storage?.set("ambria_pin",enteredPin),window.storage?.set("ambria_remember","true")]);
       } else {
         await Promise.all([window.storage?.delete("ambria_emp_id"),window.storage?.delete("ambria_pin"),window.storage?.delete("ambria_remember")]);
       }
@@ -9749,9 +9753,8 @@ export default function App() {
       try{
         const su = await window.storage?.get("ambria_session_user");
         if(su?.value){ try { const emp=JSON.parse(su.value); if(emp&&emp.id) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
-        // Load saved PINs
-        const savedPins = await window.storage?.get("ambria_pins");
-        if(savedPins?.value){ try { const pins=JSON.parse(savedPins.value); setEmpDb(prev=>prev.map(e=>pins[e.id]?{...e,pin:pins[e.id]}:e)); } catch(e){} }
+        // NOTE: PIN loading from window.storage removed — empDb is authoritative via localStorage('ambria_empdb_v2').
+        // Loading from window.storage here would overwrite correct localStorage PINs with stale backend data.
         // Load saved leaves
         const savedLeaves = await window.storage?.get("ambria_leaves");
         if(savedLeaves?.value){ try { const lv=JSON.parse(savedLeaves.value); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
