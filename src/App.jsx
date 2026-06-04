@@ -1473,30 +1473,22 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   const [remember,setRemember]=useState(false);
 
   useEffect(()=>{
-    (async()=>{
-      try{
-        const [rid,rpin,rrem]=await Promise.all([
-          window.storage?.get("ambria_emp_id"),
-          window.storage?.get("ambria_pin"),
-          window.storage?.get("ambria_remember"),
-        ]);
-        if(rrem?.value==="true" && rid?.value && rpin?.value){
-          const id  = rid.value.trim().toUpperCase();
-          const pin2 = rpin.value.trim();
-          const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
-          if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
-            // credentials valid — auto-login immediately
-            const sl = STAFF_LIST.find(s=>s.name===emp.name);
-            onLogin({...emp, staffListId:sl?.id||null});
-            return;
-          }
-          // credentials saved but not valid (e.g. PIN changed) — just pre-fill
-          setEmpId(id);
-          setPin(pin2);
-          setRemember(true);
+    try{
+      const rid  = localStorage.getItem("ambria_emp_id");
+      const rpin = localStorage.getItem("ambria_pin");
+      const rrem = localStorage.getItem("ambria_remember");
+      if(rrem==="true" && rid && rpin){
+        const id   = rid.trim().toUpperCase();
+        const pin2 = rpin.trim();
+        const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
+        if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
+          const sl = STAFF_LIST.find(s=>s.name===emp.name);
+          onLogin({...emp, staffListId:sl?.id||null});
+          return;
         }
-      }catch(e){}
-    })();
+        setEmpId(id); setPin(pin2); setRemember(true);
+      }
+    }catch(e){}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
@@ -1509,9 +1501,13 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
     if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
     try{
       if(remember){
-        await Promise.all([window.storage?.set("ambria_emp_id",id),window.storage?.set("ambria_pin",pin.trim()),window.storage?.set("ambria_remember","true")]);
+        localStorage.setItem("ambria_emp_id",id);
+        localStorage.setItem("ambria_pin",pin.trim());
+        localStorage.setItem("ambria_remember","true");
       } else {
-        await Promise.all([window.storage?.delete("ambria_emp_id"),window.storage?.delete("ambria_pin"),window.storage?.delete("ambria_remember")]);
+        localStorage.removeItem("ambria_emp_id");
+        localStorage.removeItem("ambria_pin");
+        localStorage.removeItem("ambria_remember");
       }
     }catch(e){}
     const sl = STAFF_LIST.find(s=>s.name===emp.name);
@@ -9517,7 +9513,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                 </div>
                 <div style={{fontSize:11,color:C.muted}}>{roleLabel}</div>
                 {s.section&&<div style={{fontSize:11,color:C.faint}}>📍 {s.section}</div>}
-                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: {"●".repeat((s.pin||"0000").length)} · Joined: {s.joining||"—"}</div>
+                <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: <span style={{fontSize:14,fontWeight:700,color:"#D4B44A",letterSpacing:4}}>{s.pin||"0000"}</span> · Joined: {s.joining||"—"}</div>
                 {/* Permission summary pills */}
                 <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
                   {pc.total===0
@@ -9561,20 +9557,18 @@ export default function App() {
         const byDate = {};
         safeArr(next).forEach(a => { if(!byDate[a.date]) byDate[a.date]=[]; byDate[a.date].push(a); });
         Object.entries(byDate).forEach(([date, recs]) => {
-          window.storage?.set("att_"+date, JSON.stringify(recs));
+          localStorage.setItem("att_"+date, JSON.stringify(recs));
         });
       } catch(e) {}
       return next;
     });
   };
-  // Load today's attendance from backend on mount
+  // Load today's attendance from localStorage on mount
   useEffect(() => {
-    (async () => {
-      try {
-        const stored = await window.storage?.get("att_"+TODAY);
-        if(stored?.value) { const parsed = JSON.parse(stored.value); if(Array.isArray(parsed) && parsed.length > 0) setAttendance_raw(parsed); }
-      } catch(e) {}
-    })();
+    try {
+      const raw = localStorage.getItem("att_"+TODAY);
+      if(raw) { const parsed = JSON.parse(raw); if(Array.isArray(parsed) && parsed.length > 0) setAttendance_raw(parsed); }
+    } catch(e) {}
   }, []);
   const LEAVES_INIT = [
     {id:1,staffId:"19",staffName:"Bipin",staffSection:"Tandoor",from:relDate(2),to:relDate(3),reason:"Personal",status:"Approved"},
@@ -9585,7 +9579,7 @@ export default function App() {
   const setLeaves = (updater) => {
     setLeaves_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { window.storage?.set("ambria_leaves", JSON.stringify(next)); } catch(e) {}
+      try { localStorage.setItem("ambria_leaves", JSON.stringify(next)); } catch(e) {}
       return next;
     });
   };
@@ -9597,26 +9591,24 @@ export default function App() {
   const setEmpDb = (updater) => {
     setEmpDb_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { window.storage?.set("ambria_empdb_v3", JSON.stringify(next)); } catch(e) {}
+      try { localStorage.setItem("ambria_empdb_v3", JSON.stringify(next)); } catch(e) {}
       return next;
     });
   };
   const [sessionChecked,setSessionChecked] = useState(false);
 
   useEffect(()=>{
-    (async()=>{
-      try{
-        const su = await window.storage?.get("ambria_session_user");
-        if(su?.value){ try { const emp=JSON.parse(su.value); if(emp&&emp.id) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
-        // Load saved empDb (v3 key — change version to bust old cache)
-        const savedDb = await window.storage?.get("ambria_empdb_v3");
-        if(savedDb?.value){ try { const db=JSON.parse(savedDb.value); if(Array.isArray(db)&&db.length>0) setEmpDb_raw(db); } catch(e){} }
-        // Load saved leaves
-        const savedLeaves = await window.storage?.get("ambria_leaves");
-        if(savedLeaves?.value){ try { const lv=JSON.parse(savedLeaves.value); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
-      }catch(e){}
-      setSessionChecked(true);
-    })();
+    try{
+      const suRaw = localStorage.getItem("ambria_session_user");
+      if(suRaw){ try { const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
+      // Load saved empDb (v3 key)
+      const dbRaw = localStorage.getItem("ambria_empdb_v3");
+      if(dbRaw){ try { const db=JSON.parse(dbRaw); if(Array.isArray(db)&&db.length>0) setEmpDb_raw(db); } catch(e){} }
+      // Load saved leaves
+      const lvRaw = localStorage.getItem("ambria_leaves");
+      if(lvRaw){ try { const lv=JSON.parse(lvRaw); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
+    }catch(e){}
+    setSessionChecked(true);
   },[]);
 
   // ── Supabase: load + real-time sync ──
@@ -9679,13 +9671,13 @@ export default function App() {
     } catch(e) { console.error('Supabase sync error:', e); }
   }
 
-  async function handleLogin(emp){
+  function handleLogin(emp){
     setCurrentUser(emp);
-    try{ await window.storage?.set("ambria_session_user",JSON.stringify(emp)); }catch(e){}
+    try{ localStorage.setItem("ambria_session_user",JSON.stringify(emp)); }catch(e){}
   }
-  async function handleLogout(){
+  function handleLogout(){
     setCurrentUser(null); setActiveDept(null);
-    try{ await window.storage?.delete("ambria_session_user"); }catch(e){}
+    try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
   }
 
   // ── NAV per department ──
