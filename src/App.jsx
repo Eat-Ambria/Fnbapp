@@ -1483,7 +1483,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
         if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
           const sl = STAFF_LIST.find(s=>s.name===emp.name);
-          onLogin({...emp, staffListId:sl?.id||null});
+          const rid = emp.id||emp.staffListId||emp.staff_id;
+          onLogin({...emp, id:rid, staffListId:emp.staffListId||sl?.id||rid});
           return;
         }
         setEmpId(id); setPin(pin2); setRemember(true);
@@ -1511,7 +1512,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
       }
     }catch(e){}
     const sl = STAFF_LIST.find(s=>s.name===emp.name);
-    onLogin({...emp, staffListId:sl?.id||null});
+    const resolvedId = emp.id || emp.staffListId || emp.staff_id;
+    onLogin({...emp, id: resolvedId, staffListId: emp.staffListId || sl?.id || resolvedId});
     setLoading(false);
   }
 
@@ -2663,7 +2665,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 }
 function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout, lang="en"}) {
   const T2 = s => T(s, lang);
-  if(!user || !user.id) return <div style={{padding:40,textAlign:"center",color:"#888"}}>No user session. Please log in.</div>;
+  if(!user || !(user.id||user.staffListId||user.staff_id)) return <div style={{padding:40,textAlign:"center",color:"#888"}}>No user session. Please log in.</div>;
   const [tab,setTab]       = useState("home");
   const [selfie,setSelfie] = useState(null);
   const [grooming,setGrooming] = useState({});
@@ -9600,7 +9602,7 @@ export default function App() {
   useEffect(()=>{
     try{
       const suRaw = localStorage.getItem("ambria_session_user");
-      if(suRaw){ try { const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
+      if(suRaw){ try { const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } } catch(e){ console.warn("Session parse failed",e); } }
       // Load saved empDb (v3 key)
       const dbRaw = localStorage.getItem("ambria_empdb_v3");
       if(dbRaw){ try { const db=JSON.parse(dbRaw); if(Array.isArray(db)&&db.length>0) setEmpDb_raw(db); } catch(e){} }
