@@ -385,84 +385,48 @@ const STAFF_LIST = [
 // PIN is 4-digit. Role: admin | headchef | staff
 // IDs: AM = Ambria Management, KIT = Kitchen
 const EMPLOYEE_DB_INIT = [
-  // Management
-  {id:"AM001",name:"Abhi",          role:"admin",    section:"Management",     dept:"Operations",    joining:"2022-01-01",pin:"0000",active:true},
-  {id:"AM002",name:"Gopal",         role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2019-03-15",pin:"0000",active:true},
-  {id:"AM003",name:"Yatender",      role:"headchef", section:"Management",     dept:"F&B Kitchen",   joining:"2018-06-01",pin:"0000",active:true},
-  // Café
-  {id:"CAF01",name:"Caonty",        role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2021-04-10",pin:"0000",active:true},
-  {id:"CAF02",name:"Rahul",         role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2022-07-01",pin:"0000",active:true},
-  {id:"CAF03",name:"Kareena",       role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2023-01-15",pin:"0000",active:true},
-  {id:"CAF04",name:"Noor Alam",     role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2022-11-01",pin:"0000",active:true},
-  {id:"CAF05",name:"Deepu (Café)",  role:"staff",    section:"Beverages",           dept:"Beverages",   joining:"2023-05-01",pin:"0000",active:true},
-  // Indian Curries
-  {id:"IND01",name:"Devendar",      role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2020-02-01",pin:"0000",active:true},
-  {id:"IND02",name:"Anas",          role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2021-08-15",pin:"0000",active:true},
-  {id:"IND03",name:"Bhopal",        role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2019-12-01",pin:"0000",active:true},
-  {id:"IND04",name:"Jeetu",         role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2022-03-01",pin:"0000",active:true},
-  {id:"IND05",name:"Hina",          role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2023-02-15",pin:"0000",active:true},
-  {id:"IND06",name:"Roshan",        role:"staff",    section:"Indian Curries", dept:"F&B Kitchen",   joining:"2021-06-01",pin:"0000",active:true},
-  // Chinese
-  {id:"CHN01",name:"Kishor",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2020-05-01",pin:"0000",active:true},
-  {id:"CHN02",name:"Lokesh",        role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2019-09-01",pin:"0000",active:true},
-  {id:"CHN03",name:"Monu",          role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2022-01-15",pin:"0000",active:true},
-  {id:"CHN04",name:"Vichesh",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2021-11-01",pin:"0000",active:true},
-  {id:"CHN05",name:"Sandeep",       role:"staff",    section:"Chinese",        dept:"F&B Kitchen",   joining:"2023-04-01",pin:"0000",active:true},
-  // Tandoor
-  {id:"TAN01",name:"Bipin",         role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2020-08-01",pin:"0000",active:true},
-  {id:"TAN02",name:"Yetender",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2021-01-15",pin:"0000",active:true},
-  {id:"TAN03",name:"Rawat",         role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2019-07-01",pin:"0000",active:true},
-  {id:"TAN04",name:"Surender",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2022-06-01",pin:"0000",active:true},
-  {id:"TAN05",name:"Prabhash",      role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TAN06",name:"Kushal Pal",    role:"staff",    section:"Tandoor",        dept:"F&B Kitchen",   joining:"2023-07-01",pin:"0000",active:true},
-  // Chaat
-  {id:"CHA01",name:"Raghvendra",    role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2020-01-01",pin:"0000",active:true},
-  {id:"CHA02",name:"Purushotam",    role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-03-15",pin:"0000",active:true},
-  {id:"CHA03",name:"Balram",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-09-01",pin:"0000",active:true},
-  {id:"CHA04",name:"Ajay",          role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-07-01",pin:"0000",active:true},
-  {id:"CHA05",name:"Golu",          role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-01-01",pin:"0000",active:true},
-  {id:"CHA06",name:"Kuldeep",       role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-04-15",pin:"0000",active:true},
-  {id:"CHA07",name:"Anurag",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CHA08",name:"Satyendra",     role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2022-02-01",pin:"0000",active:true},
-  {id:"CHA09",name:"Sahdev",        role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2021-10-15",pin:"0000",active:true},
-  {id:"CHA10",name:"Badal",         role:"staff",    section:"Chaat",          dept:"F&B Kitchen",   joining:"2023-08-01",pin:"0000",active:true},
-  // Sweets
-  {id:"SWT01",name:"Bachchan",      role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2019-11-01",pin:"0000",active:true},
-  {id:"SWT02",name:"Anil",          role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2020-09-15",pin:"0000",active:true},
-  {id:"SWT03",name:"Ramu",          role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2021-05-01",pin:"0000",active:true},
-  {id:"SWT04",name:"Yogesh",        role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2022-08-01",pin:"0000",active:true},
-  {id:"SWT05",name:"Vrindhavan",    role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2020-12-15",pin:"0000",active:true},
-  {id:"SWT06",name:"Radheshyam",    role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2021-09-01",pin:"0000",active:true},
-  {id:"SWT07",name:"Abhishek",      role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2022-05-15",pin:"0000",active:true},
-  {id:"SWT08",name:"Deepu (Sweets)",role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SWT09",name:"Saurab",        role:"staff",    section:"Sweets",         dept:"F&B Kitchen",   joining:"2023-09-01",pin:"0000",active:true},
-  // ── SERVICE ──
-  {id:"SRV01",name:"Ramesh (Captain)",role:"staff",  section:"Service",        dept:"Service",       joining:"2022-06-01",pin:"0000",active:true},
-  {id:"SRV02",name:"Dinesh",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-01-15",pin:"0000",active:true},
-  {id:"SRV03",name:"Mohan",          role:"staff",   section:"Service",        dept:"Service",       joining:"2023-04-01",pin:"0000",active:true},
-  {id:"SRV04",name:"Suresh",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-07-01",pin:"0000",active:true},
-  {id:"SRV05",name:"Vikram",         role:"staff",   section:"Service",        dept:"Service",       joining:"2023-08-01",pin:"0000",active:true},
-  {id:"SRV06",name:"Pappu",          role:"staff",   section:"Service",        dept:"Service",       joining:"2023-02-01",pin:"0000",active:true},
-  {id:"SRV07",name:"Ajay (Service)", role:"staff",   section:"Service",        dept:"Service",       joining:"2023-10-01",pin:"0000",active:true},
-  {id:"SRV08",name:"Rajan",          role:"staff",   section:"Service",        dept:"Service",       joining:"2024-01-01",pin:"0000",active:true},
-  // ── CROCKERY ──
-  {id:"CRK01",name:"Mukesh",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2022-03-01",pin:"0000",active:true},
-  {id:"CRK02",name:"Satish",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2023-05-01",pin:"0000",active:true},
-  {id:"CRK03",name:"Bhola",          role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2023-06-01",pin:"0000",active:true},
-  {id:"CRK04",name:"Kishan",         role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2024-02-01",pin:"0000",active:true},
-  {id:"CRK05",name:"Ramu",           role:"staff",   section:"Crockery",       dept:"Crockery",      joining:"2024-03-01",pin:"0000",active:true},
-  // ── TRANSPORTATION ──
-  {id:"TRN01",name:"Harish (Driver)",role:"staff",   section:"Transportation", dept:"Transportation", joining:"2022-01-01",pin:"0000",active:true},
-  {id:"TRN02",name:"Kamal (Driver)", role:"staff",   section:"Transportation", dept:"Transportation", joining:"2022-08-01",pin:"0000",active:true},
-  {id:"TRN03",name:"Sunil (Driver)", role:"staff",   section:"Transportation", dept:"Transportation", joining:"2023-03-01",pin:"0000",active:true},
-  {id:"TRN04",name:"Prem (Loader)",  role:"staff",   section:"Transportation", dept:"Transportation", joining:"2023-11-01",pin:"0000",active:true},
-  {id:"TRN05",name:"Jitender (Loader)",role:"staff", section:"Transportation", dept:"Transportation", joining:"2024-01-01",pin:"0000",active:true},
-  // ── ODC ──
-  {id:"ODC01",name:"Akhtar",         role:"staff",   section:"ODC",            dept:"ODC",           joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC02",name:"Rajender Chef",  role:"staff",   section:"ODC",            dept:"ODC",           joining:"2021-06-01",pin:"0000",active:true},
-  {id:"ODC03",name:"Sanjay (ODC)",   role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-04-01",pin:"0000",active:true},
-  {id:"ODC04",name:"Bittu (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2023-09-01",pin:"0000",active:true},
-  {id:"ODC05",name:"Rahul (ODC)",    role:"staff",   section:"ODC",            dept:"ODC",           joining:"2024-06-01",pin:"0000",active:true},
+  {staffListId:"AM001",staff_id:"AM001",name:"Abhi",section:"Management",dept:"management",role:"admin",pin:"0000",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW001",staff_id:"SW001",name:"Rajinder Singh Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW002",staff_id:"SW002",name:"Ramu Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW003",staff_id:"SW003",name:"Yogesh Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW004",staff_id:"SW004",name:"Anil Kumar Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW005",staff_id:"SW005",name:"Bacchan Singh",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW006",staff_id:"SW006",name:"Radheyshayam",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW007",staff_id:"SW007",name:"Abhishek",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW008",staff_id:"SW008",name:"Saurabh",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW009",staff_id:"SW009",name:"Deepu Hawai New",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"SW010",staff_id:"SW010",name:"Vrindavan",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT001",staff_id:"CT001",name:"Raghvendra Singh",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT002",staff_id:"CT002",name:"Satendra Chaat",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT003",staff_id:"CT003",name:"Purshottam",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT004",staff_id:"CT004",name:"Anurag Chaat",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT005",staff_id:"CT005",name:"Ajay",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT006",staff_id:"CT006",name:"Sahdev",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT007",staff_id:"CT007",name:"Balram",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT008",staff_id:"CT008",name:"Golu",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CT009",staff_id:"CT009",name:"Kuldeep",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CH001",staff_id:"CH001",name:"Kishore Chef",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CH002",staff_id:"CH002",name:"Lokesh",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CH003",staff_id:"CH003",name:"Sandeep Chef Helper",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CH004",staff_id:"CH004",name:"Vishesh",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD001",staff_id:"TD001",name:"Yatinder",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD002",staff_id:"TD002",name:"Gopal",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD003",staff_id:"TD003",name:"Vipin Kumar Tandoor",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD004",staff_id:"TD004",name:"Yatinder Rawat",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD005",staff_id:"TD005",name:"Noor Alam Tandoor",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD006",staff_id:"TD006",name:"Kushal Pal",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD007",staff_id:"TD007",name:"Surendra",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TD008",staff_id:"TD008",name:"Prabhat",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CN001",staff_id:"CN001",name:"Rahul",section:"Continental",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"CN002",staff_id:"CN002",name:"Kareen",section:"Continental",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN001",staff_id:"IN001",name:"Devendra",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN002",staff_id:"IN002",name:"Bhupal",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN003",staff_id:"IN003",name:"Jeetu Indian",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN004",staff_id:"IN004",name:"Roshan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN005",staff_id:"IN005",name:"Hina",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"IN006",staff_id:"IN006",name:"Anas Khan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"BK001",staff_id:"BK001",name:"Shobhan Singh",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"BK002",staff_id:"BK002",name:"Disha",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -9606,12 +9570,7 @@ export default function App() {
   const setEmpDb = (updater) => {
     setEmpDb_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save PIN changes to backend
-      try {
-        const pins = {};
-        safeArr(next).forEach(e => { if(e.pin !== "0000") pins[e.id] = e.pin; });
-        window.storage?.set("ambria_pins", JSON.stringify(pins));
-      } catch(e) {}
+      try { window.storage?.set("ambria_empdb_v3", JSON.stringify(next)); } catch(e) {}
       return next;
     });
   };
@@ -9622,9 +9581,9 @@ export default function App() {
       try{
         const su = await window.storage?.get("ambria_session_user");
         if(su?.value){ try { const emp=JSON.parse(su.value); if(emp&&emp.id) setCurrentUser(emp); } catch(e){ console.warn("Session parse failed",e); } }
-        // Load saved PINs
-        const savedPins = await window.storage?.get("ambria_pins");
-        if(savedPins?.value){ try { const pins=JSON.parse(savedPins.value); setEmpDb_raw(prev=>prev.map(e=>pins[e.id]?{...e,pin:pins[e.id]}:e)); } catch(e){} }
+        // Load saved empDb (v3 key — change version to bust old cache)
+        const savedDb = await window.storage?.get("ambria_empdb_v3");
+        if(savedDb?.value){ try { const db=JSON.parse(savedDb.value); if(Array.isArray(db)&&db.length>0) setEmpDb_raw(db); } catch(e){} }
         // Load saved leaves
         const savedLeaves = await window.storage?.get("ambria_leaves");
         if(savedLeaves?.value){ try { const lv=JSON.parse(savedLeaves.value); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
