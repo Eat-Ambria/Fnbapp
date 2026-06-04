@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { supabase } from './lib/supabase.js'
 
 // ─── INJECT GLOBAL STYLES ──────────────────────────────────────
 const LUXURY_CSS = `
@@ -9154,7 +9155,7 @@ function hasPermission(staff, permId) {
 
 
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
-function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
+function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServer=null}) {
   const T2 = s => T(s, lang);
   const ROLE_OPTIONS = [
     {v:"admin",              l:"👑 Admin — Full Access"},
@@ -9171,7 +9172,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
     {v:"transport",          l:"🚛 Transport"},
     {v:"kiosk_gate",         l:"🏛 Gate Attendance Kiosk"},
   ];
-  const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Service","Crockery","Beverages","Transportation","ODC","Continental"];
+  const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Bakery","Service","Crockery","Beverages","Transportation","ODC","Continental"];
 
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId]   = useState(null);
@@ -9213,8 +9214,26 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
 
   const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || (s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase()));
 
+  function autoGenerateId(section) {
+    const PREFIX_MAP = {
+      "Management":"AM","Sweets":"SW","Chaat":"CT","Chinese":"CH",
+      "Tandoor":"TD","Continental":"CN","Indian Curries":"IN",
+      "Bakery":"BK","Service":"SV","Crockery":"CR","Beverages":"BV",
+      "Transportation":"TR","ODC":"OD"
+    };
+    const prefix = PREFIX_MAP[section] || "ST";
+    const existing = safeArr(empDb)
+      .map(s => (s.staffListId||s.staff_id||s.id||""))
+      .filter(id => id.startsWith(prefix))
+      .map(id => parseInt(id.replace(prefix, "")) || 0);
+    const next = existing.length > 0 ? Math.max(...existing) + 1 : 1;
+    return prefix + String(next).padStart(3, "0");
+  }
+
   function openAdd(){
-    setForm({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
+    const defaultSection = "Indian Curries";
+    const autoId = autoGenerateId(defaultSection);
+    setForm({staff_id:autoId, name:"", role:"section_indian", section:defaultSection, pin:"1111", is_active:true});
     setEditId(null); setShowAdd(true);
   }
   function openEdit(s){
@@ -9224,19 +9243,26 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     if(editId){
-      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?{...s,name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:form.is_active}:s));
+      const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
+      const entry = {...updated, name:form.name, role:form.role, section:form.section, pin:form.pin, is_active:form.is_active};
+      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
+      if(syncToServer) syncToServer('upsert', entry);
     } else {
-      const newStaff={staffListId:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.role};
+      const newStaff={staffListId:form.staff_id.toUpperCase(),staff_id:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.section.toLowerCase()};
       setEmpDb(p=>[...safeArr(p),newStaff]);
+      if(syncToServer) syncToServer('upsert', newStaff);
     }
     setShowAdd(false); setEditId(null);
   }
   function deleteStaff(id){
     setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==id));
+    if(syncToServer) syncToServer('delete', {staff_id:id, staffListId:id});
     setDelId(null);
   }
   function toggleActive(id){
+    const target = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===id);
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===id?{...s,is_active:!s.is_active}:s));
+    if(syncToServer && target) syncToServer('upsert', {...target, is_active:!target.is_active});
   }
   // Permission panel functions
   function openPerms(s) {
@@ -9246,6 +9272,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
   function savePerms() {
     const sid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===sid?{...s,permissions:editPerms}:s));
+    if(syncToServer) syncToServer('upsert', {...permStaff, permissions:editPerms});
     setView("list"); setPermStaff(null);
   }
   function applyRoleTemplate(roleKey) {
@@ -9415,7 +9442,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Staff ID *</div>
-              <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="e.g. KT004" style={fld} disabled={!!editId}/>
+              <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="e.g. KT004" style={fld}/>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Full Name *</div>
@@ -9429,7 +9456,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Section</div>
-              <select value={form.section} onChange={e=>setForm(p=>({...p,section:e.target.value}))} style={fld}>
+              <select value={form.section} onChange={e=>{const ns=e.target.value;setForm(p=>({...p,section:ns,staff_id:editId?p.staff_id:autoGenerateId(ns)}));}} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
@@ -9592,6 +9619,66 @@ export default function App() {
     })();
   },[]);
 
+  // ── Supabase: load + real-time sync ──
+  useEffect(() => {
+    if (!supabase) return;
+    async function loadStaff() {
+      const { data } = await supabase.from('staff').select('*');
+      if (data && data.length > 0) {
+        setEmpDb(data.map(s => ({...s, staffListId:s.staff_id, is_active:s.is_active!==false})));
+      }
+    }
+    loadStaff();
+    const channel = supabase
+      .channel('staff-changes')
+      .on('postgres_changes', { event:'*', schema:'public', table:'staff' }, (payload) => {
+        if (payload.eventType==='INSERT') {
+          setEmpDb(prev => {
+            const exists = prev.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id);
+            if (exists) return prev;
+            return [...prev, {...payload.new, staffListId:payload.new.staff_id}];
+          });
+        }
+        if (payload.eventType==='UPDATE') {
+          setEmpDb(prev => prev.map(s =>
+            (s.staffListId||s.staff_id)===payload.new.staff_id
+              ? {...s, ...payload.new, staffListId:payload.new.staff_id}
+              : s
+          ));
+        }
+        if (payload.eventType==='DELETE') {
+          setEmpDb(prev => prev.filter(s=>(s.staffListId||s.staff_id)!==payload.old.staff_id));
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  async function syncStaffToSupabase(action, staffData) {
+    if (!supabase) return;
+    try {
+      const record = {
+        staff_id: staffData.staffListId||staffData.staff_id,
+        name: staffData.name,
+        section: staffData.section,
+        dept: staffData.dept,
+        role: staffData.role,
+        pin: String(staffData.pin||'0000'),
+        is_admin: staffData.role==='admin',
+        is_active: staffData.is_active!==false,
+        joining: staffData.joining,
+        phone: staffData.phone||null,
+        custom_screens: staffData.custom_screens||null,
+        permissions: staffData.permissions||null,
+      };
+      if (action==='upsert') {
+        await supabase.from('staff').upsert(record, {onConflict:'staff_id'});
+      } else if (action==='delete') {
+        await supabase.from('staff').delete().eq('staff_id', record.staff_id);
+      }
+    } catch(e) { console.error('Supabase sync error:', e); }
+  }
+
   async function handleLogin(emp){
     setCurrentUser(emp);
     try{ await window.storage?.set("ambria_session_user",JSON.stringify(emp)); }catch(e){}
@@ -9707,7 +9794,7 @@ export default function App() {
       case "store":          return <StoreModule events={events} lang={lang}/>;
       case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
-      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser}/>;
+      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaffToSupabase}/>;
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
