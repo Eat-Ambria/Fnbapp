@@ -171,51 +171,7 @@ alter publication supabase_realtime add table attendance;
 alter publication supabase_realtime add table repair_tickets;
 alter publication supabase_realtime add table inventory;
 
--- ── SEED ALL STAFF (43 members) ──
-insert into staff (staff_id, name, section, dept, role, pin, is_admin, is_active, joining) values
-  ('AM001','Abhi','Management','management','admin','0000',true,true,'2025-01-01'),
-  ('SW001','Rajinder Singh Halwai','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW002','Ramu Halwai','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW003','Yogesh Halwai','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW004','Anil Kumar Halwai','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW005','Bacchan Singh','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW006','Radheyshayam','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW007','Abhishek','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW008','Saurabh','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW009','Deepu Hawai New','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('SW010','Vrindavan','Sweets','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT001','Raghvendra Singh','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT002','Satendra Chaat','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT003','Purshottam','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT004','Anurag Chaat','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT005','Ajay','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT006','Sahdev','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT007','Balram','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT008','Golu','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CT009','Kuldeep','Chaat','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CH001','Kishore Chef','Chinese','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CH002','Lokesh','Chinese','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CH003','Sandeep Chef Helper','Chinese','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CH004','Vishesh','Chinese','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD001','Yatinder','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD002','Gopal','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD003','Vipin Kumar Tandoor','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD004','Yatinder Rawat','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD005','Noor Alam Tandoor','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD006','Kushal Pal','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD007','Surendra','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('TD008','Prabhat','Tandoor','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CN001','Rahul','Continental','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('CN002','Kareen','Continental','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN001','Devendra','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN002','Bhupal','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN003','Jeetu Indian','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN004','Roshan','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN005','Hina','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('IN006','Anas Khan','Indian Curries','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('BK001','Shobhan Singh','Bakery','kitchen','staff','1111',false,true,'2025-01-01'),
-  ('BK002','Disha','Bakery','kitchen','staff','1111',false,true,'2025-01-01')
-on conflict (staff_id) do update set
-  name = excluded.name, section = excluded.section, dept = excluded.dept,
-  role = excluded.role, pin = excluded.pin, is_admin = excluded.is_admin,
-  is_active = excluded.is_active, joining = excluded.joining;
+-- ── SEED ADMIN ONLY ──
+insert into staff (staff_id, name, section, dept, role, pin, is_admin, is_active, joining)
+values ('AM001', 'Abhi', 'Management', 'management', 'admin', '0000', true, true, '2025-01-01')
+on conflict (staff_id) do nothing;

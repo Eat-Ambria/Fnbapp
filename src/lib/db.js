@@ -1,20 +1,26 @@
 import { supabase } from './supabase.js'
 
+// Versioned cache key for staff busts old cached data on deploy
+function cacheKey(table) {
+  return table === 'staff' ? 'ambria_empdb_v6' : 'ambria_' + table;
+}
+
 export async function dbLoad(table, fallback = []) {
+  const key = cacheKey(table);
   if (!supabase) {
     try {
-      const cached = localStorage.getItem('ambria_' + table);
+      const cached = localStorage.getItem(key);
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
   const { data, error } = await supabase.from(table).select('*');
   if (error || !data) {
     try {
-      const cached = localStorage.getItem('ambria_' + table);
+      const cached = localStorage.getItem(key);
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
-  try { localStorage.setItem('ambria_' + table, JSON.stringify(data)); } catch(e) {}
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
   return data;
 }
 

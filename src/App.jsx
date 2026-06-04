@@ -388,47 +388,6 @@ const STAFF_LIST = [
 // IDs: AM = Ambria Management, KIT = Kitchen
 const EMPLOYEE_DB_INIT = [
   {staffListId:"AM001",staff_id:"AM001",name:"Abhi",section:"Management",dept:"management",role:"admin",pin:"0000",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW001",staff_id:"SW001",name:"Rajinder Singh Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW002",staff_id:"SW002",name:"Ramu Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW003",staff_id:"SW003",name:"Yogesh Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW004",staff_id:"SW004",name:"Anil Kumar Halwai",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW005",staff_id:"SW005",name:"Bacchan Singh",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW006",staff_id:"SW006",name:"Radheyshayam",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW007",staff_id:"SW007",name:"Abhishek",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW008",staff_id:"SW008",name:"Saurabh",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW009",staff_id:"SW009",name:"Deepu Hawai New",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"SW010",staff_id:"SW010",name:"Vrindavan",section:"Sweets",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT001",staff_id:"CT001",name:"Raghvendra Singh",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT002",staff_id:"CT002",name:"Satendra Chaat",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT003",staff_id:"CT003",name:"Purshottam",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT004",staff_id:"CT004",name:"Anurag Chaat",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT005",staff_id:"CT005",name:"Ajay",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT006",staff_id:"CT006",name:"Sahdev",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT007",staff_id:"CT007",name:"Balram",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT008",staff_id:"CT008",name:"Golu",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CT009",staff_id:"CT009",name:"Kuldeep",section:"Chaat",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CH001",staff_id:"CH001",name:"Kishore Chef",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CH002",staff_id:"CH002",name:"Lokesh",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CH003",staff_id:"CH003",name:"Sandeep Chef Helper",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CH004",staff_id:"CH004",name:"Vishesh",section:"Chinese",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD001",staff_id:"TD001",name:"Yatinder",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD002",staff_id:"TD002",name:"Gopal",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD003",staff_id:"TD003",name:"Vipin Kumar Tandoor",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD004",staff_id:"TD004",name:"Yatinder Rawat",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD005",staff_id:"TD005",name:"Noor Alam Tandoor",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD006",staff_id:"TD006",name:"Kushal Pal",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD007",staff_id:"TD007",name:"Surendra",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TD008",staff_id:"TD008",name:"Prabhat",section:"Tandoor",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CN001",staff_id:"CN001",name:"Rahul",section:"Continental",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"CN002",staff_id:"CN002",name:"Kareen",section:"Continental",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN001",staff_id:"IN001",name:"Devendra",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN002",staff_id:"IN002",name:"Bhupal",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN003",staff_id:"IN003",name:"Jeetu Indian",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN004",staff_id:"IN004",name:"Roshan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN005",staff_id:"IN005",name:"Hina",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"IN006",staff_id:"IN006",name:"Anas Khan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"BK001",staff_id:"BK001",name:"Shobhan Singh",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"BK002",staff_id:"BK002",name:"Disha",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -9223,11 +9182,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   ];
   const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Bakery","Service","Crockery","Beverages","Transportation","ODC","Continental"];
 
+  const blankForm = {staff_id:"",name:"",role:"section_indian",section:"Indian Curries",dept:"kitchen",pin:"1111",is_active:true};
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId]   = useState(null);
   const [delId, setDelId]     = useState(null);
   const [search, setSearch]   = useState("");
-  const [form, setForm]       = useState({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
+  const [form, setForm]       = useState(blankForm);
   // Permission panel state
   const [view, setView]           = useState("list");
   const [permStaff, setPermStaff] = useState(null);
@@ -9280,24 +9240,24 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   }
 
   function openAdd(){
-    const defaultSection = "Indian Curries";
-    const autoId = autoGenerateId(defaultSection);
-    setForm({staff_id:autoId, name:"", role:"section_indian", section:defaultSection, pin:"1111", is_active:true});
+    const autoId = autoGenerateId("Management");
+    setForm({...blankForm, staff_id:autoId});
     setEditId(null); setShowAdd(true);
   }
   function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"0000",is_active:s.is_active!==false});
+    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false});
     setEditId(s.staffListId||s.staff_id||s.id); setShowAdd(true);
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     if(editId){
       const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
-      const entry = {...updated, name:form.name, role:form.role, section:form.section, pin:form.pin, is_active:form.is_active};
+      const entry = {...updated, name:form.name, role:form.role, section:form.section, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry);
     } else {
-      const newStaff={staffListId:form.staff_id.toUpperCase(),staff_id:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.section.toLowerCase()};
+      const sid = form.staff_id.toUpperCase();
+      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:form.section,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY};
       setEmpDb(p=>[...safeArr(p),newStaff]);
       if(syncToServer) syncToServer('upsert', newStaff);
     }
@@ -9491,7 +9451,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Staff ID *</div>
-              <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="e.g. KT004" style={fld}/>
+              <input value={form.staff_id} onChange={e=>setForm(p=>({...p,staff_id:e.target.value.toUpperCase()}))} placeholder="Auto-generated or type custom" style={fld}/>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Full Name *</div>
@@ -9507,6 +9467,19 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Section</div>
               <select value={form.section} onChange={e=>{const ns=e.target.value;setForm(p=>({...p,section:ns,staff_id:editId?p.staff_id:autoGenerateId(ns)}));}} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Department</div>
+              <select value={form.dept||"kitchen"} onChange={e=>setForm(p=>({...p,dept:e.target.value}))} style={fld}>
+                <option value="kitchen">Kitchen</option>
+                <option value="service">Service</option>
+                <option value="crockery">Crockery</option>
+                <option value="beverages">Beverages</option>
+                <option value="transport">Transportation</option>
+                <option value="odc">ODC</option>
+                <option value="management">Management</option>
+                <option value="maintenance">Maintenance</option>
               </select>
             </div>
             <div>
