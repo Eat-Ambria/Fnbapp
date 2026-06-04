@@ -1704,10 +1704,13 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,maxWidth:780,width:"100%"}}>
         {DEPTS.map(dept=>{
           const odcCount = todayEvs.filter(e=>(e.venue||"").includes("ODC")).length;
+          const DEPT_SCREEN = {kitchen:"kitchen",service:"dept_service",crockery:"dept_crockery",beverages:"dept_beverages",transport:"transport",odc:"dept_odc"};
+          const hasAccess = canAccessScreen(currentUser, DEPT_SCREEN[dept.id]||dept.id);
           return (
-            <button key={dept.id} onClick={()=>{if(onSelectDept) onSelectDept(dept.id); else setSelDept(dept.id);}}
-              style={{background:C.darkCard,border:`1px solid ${dept.color}30`,borderRadius:20,padding:"28px 18px",cursor:"pointer",textAlign:"center",boxShadow:"0 4px 20px rgba(0,0,0,.4)",transition:"all .15s",minHeight:180}}>
-              <div style={{fontSize:44,marginBottom:10}}>{dept.icon}</div>
+            <button key={dept.id}
+              onClick={hasAccess?()=>{if(onSelectDept) onSelectDept(dept.id); else setSelDept(dept.id);}:undefined}
+              style={{background:C.darkCard,border:`1px solid ${hasAccess?dept.color+"30":C.border}`,borderRadius:20,padding:"28px 18px",cursor:hasAccess?"pointer":"not-allowed",textAlign:"center",boxShadow:"0 4px 20px rgba(0,0,0,.4)",transition:"all .15s",minHeight:180,opacity:hasAccess?1:0.35,position:"relative"}}>
+              <div style={{fontSize:44,marginBottom:10}}>{dept.icon}{!hasAccess&&<span style={{fontSize:18,position:"absolute",top:10,right:10}}>🔒</span>}</div>
               <div style={{fontSize:17,fontWeight:700,color:C.text}}>{T2(dept.name)}</div>
               <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.5}}>{lang==="hi"?dept.descHi:dept.desc}</div>
               <div style={{fontSize:12,color:dept.color,fontWeight:600,marginTop:10}}>
@@ -2887,7 +2890,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
 
 
 
-function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en"}) {
+function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null}) {
   const T2 = s => T(s, lang);
   const safeEvs = Array.isArray(events)?events.filter(e=>e&&typeof e.date==="string"&&e.date.length===10):[];
   const today = new Date(); today.setHours(0,0,0,0);
@@ -5611,7 +5614,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             ):(
                               <div>
                                 {tm5>0&&<div style={{marginTop:6}}><div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:done3?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/></div><div style={{fontSize:11,color:running3?C.amber:done3?C.green:C.muted}}>{running3?`⏱ ${fmtT(el5)} / ${fmtT(tm5)} — ${fmtT(rem3)} ${T2("left")}`:done3?`✓ ${fmtT(tm5)}`:`⏱ ${fmtT(tm5)}`}</div></div>}
-                                {!running3&&!done3&&tm5>0&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
+                                {!running3&&!done3&&tm5>0&&prevOk3&&hasPermission(currentUser,"kitchen.start_timer")&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
                                 {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&hasPermission(currentUser,"kitchen.d1_mark_done")&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
                                 {!running3&&!done3&&!prevOk3&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
                               </div>
@@ -6254,7 +6257,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     </div>
   );
 }
-function TransportDispatch({events, kitchenTracking={}, lang="en"}) {
+function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=null}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = Array.isArray(events) ? events : [];
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -6991,7 +6994,7 @@ function ODCModule() {
 // ─── EQUIPMENT & STORE ───────────────────────────────────────────
 
 
-function StoreModule({events, lang="en"}) {
+function StoreModule({events, lang="en", currentUser=null}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = (Array.isArray(events)?events:[]).filter(e=>e&&e.date);
   const CATEGORIES = [T2("Fresh Vegetables"),T2("Fresh Fruits"),T2("Exotic & Imported"),T2("Poultry, Meat & Fish"),T2("Dairy & Fresh"),T2("Bakery"),T2("Imported Pantry"),T2("Indian Dry Store")];
@@ -7963,7 +7966,7 @@ function StoreModule({events, lang="en"}) {
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <Btn onClick={()=>{setShowAdd(false);stopScan();setScanResult("");setScanError("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-            <Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>
+            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>}
           </div>
         </div>
       )}
@@ -8088,10 +8091,10 @@ function StoreModule({events, lang="en"}) {
         <div>
           {/* Mode toggle */}
           <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`}}>
-            <button onClick={()=>setScanMode("in")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
-              background:scanMode==="in"?"#1A3A1A":"transparent",color:scanMode==="in"?C.green:C.muted}}>📥 {T2("Stock In")}</button>
-            <button onClick={()=>setScanMode("out")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
-              background:scanMode==="out"?"#3A1A1A":"transparent",color:scanMode==="out"?C.red:C.muted}}>📤 {T2("Stock Out")}</button>
+            {hasPerm(currentUser,"store.receive")&&<button onClick={()=>setScanMode("in")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
+              background:scanMode==="in"?"#1A3A1A":"transparent",color:scanMode==="in"?C.green:C.muted}}>📥 {T2("Stock In")}</button>}
+            {hasPerm(currentUser,"store.issue")&&<button onClick={()=>setScanMode("out")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
+              background:scanMode==="out"?"#3A1A1A":"transparent",color:scanMode==="out"?C.red:C.muted}}>📤 {T2("Stock Out")}</button>}
           </div>
 
           {/* Scanner */}
@@ -8350,7 +8353,7 @@ function StoreModule({events, lang="en"}) {
                   </div>
 
                   {/* Issue all button */}
-                  {!allDone&&(
+                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
                     <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
                       <button onClick={()=>{const up={};ingList.forEach(ing=>{up[sec+"_"+ing.name]=true;});setIssuedItems(p=>({...p,...up}));}}
                         style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${m2.color},${m2.color}80)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
@@ -9151,6 +9154,29 @@ function hasPermission(staff, permId) {
   return getEffectivePerms(staff).includes(permId);
 }
 
+const hasPerm = hasPermission;
+
+function canAccessScreen(user, screenId) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.permissions && user.permissions.length > 0) {
+    const sp = SCREEN_PERMISSIONS[screenId];
+    if (!sp) return true;
+    return sp.perms.some(p => user.permissions.includes(p.id));
+  }
+  const role = user.role || "staff";
+  let screens = [];
+  if (role === "head_chef" || role === "headchef") screens = ["dashboard","kitchen","store","team","transport","repair"];
+  else if (role.startsWith("section_")) screens = ["kitchen","repair"];
+  else if (role === "service") screens = ["dashboard","dept_service","team","vendors","repair"];
+  else if (role === "crockery") screens = ["dashboard","dept_crockery","team","store","repair"];
+  else if (role === "beverages") screens = ["dashboard","dept_beverages","menus","team","store","repair"];
+  else if (role === "transport") screens = ["dashboard","transport","repair"];
+  else if (role === "kiosk_gate") screens = ["team"];
+  else screens = ["dashboard","kitchen","repair"];
+  return screens.includes(screenId);
+}
+
 
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
 function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServer=null}) {
@@ -9778,14 +9804,23 @@ export default function App() {
     />
   );
 
+  const LOCK_SCREEN = (
+    <div style={{textAlign:"center",padding:"60px 20px"}}>
+      <div style={{fontSize:48,marginBottom:16}}>🔒</div>
+      <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:8}}>Access Restricted</div>
+      <div style={{fontSize:13,color:C.muted}}>You don't have permission to view this section. Contact admin (Abhi) to get access.</div>
+    </div>
+  );
+
   function renderScreen(s){
+    if (!canAccessScreen(currentUser, s)) return LOCK_SCREEN;
     switch(s){
-      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang}/>;
+      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang} currentUser={currentUser}/>;
       case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser}/>;
       case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser}/>;
       case "menus":          return <MenuPackagesView lang={lang}/>;
-      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang}/>;
-      case "store":          return <StoreModule events={events} lang={lang}/>;
+      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser}/>;
+      case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaffToSupabase}/>;
@@ -9825,7 +9860,7 @@ export default function App() {
               ← Back to Departments
             </button>
           )}
-          {curNav.filter(item=>item.id!=="access"||(currentUser&&currentUser.role==="admin")).map(item=>{
+          {curNav.filter(item=>canAccessScreen(currentUser, item.id)).map(item=>{
             const active=screen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
             return(
