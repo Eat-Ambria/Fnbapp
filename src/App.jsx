@@ -9643,6 +9643,18 @@ export default function App() {
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     management: [
+      {id:"dashboard",label:"Dashboard",icon:"📊"},
+      {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
+      {id:"menus",label:"Menu Packages",icon:"📜"},
+      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
+      {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"vendors",label:"Vendor Directory",icon:"📇"},
+      {id:"dept_service",label:"Service Ops",icon:"🍽"},
+      {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
+      {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
+      {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
       {id:"access",label:"Access Manager",icon:"🔐"},
     ],
   };
