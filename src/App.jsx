@@ -3870,7 +3870,7 @@ function AutoReset({delay, onReset}){
   return <div style={{fontSize:13,color:"rgba(255,255,255,.3)",marginTop:4}}>Returning in {count}s…</div>;
 }
 
-function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept}) {
+function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null}) {
   const [tab,setTab]             = useState("attendance");
   const T2 = s => T(s, lang);
 
@@ -4186,7 +4186,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     )}
                     {rejectId!==l.id&&(
                       <div style={{display:"flex",gap:5,flexShrink:0,marginTop:6}}>
-                        {leaveTab==="pending"&&(
+                        {leaveTab==="pending"&&hasPermission(currentUser,"team.leave_approve")&&(
                           <>
                             <Btn onClick={()=>approveLeave(l.id)} color={C.green} style={{fontSize:10,padding:"6px 12px"}}>✓ Approve</Btn>
                             <Btn onClick={()=>setRejectId(l.id)} color={C.red} style={{fontSize:10,padding:"6px 12px"}}>✕ Reject</Btn>
@@ -5114,7 +5114,7 @@ function getDishImageUrl(dishName) {
   return "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=70";
 }
 
-function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false }) {
+function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null }) {
   const T2 = s => T(s, lang);
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
@@ -5637,7 +5637,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <div>
                                 {tm5>0&&<div style={{marginTop:6}}><div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:done3?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/></div><div style={{fontSize:11,color:running3?C.amber:done3?C.green:C.muted}}>{running3?`⏱ ${fmtT(el5)} / ${fmtT(tm5)} — ${fmtT(rem3)} ${T2("left")}`:done3?`✓ ${fmtT(tm5)}`:`⏱ ${fmtT(tm5)}`}</div></div>}
                                 {!running3&&!done3&&tm5>0&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
-                                {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&hasPermission(currentUser,"kitchen.d1_mark_done")&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
                                 {!running3&&!done3&&!prevOk3&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
                               </div>
                             )}
@@ -5646,7 +5646,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       })}
 
                       {/* Mark as Complete */}
-                      {steps3.every((_,si)=>stepDone(d3,si))&&!d3.ready&&(
+                      {steps3.every((_,si)=>stepDone(d3,si))&&!d3.ready&&hasPermission(currentUser,"kitchen.mark_ready")&&(
                         <button onClick={e=>{e.stopPropagation();markReady(dish.fEvId,dish.fIdx,dish.name);}}
                           style={{width:"100%",padding:"16px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:10,minHeight:52}}>
                           ✅ {T2("Mark as Complete")} — {dish.name}
@@ -6060,10 +6060,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{fontSize:16,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
                   {linkedEv&&<div style={{fontSize:11,color:C.muted}}>auto from {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
                 </div>
-                {effectivePct!==100&&activeDishes.length>0&&(
+                {effectivePct!==100&&activeDishes.length>0&&hasPermission(currentUser,"kitchen.scaling_apply")&&(
                   <button onClick={()=>{
                     const evId=scaleEventId==="manual"?null:scaleEventId;
-                    // Save scaling to appliedScales + kitchenTracking
                     const entry={percent:effectivePct,appliedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
                     setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
                     if(evId&&setKitchenTracking){
@@ -8645,9 +8644,9 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.4}}>🔧 {T2("Repair & Maintenance")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Shared pool — all departments")}</div>
         </div>
-        <button onClick={()=>setShowNew(!showNew)} style={{padding:"11px 18px",borderRadius:12,background:showNew?C.surface:`linear-gradient(135deg,${C.gold},#A8891E)`,color:showNew?C.muted:"#0A0908",border:showNew?`1px solid ${C.border}`:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+        {hasPermission(currentUser,"repair.create")&&<button onClick={()=>setShowNew(!showNew)} style={{padding:"11px 18px",borderRadius:12,background:showNew?C.surface:`linear-gradient(135deg,${C.gold},#A8891E)`,color:showNew?C.muted:"#0A0908",border:showNew?`1px solid ${C.border}`:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
           {showNew?"✕ Cancel":"+ "+T2("New Request")}
-        </button>
+        </button>}
       </div>
 
       {/* ── Stats tiles ── */}
@@ -8782,6 +8781,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
                 </div>}
 
                 {/* Reassign */}
+                {hasPermission(currentUser,"repair.reassign")&&(
                 <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
                   <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>🔄 {T2("Reassign")}</div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -8796,8 +8796,10 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
                     ))}
                   </div>
                 </div>
+                )}
 
                 {/* Status change */}
+                {hasPermission(currentUser,"repair.change_status")&&(
                 <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
                   <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>📊 {T2("Update Status")}</div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -8814,6 +8816,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
                     })}
                   </div>
                 </div>
+                )}
 
                 {/* Updates timeline */}
                 {tk.updates.length>0&&(
@@ -9016,8 +9019,166 @@ function VendorDirectory({lang="en"}) {
 
 
 
+// ─── GRANULAR PERMISSION SYSTEM ─────────────────────────────────────────────
+const SCREEN_PERMISSIONS = {
+  dashboard: {
+    label:"Dashboard", icon:"📊",
+    perms:[
+      {id:"dashboard.view",           label:"View dashboard KPIs",          type:"view"},
+      {id:"dashboard.closure_report", label:"Generate closure report",      type:"action"},
+      {id:"dashboard.export",         label:"Export reports",               type:"action"},
+    ]
+  },
+  kitchen: {
+    label:"Kitchen Hub", icon:"👨‍🍳",
+    perms:[
+      {id:"kitchen.view",             label:"View today's tasks",           type:"view"},
+      {id:"kitchen.d1_view",          label:"View D-1 prep",               type:"view"},
+      {id:"kitchen.d1_mark_done",     label:"Mark mesa/prep as done",      type:"action"},
+      {id:"kitchen.mark_ready",       label:"Mark dish as ready + photo",  type:"action"},
+      {id:"kitchen.start_timer",      label:"Start/stop cooking timers",   type:"action"},
+      {id:"kitchen.store_collect",    label:"Collect items from store",    type:"action"},
+      {id:"kitchen.quality_rate",     label:"Rate ingredient quality",     type:"action"},
+      {id:"kitchen.scaling_view",     label:"View pax scaling",            type:"view"},
+      {id:"kitchen.scaling_apply",    label:"Apply scaling to events",     type:"action"},
+      {id:"kitchen.sops_view",        label:"View recipe SOPs",            type:"view"},
+      {id:"kitchen.menu_view",        label:"View menu packages",          type:"view"},
+    ]
+  },
+  store: {
+    label:"Store & Inventory", icon:"📦",
+    perms:[
+      {id:"store.view",               label:"View inventory",               type:"view"},
+      {id:"store.issue",              label:"Issue items (stock out)",      type:"action"},
+      {id:"store.receive",            label:"Receive items (stock in)",     type:"action"},
+      {id:"store.barcode_scan",       label:"Scan barcodes",               type:"action"},
+      {id:"store.smart_issue",        label:"Use smart issue (auto-calc)",  type:"action"},
+      {id:"store.edit_stock",         label:"Edit stock levels",           type:"action"},
+    ]
+  },
+  transport: {
+    label:"Transport", icon:"🚛",
+    perms:[
+      {id:"transport.view",           label:"View dispatch plan",           type:"view"},
+      {id:"transport.dispatch",       label:"Mark dispatch done",           type:"action"},
+      {id:"transport.temp_log",       label:"Log fridge temperature",      type:"action"},
+      {id:"transport.loading_check",  label:"Complete loading checklist",   type:"action"},
+    ]
+  },
+  repair: {
+    label:"Repair & Maintenance", icon:"🔧",
+    perms:[
+      {id:"repair.view",              label:"View all tickets",             type:"view"},
+      {id:"repair.create",            label:"Raise new ticket",             type:"action"},
+      {id:"repair.update",            label:"Post updates on tickets",     type:"action"},
+      {id:"repair.reassign",          label:"Reassign tickets",            type:"action"},
+      {id:"repair.change_status",     label:"Change ticket status",        type:"action"},
+      {id:"repair.complete_photo",    label:"Mark complete with photo",    type:"action"},
+      {id:"repair.delete",            label:"Delete tickets",              type:"action"},
+    ]
+  },
+  team: {
+    label:"Team & Attendance", icon:"👥",
+    perms:[
+      {id:"team.view",                label:"View staff list",              type:"view"},
+      {id:"team.attendance_mark",     label:"Mark attendance",             type:"action"},
+      {id:"team.leave_request",       label:"Submit leave request",        type:"request"},
+      {id:"team.leave_approve",       label:"Approve/reject leaves",       type:"approval"},
+      {id:"team.daily_wages",         label:"Add daily wages staff",       type:"action"},
+      {id:"team.export_attendance",   label:"Export attendance Excel",     type:"action"},
+    ]
+  },
+  menus: {
+    label:"Menu Packages", icon:"📜",
+    perms:[
+      {id:"menus.view",               label:"View menu packages",           type:"view"},
+    ]
+  },
+  vendors: {
+    label:"Vendor Directory", icon:"📇",
+    perms:[
+      {id:"vendors.view",             label:"View vendors",                 type:"view"},
+      {id:"vendors.add",              label:"Add new vendor",              type:"action"},
+      {id:"vendors.edit",             label:"Edit vendor details",         type:"action"},
+    ]
+  },
+  dept_service: {
+    label:"Service Ops", icon:"🍽",
+    perms:[
+      {id:"dept_service.view",        label:"View service checklist",       type:"view"},
+      {id:"dept_service.check",       label:"Complete checklist items",    type:"action"},
+    ]
+  },
+  dept_crockery: {
+    label:"Crockery Ops", icon:"🍶",
+    perms:[
+      {id:"dept_crockery.view",       label:"View crockery requirements",   type:"view"},
+      {id:"dept_crockery.check",      label:"Complete checklist items",    type:"action"},
+    ]
+  },
+  dept_beverages: {
+    label:"Beverages Ops", icon:"🥤",
+    perms:[
+      {id:"dept_beverages.view",      label:"View beverage prep",           type:"view"},
+      {id:"dept_beverages.check",     label:"Complete checklist items",    type:"action"},
+    ]
+  },
+  dept_odc: {
+    label:"ODC Operations", icon:"🏕",
+    perms:[
+      {id:"dept_odc.view",            label:"View ODC bookings",            type:"view"},
+      {id:"dept_odc.check",           label:"Complete site checklist",     type:"action"},
+    ]
+  },
+  access: {
+    label:"Access Manager", icon:"🔐",
+    perms:[
+      {id:"access.view",              label:"View staff list",              type:"view"},
+      {id:"access.add",               label:"Add new staff",               type:"action"},
+      {id:"access.edit",              label:"Edit staff details & PIN",    type:"action"},
+      {id:"access.delete",            label:"Delete staff",                type:"action"},
+      {id:"access.perms",             label:"Change permissions",          type:"action"},
+      {id:"access.bulk_ops",          label:"Bulk operations",             type:"action"},
+    ]
+  },
+};
+
+function getEffectivePerms(staff) {
+  if (staff && staff.permissions && staff.permissions.length > 0) return staff.permissions;
+  const role = (staff && staff.role) || "staff";
+  if (role === "admin") return Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms.map(p => p.id));
+  let screens = [];
+  if (role === "head_chef" || role === "headchef") {
+    screens = ["dashboard","kitchen","store","team","transport","repair"];
+  } else if (role.startsWith("section_")) {
+    screens = ["kitchen","repair"];
+  } else if (role === "service") {
+    screens = ["dashboard","dept_service","team","vendors","repair"];
+  } else if (role === "crockery") {
+    screens = ["dashboard","dept_crockery","team","store","repair"];
+  } else if (role === "beverages") {
+    screens = ["dashboard","dept_beverages","menus","team","store","repair"];
+  } else if (role === "transport") {
+    screens = ["dashboard","transport","repair"];
+  } else if (role === "kiosk_gate") {
+    screens = ["team"];
+  } else {
+    screens = ["dashboard","kitchen","repair"];
+  }
+  const perms = [];
+  screens.forEach(sid => { const sp = SCREEN_PERMISSIONS[sid]; if (sp) sp.perms.forEach(p => perms.push(p.id)); });
+  return perms;
+}
+
+function hasPermission(staff, permId) {
+  if (!staff) return true;
+  if (staff.role === "admin") return true;
+  return getEffectivePerms(staff).includes(permId);
+}
+
+
 // ─── ACCESS MANAGER (Admin only) ──────────────────────────────────────────────
-function AccessManager({lang="en", empDb, setEmpDb}) {
+function AccessManager({lang="en", empDb, setEmpDb, currentUser=null}) {
   const T2 = s => T(s, lang);
   const ROLE_OPTIONS = [
     {v:"admin",              l:"👑 Admin — Full Access"},
@@ -9041,21 +9202,53 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
   const [delId, setDelId]     = useState(null);
   const [search, setSearch]   = useState("");
   const [form, setForm]       = useState({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
+  // Permission panel state
+  const [view, setView]           = useState("list");
+  const [permStaff, setPermStaff] = useState(null);
+  const [editPerms, setEditPerms] = useState([]);
+  const [expandedScreens, setExpandedScreens] = useState({});
+  const [copyFromId, setCopyFromId] = useState("");
 
-  const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || s.staff_id?.toLowerCase().includes(search.toLowerCase()));
+  // Access control
+  const canAdd   = hasPermission(currentUser, "access.add");
+  const canEdit  = hasPermission(currentUser, "access.edit");
+  const canDel   = hasPermission(currentUser, "access.delete");
+  const canPerms = hasPermission(currentUser, "access.perms");
+
+  // All perms lists
+  const ALL_PERMS_LIST = Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms);
+  const ALL_PERM_IDS   = ALL_PERMS_LIST.map(p => p.id);
+  const ALL_VIEW_IDS   = ALL_PERMS_LIST.filter(p => p.type === "view").map(p => p.id);
+  const TYPE_C  = {view:C.blue, action:C.amber, approval:C.red, request:C.gold};
+  const TYPE_BG = {view:C.blueBg, action:C.amberBg, approval:C.redBg, request:C.goldBg};
+
+  function permCounts(s) {
+    const ep = getEffectivePerms(s);
+    const ct = {view:0, action:0, approval:0, request:0};
+    ep.forEach(pid => { const p = ALL_PERMS_LIST.find(x=>x.id===pid); if(p) ct[p.type]++; });
+    return {...ct, total: ep.length};
+  }
+
+  const PToggle = ({on, onChange}) => (
+    <div onClick={e=>{e.stopPropagation();onChange();}} style={{width:38,height:21,borderRadius:11,cursor:"pointer",background:on?C.green:C.border,position:"relative",flexShrink:0,transition:"background .2s"}}>
+      <div style={{width:15,height:15,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:on?20:3,transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.4)"}}/>
+    </div>
+  );
+
+  const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || (s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase()));
 
   function openAdd(){
     setForm({staff_id:"",name:"",role:"section_indian",section:"Indian Curries",pin:"0000",is_active:true});
     setEditId(null); setShowAdd(true);
   }
   function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"0000",is_active:s.is_active!==false});
-    setEditId(s.staffListId||s.staff_id); setShowAdd(true);
+    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",pin:s.pin||"0000",is_active:s.is_active!==false});
+    setEditId(s.staffListId||s.staff_id||s.id); setShowAdd(true);
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     if(editId){
-      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===editId?{...s,name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:form.is_active}:s));
+      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?{...s,name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:form.is_active}:s));
     } else {
       const newStaff={staffListId:form.staff_id.toUpperCase(),name:form.name,role:form.role,section:form.section,pin:form.pin,is_active:true,joining:TODAY,dept:form.role.startsWith("section_")?"kitchen":form.role};
       setEmpDb(p=>[...safeArr(p),newStaff]);
@@ -9063,15 +9256,151 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
     setShowAdd(false); setEditId(null);
   }
   function deleteStaff(id){
-    setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id)!==id));
+    setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==id));
     setDelId(null);
   }
   function toggleActive(id){
-    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id)===id?{...s,is_active:!s.is_active}:s));
+    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===id?{...s,is_active:!s.is_active}:s));
+  }
+  // Permission panel functions
+  function openPerms(s) {
+    setPermStaff(s); setEditPerms(getEffectivePerms(s));
+    setExpandedScreens({}); setCopyFromId(""); setView("perms");
+  }
+  function savePerms() {
+    const sid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
+    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===sid?{...s,permissions:editPerms}:s));
+    setView("list"); setPermStaff(null);
+  }
+  function applyRoleTemplate(roleKey) {
+    setEditPerms(getEffectivePerms({role:roleKey, permissions:null}));
+  }
+  function handleCopyFrom(fromId) {
+    if (!fromId) return;
+    const from = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===fromId);
+    if (from) setEditPerms(getEffectivePerms(from));
+    setCopyFromId(fromId);
+  }
+  function toggleScreen(screenId) {
+    const sp = SCREEN_PERMISSIONS[screenId].perms.map(p=>p.id);
+    const allOn = sp.every(p=>editPerms.includes(p));
+    setEditPerms(prev => allOn ? prev.filter(id=>!sp.includes(id)) : [...new Set([...prev,...sp])]);
+  }
+  function togglePerm(permId) {
+    setEditPerms(prev => prev.includes(permId) ? prev.filter(x=>x!==permId) : [...prev, permId]);
   }
 
   const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
   const fld={width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:40};
+
+  // ─── PERMISSIONS PANEL ───────────────────────────────────────────────────────
+  if (view==="perms" && permStaff) {
+    const psid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
+    const roleLabel = ROLE_MAP[permStaff.role]||permStaff.role||"—";
+    const totalAll = ALL_PERM_IDS.length;
+    const totalEnabled = editPerms.length;
+    const sumByType = {view:0,action:0,approval:0,request:0};
+    editPerms.forEach(pid => { const p=ALL_PERMS_LIST.find(x=>x.id===pid); if(p) sumByType[p.type]++; });
+    const emptyScreenLabels = Object.entries(SCREEN_PERMISSIONS)
+      .filter(([,sc])=>sc.perms.every(p=>!editPerms.includes(p.id)))
+      .map(([,sc])=>sc.label);
+    return (
+      <div style={{animation:"fadeInUp .3s ease both"}}>
+        {/* Back + staff header */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+          <button onClick={()=>{setView("list");setPermStaff(null);}} style={{padding:"9px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,fontWeight:600}}>← Back</button>
+          <div>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {permStaff.name}</div>
+            <div style={{fontSize:11,color:C.muted}}>{psid} · {roleLabel} · PIN: {permStaff.pin||"—"}</div>
+          </div>
+        </div>
+        {/* Quick Actions */}
+        <Card style={{marginBottom:10,padding:"12px 16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Quick Actions</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <button onClick={()=>setEditPerms(ALL_VIEW_IDS)} style={{padding:"7px 13px",borderRadius:9,background:C.blueBg,border:`1px solid ${C.blueBorder}`,color:C.blue,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:34}}>👁 All Views</button>
+            <button onClick={()=>setEditPerms(ALL_PERM_IDS)} style={{padding:"7px 13px",borderRadius:9,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:34}}>✅ Enable All</button>
+            <button onClick={()=>setEditPerms([])} style={{padding:"7px 13px",borderRadius:9,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:34}}>🔒 Disable All</button>
+            <div style={{display:"flex",alignItems:"center",gap:7,marginLeft:"auto"}}>
+              <span style={{fontSize:11,color:C.muted,whiteSpace:"nowrap"}}>Copy from:</span>
+              <select value={copyFromId} onChange={e=>handleCopyFrom(e.target.value)} style={{...fld,minWidth:130,minHeight:34,fontSize:11,padding:"5px 9px"}}>
+                <option value="">— select staff —</option>
+                {safeArr(empDb).filter(s=>(s.staffListId||s.staff_id||s.id)!==psid).map(s=>{
+                  const s2=s.staffListId||s.staff_id||s.id;
+                  return <option key={s2} value={s2}>{s.name} ({s.role})</option>;
+                })}
+              </select>
+            </div>
+          </div>
+        </Card>
+        {/* Role Template Bar */}
+        <Card style={{marginBottom:10,padding:"12px 16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Apply Role Template</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {ROLE_OPTIONS.map(r=>(
+              <button key={r.v} onClick={()=>applyRoleTemplate(r.v)} style={{padding:"5px 11px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {r.l}
+              </button>
+            ))}
+          </div>
+        </Card>
+        {/* Screen Permission Cards */}
+        {Object.entries(SCREEN_PERMISSIONS).map(([screenId,screen])=>{
+          const sp = screen.perms.map(p=>p.id);
+          const enabledCt = sp.filter(p=>editPerms.includes(p)).length;
+          const allOn = enabledCt===sp.length;
+          const someOn = enabledCt>0&&!allOn;
+          const isExp = expandedScreens[screenId]!==false;
+          return (
+            <Card key={screenId} style={{marginBottom:8,padding:0,overflow:"hidden",border:`1px solid ${allOn?C.green+"50":someOn?C.amber+"40":C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",background:allOn?C.greenBg+"40":someOn?C.amberBg+"30":"transparent",cursor:"pointer"}}
+                onClick={()=>setExpandedScreens(p=>({...p,[screenId]:!isExp}))}>
+                <PToggle on={allOn||someOn} onChange={()=>toggleScreen(screenId)}/>
+                <span style={{fontSize:16}}>{screen.icon}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:allOn?C.green:someOn?C.amber:C.faint}}>{screen.label}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{enabledCt}/{sp.length} enabled</div>
+                </div>
+                <span style={{fontSize:12,color:C.faint,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+              </div>
+              {isExp&&(
+                <div style={{borderTop:`1px solid ${C.borderLight}`,background:C.bg}}>
+                  {screen.perms.map((perm,pi)=>{
+                    const on = editPerms.includes(perm.id);
+                    return (
+                      <div key={perm.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",borderTop:pi>0?`1px solid ${C.borderLight}`:"none",opacity:on?1:.55}}>
+                        <PToggle on={on} onChange={()=>togglePerm(perm.id)}/>
+                        <span style={{flex:1,fontSize:12,color:on?C.text:C.muted}}>{perm.label}</span>
+                        <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:TYPE_BG[perm.type]||C.surface,color:TYPE_C[perm.type]||C.muted,fontWeight:600,whiteSpace:"nowrap"}}>{perm.type}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+        {/* Summary Card */}
+        <Card style={{marginBottom:12,padding:"14px 18px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Permission Summary</div>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+            <div style={{fontSize:24,fontWeight:800,color:totalEnabled>0?C.gold:C.faint}}>{totalEnabled}<span style={{fontSize:13,fontWeight:400,color:C.muted}}>/{totalAll}</span></div>
+            {[{t:"view",l:"views"},{t:"action",l:"actions"},{t:"approval",l:"approvals"},{t:"request",l:"requests"}].map(x=>sumByType[x.t]>0&&(
+              <span key={x.t} style={{fontSize:11,padding:"3px 9px",borderRadius:8,background:TYPE_BG[x.t],color:TYPE_C[x.t],fontWeight:600}}>{sumByType[x.t]} {x.l}</span>
+            ))}
+          </div>
+          {emptyScreenLabels.length>0&&<div style={{fontSize:11,color:C.faint}}>🔒 No access: {emptyScreenLabels.join(", ")}</div>}
+        </Card>
+        {/* Save / Cancel */}
+        <button onClick={savePerms} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:48,marginBottom:8}}>
+          ✓ Save Permissions
+        </button>
+        <button onClick={()=>{setView("list");setPermStaff(null);}} style={{width:"100%",padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:42}}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
 
   return(
     <div>
@@ -9081,14 +9410,14 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 Access Manager</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>Manage staff accounts, roles & permissions — Admin only</div>
         </div>
-        <button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>
+        {canAdd&&<button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>}
       </div>
 
       {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
         {[
           {l:"Total Staff",v:safeArr(empDb).length,c:C.gold},
-          {l:"Active",v:safeArr(empDb).filter(s=>s.is_active!==false).length,c:C.green},
+          {l:"Active",v:safeArr(empDb).filter(s=>s.is_active!==false&&s.active!==false).length,c:C.green},
           {l:"Section Tablets",v:safeArr(empDb).filter(s=>s.role?.startsWith("section_")).length,c:C.amber},
           {l:"Admin",v:safeArr(empDb).filter(s=>s.role==="admin").length,c:C.purple},
         ].map(s=>(
@@ -9168,11 +9497,12 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
       {/* Staff list */}
       {staff.map(s=>{
         const roleLabel = ROLE_MAP[s.role||"section_indian"] || s.role || "—";
-        const isActive = s.is_active!==false;
-        const sid = s.staffListId||s.staff_id;
+        const isActive = s.is_active!==false&&s.active!==false;
+        const sid = s.staffListId||s.staff_id||s.id;
+        const pc = permCounts(s);
         return(
           <Card key={sid} style={{marginBottom:8,padding:"14px 16px",opacity:isActive?1:.65,border:`1px solid ${isActive?C.border:C.redBorder}`}}>
-            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
               <div style={{width:40,height:40,borderRadius:12,background:C.gold+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
                 {roleLabel.split(" ")[0]}
               </div>
@@ -9185,11 +9515,24 @@ function AccessManager({lang="en", empDb, setEmpDb}) {
                 <div style={{fontSize:11,color:C.muted}}>{roleLabel}</div>
                 {s.section&&<div style={{fontSize:11,color:C.faint}}>📍 {s.section}</div>}
                 <div style={{fontSize:10,color:C.faint,marginTop:2}}>PIN: {"●".repeat((s.pin||"0000").length)} · Joined: {s.joining||"—"}</div>
+                {/* Permission summary pills */}
+                <div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
+                  {pc.total===0
+                    ? <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,color:C.red,fontWeight:700}}>🔒 No access</span>
+                    : <>
+                        {pc.view>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.blueBg,color:C.blue,fontWeight:600}}>{pc.view} views</span>}
+                        {pc.action>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amberBg,color:C.amber,fontWeight:600}}>{pc.action} actions</span>}
+                        {pc.approval>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,color:C.red,fontWeight:600}}>{pc.approval} approvals</span>}
+                        {pc.request>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.goldBg,color:C.gold,fontWeight:600}}>{pc.request} requests</span>}
+                      </>
+                  }
+                </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
-                <button onClick={()=>openEdit(s)} style={{padding:"6px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
+                {canEdit&&<button onClick={()=>openEdit(s)} style={{padding:"6px 14px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>✏️ Edit</button>}
+                {canPerms&&<button onClick={()=>openPerms(s)} style={{padding:"6px 14px",borderRadius:8,background:C.blueBg,border:`1px solid ${C.blueBorder}`,color:C.blue,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>🔐 Perms</button>}
                 <button onClick={()=>toggleActive(sid)} style={{padding:"6px 14px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>{isActive?"🔴 Deactivate":"✅ Activate"}</button>
-                <button onClick={()=>setDelId(sid)} style={{padding:"6px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
+                {canDel&&<button onClick={()=>setDelId(sid)} style={{padding:"6px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer",minHeight:32}}>🗑 Delete</button>}
               </div>
             </div>
           </Card>
@@ -9371,14 +9714,14 @@ export default function App() {
   function renderScreen(s){
     switch(s){
       case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang}/>;
-      case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept}/>;
-      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang}/>;
+      case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser}/>;
+      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser}/>;
       case "menus":          return <MenuPackagesView lang={lang}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang}/>;
       case "store":          return <StoreModule events={events} lang={lang}/>;
-      case "repair":         return <RepairMaintenance lang={lang} currentDept="management"/>;
+      case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
-      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb}/>;
+      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser}/>;
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
