@@ -9642,6 +9642,9 @@ export default function App() {
       {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
+    management: [
+      {id:"access",label:"Access Manager",icon:"🔐"},
+    ],
   };
 
   const DEPT_META = {
@@ -9651,6 +9654,7 @@ export default function App() {
     beverages:{name:"Beverages",icon:"🥤",color:"#50B0A0"},
     transport:{name:"Transportation",icon:"🚛",color:"#D4A843"},
     odc:{name:"ODC",icon:"🏕️",color:C.gold},
+    management:{name:"Management",icon:"🔐",color:"#9060C8"},
   };
 
   const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
@@ -9675,7 +9679,7 @@ export default function App() {
       attendance={attendance} setAttendance={setAttendance}
       events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
       lang={lang} setLang={setLang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb}
-      onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("kitchen");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
+      onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("management");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
       onLogout={handleLogout}
       currentUser={currentUser}
     />
