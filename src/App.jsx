@@ -1518,8 +1518,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         if(rrem?.value==="true" && rid?.value && rpin?.value){
           const id  = rid.value.trim().toUpperCase();
           const pin2 = rpin.value.trim();
-          const emp  = (empDb||[]).find(e=>String(e.id).toUpperCase()===id);
-          if(emp && emp.active && String(emp.pin)===pin2){
+          const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
+          if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
             // credentials valid — auto-login immediately
             const sl = STAFF_LIST.find(s=>s.name===emp.name);
             onLogin({...emp, staffListId:sl?.id||null});
@@ -1538,9 +1538,9 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   async function handleLogin(){
     setError(""); setLoading(true);
     const id  = empId.trim().toUpperCase();
-    const emp = safeDb.find(e=>String(e.id).toUpperCase()===id);
+    const emp = safeDb.find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
     if(!emp){setError("Employee ID not found.");setLoading(false);return;}
-    if(!emp.active){setError("Account inactive. Contact manager.");setLoading(false);return;}
+    if(emp.active===false||emp.is_active===false){setError("Account inactive. Contact manager.");setLoading(false);return;}
     if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
     try{
       if(remember){
@@ -1755,6 +1755,18 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           );
         })}
       </div>
+
+      {/* Management card — admin only */}
+      {currentUser?.role==="admin"&&(
+        <div style={{maxWidth:780,width:"100%",marginTop:16}}>
+          <div onClick={()=>{if(onSelectDept)onSelectDept("access");}}
+            style={{background:C.darkCard,border:`2px solid ${C.purple}`,borderRadius:20,padding:"24px 20px",cursor:"pointer",textAlign:"center",minHeight:120,boxShadow:"0 4px 20px rgba(0,0,0,.4)",transition:"all .15s"}}>
+            <div style={{fontSize:36,marginBottom:8}}>🔐</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.purple,fontFamily:"var(--font-display)"}}>Management</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:4}}>Access Manager & Staff Control</div>
+          </div>
+        </div>
+      )}
 
       {/* Gate Kiosk — for property entrance guard */}
       <div style={{marginTop:28,maxWidth:780,width:"100%"}}>
@@ -9638,7 +9650,6 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     service: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -9646,7 +9657,6 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     crockery: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -9654,7 +9664,6 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     beverages: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -9663,19 +9672,16 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     odc: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
   };
 
@@ -9710,7 +9716,7 @@ export default function App() {
       attendance={attendance} setAttendance={setAttendance}
       events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
       lang={lang} setLang={setLang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb}
-      onSelectDept={(deptId)=>{setActiveDept(deptId);setScreen("dashboard");}}
+      onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("kitchen");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
       onLogout={handleLogout}
       currentUser={currentUser}
     />
@@ -9758,6 +9764,11 @@ export default function App() {
 
         {/* Nav items (tablet: larger touch targets) */}
         <nav style={{flex:1,padding:"10px 12px",overflowY:"auto"}}>
+          {screen==="access"&&(
+            <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:10,marginBottom:8,cursor:"pointer",background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:8,minHeight:42}}>
+              ← Back to Departments
+            </button>
+          )}
           {curNav.filter(item=>item.id!=="access"||(currentUser&&currentUser.role==="admin")).map(item=>{
             const active=screen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
