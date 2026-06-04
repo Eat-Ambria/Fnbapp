@@ -8557,14 +8557,32 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
   const STATUS_COLORS = {"Open":C.red,"In Progress":C.amber,"Pending Approval":"#8A70C8","Resolved":C.green,"Closed":C.faint};
   const VENUES_R = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Ambria Restro","All Properties"];
 
-  const [tickets, setTickets] = useState([
+  const TICKETS_INIT = [
     {id:"RM-001",title:"Tandoor #2 clay lining cracked",cat:"Tandoor",venue:"Ambria Pushpanjali",priority:"High",assignTo:"akhtar",status:"In Progress",dept:"kitchen",createdBy:"Lokesh",date:relDate(-2),notes:"Crack visible on inner wall. Not safe for use above 200°C.",updates:[{by:"Akhtar",date:relDate(-1),msg:"Ordered new clay lining. ETA 2 days."}]},
     {id:"RM-002",title:"Walk-in fridge compressor noise",cat:"Refrigeration",venue:"Ambria Pushpanjali",priority:"Urgent",assignTo:"akhtar",status:"Open",dept:"kitchen",createdBy:"Bipin",date:relDate(-1),notes:"Loud grinding noise from compressor. Temperature fluctuating.",updates:[]},
     {id:"RM-003",title:"Chinese wok burner low flame",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",status:"Open",dept:"kitchen",createdBy:"Lokesh",date:TODAY,notes:"Wok station #3 flame too low for stir-fry. Gas pressure issue.",updates:[]},
     {id:"RM-004",title:"Need 20 new copper handi",cat:"Utensils & Crockery",venue:"All Properties",priority:"Low",assignTo:"rajender",status:"Pending Approval",dept:"crockery",createdBy:"Gopal",date:relDate(-3),notes:"Current copper handis dented and discolored. Need for luxury functions.",updates:[{by:"Rajender",date:relDate(-2),msg:"Got 3 vendor quotes. Best: ₹850/pc from Rewari supplier."}]},
     {id:"RM-005",title:"Fridge truck AC not cooling properly",cat:"Vehicle",venue:"All Properties",priority:"High",assignTo:"akhtar",status:"In Progress",dept:"transport",createdBy:"Abhi",date:relDate(-1),notes:"Temperature not holding below 4°C during transport.",updates:[{by:"Akhtar",date:TODAY,msg:"Mechanic visiting tomorrow morning. Gas refill needed."}]},
     {id:"RM-006",title:"Service station exhaust fan broken",cat:"Exhaust & Chimney",venue:"Ambria Exotica",priority:"Medium",assignTo:"akhtar",status:"Open",dept:"service",createdBy:"Raghvendra",date:TODAY,notes:"Fan not running. Kitchen getting smoky during service.",updates:[]},
-  ]);
+  ];
+  const [tickets, setTickets] = useState(TICKETS_INIT);
+  useEffect(()=>{
+    if(!supabase) return;
+    supabase.from("repair_tickets").select("*").order("created_at",{ascending:false}).then(({data})=>{
+      if(data && data.length > 0)
+        setTickets(data.map(t=>({...t,assignTo:t.assign_to,createdBy:t.created_by,updates:t.updates||[]})));
+    });
+  },[]);
+
+  function syncTicket(t){
+    if(!supabase) return;
+    supabase.from("repair_tickets").upsert({
+      id:t.id, title:t.title, cat:t.cat, venue:t.venue, priority:t.priority,
+      assign_to:t.assignTo, status:t.status, dept:t.dept,
+      created_by:t.createdBy, date:t.date, notes:t.notes, updates:t.updates||[],
+    },{onConflict:"id"}).catch(e=>console.error("ticket sync:",e));
+  }
+
   const [showNew, setShowNew]   = useState(false);
   const [selId, setSelId]       = useState(null);
   const [updMsg, setUpdMsg]     = useState("");
@@ -8580,19 +8598,25 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
   function addTicket(){
     if(!newT.title.trim()) return;
     const id=`RM-${String(Date.now()).slice(-4)}`;
-    setTickets(p=>[{id,title:newT.title.trim(),cat:newT.cat,venue:newT.venue,priority:newT.priority,
+    const t={id,title:newT.title.trim(),cat:newT.cat,venue:newT.venue,priority:newT.priority,
       assignTo:newT.assignTo,status:"Open",dept:newT.dept,
-      createdBy:currentUser?.name||"Staff",date:TODAY,notes:newT.notes,updates:[]},...p]);
+      createdBy:currentUser?.name||"Staff",date:TODAY,notes:newT.notes,updates:[]};
+    setTickets(p=>[t,...p]);
+    syncTicket(t);
     setNewT({title:"",cat:"Gas & Burner",venue:"Ambria Pushpanjali",priority:"Medium",assignTo:"akhtar",dept:currentDept||"kitchen",notes:""});
     setShowNew(false);
   }
-  function updStatus(id, st){ setTickets(p=>p.map(t=>t.id===id?{...t,status:st}:t)); }
+  function updStatus(id, st){
+    setTickets(p=>p.map(t=>{if(t.id!==id)return t;const u={...t,status:st};syncTicket(u);return u;}));
+  }
   function addUpdate(id){
     if(!updMsg.trim()) return;
-    setTickets(p=>p.map(t=>t.id!==id?t:{...t,updates:[...t.updates,{by:currentUser?.name||"Staff",date:TODAY,msg:updMsg.trim()}]}));
+    setTickets(p=>p.map(t=>{if(t.id!==id)return t;const u={...t,updates:[...t.updates,{by:currentUser?.name||"Staff",date:TODAY,msg:updMsg.trim()}]};syncTicket(u);return u;}));
     setUpdMsg("");
   }
-  function reassign(id, assignTo){ setTickets(p=>p.map(t=>t.id===id?{...t,assignTo}:t)); }
+  function reassign(id, assignTo){
+    setTickets(p=>p.map(t=>{if(t.id!==id)return t;const u={...t,assignTo};syncTicket(u);return u;}));
+  }
 
   // Filtering + sorting
   let visible = tickets.filter(t=>
@@ -9580,7 +9604,6 @@ export default function App() {
   const setAttendance = (updater) => {
     setAttendance_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Auto-save day-wise to backend
       try {
         const byDate = {};
         safeArr(next).forEach(a => { if(!byDate[a.date]) byDate[a.date]=[]; byDate[a.date].push(a); });
@@ -9588,6 +9611,20 @@ export default function App() {
           localStorage.setItem("att_"+date, JSON.stringify(recs));
         });
       } catch(e) {}
+      if(supabase) {
+        const prevByKey = new Map(safeArr(prev).map(a=>[a.staffId+"_"+a.date, a]));
+        safeArr(next).forEach(a => {
+          const key = a.staffId+"_"+a.date;
+          const old = prevByKey.get(key);
+          if(!old || old.status!==a.status || old.time!==a.time) {
+            supabase.from("attendance").upsert({
+              staff_id:a.staffId, staff_name:a.staffName,
+              section:a.section, date:a.date,
+              status:a.status||"Present", in_time:a.time||null,
+            },{onConflict:"staff_id,date"}).catch(e=>console.error("att sync:",e));
+          }
+        });
+      }
       return next;
     });
   };
@@ -9608,10 +9645,49 @@ export default function App() {
     setLeaves_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       try { localStorage.setItem("ambria_leaves", JSON.stringify(next)); } catch(e) {}
+      if(supabase) {
+        const prevMap = new Map(safeArr(prev).map(l=>[String(l.id), l]));
+        safeArr(next).forEach(l => {
+          const idStr = String(l.id);
+          const old = prevMap.get(idStr);
+          if(!old || old.status!==l.status) {
+            supabase.from("leaves").upsert({
+              id: idStr, staff_id: String(l.staffId||l.staff_id||""),
+              staff_name: l.staffName, section: l.staffSection||l.section||"",
+              from_date: l.from, to_date: l.to,
+              reason: l.reason, status: l.status||"Pending",
+            },{onConflict:"id"}).catch(e=>console.error("leaves sync:",e));
+          }
+        });
+      }
       return next;
     });
   };
-  const [events,setEvents]           = useState(LIVE_EVENTS_INIT);
+  const [events,setEvents_raw]       = useState(LIVE_EVENTS_INIT);
+  const setEvents = (updater) => {
+    setEvents_raw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if(supabase) {
+        const prevMap = new Map(safeArr(prev).map(e=>[e.id, e]));
+        const nextMap = new Map(safeArr(next).map(e=>[e.id, e]));
+        // Upsert new or changed events
+        nextMap.forEach((ev, id) => {
+          if(!prevMap.has(id) || prevMap.get(id) !== ev) {
+            supabase.from("events").upsert({
+              id:ev.id, guest:ev.guest, venue:ev.venue, date:ev.date, time:ev.time,
+              type:ev.type, pax:+ev.pax||0, veg:+ev.veg||0, nonveg:+ev.nonveg||0,
+              menu_package:ev.menuPackage||null, menu:ev.menu||[], special:ev.special||null, extras:ev.extras||[],
+            },{onConflict:"id"}).catch(e=>console.error("ev sync:",e));
+          }
+        });
+        // Delete removed events
+        prevMap.forEach((_, id) => {
+          if(!nextMap.has(id)) supabase.from("events").delete().eq("id",id).catch(e=>console.error("ev del:",e));
+        });
+      }
+      return next;
+    });
+  };
   const [kitchenTracking,setKitchenTracking] = useState({});
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
@@ -9639,39 +9715,56 @@ export default function App() {
     setSessionChecked(true);
   },[]);
 
-  // ── Supabase: load + real-time sync ──
+  // ── Supabase: load ALL data + realtime ──
   useEffect(() => {
     if (!supabase) return;
-    async function loadStaff() {
-      const { data } = await supabase.from('staff').select('*');
-      if (data && data.length > 0) {
-        setEmpDb(data.map(s => ({...s, staffListId:s.staff_id, is_active:s.is_active!==false})));
-      }
-    }
-    loadStaff();
-    const channel = supabase
-      .channel('staff-changes')
-      .on('postgres_changes', { event:'*', schema:'public', table:'staff' }, (payload) => {
-        if (payload.eventType==='INSERT') {
-          setEmpDb(prev => {
-            const exists = prev.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id);
-            if (exists) return prev;
-            return [...prev, {...payload.new, staffListId:payload.new.staff_id}];
+    (async () => {
+      // ── Staff: merge Supabase with localStorage, seed missing to Supabase ──
+      const {data:sd} = await supabase.from("staff").select("*");
+      if(sd && sd.length > 0) {
+        const sbMap = new Map(sd.map(s=>[s.staff_id, {...s,staffListId:s.staff_id,is_active:s.is_active!==false}]));
+        setEmpDb(prev => {
+          const merged = [...sbMap.values()];
+          safeArr(prev).forEach(s => {
+            const sid = s.staffListId||s.staff_id||s.id;
+            if(sid && !sbMap.has(sid)) { merged.push(s); syncStaffToSupabase("upsert",s); }
           });
-        }
-        if (payload.eventType==='UPDATE') {
-          setEmpDb(prev => prev.map(s =>
-            (s.staffListId||s.staff_id)===payload.new.staff_id
-              ? {...s, ...payload.new, staffListId:payload.new.staff_id}
-              : s
-          ));
-        }
-        if (payload.eventType==='DELETE') {
-          setEmpDb(prev => prev.filter(s=>(s.staffListId||s.staff_id)!==payload.old.staff_id));
-        }
+          return merged;
+        });
+      }
+      // ── Events: load from Supabase if available ──
+      const {data:ed} = await supabase.from("events").select("*").order("date");
+      if(ed && ed.length > 0)
+        setEvents_raw(ed.map(e=>({...e,menuPackage:e.menu_package,menu:e.menu||[],extras:e.extras||[]})));
+      // ── Today's attendance ──
+      const {data:ad} = await supabase.from("attendance").select("*").eq("date",TODAY);
+      if(ad && ad.length > 0)
+        setAttendance_raw(ad.map(a=>({id:a.id,staffId:a.staff_id,staffName:a.staff_name,section:a.section,date:a.date,status:a.status||"Present",time:a.in_time})));
+      // ── Leaves ──
+      const {data:ld} = await supabase.from("leaves").select("*").order("created_at",{ascending:false}).limit(200);
+      if(ld && ld.length > 0)
+        setLeaves_raw(ld.map(l=>({id:l.id,staffId:l.staff_id,staffName:l.staff_name,staffSection:l.section||"",from:l.from_date,to:l.to_date,reason:l.reason,status:l.status})));
+    })();
+
+    // ── Realtime subscriptions ──
+    const ch = supabase.channel("app-rt")
+      .on("postgres_changes",{event:"*",schema:"public",table:"staff"},({eventType:et,new:n,old:o})=>{
+        if(et==="DELETE") setEmpDb(p=>p.filter(s=>(s.staffListId||s.staff_id)!==o.staff_id));
+        else if(n) setEmpDb(p=>{const ex=p.some(s=>(s.staffListId||s.staff_id)===n.staff_id); return ex?p.map(s=>(s.staffListId||s.staff_id)===n.staff_id?{...s,...n,staffListId:n.staff_id}:s):[...p,{...n,staffListId:n.staff_id}]});
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:"events"},({eventType:et,new:n,old:o})=>{
+        if(et==="DELETE") setEvents_raw(p=>p.filter(e=>e.id!==o.id));
+        else if(n) setEvents_raw(p=>{const ev={...n,menuPackage:n.menu_package,menu:n.menu||[],extras:n.extras||[]}; const ex=p.some(e=>e.id===n.id); return ex?p.map(e=>e.id===n.id?ev:e):[...p,ev]});
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:"attendance"},({eventType:et,new:n})=>{
+        if(n?.date===TODAY){const r={id:n.id,staffId:n.staff_id,staffName:n.staff_name,section:n.section,date:n.date,status:n.status||"Present",time:n.in_time};setAttendance_raw(p=>{const ex=p.some(a=>a.staffId===n.staff_id&&a.date===n.date);return ex?p.map(a=>a.staffId===n.staff_id&&a.date===n.date?r:a):[...p,r]});}
+      })
+      .on("postgres_changes",{event:"*",schema:"public",table:"leaves"},({eventType:et,new:n,old:o})=>{
+        if(et==="DELETE") setLeaves_raw(p=>p.filter(l=>String(l.id)!==String(o.id)));
+        else if(n) setLeaves_raw(p=>{const nl={id:n.id,staffId:n.staff_id,staffName:n.staff_name,staffSection:n.section||"",from:n.from_date,to:n.to_date,reason:n.reason,status:n.status}; const ex=p.some(l=>String(l.id)===String(n.id)); return ex?p.map(l=>String(l.id)===String(n.id)?nl:l):[...p,nl]});
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(ch); };
   }, []);
 
   async function syncStaffToSupabase(action, staffData) {
