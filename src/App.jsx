@@ -9691,67 +9691,72 @@ export default function App() {
   const [kitchenTracking,setKitchenTracking] = useState({});
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
-  const [empDb,setEmpDb_raw]          = useState(EMPLOYEE_DB_INIT);
-  const setEmpDb = (updater) => {
-    setEmpDb_raw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem("ambria_empdb_v3", JSON.stringify(next)); } catch(e) {}
-      return next;
-    });
-  };
+  const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
+  const [dbReady, setDbReady]         = useState(false);
   const [sessionChecked,setSessionChecked] = useState(false);
 
   useEffect(()=>{
     try{
       const suRaw = localStorage.getItem("ambria_session_user");
       if(suRaw){ try { const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } } catch(e){ console.warn("Session parse failed",e); } }
-      // Load saved empDb (v3 key)
-      const dbRaw = localStorage.getItem("ambria_empdb_v3");
-      if(dbRaw){ try { const db=JSON.parse(dbRaw); if(Array.isArray(db)&&db.length>0) setEmpDb_raw(db); } catch(e){} }
-      // Load saved leaves
+      // Fallback: load empDb from localStorage if Supabase not configured
+      if(!supabase){ const dbRaw = localStorage.getItem("ambria_empdb_v4"); if(dbRaw){ try{const db=JSON.parse(dbRaw);if(Array.isArray(db)&&db.length>0)setEmpDb(db);}catch(e){} } }
+      // Load saved leaves as fallback
       const lvRaw = localStorage.getItem("ambria_leaves");
       if(lvRaw){ try { const lv=JSON.parse(lvRaw); if(Array.isArray(lv)&&lv.length>0) setLeaves_raw(lv); } catch(e){} }
     }catch(e){}
     setSessionChecked(true);
   },[]);
 
-  // ── Supabase: load ALL data + realtime ──
+  // ── Supabase: staff load + realtime ──
+  useEffect(() => {
+    if (!supabase) { setDbReady(true); return; }
+    async function load() {
+      const { data } = await supabase.from('staff').select('*');
+      if (data && data.length > 0) {
+        setEmpDb(data.map(s => ({...s, staffListId: s.staff_id, is_active: s.is_active !== false})));
+      }
+      setDbReady(true);
+    }
+    load();
+    const channel = supabase.channel('staff-realtime')
+      .on('postgres_changes', {event:'*', schema:'public', table:'staff'}, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setEmpDb(prev => { if(prev.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id)) return prev; return [...prev,{...payload.new,staffListId:payload.new.staff_id}]; });
+        }
+        if (payload.eventType === 'UPDATE') {
+          setEmpDb(prev => prev.map(s => (s.staffListId||s.staff_id)===payload.new.staff_id ? {...s,...payload.new,staffListId:payload.new.staff_id} : s));
+        }
+        if (payload.eventType === 'DELETE') {
+          setEmpDb(prev => prev.filter(s => (s.staffListId||s.staff_id) !== payload.old.staff_id));
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ── localStorage: save empDb after Supabase load ──
+  useEffect(() => {
+    if (dbReady && empDb.length > 0) {
+      try { localStorage.setItem('ambria_empdb_v4', JSON.stringify(empDb)); } catch(e) {}
+    }
+  }, [empDb, dbReady]);
+
+  // ── Supabase: events, attendance, leaves + realtime ──
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      // ── Staff: merge Supabase with localStorage, seed missing to Supabase ──
-      const {data:sd} = await supabase.from("staff").select("*");
-      if(sd && sd.length > 0) {
-        const sbMap = new Map(sd.map(s=>[s.staff_id, {...s,staffListId:s.staff_id,is_active:s.is_active!==false}]));
-        setEmpDb(prev => {
-          const merged = [...sbMap.values()];
-          safeArr(prev).forEach(s => {
-            const sid = s.staffListId||s.staff_id||s.id;
-            if(sid && !sbMap.has(sid)) { merged.push(s); syncStaffToSupabase("upsert",s); }
-          });
-          return merged;
-        });
-      }
-      // ── Events: load from Supabase if available ──
       const {data:ed} = await supabase.from("events").select("*").order("date");
       if(ed && ed.length > 0)
         setEvents_raw(ed.map(e=>({...e,menuPackage:e.menu_package,menu:e.menu||[],extras:e.extras||[]})));
-      // ── Today's attendance ──
       const {data:ad} = await supabase.from("attendance").select("*").eq("date",TODAY);
       if(ad && ad.length > 0)
         setAttendance_raw(ad.map(a=>({id:a.id,staffId:a.staff_id,staffName:a.staff_name,section:a.section,date:a.date,status:a.status||"Present",time:a.in_time})));
-      // ── Leaves ──
       const {data:ld} = await supabase.from("leaves").select("*").order("created_at",{ascending:false}).limit(200);
       if(ld && ld.length > 0)
         setLeaves_raw(ld.map(l=>({id:l.id,staffId:l.staff_id,staffName:l.staff_name,staffSection:l.section||"",from:l.from_date,to:l.to_date,reason:l.reason,status:l.status})));
     })();
-
-    // ── Realtime subscriptions ──
     const ch = supabase.channel("app-rt")
-      .on("postgres_changes",{event:"*",schema:"public",table:"staff"},({eventType:et,new:n,old:o})=>{
-        if(et==="DELETE") setEmpDb(p=>p.filter(s=>(s.staffListId||s.staff_id)!==o.staff_id));
-        else if(n) setEmpDb(p=>{const ex=p.some(s=>(s.staffListId||s.staff_id)===n.staff_id); return ex?p.map(s=>(s.staffListId||s.staff_id)===n.staff_id?{...s,...n,staffListId:n.staff_id}:s):[...p,{...n,staffListId:n.staff_id}]});
-      })
       .on("postgres_changes",{event:"*",schema:"public",table:"events"},({eventType:et,new:n,old:o})=>{
         if(et==="DELETE") setEvents_raw(p=>p.filter(e=>e.id!==o.id));
         else if(n) setEvents_raw(p=>{const ev={...n,menuPackage:n.menu_package,menu:n.menu||[],extras:n.extras||[]}; const ex=p.some(e=>e.id===n.id); return ex?p.map(e=>e.id===n.id?ev:e):[...p,ev]});
@@ -9767,29 +9772,29 @@ export default function App() {
     return () => { supabase.removeChannel(ch); };
   }, []);
 
-  async function syncStaffToSupabase(action, staffData) {
+  async function syncStaff(action, data) {
     if (!supabase) return;
     try {
       const record = {
-        staff_id: staffData.staffListId||staffData.staff_id,
-        name: staffData.name,
-        section: staffData.section,
-        dept: staffData.dept,
-        role: staffData.role,
-        pin: String(staffData.pin||'0000'),
-        is_admin: staffData.role==='admin',
-        is_active: staffData.is_active!==false,
-        joining: staffData.joining,
-        phone: staffData.phone||null,
-        custom_screens: staffData.custom_screens||null,
-        permissions: staffData.permissions||null,
+        staff_id: data.staffListId||data.staff_id,
+        name: data.name,
+        section: data.section||null,
+        dept: data.dept||null,
+        role: data.role||'staff',
+        pin: String(data.pin||'0000'),
+        is_admin: data.role==='admin',
+        is_active: data.is_active!==false,
+        joining: data.joining||null,
+        phone: data.phone||null,
+        custom_screens: data.custom_screens||null,
+        permissions: data.permissions||null,
       };
       if (action==='upsert') {
         await supabase.from('staff').upsert(record, {onConflict:'staff_id'});
       } else if (action==='delete') {
         await supabase.from('staff').delete().eq('staff_id', record.staff_id);
       }
-    } catch(e) { console.error('Supabase sync error:', e); }
+    } catch(e) { console.error('Sync error:', e); }
   }
 
   function handleLogin(emp){
@@ -9916,7 +9921,7 @@ export default function App() {
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
-      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaffToSupabase}/>;
+      case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
