@@ -9638,14 +9638,15 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     service: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_service",label:"Service Operations",icon:"🍽️"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     crockery: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -9653,6 +9654,7 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     beverages: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -9661,16 +9663,19 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
     odc: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"access",label:"Access Manager",icon:"🔐"},
     ],
   };
 
@@ -9753,7 +9758,7 @@ export default function App() {
 
         {/* Nav items (tablet: larger touch targets) */}
         <nav style={{flex:1,padding:"10px 12px",overflowY:"auto"}}>
-          {curNav.map(item=>{
+          {curNav.filter(item=>item.id!=="access"||(currentUser&&currentUser.role==="admin")).map(item=>{
             const active=screen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
             return(
