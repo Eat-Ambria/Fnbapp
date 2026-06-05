@@ -5487,25 +5487,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           );
                         })()}
                         {steps2.map((step,si)=>{
-                        const running2=!!(d2.starts?.[`mesa_${si}`])&&!(d2.manual?.[`mesa_${si}`])&&!(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000)>=step.tm));
-                        const sDone2=!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm));
-                        const el3=running2?Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000):0;const rem2=Math.max(0,(step.tm||0)-el3);
-                        const pct3=step.tm>0?Math.min(100,Math.round(el3/step.tm*100)):(sDone2?100:0);
-                        const storeDoneCheck=!!d2.storeEnd||(d2.storeStart&&Math.floor((Date.now()-d2.storeStart)/1000)>=1800);
-                        const prevOk2=si===0?!!storeDoneCheck:(!!(d2.manual?.[`mesa_${si-1}`])||(d2.starts?.[`mesa_${si-1}`]&&steps2[si-1]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si-1}`]||0))/1000)>=steps2[si-1].tm)));
-                        return(<div key={si} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:si<steps2.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                          <div style={{width:26,height:26,borderRadius:8,background:sDone2?C.green:running2?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone2||running2?"#0A0A0F":C.muted,flexShrink:0}}>{sDone2?"✓":si+1}</div>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:12,fontWeight:600,color:sDone2?C.green:C.text}}>{step.t}</div>
-                            {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted}}>{step.i||step.desc}</div>}
-                            {step.ccp&&<div style={{fontSize:11,color:C.red,marginTop:2}}>🔴 CCP: {step.ccp}</div>}
-                            {step.tm>0&&<div style={{height:6,background:C.border,borderRadius:2,marginTop:4,overflow:"hidden"}}><div style={{height:"100%",width:pct3+"%",background:sDone2?C.green:C.amber,borderRadius:2,transition:"width .5s"}}/></div>}
-                            {running2&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⏱ {fmtT(el3)}/{fmtT(step.tm)} — {fmtT(rem2)} {T2("left")}</div>}
-                          </div>
-                          {!running2&&!sDone2&&step.tm>0&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2.starts||{}),[`mesa_${si}`]:Date.now()}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>▶ {fmtT(step.tm)}</button>}
-                          {!running2&&!sDone2&&!step.tm&&prevOk2&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2.manual||{}),[`mesa_${si}`]:true}});}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:40}}>✓</button>}
-                        </div>);})}
-                        {steps2.every((_,si)=>!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&steps2[si]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=steps2[si].tm)))&&!allDone2&&(
+                          var stepKey='step_'+si;
+                          var stStarted=!!(d2.starts&&d2.starts[stepKey]);
+                          var stManual=!!(d2.manual&&d2.manual[stepKey]);
+                          var stElapsed=stStarted?Math.floor((Date.now()-(d2.starts[stepKey]||Date.now()))/1000):0;
+                          var stTimerDone=stStarted&&step.tm&&stElapsed>=step.tm;
+                          var stDone=stManual||stTimerDone;
+                          var stRemain=step.tm?Math.max(0,step.tm-stElapsed):0;
+                          var stPct=step.tm>0?Math.min(100,Math.round(stElapsed/step.tm*100)):0;
+                          var storeDoneCheck=!!(d2.storeEnd)||(d2.storeStart&&Math.floor((Date.now()-(d2.storeStart||0))/1000)>=1800);
+                          var prevKey='step_'+(si-1);
+                          var prevDone=si===0?!!storeDoneCheck:(!!(d2.manual&&d2.manual[prevKey])||(d2.starts&&d2.starts[prevKey]&&steps2[si-1]&&steps2[si-1].tm&&Math.floor((Date.now()-(d2.starts[prevKey]||0))/1000)>=steps2[si-1].tm));
+                          return(<div key={si} style={{display:"flex",gap:10,padding:"10px 0",borderBottom:si<steps2.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
+                            <div style={{width:28,height:28,borderRadius:8,background:stDone?C.green:stStarted?C.amber:C.darkCard,border:`2px solid ${stDone?C.green:stStarted?C.amber:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:stDone||stStarted?"#0A0A0F":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:12,fontWeight:700,color:stDone?C.green:stStarted?C.amber:C.text}}>{step.t}</div>
+                              {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{step.i||step.desc}</div>}
+                              {step.ccp&&<div style={{fontSize:11,color:C.red,marginTop:2}}>🔴 CCP: {step.ccp}</div>}
+                              {stStarted&&!stDone&&step.tm>0&&<div style={{marginTop:5}}>
+                                <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                                  <div style={{height:"100%",width:stPct+"%",background:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                                </div>
+                                <div style={{fontSize:11,color:C.amber,fontWeight:700,marginTop:3}}>⏱ {Math.floor(stElapsed/60)}m {stElapsed%60}s / {Math.floor(step.tm/60)}m — {Math.floor(stRemain/60)}m {stRemain%60}s left</div>
+                              </div>}
+                              {stDone&&step.tm>0&&<div style={{fontSize:11,color:C.green,marginTop:3}}>✅ {Math.floor(step.tm/60)}m done</div>}
+                              {!stStarted&&!stDone&&step.tm>0&&<div style={{fontSize:11,color:C.faint,marginTop:3}}>⏱ {Math.floor(step.tm/60)}m{step.tm%60>0?" "+step.tm%60+"s":""}</div>}
+                            </div>
+                            <div style={{flexShrink:0}}>
+                              {!stStarted&&!stDone&&step.tm>0&&prevDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2.starts||{}),[stepKey]:Date.now()}});}} style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>▶ {Math.floor(step.tm/60)}m</button>}
+                              {stStarted&&!stDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2.manual||{}),[stepKey]:true}});}} style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>⏹</button>}
+                              {!stStarted&&!stDone&&!step.tm&&prevDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2.manual||{}),[stepKey]:true}});}} style={{padding:"8px 14px",borderRadius:10,background:C.gold,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✓</button>}
+                              {!stStarted&&!stDone&&!prevDone&&<div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint,minHeight:36,display:"flex",alignItems:"center"}}>🔒</div>}
+                            </div>
+                          </div>);
+                        })}
+                        {steps2.every((_,si)=>!!(d2.manual&&d2.manual['step_'+si])||(d2.starts&&d2.starts['step_'+si]&&steps2[si]?.tm&&Math.floor((Date.now()-(d2.starts['step_'+si]||0))/1000)>=steps2[si].tm))&&!allDone2&&(
                           <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginTop:6,minHeight:40}}>✅ {T2("Mesa Complete")} — {dish.name} ({dish.totalPax} {T2("pax")})</button>
                         )}
                       </div>)}
@@ -6046,24 +6062,38 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
                               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
                               {steps.map((step,si)=>{
-                                // Use cDish tracking if available, else nDish
-                                const trackDish = cDish||nDish;
-                                const d2 = trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
-                                const done = !!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm);
-                                const isD1s = /mesa|masala|prep|mix|shap|boil|soak|marin|grind|batter|dough|cut|chop|blanch|peel/i.test(step.t||"");
+                                const trackDish=cDish||nDish;
+                                const d2d=trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
+                                const sk='step_'+si;
+                                const stS=!!(d2d.starts&&d2d.starts[sk]);
+                                const stM=!!(d2d.manual&&d2d.manual[sk]);
+                                const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;
+                                const stTD=stS&&step.tm&&stEl>=step.tm;
+                                const stDone=stM||stTD;
+                                const stRem=step.tm?Math.max(0,step.tm-stEl):0;
+                                const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;
+                                const pk='step_'+(si-1);
+                                const prevD=si===0||(!!(d2d.manual&&d2d.manual[pk])||(d2d.starts&&d2d.starts[pk]&&steps[si-1]&&steps[si-1].tm&&Math.floor((Date.now()-(d2d.starts[pk]||0))/1000)>=steps[si-1].tm));
                                 return(
-                                  <div key={si} style={{display:"flex",gap:8,padding:"7px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                                    <div style={{width:24,height:24,borderRadius:6,background:done?C.green:isD1s?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:done?"#0A0A0F":C.muted,flexShrink:0}}>{done?"✓":si+1}</div>
+                                  <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
+                                    <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?C.amber:C.darkCard,border:`2px solid ${stDone?C.green:stS?C.amber:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#0A0A0F":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
                                     <div style={{flex:1}}>
-                                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                                        <span style={{fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{step.t}</span>
-                                        {isD1s&&!done&&<span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:C.amberBg,color:C.amber,border:`1px solid ${C.amberBorder}`}}>D-1</span>}
-                                      </div>
+                                      <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{step.t}</div>
                                       {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{step.i||step.desc}</div>}
                                       {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {step.ccp}</div>}
-                                      {step.tm&&<div style={{fontSize:10,color:C.amber}}>⏱ {fmtT(step.tm)}</div>}
+                                      {stS&&!stDone&&step.tm>0&&<div style={{marginTop:4}}>
+                                        <div style={{height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:stPct2+"%",background:C.amber,borderRadius:2,transition:"width 1s"}}/></div>
+                                        <div style={{fontSize:10,color:C.amber,marginTop:2}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m {stRem%60}s left</div>
+                                      </div>}
+                                      {stDone&&step.tm>0&&<div style={{fontSize:10,color:C.green,marginTop:2}}>✅ {Math.floor(step.tm/60)}m done</div>}
+                                      {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:10,color:C.faint,marginTop:2}}>⏱ {fmtT(step.tm)}</div>}
                                     </div>
-                                    {!done&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{manual:{...(ds(trackDish.fEvId,trackDish.fIdx).manual||{}),[`mesa_${si}`]:true}});}} style={{padding:"5px 10px",borderRadius:7,background:C.gold,color:"#0A0908",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                    <div style={{flexShrink:0}}>
+                                      {!stS&&!stDone&&step.tm>0&&prevD&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{starts:{...(d2d.starts||{}),[sk]:Date.now()}});}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                      {stS&&!stDone&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true}});}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>⏹</button>}
+                                      {!stS&&!stDone&&!step.tm&&prevD&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true}});}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#0A0908",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                      {!stS&&!stDone&&!prevD&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,minHeight:32,display:"flex",alignItems:"center"}}>🔒</div>}
+                                    </div>
                                   </div>
                                 );
                               })}
