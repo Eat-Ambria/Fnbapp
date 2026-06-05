@@ -6060,6 +6060,36 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {isExp&&(
                             <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
                               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
+                              {/* ── Step 0: Store Sourcing (D-1 tab) ── */}
+                              {(()=>{
+                                const tdish=cDish||nDish;if(!tdish)return null;
+                                const d2s=ds(tdish.fEvId,tdish.fIdx);
+                                const ssStarted=!!d2s.storeStart;
+                                const ssDone=!!d2s.storeEnd||(ssStarted&&Math.floor((Date.now()-(d2s.storeStart||0))/1000)>=1800);
+                                const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
+                                const ssRem=Math.max(0,1800-ssEl);
+                                const ssPct=ssStarted?Math.min(100,Math.round(ssEl/1800*100)):0;
+                                return(
+                                  <div style={{padding:12,marginBottom:10,borderRadius:10,
+                                    border:'2px solid '+(ssDone?'#1A4828':ssStarted?'#4A2810':'#2A2520'),
+                                    background:ssDone?'#0A2010':ssStarted?'#281508':'#1A1714'}}>
+                                    <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                                      <div style={{width:32,height:32,borderRadius:8,background:ssDone?'#3EAA68':ssStarted?'#D4914A':'#2A2520',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'#0A0A0F',flexShrink:0}}>{ssDone?'✓':'0'}</div>
+                                      <div style={{flex:1}}>
+                                        <div style={{fontSize:13,fontWeight:700,color:ssDone?'#3EAA68':ssStarted?'#D4914A':'#F5F0E8'}}>🏪 Collect Items from Store</div>
+                                        <div style={{fontSize:11,color:'#7A6F62'}}>30 min stoppable timer — collect all ingredients</div>
+                                      </div>
+                                    </div>
+                                    {ssStarted&&!ssDone&&<div style={{marginTop:8}}>
+                                      <div style={{height:5,background:'#2A2520',borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:ssPct+'%',background:'#D4914A',borderRadius:3,transition:'width 1s'}}/></div>
+                                      <div style={{fontSize:11,color:'#D4914A',fontWeight:700,marginTop:3}}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m — {Math.floor(ssRem/60)}m {ssRem%60}s left</div>
+                                    </div>}
+                                    {!ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeStart:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:'linear-gradient(135deg,#D4B44A,#A8891E)',color:'#0A0908',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:8}}>🏃 Go Collect Items — Start 30 min Timer</button>}
+                                    {ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeEnd:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:'linear-gradient(135deg,#3EAA68,#1A5030)',color:'#fff',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
+                                    {ssDone&&<div style={{fontSize:12,color:'#3EAA68',fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
+                                  </div>
+                                );
+                              })()}
                               {steps.map((step,si)=>{
                                 const trackDish=cDish||nDish;
                                 const d2d=trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
@@ -6072,7 +6102,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 const stRem=step.tm?Math.max(0,step.tm-stEl):0;
                                 const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;
                                 const pk='step_'+(si-1);
-                                const prevD=si===0||(!!(d2d.manual&&d2d.manual[pk])||(d2d.starts&&d2d.starts[pk]&&steps[si-1]&&steps[si-1].tm&&Math.floor((Date.now()-(d2d.starts[pk]||0))/1000)>=steps[si-1].tm));
+                                const prevD=si===0?(!!d2d.storeEnd||(d2d.storeStart&&Math.floor((Date.now()-(d2d.storeStart||0))/1000)>=1800)):(!!(d2d.manual&&d2d.manual[pk])||(d2d.starts&&d2d.starts[pk]&&steps[si-1]&&steps[si-1].tm&&Math.floor((Date.now()-(d2d.starts[pk]||0))/1000)>=steps[si-1].tm));
                                 return(
                                   <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
                                     <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?C.amber:C.darkCard,border:`2px solid ${stDone?C.green:stS?C.amber:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#0A0A0F":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
