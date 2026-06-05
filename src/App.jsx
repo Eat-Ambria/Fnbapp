@@ -9300,24 +9300,37 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
 
   const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || (s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase()));
 
-  function autoGenerateId(section) {
+  function autoGenerateId(section, dept) {
     const PREFIX_MAP = {
-      "Management":"AM","Sweets":"SW","Chaat":"CT","Chinese":"CH",
-      "Tandoor":"TD","Continental":"CN","Indian Curries":"IN",
-      "Bakery":"BK","Service":"SV","Crockery":"CR","Beverages":"BV",
+      "Management":"AM",
+      "Sweets":"SW","Chaat":"CT","Chinese":"CH","Tandoor":"TD",
+      "Continental":"CN","Indian Curries":"IN","Bakery":"BK",
+      "Service":"SV","Crockery":"CR","Beverages":"BV",
       "Transportation":"TR","ODC":"OD"
     };
-    const prefix = PREFIX_MAP[section] || "ST";
-    const existing = safeArr(empDb)
-      .map(s => (s.staffListId||s.staff_id||s.id||""))
-      .filter(id => id.startsWith(prefix))
-      .map(id => parseInt(id.replace(prefix, "")) || 0);
-    const next = existing.length > 0 ? Math.max(...existing) + 1 : 1;
-    return prefix + String(next).padStart(3, "0");
+    const DEPT_PREFIX_MAP = {
+      "kitchen":"KT","service":"SV","crockery":"CR",
+      "beverages":"BV","transport":"TR","odc":"OD",
+      "management":"AM","maintenance":"MT"
+    };
+    var prefix;
+    if (dept && DEPT_PREFIX_MAP[dept]) {
+      prefix = DEPT_PREFIX_MAP[dept];
+    } else if (section && PREFIX_MAP[section]) {
+      prefix = PREFIX_MAP[section];
+    } else {
+      prefix = "ST";
+    }
+    var existing = safeArr(empDb)
+      .map(function(s) { return s.staffListId || s.staff_id || ''; })
+      .filter(function(id) { return id.startsWith(prefix); })
+      .map(function(id) { return parseInt(id.replace(prefix, '')) || 0; });
+    var next = existing.length > 0 ? Math.max.apply(null, existing) + 1 : 1;
+    return prefix + String(next).padStart(3, '0');
   }
 
   function openAdd(){
-    const autoId = autoGenerateId("Management");
+    var autoId = autoGenerateId('Management', 'management');
     setForm({...blankForm, staff_id:autoId});
     setEditId(null); setShowAdd(true);
   }
@@ -9549,13 +9562,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Section</div>
-              <select value={form.section} onChange={e=>{const ns=e.target.value;setForm(p=>({...p,section:ns,staff_id:editId?p.staff_id:autoGenerateId(ns)}));}} style={fld}>
+              <select value={form.section} onChange={e=>{var sec=e.target.value;setForm(p=>({...p,section:sec,staff_id:editId?p.staff_id:autoGenerateId(sec,p.dept)}));}} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Department</div>
-              <select value={form.dept||"kitchen"} onChange={e=>setForm(p=>({...p,dept:e.target.value}))} style={fld}>
+              <select value={form.dept||"kitchen"} onChange={e=>{var d=e.target.value;setForm(p=>({...p,dept:d,staff_id:editId?p.staff_id:autoGenerateId(p.section,d)}));}} style={fld}>
                 <option value="kitchen">Kitchen</option>
                 <option value="service">Service</option>
                 <option value="crockery">Crockery</option>
