@@ -1156,8 +1156,8 @@ const HI = {
   "Dish Ready!":"व्यंजन तैयार!","Take a photo of the completed dish before marking as done":"मार्क करने से पहले तैयार व्यंजन की फोटो लें",
   "Capture Photo":"फोटो लें","Retake":"दोबारा लें","Confirm Ready":"तैयार पुष्टि करें",
   "Starting camera…":"कैमरा शुरू हो रहा है…",
-  "Go Collect Items":"सामान लेने जाएं","1 hr timer":"1 घंटे का टाइमर",
-  "Done Collecting":"कलेक्शन पूरा","elapsed":"बीत गया","remaining of 1 hr limit":"1 घंटे की सीमा में शेष",
+  "Go Collect Items":"सामान लेने जाएं","30 min timer":"30 मिनट का टाइमर",
+  "Done Collecting":"कलेक्शन पूरा","elapsed":"बीत गया","remaining of 30 min limit":"30 मिनट की सीमा में शेष",
   "Quality Remarks":"गुणवत्ता टिप्पणी",
   "e.g. Paneer fresh, tomatoes slightly overripe, onion good quality…":"जैसे: पनीर ताज़ा, टमाटर थोड़े पके, प्याज़ अच्छी गुणवत्ता…",
   "Collected":"कलेक्ट किया","Ingredients collected":"सामग्री कलेक्ट की","Done":"पूरा",
@@ -5115,6 +5115,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [readyCamOn, setReadyCamOn] = useState(false);
   const readyVidRef = useRef(null);
   const readyStreamRef = useRef(null);
+  const [readySig, setReadySig] = useState(null);
+  const sigCanvasRef = useRef(null);
+  const sigDrawing = useRef(false);
+
+  function sigCtx(){
+    const c=sigCanvasRef.current;if(!c)return null;
+    const ctx=c.getContext('2d');ctx.strokeStyle='#D4B44A';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+    return ctx;
+  }
+  function sigPos(e,c){
+    const r=c.getBoundingClientRect();
+    const t=e.touches?e.touches[0]:e;
+    return {x:(t.clientX-r.left)*(c.width/r.width),y:(t.clientY-r.top)*(c.height/r.height)};
+  }
+  function sigStart(e){
+    e.preventDefault();const c=sigCanvasRef.current;if(!c)return;
+    sigDrawing.current=true;const ctx=sigCtx();if(!ctx)return;
+    const p=sigPos(e,c);ctx.beginPath();ctx.moveTo(p.x,p.y);
+  }
+  function sigMove(e){
+    e.preventDefault();if(!sigDrawing.current)return;
+    const c=sigCanvasRef.current;if(!c)return;
+    const ctx=sigCtx();if(!ctx)return;
+    const p=sigPos(e,c);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.beginPath();ctx.moveTo(p.x,p.y);
+  }
+  function sigEnd(e){
+    if(!sigDrawing.current)return;
+    sigDrawing.current=false;
+    if(sigCanvasRef.current) setReadySig(sigCanvasRef.current.toDataURL('image/png'));
+  }
+  function sigClear(){
+    const c=sigCanvasRef.current;
+    if(c){const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);}
+    setReadySig(null);
+  }
   function startReadyCam(){
     setReadyCamOn(true);
     setTimeout(()=>{
@@ -5253,34 +5288,50 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* ── Chef Photo Modal ── */}
       {readyModal&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:C.surface,borderRadius:20,padding:"28px 24px",maxWidth:400,width:"100%",border:`2px solid ${C.greenBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
-            <div style={{textAlign:"center",marginBottom:16}}>
-              <div style={{fontSize:32,marginBottom:8}}>📸</div>
-              <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2("Dish Ready!")}</div>
-              <div style={{fontSize:14,color:C.gold,marginTop:4,fontWeight:600}}>{readyModal.dishName}</div>
-              <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Take a photo of the completed dish before marking as done")}</div>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"}}>
+          <div style={{background:C.surface,borderRadius:20,padding:"22px 20px",maxWidth:420,width:"100%",border:`2px solid ${C.greenBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
+            <div style={{textAlign:"center",marginBottom:14}}>
+              <div style={{fontSize:28,marginBottom:6}}>📸</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2("Dish Ready!")}</div>
+              <div style={{fontSize:13,color:C.gold,marginTop:3,fontWeight:600}}>{readyModal.dishName}</div>
             </div>
-            <div style={{borderRadius:14,overflow:"hidden",background:"#000",marginBottom:14,minHeight:200,position:"relative"}}>
-              {!readyPhoto?<video ref={readyVidRef} autoPlay playsInline muted style={{width:"100%",height:200,objectFit:"cover",display:"block"}}/>
-                          :<img src={readyPhoto} alt="dish" style={{width:"100%",height:200,objectFit:"cover",display:"block"}}/>}
+            {/* Selfie section */}
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>📸 {T2("Dish Photo")} <span style={{color:C.red}}>*</span></div>
+            <div style={{borderRadius:12,overflow:"hidden",background:"#000",marginBottom:10,minHeight:160,position:"relative"}}>
+              {!readyPhoto?<video ref={readyVidRef} autoPlay playsInline muted style={{width:"100%",height:160,objectFit:"cover",display:"block"}}/>
+                          :<img src={readyPhoto} alt="dish" style={{width:"100%",height:160,objectFit:"cover",display:"block"}}/>}
               {!readyCamOn&&!readyPhoto&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted,fontSize:13}}>📷 {T2("Starting camera…")}</div>}
             </div>
-            <div style={{display:"flex",gap:10,marginBottom:12}}>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
               {!readyPhoto
-                ?<button onClick={()=>{const s=snapReady();if(s){setReadyPhoto(s);stopReadyCam();}}} style={{flex:1,padding:"12px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:46}}>📸 {T2("Capture Photo")}</button>
-                :<button onClick={()=>{setReadyPhoto(null);startReadyCam();}} style={{flex:1,padding:"12px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:46}}>🔄 {T2("Retake")}</button>
+                ?<button onClick={()=>{const s=snapReady();if(s){setReadyPhoto(s);stopReadyCam();}}} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:42}}>📸 {T2("Capture Photo")}</button>
+                :<button onClick={()=>{setReadyPhoto(null);sigClear();startReadyCam();}} style={{flex:1,padding:"10px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:42}}>🔄 {T2("Retake")}</button>
               }
             </div>
+            {/* Signature section */}
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>✍️ {T2("Chef Signature")} <span style={{color:C.muted,fontWeight:400}}>(optional)</span></div>
+            <div style={{border:`2px solid ${readySig?C.goldBorder:C.border}`,borderRadius:10,overflow:"hidden",background:"#fff",marginBottom:6,touchAction:"none"}}>
+              <canvas ref={sigCanvasRef} width={380} height={120}
+                style={{display:"block",width:"100%",height:120,cursor:"crosshair",touchAction:"none"}}
+                onMouseDown={sigStart} onMouseMove={sigMove} onMouseUp={sigEnd} onMouseLeave={sigEnd}
+                onTouchStart={sigStart} onTouchMove={sigMove} onTouchEnd={sigEnd}
+              />
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <span style={{fontSize:11,color:C.muted}}>{readySig?"✅ Signed":"Draw signature above"}</span>
+              <button onClick={sigClear} style={{padding:"4px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>Clear</button>
+            </div>
+            {/* Submit */}
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>{
+              <button disabled={!readyPhoto} onClick={()=>{
                 const {evId,idx}=readyModal;
-                setDs(evId,idx,{ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),readyPhoto:readyPhoto||null});
-                stopReadyCam();setReadyModal(null);setReadyPhoto(null);
-              }} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#1E6634)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:50,fontFamily:"var(--font-display)",letterSpacing:.5}}>
+                const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+                setDs(evId,idx,{ready:true,readyAt:now,readyPhoto:readyPhoto||null,selfie:readyPhoto||null,signature:readySig||null,completedBy:currentUser?.name||"Chef",completedAt:now});
+                stopReadyCam();setReadyModal(null);setReadyPhoto(null);setReadySig(null);sigClear();
+              }} style={{flex:1,padding:"14px",borderRadius:12,background:readyPhoto?`linear-gradient(135deg,${C.green},#1E6634)`:"#333",color:readyPhoto?"#fff":C.faint,border:"none",fontSize:14,fontWeight:700,cursor:readyPhoto?"pointer":"not-allowed",minHeight:50,fontFamily:"var(--font-display)",letterSpacing:.5}}>
                 ✅ {T2("Confirm Ready")}
               </button>
-              <button onClick={()=>{stopReadyCam();setReadyModal(null);setReadyPhoto(null);}} style={{padding:"14px 18px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:50}}>✕</button>
+              <button onClick={()=>{stopReadyCam();setReadyModal(null);setReadyPhoto(null);setReadySig(null);sigClear();}} style={{padding:"14px 16px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:50}}>✕</button>
             </div>
           </div>
         </div>
@@ -5561,17 +5612,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     </div>
                                   );
                                 })()}
-                                {!running3&&!done3&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,3600);}} style={{padding:"12px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,display:"flex",gap:8,alignItems:"center"}}>🏃 {T2("Go Collect Items")} — {T2("1 hr timer")}</button>}
+                                {!running3&&!done3&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,1800);}} style={{padding:"12px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,display:"flex",gap:8,alignItems:"center"}}>🏃 {T2("Go Collect Items")} — {T2("30 min timer")}</button>}
                                 {running3&&<div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:12,padding:"14px 16px"}}>
                                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                                     <div>
                                       <div style={{fontSize:15,fontWeight:700,color:C.amber}}>⏱ {fmtT(el5)} {T2("elapsed")}</div>
-                                      <div style={{fontSize:11,color:C.muted}}>{fmtT(Math.max(0,3600-el5))} {T2("remaining of 1 hr limit")}</div>
+                                      <div style={{fontSize:11,color:C.muted}}>{fmtT(Math.max(0,1800-el5))} {T2("remaining of 30 min limit")}</div>
                                     </div>
                                     <button onClick={e=>{e.stopPropagation();stopStoreStep(dish.fEvId,dish.fIdx,si);}} style={{padding:"10px 18px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>✅ {T2("Done")}</button>
                                   </div>
                                   <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:10}}>
-                                    <div style={{height:"100%",width:Math.min(100,Math.round(el5/3600*100))+"%",background:el5>3000?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                                    <div style={{height:"100%",width:Math.min(100,Math.round(el5/1800*100))+"%",background:el5>1500?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/>
                                   </div>
                                   <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📝 {T2("Quality Remarks")}</div>
                                   {/* Quality rating buttons */}
@@ -5665,6 +5716,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               </div>
                             );
                           })}
+                          {/* Completion info — chef + selfie */}
+                          {d3.completedBy&&(
+                            <div style={{display:"flex",gap:10,alignItems:"center",marginTop:8,padding:"8px 12px",background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10}}>
+                              {d3.selfie&&<img src={d3.selfie} alt="selfie" style={{width:44,height:44,borderRadius:8,objectFit:"cover",border:`2px solid ${C.greenBorder}`,flexShrink:0}}/>}
+                              <div>
+                                <div style={{fontSize:12,fontWeight:700,color:C.green}}>✅ {d3.completedBy}</div>
+                                <div style={{fontSize:11,color:C.muted}}>{d3.completedAt||d3.readyAt}</div>
+                              </div>
+                              {d3.signature&&<img src={d3.signature} alt="sig" style={{height:36,maxWidth:80,objectFit:"contain",border:`1px solid ${C.border}`,borderRadius:6,background:"#fff",marginLeft:"auto",flexShrink:0}}/>}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>)}
