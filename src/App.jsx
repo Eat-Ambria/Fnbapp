@@ -5419,12 +5419,80 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </div>
                         <span style={{fontSize:14,color:C.muted,transform:isExp2?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                       </div>
-                      {isExp2&&(<div style={{padding:"8px 8px 8px 44px"}}>{steps2.map((step,si)=>{
+                      {isExp2&&(<div style={{padding:"8px 8px 8px 44px"}}>
+                        {/* ── Step 0: Store Sourcing ── */}
+                        {(()=>{
+                          const storeStarted=!!d2.storeStart;
+                          const storeDone=!!d2.storeEnd;
+                          const storeEl=storeStarted&&!storeDone?Math.floor((Date.now()-d2.storeStart)/1000):0;
+                          const storeTimerDone=storeStarted&&storeEl>=1800;
+                          const storeComplete=storeDone||storeTimerDone;
+                          const storeRem=Math.max(0,1800-storeEl);
+                          const storePct=storeStarted?Math.min(100,Math.round(storeEl/1800*100)):0;
+                          return(
+                            <div style={{padding:14,marginBottom:10,borderRadius:12,
+                              border:'2px solid '+(storeComplete?'#1A4828':storeStarted?'#4A2810':'#2A2520'),
+                              background:storeComplete?'#0A2010':storeStarted?'#28150840':'#1A1714'}}>
+                              <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:10}}>
+                                <div style={{width:36,height:36,borderRadius:10,
+                                  background:storeComplete?'#3EAA68':storeStarted?'#D4914A':'#2A2520',
+                                  display:'flex',alignItems:'center',justifyContent:'center',
+                                  fontSize:16,fontWeight:700,color:'#0A0A0F',flexShrink:0}}>
+                                  {storeComplete?'✓':'0'}
+                                </div>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:14,fontWeight:700,
+                                    color:storeComplete?'#3EAA68':storeStarted?'#D4914A':'#F5F0E8'}}>
+                                    🏪 Collect Items from Store
+                                  </div>
+                                  <div style={{fontSize:11,color:'#7A6F62'}}>
+                                    Source all ingredients before cooking · 30 min timer (stoppable)
+                                  </div>
+                                </div>
+                              </div>
+                              {storeStarted&&!storeComplete&&(
+                                <div style={{marginBottom:10}}>
+                                  <div style={{height:6,background:'#2A2520',borderRadius:3,overflow:'hidden'}}>
+                                    <div style={{height:'100%',width:storePct+'%',background:'#D4914A',borderRadius:3,transition:'width 1s'}}/>
+                                  </div>
+                                  <div style={{fontSize:12,color:'#D4914A',fontWeight:700,marginTop:4}}>
+                                    ⏱ {Math.floor(storeEl/60)}m {storeEl%60}s elapsed — {Math.floor(storeRem/60)}m {storeRem%60}s remaining
+                                  </div>
+                                </div>
+                              )}
+                              {!storeStarted&&!storeComplete&&(
+                                <button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeStart:Date.now()})}
+                                  style={{padding:'12px 20px',borderRadius:10,width:'100%',
+                                    background:'linear-gradient(135deg,#D4B44A,#A8891E)',
+                                    color:'#0A0908',border:'none',fontSize:13,fontWeight:700,
+                                    cursor:'pointer',minHeight:44}}>
+                                  🏃 Go Collect Items — Start 30 min Timer
+                                </button>
+                              )}
+                              {storeStarted&&!storeComplete&&(
+                                <button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})}
+                                  style={{padding:'12px 20px',borderRadius:10,width:'100%',
+                                    background:'linear-gradient(135deg,#3EAA68,#1A5030)',
+                                    color:'#fff',border:'none',fontSize:13,fontWeight:700,
+                                    cursor:'pointer',minHeight:44}}>
+                                  ⏹ Done — Items Collected
+                                </button>
+                              )}
+                              {storeComplete&&(
+                                <div style={{fontSize:12,color:'#3EAA68',fontWeight:700}}>
+                                  ✅ Store sourcing complete — ready to cook
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {steps2.map((step,si)=>{
                         const running2=!!(d2.starts?.[`mesa_${si}`])&&!(d2.manual?.[`mesa_${si}`])&&!(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000)>=step.tm));
                         const sDone2=!!(d2.manual?.[`mesa_${si}`])||(d2.starts?.[`mesa_${si}`]&&step.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si}`]||0))/1000)>=step.tm));
                         const el3=running2?Math.floor((Date.now()-d2.starts[`mesa_${si}`])/1000):0;const rem2=Math.max(0,(step.tm||0)-el3);
                         const pct3=step.tm>0?Math.min(100,Math.round(el3/step.tm*100)):(sDone2?100:0);
-                        const prevOk2=si===0||!!(d2.manual?.[`mesa_${si-1}`])||(d2.starts?.[`mesa_${si-1}`]&&steps2[si-1]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si-1}`]||0))/1000)>=steps2[si-1].tm));
+                        const storeDoneCheck=!!d2.storeEnd||(d2.storeStart&&Math.floor((Date.now()-d2.storeStart)/1000)>=1800);
+                        const prevOk2=si===0?!!storeDoneCheck:(!!(d2.manual?.[`mesa_${si-1}`])||(d2.starts?.[`mesa_${si-1}`]&&steps2[si-1]?.tm&&(Math.floor((Date.now()-(d2.starts[`mesa_${si-1}`]||0))/1000)>=steps2[si-1].tm)));
                         return(<div key={si} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:si<steps2.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
                           <div style={{width:26,height:26,borderRadius:8,background:sDone2?C.green:running2?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone2||running2?"#0A0A0F":C.muted,flexShrink:0}}>{sDone2?"✓":si+1}</div>
                           <div style={{flex:1}}>
