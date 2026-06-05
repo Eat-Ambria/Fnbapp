@@ -5054,6 +5054,22 @@ function getDishImageUrl(dishName) {
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null }) {
   const T2 = s => T(s, lang);
+
+  // Section tablet filtering
+  const isSectionUser = currentUser?.role?.startsWith('section_');
+  const SECTION_ROLE_MAP = {
+    section_indian: 'Indian Curries',
+    section_chinese: 'Chinese',
+    section_tandoor: 'Tandoor',
+    section_chaat: 'Chaat',
+    section_sweets: 'Sweets',
+    section_continental: 'Continental',
+    section_bakery: 'Bakery',
+  };
+  const sectionFilter = isSectionUser
+    ? (SECTION_ROLE_MAP[currentUser.role] || currentUser.section || null)
+    : null;
+
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -5201,11 +5217,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
     {v:"menus", l:`📜 ${T2("Menu")}`},
   ];
+  const TABS_FILTERED = isSectionUser
+    ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
+    : TABS;
 
   // ── Inline dish card (shows live progress) ──
 
   return(
     <div style={{position:"relative"}}>
+
+      {/* Section tablet banner */}
+      {sectionFilter && (
+        <div style={{background:C.goldBg,border:'1px solid '+C.goldBorder,
+          borderRadius:12,padding:'12px 16px',marginBottom:14,
+          display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:24}}>
+            {sectionFilter==='Chinese'?'🥢':sectionFilter==='Tandoor'?'🔥':
+             sectionFilter==='Indian Curries'?'🍛':sectionFilter==='Chaat'?'🥗':
+             sectionFilter==='Sweets'?'🍮':sectionFilter==='Continental'?'🍝':'🍽'}
+          </span>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{sectionFilter} Section</div>
+            <div style={{fontSize:11,color:C.muted}}>Showing only your section dishes</div>
+          </div>
+        </div>
+      )}
 
       {/* ── Chef Photo Modal ── */}
       {readyModal&&(
@@ -5244,7 +5280,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* TABS */}
       <div style={{display:"flex",gap:8,marginBottom:18}}>
-        {TABS.map(t=>(
+        {TABS_FILTERED.map(t=>(
           <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"14px 24px",borderRadius:24,fontSize:15,fontWeight:600,cursor:"pointer",minHeight:48,background:tab===t.v?C.gold:"transparent",color:tab===t.v?"#0A0A0F":C.muted,border:`2px solid ${tab===t.v?C.gold:C.border}`}}>{t.l}</button>
         ))}
       </div>
@@ -5262,6 +5298,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
             safeArr(ev.menu).forEach((name,idx)=>{
               if(guessSectionForDish(name)==="Beverages") return;
+              if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
               if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
               byDish[name].totalPax+=ev.pax||0;
               byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5361,6 +5398,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDish[name].totalPax+=ev.pax||0;
             byDish[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5657,6 +5695,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDishCont[name])byDishCont[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishCont[name].totalPax+=ev.pax||0;
             byDishCont[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -5671,6 +5710,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           safeArr(ev.menu).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDishNew[name])byDishNew[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishNew[name].totalPax+=ev.pax||0;
             byDishNew[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -9194,6 +9234,43 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [editPerms, setEditPerms] = useState([]);
   const [expandedScreens, setExpandedScreens] = useState({});
   const [copyFromId, setCopyFromId] = useState("");
+  const [selected, setSelected]   = useState(new Set());
+
+  const getSID = s => s.staffListId||s.staff_id||s.id;
+
+  function bulkRemoveAccess() {
+    if (!window.confirm('Remove access for ' + selected.size + ' staff?')) return;
+    setEmpDb(prev => prev.map(s =>
+      selected.has(getSID(s)) ? {...s, role:'staff', custom_screens:null, permissions:null} : s
+    ));
+    selected.forEach(id => {
+      const s = safeArr(empDb).find(x => getSID(x) === id);
+      if (s && syncToServer) syncToServer('upsert', {...s, role:'staff', custom_screens:null, permissions:null});
+    });
+    setSelected(new Set());
+  }
+
+  function bulkDeactivate() {
+    if (!window.confirm('Deactivate ' + selected.size + ' staff?')) return;
+    setEmpDb(prev => prev.map(s =>
+      selected.has(getSID(s)) ? {...s, is_active:false} : s
+    ));
+    selected.forEach(id => {
+      const s = safeArr(empDb).find(x => getSID(x) === id);
+      if (s && syncToServer) syncToServer('upsert', {...s, is_active:false});
+    });
+    setSelected(new Set());
+  }
+
+  function bulkDelete() {
+    if (!window.confirm('PERMANENTLY DELETE ' + selected.size + ' staff?')) return;
+    const ids = [...selected];
+    setEmpDb(prev => prev.filter(s => !selected.has(getSID(s))));
+    ids.forEach(id => {
+      if (syncToServer) syncToServer('delete', {staff_id:id});
+    });
+    setSelected(new Set());
+  }
 
   // Access control
   const canAdd   = hasPermission(currentUser, "access.add");
@@ -9422,7 +9499,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🔐 Access Manager</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>Manage staff accounts, roles & permissions — Admin only</div>
         </div>
-        {canAdd&&<button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {staff.length>0&&(
+            selected.size===staff.length
+              ? <button onClick={()=>setSelected(new Set())} style={{padding:"9px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>Deselect All</button>
+              : <button onClick={()=>setSelected(new Set(staff.map(getSID)))} style={{padding:"9px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>Select All</button>
+          )}
+          {canAdd&&<button onClick={openAdd} style={{padding:"11px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Staff</button>}
+        </div>
       </div>
 
       {/* Stats */}
@@ -9525,9 +9609,15 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         const isActive = s.is_active!==false&&s.active!==false;
         const sid = s.staffListId||s.staff_id||s.id;
         const pc = permCounts(s);
+        const isSel = selected.has(sid);
         return(
-          <Card key={sid} style={{marginBottom:8,padding:"14px 16px",opacity:isActive?1:.65,border:`1px solid ${isActive?C.border:C.redBorder}`}}>
+          <Card key={sid} style={{marginBottom:8,padding:"14px 16px",opacity:isActive?1:.65,border:`1px solid ${isSel?C.gold:isActive?C.border:C.redBorder}`,background:isSel?C.gold+"08":undefined}}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+              {/* Checkbox */}
+              <div onClick={()=>setSelected(p=>{const n=new Set(p);isSel?n.delete(sid):n.add(sid);return n;})}
+                style={{width:20,height:20,borderRadius:5,border:`2px solid ${isSel?C.gold:C.border}`,background:isSel?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,marginTop:10,fontSize:12,color:"#0A0A0F"}}>
+                {isSel?"✓":""}
+              </div>
               <div style={{width:40,height:40,borderRadius:12,background:C.gold+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
                 {roleLabel.split(" ")[0]}
               </div>
@@ -9564,6 +9654,20 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         );
       })}
       {staff.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:12}}>No staff found</div>}
+
+      {/* Bottom padding when bulk bar is visible */}
+      {selected.size>0&&<div style={{height:72}}/>}
+
+      {/* Fixed bulk action bar */}
+      {selected.size>0&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9000,background:C.surface,borderTop:`2px solid ${C.goldBorder}`,padding:"12px 20px",display:"flex",alignItems:"center",gap:10,boxShadow:"0 -4px 24px rgba(0,0,0,.5)"}}>
+          <span style={{fontSize:13,fontWeight:700,color:C.gold,marginRight:8}}>{selected.size} selected</span>
+          <button onClick={bulkRemoveAccess} style={{padding:"9px 14px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder||C.amber}`,color:C.amber,fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>Remove Access</button>
+          <button onClick={bulkDeactivate} style={{padding:"9px 14px",borderRadius:10,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>Deactivate</button>
+          <button onClick={bulkDelete} style={{padding:"9px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.red},#8A1010)`,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>🗑 Delete</button>
+          <button onClick={()=>setSelected(new Set())} style={{padding:"9px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40,marginLeft:"auto"}}>Cancel</button>
+        </div>
+      )}
     </div>
   );
 }
