@@ -9215,30 +9215,42 @@ const SCREEN_PERMISSIONS = {
   },
 };
 
+// Role → allowed screen IDs map (single source of truth)
+const PRESET_ROLES = {
+  admin:            {label:"Admin",              screens:["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc"]},
+  head_chef:        {label:"Head Chef",          screens:["dashboard","kitchen","store","team","transport","repair"]},
+  service:          {label:"Service",            screens:["dashboard","dept_service","team","vendors","repair"]},
+  crockery:         {label:"Crockery",           screens:["dashboard","dept_crockery","team","store","repair"]},
+  beverages:        {label:"Beverages",          screens:["dashboard","dept_beverages","menus","team","store","repair"]},
+  transport:        {label:"Transport",          screens:["dashboard","transport","repair"]},
+  kiosk_gate:       {label:"Gate Kiosk",         screens:["team"]},
+  section_indian:   {label:"Indian Section",     screens:["kitchen","repair"]},
+  section_chinese:  {label:"Chinese Section",    screens:["kitchen","repair"]},
+  section_tandoor:  {label:"Tandoor Section",    screens:["kitchen","repair"]},
+  section_chaat:    {label:"Chaat Section",      screens:["kitchen","repair"]},
+  section_sweets:   {label:"Sweets Section",     screens:["kitchen","repair"]},
+  section_continental:{label:"Continental Section",screens:["kitchen","repair"]},
+  section_bakery:   {label:"Bakery Section",     screens:["kitchen","repair"]},
+  staff:            {label:"Staff",              screens:["dashboard","kitchen","repair"]},
+};
+
 function getEffectivePerms(staff) {
-  if (staff && staff.permissions && staff.permissions.length > 0) return staff.permissions;
-  const role = (staff && staff.role) || "staff";
-  if (role === "admin") return Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms.map(p => p.id));
-  let screens = [];
-  if (role === "head_chef" || role === "headchef") {
-    screens = ["dashboard","kitchen","store","team","transport","repair"];
-  } else if (role.startsWith("section_")) {
-    screens = ["kitchen","repair"];
-  } else if (role === "service") {
-    screens = ["dashboard","dept_service","team","vendors","repair"];
-  } else if (role === "crockery") {
-    screens = ["dashboard","dept_crockery","team","store","repair"];
-  } else if (role === "beverages") {
-    screens = ["dashboard","dept_beverages","menus","team","store","repair"];
-  } else if (role === "transport") {
-    screens = ["dashboard","transport","repair"];
-  } else if (role === "kiosk_gate") {
-    screens = ["team"];
-  } else {
-    screens = ["dashboard","kitchen","repair"];
+  if (!staff) return [];
+  if (staff.permissions && staff.permissions.length > 0) return staff.permissions;
+  // custom_screens: derive perms from the allowed screen list
+  if (staff.custom_screens && staff.custom_screens.length > 0) {
+    const perms = [];
+    staff.custom_screens.forEach(sid => {
+      const sp = SCREEN_PERMISSIONS[sid];
+      if (sp) sp.perms.forEach(p => perms.push(p.id));
+    });
+    return perms.length > 0 ? perms : staff.custom_screens;
   }
+  const role = (staff.role || "staff");
+  if (role === "admin") return Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms.map(p => p.id));
+  const pr = PRESET_ROLES[role] || PRESET_ROLES.staff;
   const perms = [];
-  screens.forEach(sid => { const sp = SCREEN_PERMISSIONS[sid]; if (sp) sp.perms.forEach(p => perms.push(p.id)); });
+  pr.screens.forEach(sid => { const sp = SCREEN_PERMISSIONS[sid]; if (sp) sp.perms.forEach(p => perms.push(p.id)); });
   return perms;
 }
 
@@ -9253,22 +9265,19 @@ const hasPerm = hasPermission;
 function canAccessScreen(user, screenId) {
   if (!user) return false;
   if (user.role === "admin") return true;
+  // Fine-grained permission override
   if (user.permissions && user.permissions.length > 0) {
     const sp = SCREEN_PERMISSIONS[screenId];
     if (!sp) return true;
     return sp.perms.some(p => user.permissions.includes(p.id));
   }
-  const role = user.role || "staff";
-  let screens = [];
-  if (role === "head_chef" || role === "headchef") screens = ["dashboard","kitchen","store","team","transport","repair"];
-  else if (role.startsWith("section_")) screens = ["kitchen","repair"];
-  else if (role === "service") screens = ["dashboard","dept_service","team","vendors","repair"];
-  else if (role === "crockery") screens = ["dashboard","dept_crockery","team","store","repair"];
-  else if (role === "beverages") screens = ["dashboard","dept_beverages","menus","team","store","repair"];
-  else if (role === "transport") screens = ["dashboard","transport","repair"];
-  else if (role === "kiosk_gate") screens = ["team"];
-  else screens = ["dashboard","kitchen","repair"];
-  return screens.includes(screenId);
+  // Custom screen whitelist
+  if (user.custom_screens && user.custom_screens.length > 0) {
+    return user.custom_screens.includes(screenId);
+  }
+  // Role-based default
+  const pr = PRESET_ROLES[user.role || "staff"] || PRESET_ROLES.staff;
+  return pr.screens.includes(screenId);
 }
 
 
