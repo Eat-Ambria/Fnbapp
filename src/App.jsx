@@ -5564,124 +5564,138 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         );
                       })()}
 
-                      {/* All Steps with timers */}
-                      {steps3.map((step,si)=>{const running3=!!(d3.starts?.[si])&&!stepDone(d3,si);const done3=stepDone(d3,si);const d1Done=isD1Step(d3,si);const el5=running3?elapsed(d3,si):0;const tm5=step.tm||0;const rem3=Math.max(0,tm5-el5);const pct4=tm5>0?Math.min(100,Math.round(el5/tm5*100)):(done3?100:0);const prevOk3=si===0||stepDone(d3,si-1);
-                        return(<div key={si} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:si<steps3.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start",opacity:d1Done?.6:1}}>
+                      {/* ── Step 0: Store Sourcing (always first, gates all SOP steps) ── */}
+                      {(()=>{
+                        const storeStarted=!!d3.storeStart;
+                        const storeDone=!!d3.storeEnd;
+                        const storeEl=storeStarted&&!storeDone?Math.floor((Date.now()-d3.storeStart)/1000):0;
+                        const storeRem=Math.max(0,1800-storeEl);
+                        const storePct=storeStarted?Math.min(100,Math.round(storeEl/1800*100)):0;
+                        const evScale=appliedScales[dish.fEvId]||appliedScales["manual"];
+                        const evPct=evScale?.percent||100;
+                        const evObj=evList.find(e=>e.id===dish.fEvId);
+                        const pax=evObj?+evObj.pax:0;
+                        const ing=RECIPE_INGREDIENTS[dish.name];
+                        return(
+                          <div style={{padding:"12px",marginBottom:10,borderRadius:12,
+                            border:`1.5px solid ${storeDone?C.greenBorder:storeStarted?C.amberBorder:C.border}`,
+                            background:storeDone?C.greenBg:storeStarted?C.amberBg+"40":C.darkCard}}>
+                            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
+                              <div style={{width:32,height:32,borderRadius:8,
+                                background:storeDone?C.green:storeStarted?C.amber:C.border,
+                                display:"flex",alignItems:"center",justifyContent:"center",
+                                fontSize:14,fontWeight:700,color:"#0A0A0F",flexShrink:0}}>
+                                {storeDone?"✓":"0"}
+                              </div>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:13,fontWeight:700,color:storeDone?C.green:storeStarted?C.amber:C.text}}>🏪 Collect Items from Store</div>
+                                <div style={{fontSize:11,color:C.muted}}>Sourcing ingredients before cooking · 30 min timer</div>
+                              </div>
+                            </div>
+                            {/* Ingredient list */}
+                            {ing&&pax>0&&<div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
+                              <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 Items to collect — {pax} pax{evPct!==100?` @ ${evPct}%`:""}</div>
+                              <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>
+                                {ing.filter(i=>i.q>0).map((i,ii)=>{
+                                  const raw=i.q*pax*(evPct/100);
+                                  const qty=i.u==="g"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g":i.u==="ml"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml":i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;
+                                  return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;
+                                })}
+                              </div>
+                            </div>}
+                            {/* Running timer */}
+                            {storeStarted&&!storeDone&&<div style={{marginBottom:8}}>
+                              <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:4}}>
+                                <div style={{height:"100%",width:storePct+"%",background:storeEl>1500?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                              </div>
+                              <div style={{fontSize:12,color:C.amber,fontWeight:700}}>
+                                ⏱ {Math.floor(storeEl/60)}m {storeEl%60}s elapsed — {Math.floor(storeRem/60)}m {storeRem%60}s left
+                              </div>
+                            </div>}
+                            {/* Buttons */}
+                            {!storeStarted&&!storeDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeStart:Date.now()})}
+                              style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,
+                                color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44,width:"100%"}}>
+                              🏃 Go Collect Items — Start 30 min Timer
+                            </button>}
+                            {storeStarted&&!storeDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})}
+                              style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,
+                                color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44,width:"100%",marginTop:6}}>
+                              ⏹ Done — Items Collected
+                            </button>}
+                            {storeDone&&<div style={{fontSize:12,color:C.green,fontWeight:700}}>✅ Items collected · {new Date(d3.storeEnd).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</div>}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── SOP Steps (Step 1 onwards) — gated on storeEnd ── */}
+                      {steps3.filter(s=>!s.store).map((step,si)=>{
+                        const prevOk3=si===0?!!d3.storeEnd:stepDone(d3,si);
+                        const realSi=steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si+1);
+                        const running3=!!(d3.starts?.[realSi])&&!stepDone(d3,realSi);
+                        const done3=stepDone(d3,realSi);
+                        const d1Done=isD1Step(d3,realSi);
+                        const el5=running3?elapsed(d3,realSi):0;
+                        const tm5=step.tm||0;
+                        const rem3=Math.max(0,tm5-el5);
+                        const pct4=tm5>0?Math.min(100,Math.round(el5/tm5*100)):(done3?100:0);
+                        const nonStoreBefore=steps3.slice(0,realSi).filter(s=>!s.store);
+                        const prevRealSi=nonStoreBefore.length>0?steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si):-1;
+                        const prevOk3Final=si===0?!!d3.storeEnd:(prevRealSi>=0?stepDone(d3,prevRealSi):true);
+                        return(<div key={si} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:si<steps3.filter(s=>!s.store).length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start",opacity:d1Done?.6:1}}>
                           <div style={{width:32,height:32,borderRadius:8,background:done3?C.green:running3?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:done3||running3?"#0A0A0F":C.muted,flexShrink:0}}>{done3?"✓":si+1}</div>
                           <div style={{flex:1}}>
-                            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                              <span style={{fontSize:12,fontWeight:700,color:done3?C.green:step.store?C.gold:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</span>
+                            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                              <span style={{fontSize:12,fontWeight:700,color:done3?C.green:C.text}}>{step.t}{step.live?" 🔴":""}</span>
                               {d1Done&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>D-1 ✅</span>}
-                              {step.store&&done3&&d3.storeEndAt?.[si]&&<span style={{fontSize:10,color:C.green,marginLeft:4}}>⏹ {d3.storeEndAt[si]}</span>}
                             </div>
                             {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{step.i}</div>}
                             {step.ccp&&<div style={{fontSize:11,color:C.red,background:C.redBg,padding:"6px 10px",borderRadius:4,display:"inline-block",marginTop:3}}>🔴 CCP: {step.ccp}</div>}
-
-                            {step.store?(
-                              <div style={{marginTop:8}}>
-                                {/* Scaling badge if applied */}
-                                {(()=>{
-                                  const evScale=appliedScales[dish.fEvId]||appliedScales["manual"];
-                                  if(evScale&&evScale.percent!==100&&evScale.dishes.includes(dish.name)){
-                                    return(
-                                      <div style={{background:evScale.percent<100?C.amberBg:C.greenBg,border:`1px solid ${evScale.percent<100?C.amberBorder:C.greenBorder}`,borderRadius:8,padding:"6px 12px",marginBottom:8,fontSize:11,display:"flex",gap:8,alignItems:"center"}}>
-                                        <span style={{fontWeight:700,color:evScale.percent<100?C.amber:C.green}}>📐 {evScale.percent}% scaling applied</span>
-                                        <span style={{color:C.muted}}>· {evScale.eventName||"Manual"} · {evScale.appliedAt}</span>
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                                {/* Scaled ingredient list */}
-                                {RECIPE_INGREDIENTS[dish.name]&&(()=>{
-                                  const evPct=(appliedScales[dish.fEvId]||appliedScales["manual"])?.percent||100;
-                                  const ev=evList.find(e=>e.id===dish.fEvId);
-                                  const pax=ev?+ev.pax:0;
-                                  const ing=RECIPE_INGREDIENTS[dish.name];
-                                  if(!pax) return null;
-                                  return(
-                                    <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
-                                      <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:6}}>🧺 {T2("Items to collect")} — {pax} pax {evPct!==100?`@ ${evPct}%`:""}</div>
-                                      <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
-                                        {ing.filter(i=>i.q>0).map((i,ii)=>{
-                                          const raw=i.q*pax*(evPct/100);
-                                          const qty=i.u==="g"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g":i.u==="ml"?raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml":i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;
-                                          return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <strong style={{color:C.gold}}>{qty}</strong></span>;
-                                        })}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                                {!running3&&!done3&&prevOk3&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,1800);}} style={{padding:"12px 20px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:48,display:"flex",gap:8,alignItems:"center"}}>🏃 {T2("Go Collect Items")} — {T2("30 min timer")}</button>}
-                                {running3&&<div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:12,padding:"14px 16px"}}>
-                                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                                    <div>
-                                      <div style={{fontSize:15,fontWeight:700,color:C.amber}}>⏱ {fmtT(el5)} {T2("elapsed")}</div>
-                                      <div style={{fontSize:11,color:C.muted}}>{fmtT(Math.max(0,1800-el5))} {T2("remaining of 30 min limit")}</div>
-                                    </div>
-                                    <button onClick={e=>{e.stopPropagation();stopStoreStep(dish.fEvId,dish.fIdx,si);}} style={{padding:"10px 18px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>✅ {T2("Done")}</button>
-                                  </div>
-                                  <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:10}}>
-                                    <div style={{height:"100%",width:Math.min(100,Math.round(el5/1800*100))+"%",background:el5>1500?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/>
-                                  </div>
-                                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8}}>📝 {T2("Quality Remarks")}</div>
-                                  {/* Quality rating buttons */}
-                                  {(()=>{
-                                    const rKey=dish.fEvId+"_"+dish.fIdx+"_"+si;
-                                    const rm=storeRemarks[rKey]||{rating:"",text:""};
-                                    const RATINGS=[
-                                      {v:"excellent",l:"🌟 "+T2("Excellent"),c:"#22C55E",bg:"#052E16"},
-                                      {v:"good",l:"✅ "+T2("Good"),c:C.green,bg:C.greenBg},
-                                      {v:"average",l:"🟡 "+T2("Average"),c:C.amber,bg:C.amberBg},
-                                      {v:"poor",l:"🔴 "+T2("Poor Quality"),c:C.red,bg:C.redBg},
-                                      {v:"missing",l:"⚠️ "+T2("Items Missing"),c:"#F97316",bg:"#2D1B00"},
-                                    ];
-                                    return(
-                                      <div>
-                                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
-                                          {RATINGS.map(r=>(
-                                            <button key={r.v} onClick={e=>{e.stopPropagation();saveStoreRemark(rKey,"rating",rm.rating===r.v?"":r.v);}}
-                                              style={{padding:"8px 12px",borderRadius:10,border:`2px solid ${rm.rating===r.v?r.c:C.border}`,background:rm.rating===r.v?r.bg:"transparent",color:rm.rating===r.v?r.c:C.muted,fontSize:12,fontWeight:rm.rating===r.v?700:400,cursor:"pointer",minHeight:38}}>
-                                              {r.l}
-                                            </button>
-                                          ))}
-                                        </div>
-                                        <textarea value={rm.text||""} onChange={e=>{e.stopPropagation();saveStoreRemark(rKey,"text",e.target.value);}} onClick={e=>e.stopPropagation()} placeholder={T2("e.g. Paneer fresh, tomatoes slightly overripe, onion good quality…")} rows={2} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,resize:"none",boxSizing:"border-box"}}/>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>}
-                                {done3&&<div style={{marginTop:4}}>
-                                  <span style={{fontSize:12,color:C.green}}>✅ {T2("Collected")} {d3.storeEndAt?.[si]?"· "+d3.storeEndAt[si]:""}</span>
-                                  {(()=>{
-                                    const rKey=dish.fEvId+"_"+dish.fIdx+"_"+si;
-                                    const rm=storeRemarks[rKey]||{};
-                                    if(!rm.rating&&!rm.text) return null;
-                                    const RATING_COLORS={excellent:"#22C55E",good:C.green,average:C.amber,poor:C.red,missing:"#F97316"};
-                                    const RATING_LABELS={excellent:"🌟 Excellent",good:"✅ Good",average:"🟡 Average",poor:"🔴 Poor Quality",missing:"⚠️ Items Missing"};
-                                    return(
-                                      <div style={{background:C.surface,borderRadius:10,padding:"8px 12px",marginTop:6,border:`1px solid ${C.border}`}}>
-                                        {rm.rating&&<span style={{fontSize:11,fontWeight:700,color:RATING_COLORS[rm.rating]||C.muted,marginRight:8}}>{RATING_LABELS[rm.rating]||rm.rating}</span>}
-                                        {rm.text&&<span style={{fontSize:11,color:C.muted}}>— {rm.text}</span>}
-                                      </div>
-                                    );
-                                  })()}
-                                </div>}
-                              </div>
-                            ):(
-                              <div>
-                                {tm5>0&&<div style={{marginTop:6}}><div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:done3?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/></div><div style={{fontSize:11,color:running3?C.amber:done3?C.green:C.muted}}>{running3?`⏱ ${fmtT(el5)} / ${fmtT(tm5)} — ${fmtT(rem3)} ${T2("left")}`:done3?`✓ ${fmtT(tm5)}`:`⏱ ${fmtT(tm5)}`}</div></div>}
-                                {!running3&&!done3&&tm5>0&&prevOk3&&hasPermission(currentUser,"kitchen.start_timer")&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,si,tm5);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(tm5)}</button>}
-                                {!running3&&!done3&&!tm5&&prevOk3&&!step.live&&hasPermission(currentUser,"kitchen.d1_mark_done")&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,si);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
-                                {!running3&&!done3&&!prevOk3&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
+                            <div style={{marginTop:6}}>
+                              {/* Progress bar when running */}
+                              {running3&&tm5>0&&<div>
+                                <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}>
+                                  <div style={{height:"100%",width:pct4+"%",background:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                                </div>
+                                <div style={{fontSize:11,color:C.amber,fontWeight:700}}>⏱ {Math.floor(el5/60)}m {el5%60}s / {Math.floor(tm5/60)}m — {Math.floor(rem3/60)}m {rem3%60}s left</div>
+                              </div>}
+                              {/* Done indicator */}
+                              {done3&&tm5>0&&<div style={{fontSize:11,color:C.green}}>✅ {Math.floor(tm5/60)}m — done</div>}
+                              {/* Not started timer label */}
+                              {!running3&&!done3&&tm5>0&&<div style={{fontSize:11,color:C.faint}}>⏱ {Math.floor(tm5/60)}m{tm5%60>0?" "+tm5%60+"s":""}</div>}
+                            </div>
+                          </div>
+                          {/* Action button */}
+                          <div style={{flexShrink:0}}>
+                            {!running3&&!done3&&tm5>0&&prevOk3Final&&(
+                              <button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,realSi,tm5);}}
+                                style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
+                                ▶ {Math.floor(tm5/60)}m
+                              </button>
+                            )}
+                            {running3&&(
+                              <button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}}
+                                style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
+                                ⏹ Done
+                              </button>
+                            )}
+                            {!running3&&!done3&&!tm5&&prevOk3Final&&!step.live&&(
+                              <button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}}
+                                style={{padding:"8px 14px",borderRadius:10,background:C.gold,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
+                                ✓
+                              </button>
+                            )}
+                            {!running3&&!done3&&!prevOk3Final&&(
+                              <div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint,minHeight:38,display:"flex",alignItems:"center"}}>
+                                🔒
                               </div>
                             )}
                           </div>
                         </div>);
                       })}
 
-                      {/* Mark as Complete */}
-                      {steps3.every((_,si)=>stepDone(d3,si))&&!d3.ready&&hasPermission(currentUser,"kitchen.mark_ready")&&(
+                      {/* Mark as Complete — all SOP steps done AND store collected */}
+                      {!!d3.storeEnd&&steps3.filter(s=>!s.store).every((_,si)=>{const rsi=steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si+1);return stepDone(d3,rsi);})&&!d3.ready&&(
                         <button onClick={e=>{e.stopPropagation();markReady(dish.fEvId,dish.fIdx,dish.name);}}
                           style={{width:"100%",padding:"16px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:10,minHeight:52}}>
                           ✅ {T2("Mark as Complete")} — {dish.name}
