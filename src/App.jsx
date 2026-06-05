@@ -5055,6 +5055,14 @@ function getDishImageUrl(dishName) {
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null }) {
   const T2 = s => T(s, lang);
 
+  // Safe menu array — handles JSONB array or stringified JSON from Supabase
+  function menuArr(ev) {
+    const m = ev.menu;
+    if (Array.isArray(m)) return m;
+    if (typeof m === 'string' && m) { try { return JSON.parse(m); } catch(e) { return []; } }
+    return [];
+  }
+
   // Section tablet filtering
   const isSectionUser = currentUser?.role?.startsWith('section_');
   const SECTION_ROLE_MAP = {
@@ -5296,7 +5304,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           evs.forEach(ev=>{
             const sp=ev.special||"";
             const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
-            safeArr(ev.menu).forEach((name,idx)=>{
+            menuArr(ev).forEach((name,idx)=>{
               if(guessSectionForDish(name)==="Beverages") return;
               if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
               if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
@@ -5396,7 +5404,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         evs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
-          safeArr(ev.menu).forEach((name,idx)=>{
+          menuArr(ev).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
             if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDish[name])byDish[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
@@ -5693,7 +5701,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         continuationEvs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
-          safeArr(ev.menu).forEach((name,idx)=>{
+          menuArr(ev).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
             if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDishCont[name])byDishCont[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
@@ -5708,7 +5716,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         newD1Evs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
-          safeArr(ev.menu).forEach((name,idx)=>{
+          menuArr(ev).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
             if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
             if(!byDishNew[name])byDishNew[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
@@ -9788,7 +9796,18 @@ export default function App() {
       ]);
 
       setEmpDb(staffData.map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false})));
-      setEvents_raw(eventsData.map(e=>({...e,menuPackage:e.menu_package||e.menuPackage,menu:e.menu||[],extras:e.extras||[]})));
+      // If Supabase returns empty events, fall back to LIVE_EVENTS_INIT (demo data)
+      const finalEvents = eventsData.length > 0 ? eventsData : LIVE_EVENTS_INIT;
+      setEvents_raw(finalEvents.map(e=>{
+        let menu = e.menu;
+        if (!Array.isArray(menu)) {
+          if (typeof menu === 'string' && menu) { try { menu = JSON.parse(menu); } catch(err) { menu = []; } }
+          else { menu = []; }
+        }
+        let extras = e.extras;
+        if (!Array.isArray(extras)) extras = [];
+        return {...e, menuPackage:e.menu_package||e.menuPackage, menu, extras};
+      }));
       const todayAtt = attData.filter(a=>a.date===TODAY);
       setAttendance_raw(todayAtt.map(a=>({id:a.id,staffId:a.staff_id||a.staffId,staffName:a.staff_name||a.staffName,section:a.section,date:a.date,status:a.status||"Present",time:a.in_time||a.time})));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
