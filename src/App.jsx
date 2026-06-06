@@ -388,6 +388,10 @@ const STAFF_LIST = [
 // IDs: AM = Ambria Management, KIT = Kitchen
 const EMPLOYEE_DB_INIT = [
   {staffListId:"AM001",staff_id:"AM001",name:"Abhi",section:"Management",dept:"management",role:"admin",pin:"0000",is_active:true,joining:"2025-01-01"},
+  {staffListId:"GATE-AP", staff_id:"GATE-AP", name:"Gate Kiosk — Ambria Pushpanjali",section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",is_active:true,joining:"2025-01-01",venue:"Ambria Pushpanjali"},
+  {staffListId:"GATE-AE", staff_id:"GATE-AE", name:"Gate Kiosk — Ambria Exotica",    section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",is_active:true,joining:"2025-01-01",venue:"Ambria Exotica"},
+  {staffListId:"GATE-MKT",staff_id:"GATE-MKT",name:"Gate Kiosk — Manaktala Farm",    section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",is_active:true,joining:"2025-01-01",venue:"Manaktala Farm"},
+  {staffListId:"GATE-RST",staff_id:"GATE-RST",name:"Gate Kiosk — Ambria Restro",     section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",is_active:true,joining:"2025-01-01",venue:"Ambria Restro"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -1566,6 +1570,40 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.faint,letterSpacing:.5}}>
           Ambria Cuisines · Get Your Venue Events Pvt Ltd
         </div>
+
+        {/* Gate Kiosk — 4 venue direct-login buttons */}
+        <div style={{marginTop:24,padding:"16px",background:"#1A1714",border:"2px solid #2A2520",borderRadius:16}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#F5F0E8",textAlign:"center",marginBottom:12,fontFamily:"var(--font-display)"}}>
+            🏛 Gate Attendance Kiosk
+          </div>
+          <div style={{fontSize:11,color:"#7A6F62",textAlign:"center",marginBottom:14}}>
+            Select venue — no PIN required
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {[
+              {id:"GATE-AP", name:"Ambria Pushpanjali",color:"#D04040",icon:"🏛"},
+              {id:"GATE-AE", name:"Ambria Exotica",    color:"#D4914A",icon:"✨"},
+              {id:"GATE-MKT",name:"Manaktala Farm",    color:"#3EAA68",icon:"🌿"},
+              {id:"GATE-RST",name:"Ambria Restro",     color:"#9060C8",icon:"🍽"},
+            ].map(function(v) {
+              return (
+                <button key={v.id}
+                  onClick={function(){
+                    onLogin({staffListId:v.id,staff_id:v.id,name:"Gate Kiosk — "+v.name,
+                      section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",
+                      is_active:true,venue:v.name});
+                  }}
+                  style={{padding:"14px 10px",borderRadius:12,cursor:"pointer",
+                    background:"transparent",border:"2px solid "+v.color,
+                    textAlign:"center",minHeight:70}}>
+                  <div style={{fontSize:24,marginBottom:4}}>{v.icon}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:v.color}}>{v.name}</div>
+                  <div style={{fontSize:10,color:"#7A6F62",marginTop:2}}>{v.id.replace("GATE-","")}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1665,7 +1703,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // ── KIOSK OVERLAY ──
   if(kioskMode) return (
-    <KioskAttendance staffList={STAFF_LIST} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={()=>setKioskMode(false)} lang={lang}/>
+    <KioskAttendance staffList={STAFF_LIST} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={()=>setKioskMode(false)} lang={lang} currentUser={currentUser}/>
   );
 
   // ── DEPARTMENT SELECTOR ──
@@ -3343,7 +3381,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
 // ─── TEAM, ATTENDANCE & DIRECTORY ────────────────────────────────
 
 // ─── KIOSK ATTENDANCE ─────────────────────────────────────────────
-function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves, setLeaves, empDb, setEmpDb, lang="en" }) {
+function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves, setLeaves, empDb, setEmpDb, lang="en", currentUser=null }) {
   const T2 = s => T(s, lang);
   const allStaff = safeArr(staffList);
   const todayAtt = safeArr(attendance).filter(a=>a.date===TODAY);
@@ -3531,6 +3569,14 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
     <div style={bg}>
       {/* Close button */}
       <button onClick={()=>{stopCam();onClose();}} style={{position:"absolute",top:20,right:24,background:"rgba(255,255,255,.06)",border:"1px solid #2A2824",borderRadius:10,color:"#8A8476",fontSize:13,padding:"10px 18px",cursor:"pointer",minHeight:44}}>✕ {T2("Close")}</button>
+
+      {/* Venue header */}
+      {currentUser&&currentUser.venue&&(
+        <div style={{textAlign:"center",padding:"12px",marginBottom:16,background:"#1A1714",borderRadius:12,border:"1px solid #2A2520",width:"100%",maxWidth:500,boxSizing:"border-box"}}>
+          <div style={{fontSize:18,fontWeight:700,color:"#D4B44A",fontFamily:"var(--font-display)"}}>{currentUser.venue}</div>
+          <div style={{fontSize:11,color:"#7A6F62"}}>Gate Attendance Kiosk</div>
+        </div>
+      )}
 
       {/* ═══ SCREEN 1: DEPT SELECTOR ═══ */}
       {kioskStep==="dept"&&(

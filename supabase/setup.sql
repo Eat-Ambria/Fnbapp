@@ -171,7 +171,12 @@ alter publication supabase_realtime add table attendance;
 alter publication supabase_realtime add table repair_tickets;
 alter publication supabase_realtime add table inventory;
 
--- ── SEED ADMIN ONLY ──
+-- ── SEED ADMIN + GATE KIOSKS ──
 insert into staff (staff_id, name, section, dept, role, pin, is_admin, is_active, joining)
-values ('AM001', 'Abhi', 'Management', 'management', 'admin', '0000', true, true, '2025-01-01')
+values
+  ('AM001',    'Abhi',                               'Management', 'management', 'admin',      '0000', true,  true, '2025-01-01'),
+  ('GATE-AP',  'Gate Kiosk — Ambria Pushpanjali',   'Gate',       'gate',       'kiosk_gate', '9999', false, true, '2025-01-01'),
+  ('GATE-AE',  'Gate Kiosk — Ambria Exotica',       'Gate',       'gate',       'kiosk_gate', '9999', false, true, '2025-01-01'),
+  ('GATE-MKT', 'Gate Kiosk — Manaktala Farm',       'Gate',       'gate',       'kiosk_gate', '9999', false, true, '2025-01-01'),
+  ('GATE-RST', 'Gate Kiosk — Ambria Restro',        'Gate',       'gate',       'kiosk_gate', '9999', false, true, '2025-01-01')
 on conflict (staff_id) do nothing;
