@@ -9447,6 +9447,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [delId, setDelId]     = useState(null);
   const [search, setSearch]   = useState("");
   const [form, setForm]       = useState(blankForm);
+  const [addMode, setAddMode] = useState("staff");
   // Permission panel state
   const [view, setView]           = useState("list");
   const [permStaff, setPermStaff] = useState(null);
@@ -9549,6 +9550,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   }
 
   function openAdd(){
+    setAddMode("staff");
     var autoId = autoGenerateId('Management', 'management');
     setForm({...blankForm, staff_id:autoId});
     setEditId(null); setShowAdd(true);
@@ -9764,6 +9766,40 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       {showAdd&&(
         <Card style={{marginBottom:14,padding:"18px 20px",border:`2px solid ${C.goldBorder}`,background:C.goldBg+"60"}}>
           <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:12}}>{editId?"✏️ Edit Staff":"➕ Add New Staff"}</div>
+          {/* Mode toggle — only shown when adding, not editing */}
+          {!editId&&(
+            <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:"1px solid "+C.border,marginBottom:16}}>
+              <button onClick={function(){
+                setAddMode("staff");
+                setForm(function(p){return{...p,staff_id:autoGenerateId(p.section,p.dept)};});
+              }} style={{flex:1,padding:"12px",border:"none",cursor:"pointer",background:addMode==="staff"?C.goldBg:"transparent",borderRight:"1px solid "+C.border}}>
+                <div style={{fontSize:13,fontWeight:addMode==="staff"?700:400,color:addMode==="staff"?C.gold:C.muted}}>👤 Staff Login</div>
+                <div style={{fontSize:10,color:C.faint}}>Individual person access</div>
+              </button>
+              <button onClick={function(){
+                setAddMode("tablet");
+                setForm(function(p){
+                  var roleMap={"Indian Curries":"section_indian","Chinese":"section_chinese","Tandoor":"section_tandoor","Chaat":"section_chaat","Sweets":"section_sweets","Continental":"section_continental","Bakery":"section_bakery"};
+                  return{...p,staff_id:autoGenerateId(p.section,p.dept),name:p.section+" Tablet",role:roleMap[p.section]||p.role};
+                });
+              }} style={{flex:1,padding:"12px",border:"none",cursor:"pointer",background:addMode==="tablet"?C.goldBg:"transparent"}}>
+                <div style={{fontSize:13,fontWeight:addMode==="tablet"?700:400,color:addMode==="tablet"?C.gold:C.muted}}>📱 Dept Tablet</div>
+                <div style={{fontSize:10,color:C.faint}}>Shared dept login for 3-4 people</div>
+              </button>
+            </div>
+          )}
+          {/* Tablet info banner */}
+          {addMode==="tablet"&&!editId&&(
+            <div style={{background:C.blueBg,border:"1px solid "+C.blueBorder,borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+              <div style={{fontSize:12,color:C.blue,fontWeight:700}}>📱 Dept Tablet Login</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+                This creates a shared login for a department tablet.
+                Multiple staff (3-4 people) in this section will use
+                the same PIN to log in and work on dishes simultaneously.
+                The tablet shows ONLY this section's dishes.
+              </div>
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Staff ID *</div>
@@ -9771,7 +9807,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Full Name *</div>
-              <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Ramesh Kumar" style={fld}/>
+              <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder={addMode==="tablet"?"e.g. Indian Curries Tablet":"e.g. Ramesh Kumar"} style={fld}/>
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Role / Access Level</div>
@@ -9781,7 +9817,16 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Section</div>
-              <select value={form.section} onChange={e=>{var sec=e.target.value;setForm(p=>({...p,section:sec,staff_id:editId?p.staff_id:autoGenerateId(sec,p.dept)}));}} style={fld}>
+              <select value={form.section} onChange={function(e){
+                var sec=e.target.value;
+                var roleMap={"Indian Curries":"section_indian","Chinese":"section_chinese","Tandoor":"section_tandoor","Chaat":"section_chaat","Sweets":"section_sweets","Continental":"section_continental","Bakery":"section_bakery"};
+                setForm(function(p){return{...p,
+                  section:sec,
+                  name:addMode==="tablet" ? sec+" Tablet" : p.name,
+                  role:addMode==="tablet" ? (roleMap[sec]||p.role) : p.role,
+                  staff_id:editId ? p.staff_id : autoGenerateId(sec,p.dept)
+                };});
+              }} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
@@ -9800,7 +9845,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>PIN (4 digits)</div>
-              <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:6,textAlign:"center",fontSize:18,fontWeight:700}} type="password"/>
+              <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:6,textAlign:"center",fontSize:18,fontWeight:700}} type="text" inputMode="numeric"/>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10,paddingTop:20}}>
               <div style={{fontSize:12,color:C.muted}}>Status:</div>
@@ -9813,7 +9858,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <div style={{display:"flex",gap:10}}>
             <button onClick={saveForm} disabled={!form.name.trim()||!form.staff_id.trim()}
               style={{flex:1,padding:"12px",borderRadius:12,background:form.name.trim()&&form.staff_id.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:form.name.trim()&&form.staff_id.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-              {editId?"✓ Save Changes":"✓ Add Staff Member"}
+              {editId?"✓ Save Changes":addMode==="tablet"?"✓ Add Tablet Login":"✓ Add Staff Member"}
             </button>
             <button onClick={()=>{setShowAdd(false);setEditId(null);}} style={{padding:"12px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
           </div>
