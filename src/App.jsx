@@ -1722,18 +1722,20 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       )}
 
-      {/* Gate Kiosk — for property entrance guard */}
-      <div style={{marginTop:28,maxWidth:780,width:"100%"}}>
-        <div style={{background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,borderRadius:16,padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:16,fontWeight:700,color:"#fff"}}> 🖥 {T2("Property Gate Kiosk")}</div>
-            <div style={{fontSize:11,color:"rgba(196,164,74,.6)",marginTop:3}}>{T2("Guard records attendance for ALL staff at property entrance")}</div>
+      {/* Gate Kiosk — admin and kiosk_gate role only */}
+      {(currentUser?.role==="admin"||currentUser?.role==="kiosk_gate")&&(
+        <div style={{marginTop:28,maxWidth:780,width:"100%"}}>
+          <div style={{background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,borderRadius:16,padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:"#fff"}}> 🖥 {T2("Property Gate Kiosk")}</div>
+              <div style={{fontSize:11,color:"rgba(196,164,74,.6)",marginTop:3}}>{T2("Guard records attendance for ALL staff at property entrance")}</div>
+            </div>
+            <button onClick={()=>setKioskMode(true)} style={{padding:"12px 28px",borderRadius:12,background:C.gold,color:"#0A0A0F",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,minHeight:48}}>
+              {T2("Launch Kiosk")} →
+            </button>
           </div>
-          <button onClick={()=>setKioskMode(true)} style={{padding:"12px 28px",borderRadius:12,background:C.gold,color:"#0A0A0F",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,minHeight:48}}>
-            {T2("Launch Kiosk")} →
-          </button>
         </div>
-      </div>
+      )}
     </div>
   );
 
@@ -3358,6 +3360,23 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
   const [search, setSearch] = useState("");
   const [outdoorForm, setOutdoorForm] = useState({name:"",phone:"",role:"Helper",vendor:""});
 
+  // New dept-first kiosk flow
+  const [kioskStep, setKioskStep] = useState("dept");
+  const [kioskDept, setKioskDept] = useState(null);
+  const [kioskStaff, setKioskStaff] = useState(null);
+  const [kioskSuccess, setKioskSuccess] = useState(null);
+
+  const KIOSK_DEPTS = [
+    {id:"kitchen",    label:"Kitchen",        icon:"👨‍🍳", sections:["Indian Curries","Tandoor","Chinese","Chaat","Sweets","Continental","Bakery"]},
+    {id:"service",    label:"Service",        icon:"🍽"},
+    {id:"crockery",   label:"Crockery",       icon:"🍶"},
+    {id:"beverages",  label:"Beverages",      icon:"🥤"},
+    {id:"transport",  label:"Transportation", icon:"🚛"},
+    {id:"odc",        label:"ODC",            icon:"🏕"},
+    {id:"management", label:"Management",     icon:"🔐"},
+    {id:"maintenance",label:"Maintenance",    icon:"🔧"},
+  ];
+
   // Leave form
   const [leaveForm, setLeaveForm] = useState({from:"",to:"",reason:"Personal"});
 
@@ -3469,10 +3488,39 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
     setPhase("done");
   }
 
-  function reset(){ setPicked(null);setPunchAction("in");setPinInput("");setPinError("");setPhoto(null);setSearch("");setOutdoorForm({name:"",phone:"",role:"Helper",vendor:""});stopCam();setPhase(lockedSection?"select":"dept"); }
+  function reset(){ setPicked(null);setPunchAction("in");setPinInput("");setPinError("");setPhoto(null);setSearch("");setOutdoorForm({name:"",phone:"",role:"Helper",vendor:""});stopCam();setPhase("dept");setKioskStep("dept");setKioskDept(null);setKioskStaff(null);setKioskSuccess(null); }
 
   // Auto-reset after done
   useEffect(()=>{if(phase==="done"){const t=setTimeout(reset,4000);return()=>clearTimeout(t);}});
+
+  function markKioskAttendance(type) {
+    var now = new Date();
+    var timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+    var sid = kioskStaff.staffListId || kioskStaff.staff_id;
+    if (typeof setAttendance === 'function') {
+      setAttendance(function(prev) {
+        var existing = safeArr(prev).find(function(a){return a.staff_id===sid && a.date===TODAY;});
+        if (existing) {
+          return safeArr(prev).map(function(a){
+            return a.staff_id===sid && a.date===TODAY
+              ? {...a, status:'Present', out_time:type==='OUT'?timeStr:a.out_time, in_time:type==='IN'?timeStr:a.in_time}
+              : a;
+          });
+        }
+        return [...safeArr(prev), {id:'att-'+Date.now(), staff_id:sid, staff_name:kioskStaff.name,
+          section:kioskStaff.section, dept:kioskStaff.dept, date:TODAY,
+          status:'Present', in_time:type==='IN'?timeStr:'', out_time:type==='OUT'?timeStr:''}];
+      });
+    }
+    setKioskSuccess({name:kioskStaff.name, type:type, time:timeStr});
+    setKioskStep("success");
+    setTimeout(function(){
+      setKioskStep("dept");
+      setKioskDept(null);
+      setKioskStaff(null);
+      setKioskSuccess(null);
+    }, 4000);
+  }
 
   const bg = {minHeight:"100vh",background:"#0A0A0F",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px",color:"#F0ECE0"};
   const cardStyle = {background:"#161514",borderRadius:20,border:`1px solid #2A2824`,padding:"28px 32px",maxWidth:600,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,.5)"};
@@ -3484,26 +3532,24 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
       {/* Close button */}
       <button onClick={()=>{stopCam();onClose();}} style={{position:"absolute",top:20,right:24,background:"rgba(255,255,255,.06)",border:"1px solid #2A2824",borderRadius:10,color:"#8A8476",fontSize:13,padding:"10px 18px",cursor:"pointer",minHeight:44}}>✕ {T2("Close")}</button>
 
-      {/* ═══ PHASE: DEPT SELECTOR ═══ */}
-      {phase==="dept"&&(
-        <div style={{textAlign:"center",maxWidth:800,width:"100%"}}>
-          <div style={{fontSize:14,color:"#8A8476",marginBottom:4}}>Ambria Cuisines</div>
-          <div style={{fontSize:28,fontWeight:700,fontFamily:"var(--font-display)",marginBottom:6,color:"#C4A44A"}}>{T2("Property Gate Attendance")}</div>
-          <div style={{fontSize:13,color:"#5A5750",marginBottom:28}}>{T2("Select department to mark attendance")}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-            {ALL_DEPARTMENTS.filter(d=>d!=="Management").map(sec=>{
-              const meta = SECTION_META[sec]||{icon:"🍽️",color:"#C4A44A"};
-              const secStaff2 = allStaff.filter(s=>s.section===sec);
-              const secPres = todayAtt.filter(a=>a.status==="Present"&&a.staffSection===sec).length;
+      {/* ═══ SCREEN 1: DEPT SELECTOR ═══ */}
+      {kioskStep==="dept"&&(
+        <div>
+          <div style={{fontSize:20,fontWeight:700,color:C.text,textAlign:"center",fontFamily:"var(--font-display)",marginBottom:20}}>
+            Select Your Department
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+            {KIOSK_DEPTS.map(function(d) {
+              var count = safeArr(empDb).filter(function(s) {
+                return s.is_active!==false && (s.dept===d.id ||
+                  (d.sections && d.sections.includes(s.section)));
+              }).length;
               return (
-                <button key={sec} onClick={()=>{if(sec==="Outdoor Staff"){setLockedSection(sec);setPhase("outdoor");}else{setLockedSection(sec);setPhase("select");}}}
-                  style={{background:"#1A1918",border:`1.5px solid ${meta.color}40`,borderRadius:16,padding:"18px 12px",cursor:"pointer",textAlign:"center",minHeight:100}}>
-                  <div style={{fontSize:28,marginBottom:6}}>{meta.icon}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:"#F0ECE0"}}>{T2(sec)}</div>
-                  <div style={{fontSize:10,color:"#5A5750",marginTop:4}}>{secStaff2.length} {T2("staff")} · {secPres} ✓</div>
-                  <div style={{height:3,width:"70%",margin:"6px auto 0",background:"#2A2824",borderRadius:2,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${safePct(secPres,secStaff2.length)}%`,background:meta.color,borderRadius:2}}/>
-                  </div>
+                <button key={d.id} onClick={function(){setKioskDept(d);setKioskStep("name");}}
+                  style={{background:"#1A1918",border:"2px solid #2A2824",borderRadius:16,padding:"24px 16px",cursor:"pointer",textAlign:"center",minHeight:120}}>
+                  <div style={{fontSize:36,marginBottom:8}}>{d.icon}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:"#F0ECE0"}}>{d.label}</div>
+                  <div style={{fontSize:12,color:"#5A5750",marginTop:4}}>{count} staff</div>
                 </button>
               );
             })}
@@ -3511,50 +3557,111 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
         </div>
       )}
 
-      {/* ═══ PHASE: SELECT STAFF ═══ */}
-      {phase==="select"&&(
-        <div style={cardStyle}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-            <div>
-              <div style={{fontSize:18,fontWeight:700,color:"#C4A44A",fontFamily:"var(--font-display)"}}>{T2(lockedSection||"All Staff")}</div>
-              <div style={{fontSize:11,color:"#5A5750"}}>{T2("Tap your name to check in")}</div>
-            </div>
-            <button onClick={()=>{setLockedSection(null);setPhase("dept");}} style={{background:"#1A1918",border:"1px solid #2A2824",borderRadius:8,color:"#8A8476",fontSize:11,padding:"8px 14px",cursor:"pointer",minHeight:44}}>{T2("Change Dept")}</button>
+      {/* ═══ SCREEN 2: NAME SELECTION ═══ */}
+      {kioskStep==="name"&&kioskDept&&(
+        <div style={{maxWidth:640,width:"100%"}}>
+          <button onClick={function(){setKioskStep("dept");setKioskDept(null);}}
+            style={{padding:"10px 18px",borderRadius:10,background:"#1A1918",border:"1px solid #2A2824",color:"#8A8476",fontSize:13,cursor:"pointer",marginBottom:16,minHeight:44}}>
+            ← Back to Departments
+          </button>
+          <div style={{fontSize:18,fontWeight:700,color:"#F0ECE0",fontFamily:"var(--font-display)",marginBottom:4}}>
+            {kioskDept.icon} {kioskDept.label}
           </div>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search your name…")} style={{...inputStyle,marginBottom:14}}/>
-          <div style={{maxHeight:400,overflowY:"auto"}}>
-            {filteredStaff.map(s=>{
-              const att = todayAtt.find(a=>String(a.staffId)===String(s.id)&&a.status==="Present");
-              const punchedIn = !!att;
-              const punchedOut = att?.punchOut;
-              const shiftDone = punchedIn && punchedOut;
+          <div style={{fontSize:12,color:"#5A5750",marginBottom:16}}>
+            Select your name to mark attendance
+          </div>
+          {kioskDept.sections ? (
+            kioskDept.sections.map(function(sec) {
+              var secStaff = safeArr(empDb).filter(function(s) {
+                return s.is_active!==false && s.section===sec;
+              });
+              if (secStaff.length===0) return null;
               return (
-                <button key={s.id} onClick={()=>handlePickStaff(s)} disabled={shiftDone}
-                  style={{display:"flex",gap:12,alignItems:"center",width:"100%",padding:"12px 14px",
-                    background:shiftDone?"#181716":punchedIn?"#12201A":"#181716",
-                    border:`1px solid ${shiftDone?"#272420":punchedIn?C.greenBorder:"#272420"}`,
-                    borderRadius:12,marginBottom:4,cursor:shiftDone?"default":"pointer",textAlign:"left",minHeight:52,opacity:shiftDone?.4:1}}>
-                  <div style={{width:36,height:36,borderRadius:8,background:shiftDone?"#272420":punchedIn?C.green+"20":"#272420",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:shiftDone?C.muted:punchedIn?C.green:"#8A8476"}}>
-                    {shiftDone?"🏁":punchedIn?"✓":"👤"}
+                <div key={sec} style={{marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#C4A44A",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>{sec}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
+                    {secStaff.map(function(s) {
+                      var sid = s.staffListId||s.staff_id;
+                      var todayRec = safeArr(todayAtt).find(function(a){return a.staff_id===sid&&a.date===TODAY;});
+                      return (
+                        <button key={sid} onClick={function(){setKioskStaff(s);setKioskStep("action");}}
+                          style={{padding:"14px 16px",borderRadius:12,background:todayRec?"#12201A":"#1A1918",
+                            border:"1.5px solid "+(todayRec?C.greenBorder:"#2A2824"),cursor:"pointer",textAlign:"left",minHeight:56}}>
+                          <div style={{fontSize:14,fontWeight:700,color:todayRec?C.green:"#F0ECE0"}}>{s.name}</div>
+                          <div style={{fontSize:11,color:"#5A5750"}}>{s.section} · {sid}
+                            {todayRec&&<span style={{color:C.green,marginLeft:6}}>✓ {todayRec.in_time||todayRec.time}</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:600,color:shiftDone?C.muted:punchedIn?C.green:C.text}}>{s.name}</div>
-                    <div style={{fontSize:11,color:"#5A5750"}}>{T2(s.role)} · {T2(s.shift)}</div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    {shiftDone&&<div>
-                      <div style={{fontSize:10,color:C.muted}}>🏁 {T2("Shift Done")}</div>
-                      <div style={{fontSize:10,color:C.muted}}>{att.time} → {att.punchOut}</div>
-                    </div>}
-                    {punchedIn&&!punchedOut&&<div>
-                      <div style={{fontSize:10,color:C.green}}>✅ {T2("Punched In")} {att.time}</div>
-                      <div style={{fontSize:10,color:"#D06040",fontWeight:600,marginTop:2}}>👋 {T2("Tap to Punch Out")}</div>
-                    </div>}
-                    {!punchedIn&&<div style={{fontSize:10,color:"#5A5750"}}>{T2("Tap to Punch In")}</div>}
-                  </div>
-                </button>
+                </div>
               );
-            })}
+            })
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
+              {safeArr(empDb).filter(function(s) {
+                return s.is_active!==false && s.dept===kioskDept.id;
+              }).map(function(s) {
+                var sid = s.staffListId||s.staff_id;
+                var todayRec = safeArr(todayAtt).find(function(a){return a.staff_id===sid&&a.date===TODAY;});
+                return (
+                  <button key={sid} onClick={function(){setKioskStaff(s);setKioskStep("action");}}
+                    style={{padding:"14px 16px",borderRadius:12,background:todayRec?"#12201A":"#1A1918",
+                      border:"1.5px solid "+(todayRec?C.greenBorder:"#2A2824"),cursor:"pointer",textAlign:"left",minHeight:56}}>
+                    <div style={{fontSize:14,fontWeight:700,color:todayRec?C.green:"#F0ECE0"}}>{s.name}</div>
+                    <div style={{fontSize:11,color:"#5A5750"}}>{s.section||s.dept} · {sid}
+                      {todayRec&&<span style={{color:C.green,marginLeft:6}}>✓ {todayRec.in_time||todayRec.time}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ SCREEN 3: PUNCH IN / OUT ═══ */}
+      {kioskStep==="action"&&kioskStaff&&(
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>👤</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#F0ECE0",fontFamily:"var(--font-display)",marginBottom:4}}>
+            {kioskStaff.name}
+          </div>
+          <div style={{fontSize:13,color:"#5A5750",marginBottom:24}}>
+            {kioskStaff.section||kioskStaff.dept} · {kioskStaff.staffListId||kioskStaff.staff_id}
+          </div>
+          <div style={{display:"flex",gap:16,justifyContent:"center"}}>
+            <button onClick={function(){markKioskAttendance("IN");}}
+              style={{padding:"20px 40px",borderRadius:16,fontSize:18,fontWeight:700,cursor:"pointer",minHeight:70,minWidth:150,background:"linear-gradient(135deg,#3EAA68,#1A5030)",color:"#fff",border:"none"}}>
+              ✅ PUNCH IN
+            </button>
+            <button onClick={function(){markKioskAttendance("OUT");}}
+              style={{padding:"20px 40px",borderRadius:16,fontSize:18,fontWeight:700,cursor:"pointer",minHeight:70,minWidth:150,background:"linear-gradient(135deg,#D04040,#8A1010)",color:"#fff",border:"none"}}>
+              🚪 PUNCH OUT
+            </button>
+          </div>
+          <button onClick={function(){setKioskStep("name");setKioskStaff(null);}}
+            style={{marginTop:16,padding:"10px 24px",borderRadius:10,background:"#1A1918",border:"1px solid #2A2824",color:"#8A8476",fontSize:12,cursor:"pointer"}}>
+            ← Wrong person? Go back
+          </button>
+        </div>
+      )}
+
+      {/* ═══ SCREEN 4: SUCCESS ═══ */}
+      {kioskStep==="success"&&kioskSuccess&&(
+        <div style={{textAlign:"center",padding:"60px 20px"}}>
+          <div style={{fontSize:64,marginBottom:16}}>
+            {kioskSuccess.type==="IN"?"✅":"🚪"}
+          </div>
+          <div style={{fontSize:24,fontWeight:700,color:"#F0ECE0",fontFamily:"var(--font-display)",marginBottom:8}}>
+            {kioskSuccess.name}
+          </div>
+          <div style={{fontSize:18,color:kioskSuccess.type==="IN"?C.green:C.amber,fontWeight:700,marginBottom:4}}>
+            {kioskSuccess.type==="IN"?"PUNCHED IN":"PUNCHED OUT"} at {kioskSuccess.time}
+          </div>
+          <div style={{fontSize:14,color:"#5A5750",marginTop:20}}>
+            Returning in 4 seconds...
           </div>
         </div>
       )}
@@ -3811,7 +3918,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
       )}
 
       {/* ── Present today strip ── */}
-      {(phase==="dept"||phase==="select")&&presentToday.length>0&&(
+      {(kioskStep==="dept"||kioskStep==="name")&&presentToday.length>0&&(
         <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#12201A",borderTop:"1px solid #1E3A28",padding:"10px 24px",display:"flex",gap:12,alignItems:"center",overflowX:"auto"}}>
           <div style={{fontSize:11,color:"#4DAA6A",fontWeight:700,flexShrink:0}}>✅ {presentToday.length} {T2("Present")}:</div>
           {presentToday.slice(0,15).map((a,i)=>(
