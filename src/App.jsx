@@ -10130,6 +10130,274 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   );
 }
 
+function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang}) {
+  const T2 = s => T(s, lang || 'en');
+  const [step, setStep] = useState('dept');
+  const [selDept, setSelDept] = useState(null);
+  const [selStaff, setSelStaff] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [photo, setPhoto] = useState(null);
+  const photoRef = useRef(null);
+
+  const venueName = currentUser.venue || 'Ambria';
+
+  const DEPTS = [
+    {id:'kitchen',label:'Kitchen',icon:'👨‍🍳',
+      sections:['Indian Curries','Tandoor','Chinese','Chaat','Sweets','Continental','Bakery']},
+    {id:'service',label:'Service',icon:'🍽'},
+    {id:'crockery',label:'Crockery',icon:'🍶'},
+    {id:'beverages',label:'Beverages',icon:'🥤'},
+    {id:'transport',label:'Transport',icon:'🚛'},
+    {id:'odc',label:'ODC',icon:'🏕'},
+    {id:'management',label:'Management',icon:'🔐'},
+    {id:'maintenance',label:'Maintenance',icon:'🔧'},
+  ];
+
+  function getStaffForDept(dept) {
+    return safeArr(empDb).filter(function(s) {
+      if (s.is_active === false) return false;
+      if (s.role === 'kiosk_gate' || s.role === 'admin') return false;
+      if (dept.sections) return dept.sections.includes(s.section);
+      return s.dept === dept.id;
+    });
+  }
+
+  function handlePunch(type) {
+    var now = new Date();
+    var timeStr = now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+    var sid = selStaff.staffListId || selStaff.staff_id;
+    setAttendance(function(prev) {
+      var existing = prev.find(function(a) { return a.staff_id === sid && a.date === TODAY; });
+      if (existing) {
+        return prev.map(function(a) {
+          return (a.staff_id === sid && a.date === TODAY)
+            ? {...a, status:'Present',
+                in_time: type === 'IN' ? timeStr : a.in_time,
+                out_time: type === 'OUT' ? timeStr : a.out_time,
+                photo: photo || a.photo,
+                venue: venueName}
+            : a;
+        });
+      }
+      return [...prev, {
+        id: 'att-' + Date.now(),
+        staff_id: sid,
+        staff_name: selStaff.name,
+        section: selStaff.section,
+        dept: selStaff.dept,
+        date: TODAY,
+        status: 'Present',
+        in_time: type === 'IN' ? timeStr : '',
+        out_time: type === 'OUT' ? timeStr : '',
+        photo: photo || null,
+        venue: venueName
+      }];
+    });
+    setSuccess({name: selStaff.name, type: type, time: timeStr});
+    setStep('success');
+    setTimeout(function() {
+      setStep('dept');
+      setSelDept(null);
+      setSelStaff(null);
+      setSuccess(null);
+      setPhoto(null);
+    }, 4000);
+  }
+
+  function handlePhoto(e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) { setPhoto(ev.target.result); };
+    reader.readAsDataURL(file);
+  }
+
+  // ── VENUE HEADER ──
+  var header = React.createElement('div', {
+    style:{textAlign:'center',padding:'16px',marginBottom:20,
+      background:'#1A1714',borderRadius:16,border:'2px solid #D4B44A30'}
+  },
+    React.createElement('div', {style:{fontSize:22,fontWeight:700,
+      color:'#D4B44A',fontFamily:'var(--font-display)'}}, venueName),
+    React.createElement('div', {style:{fontSize:12,color:'#7A6F62',marginTop:4}},
+      'Gate Attendance Kiosk · ' + TODAY_LABEL)
+  );
+
+  // ── STEP 1: SELECT DEPARTMENT ──
+  if (step === 'dept') {
+    return React.createElement('div', null,
+      header,
+      React.createElement('div', {style:{fontSize:18,fontWeight:700,
+        color:'#F5F0E8',textAlign:'center',fontFamily:'var(--font-display)',
+        marginBottom:20}}, T2('Select Your Department')),
+      React.createElement('div', {style:{display:'grid',
+        gridTemplateColumns:'repeat(3,1fr)',gap:12}},
+        DEPTS.map(function(d) {
+          var count = getStaffForDept(d).length;
+          return React.createElement('button', {
+            key: d.id,
+            onClick: function() { setSelDept(d); setStep('name'); },
+            style:{background:'#1A1714',border:'2px solid #2A2520',
+              borderRadius:16,padding:'24px 12px',cursor:'pointer',
+              textAlign:'center',minHeight:110}
+          },
+            React.createElement('div',{style:{fontSize:32,marginBottom:6}},d.icon),
+            React.createElement('div',{style:{fontSize:14,fontWeight:700,
+              color:'#F5F0E8'}},d.label),
+            React.createElement('div',{style:{fontSize:11,color:'#7A6F62',
+              marginTop:4}},count+' staff')
+          );
+        })
+      ),
+      React.createElement('div', {style:{position:'fixed',bottom:10,right:10}},
+        React.createElement('button', {
+          onClick: function() { setCurrentUser(null); },
+          style:{padding:'6px 14px',borderRadius:8,background:'#1A1714',
+            border:'1px solid #2A2520',color:'#4A4238',fontSize:10,
+            cursor:'pointer'}
+        }, 'Sign Out')
+      )
+    );
+  }
+
+  // ── STEP 2: SELECT NAME ──
+  if (step === 'name' && selDept) {
+    var staffList = getStaffForDept(selDept);
+    var grouped = {};
+    staffList.forEach(function(s) {
+      var sec = s.section || s.dept || 'Other';
+      if (!grouped[sec]) grouped[sec] = [];
+      grouped[sec].push(s);
+    });
+    return React.createElement('div', null,
+      header,
+      React.createElement('button', {
+        onClick: function() { setStep('dept'); setSelDept(null); },
+        style:{padding:'10px 18px',borderRadius:10,background:'#1A1714',
+          border:'1px solid #2A2520',color:'#7A6F62',fontSize:13,
+          cursor:'pointer',marginBottom:16,minHeight:44}
+      }, '← ' + T2('Back')),
+      React.createElement('div', {style:{fontSize:18,fontWeight:700,
+        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:16}},
+        selDept.icon + ' ' + selDept.label + ' — ' + T2('Select Your Name')),
+      Object.keys(grouped).map(function(sec) {
+        return React.createElement('div', {key:sec, style:{marginBottom:16}},
+          Object.keys(grouped).length > 1 ?
+            React.createElement('div', {style:{fontSize:12,fontWeight:700,
+              color:'#D4B44A',marginBottom:8,textTransform:'uppercase',
+              letterSpacing:0.8}}, sec) : null,
+          React.createElement('div', {style:{display:'grid',
+            gridTemplateColumns:'repeat(2,1fr)',gap:8}},
+            grouped[sec].map(function(s) {
+              var sid = s.staffListId || s.staff_id;
+              var todayAtt = safeArr(attendance).find(function(a) {
+                return a.staff_id === sid && a.date === TODAY;
+              });
+              var isIn = todayAtt && todayAtt.in_time && !todayAtt.out_time;
+              return React.createElement('button', {
+                key: sid,
+                onClick: function() { setSelStaff(s); setStep('photo'); },
+                style:{padding:'14px 12px',borderRadius:12,
+                  background: isIn ? '#0A2010' : '#141210',
+                  border:'1.5px solid '+(isIn ? '#1A4828' : '#2A2520'),
+                  cursor:'pointer',textAlign:'left',minHeight:56}
+              },
+                React.createElement('div',{style:{fontSize:14,fontWeight:700,
+                  color:'#F5F0E8'}},s.name),
+                React.createElement('div',{style:{fontSize:11,
+                  color:isIn?'#3EAA68':'#7A6F62',marginTop:2}},
+                  isIn ? '✅ IN since '+todayAtt.in_time : sid)
+              );
+            })
+          )
+        );
+      }),
+      staffList.length === 0 ?
+        React.createElement('div', {style:{textAlign:'center',padding:24,
+          color:'#7A6F62',fontSize:13}}, T2('No staff in this department')) : null
+    );
+  }
+
+  // ── STEP 3: TAKE PHOTO ──
+  if (step === 'photo' && selStaff) {
+    return React.createElement('div', {style:{textAlign:'center',padding:'40px 20px'}},
+      header,
+      React.createElement('div',{style:{fontSize:48,marginBottom:12}},'📸'),
+      React.createElement('div',{style:{fontSize:22,fontWeight:700,color:'#F5F0E8',
+        fontFamily:'var(--font-display)',marginBottom:4}},selStaff.name),
+      React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginBottom:24}},
+        (selStaff.section||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
+      photo ?
+        React.createElement('div',{style:{marginBottom:20}},
+          React.createElement('img',{src:photo,style:{width:120,height:120,
+            borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}),
+          React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6}},
+            '✅ Photo captured')
+        ) : null,
+      React.createElement('div',{style:{marginBottom:20}},
+        React.createElement('input',{
+          ref:photoRef, type:'file', accept:'image/*', capture:'user',
+          onChange:handlePhoto,
+          style:{display:'none'}
+        }),
+        React.createElement('button',{
+          onClick:function(){photoRef.current && photoRef.current.click();},
+          style:{padding:'14px 28px',borderRadius:12,
+            background:photo?'#1A1714':'linear-gradient(135deg,#D4B44A,#A8891E)',
+            color:photo?'#D4B44A':'#0A0908',
+            border:photo?'2px solid #D4B44A':'none',
+            fontSize:14,fontWeight:700,cursor:'pointer',minHeight:50}
+        }, photo ? '📸 Retake Photo' : '📸 Take Selfie')
+      ),
+      React.createElement('div',{style:{display:'flex',gap:16,
+        justifyContent:'center',marginTop:8}},
+        React.createElement('button',{
+          onClick:function(){handlePunch('IN');},
+          style:{padding:'18px 36px',borderRadius:14,fontSize:16,
+            fontWeight:700,cursor:'pointer',minHeight:64,minWidth:140,
+            background:'linear-gradient(135deg,#3EAA68,#1A5030)',
+            color:'#fff',border:'none'}
+        },'✅ PUNCH IN'),
+        React.createElement('button',{
+          onClick:function(){handlePunch('OUT');},
+          style:{padding:'18px 36px',borderRadius:14,fontSize:16,
+            fontWeight:700,cursor:'pointer',minHeight:64,minWidth:140,
+            background:'linear-gradient(135deg,#D04040,#8A1010)',
+            color:'#fff',border:'none'}
+        },'🚪 PUNCH OUT')
+      ),
+      React.createElement('button',{
+        onClick:function(){setStep('name');setSelStaff(null);setPhoto(null);},
+        style:{marginTop:16,padding:'10px 20px',borderRadius:10,
+          background:'#1A1714',border:'1px solid #2A2520',
+          color:'#7A6F62',fontSize:12,cursor:'pointer'}
+      },'← Wrong person? Go back')
+    );
+  }
+
+  // ── STEP 4: SUCCESS + AUTO RETURN ──
+  if (step === 'success' && success) {
+    return React.createElement('div', {style:{textAlign:'center',
+      padding:'80px 20px'}},
+      React.createElement('div',{style:{fontSize:64,marginBottom:16}},
+        success.type==='IN'?'✅':'🚪'),
+      React.createElement('div',{style:{fontSize:28,fontWeight:700,
+        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:8}},
+        success.name),
+      React.createElement('div',{style:{fontSize:20,
+        color:success.type==='IN'?'#3EAA68':'#D4914A',
+        fontWeight:700,marginBottom:4}},
+        (success.type==='IN'?'PUNCHED IN':'PUNCHED OUT')+' at '+success.time),
+      React.createElement('div',{style:{fontSize:16,color:'#7A6F62',
+        marginTop:24}},
+        'Returning in 4 seconds...')
+    );
+  }
+
+  return React.createElement('div',{style:{textAlign:'center',
+    padding:40,color:'#7A6F62'}},'Loading...');
+}
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -10397,6 +10665,16 @@ export default function App() {
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
+  // ── GATE KIOSK INTERCEPT ──
+  if(currentUser && currentUser.role === 'kiosk_gate') {
+    return (
+      <div style={{minHeight:'100vh',background:'#0A0908',padding:20}}>
+        <GateKiosk empDb={empDb} attendance={attendance}
+          setAttendance={setAttendance} currentUser={currentUser}
+          setCurrentUser={setCurrentUser} lang={lang}/>
+      </div>
+    );
+  }
   // ── DEPT SELECTOR (first screen for everyone) ──
   if(!activeDept) return (
     <DeptView
