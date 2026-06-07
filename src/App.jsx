@@ -11097,16 +11097,48 @@ export default function App() {
     );
   }
   // ── DEPT SELECTOR (first screen for everyone) ──
-  if(!activeDept) return (
-    <DeptView
-      attendance={attendance} setAttendance={setAttendance}
-      events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
-      lang={lang} setLang={setLang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb}
-      onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("management");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
-      onLogout={handleLogout}
-      currentUser={currentUser}
-    />
-  );
+  if(!activeDept) {
+    if(currentUser?.role === 'admin') return (
+      <div style={{minHeight:'100vh',background:'#0A0908',padding:'40px 20px'}}>
+        <div style={{maxWidth:400,margin:'0 auto',textAlign:'center'}}>
+          <div style={{fontSize:14,color:'#7A6F62',marginBottom:8}}>
+            Welcome, <strong style={{color:'#F5F0E8'}}>{currentUser.name}</strong>
+          </div>
+          <div style={{fontSize:24,fontWeight:700,color:'#F5F0E8',
+            fontFamily:'var(--font-display)',marginBottom:24}}>
+            Ambria FnB Operations
+          </div>
+          <button onClick={()=>{setActiveDept('management');setScreen('dashboard');}}
+            style={{width:'100%',padding:'32px 24px',borderRadius:20,cursor:'pointer',
+              background:'#1A1714',border:'2px solid #9060C8',textAlign:'center'}}>
+            <div style={{fontSize:48,marginBottom:12}}>🔐</div>
+            <div style={{fontSize:22,fontWeight:700,color:'#9060C8',
+              fontFamily:'var(--font-display)'}}>Management Dashboard</div>
+            <div style={{fontSize:13,color:'#7A6F62',marginTop:8}}>
+              All departments, staff control, attendance, kitchen, reports
+            </div>
+          </button>
+          <div style={{marginTop:24}}>
+            <button onClick={handleLogout}
+              style={{background:'none',border:'none',color:'#4A4238',
+                fontSize:12,cursor:'pointer',textDecoration:'underline'}}>
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+    return (
+      <DeptView
+        attendance={attendance} setAttendance={setAttendance}
+        events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
+        lang={lang} setLang={setLang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb}
+        onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("management");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
+        onLogout={handleLogout}
+        currentUser={currentUser}
+      />
+    );
+  }
 
   const LOCK_SCREEN = (
     <div style={{textAlign:"center",padding:"60px 20px"}}>
