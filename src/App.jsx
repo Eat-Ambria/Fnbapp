@@ -1614,76 +1614,6 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
           Ambria Cuisines · Get Your Venue Events Pvt Ltd
         </div>
 
-        {/* Gate Kiosk — 4 venue direct-login buttons */}
-        <div style={{marginTop:24,padding:"16px",background:"#1A1714",border:"2px solid #2A2520",borderRadius:16}}>
-          <div style={{fontSize:14,fontWeight:700,color:"#F5F0E8",textAlign:"center",marginBottom:12,fontFamily:"var(--font-display)"}}>
-            🏛 Gate Attendance Kiosk
-          </div>
-          <div style={{fontSize:11,color:"#7A6F62",textAlign:"center",marginBottom:14}}>
-            Select venue — no PIN required
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {[
-              {id:"GATE-AP", name:"Ambria Pushpanjali",color:"#D04040",icon:"🏛"},
-              {id:"GATE-AE", name:"Ambria Exotica",    color:"#D4914A",icon:"✨"},
-              {id:"GATE-MKT",name:"Manaktala Farm",    color:"#3EAA68",icon:"🌿"},
-              {id:"GATE-RST",name:"Ambria Restro",     color:"#9060C8",icon:"🍽"},
-            ].map(function(v) {
-              return (
-                <button key={v.id}
-                  onClick={function(){
-                    onLogin({staffListId:v.id,staff_id:v.id,name:"Gate Kiosk — "+v.name,
-                      section:"Gate",dept:"gate",role:"kiosk_gate",pin:"9999",
-                      is_active:true,venue:v.name});
-                  }}
-                  style={{padding:"14px 10px",borderRadius:12,cursor:"pointer",
-                    background:"transparent",border:"2px solid "+v.color,
-                    textAlign:"center",minHeight:70}}>
-                  <div style={{fontSize:24,marginBottom:4}}>{v.icon}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:v.color}}>{v.name}</div>
-                  <div style={{fontSize:10,color:"#7A6F62",marginTop:2}}>{v.id.replace("GATE-","")}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Section Tablets — 6 kitchen sections, no PIN */}
-        <div style={{marginTop:16,padding:'16px',background:'#1A1714',
-          border:'2px solid #2A2520',borderRadius:16}}>
-          <div style={{fontSize:14,fontWeight:700,color:'#F5F0E8',
-            textAlign:'center',marginBottom:12,fontFamily:'var(--font-display)'}}>
-            👨‍🍳 Kitchen Section Tablets
-          </div>
-          <div style={{fontSize:11,color:'#7A6F62',textAlign:'center',marginBottom:14}}>
-            No login required — tap your section to start making dishes
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
-            {[
-              {id:'TAB-IN', name:'Indian',      section:'Indian Curries', role:'section_indian',      icon:'🍛',color:'#D4914A'},
-              {id:'TAB-CH', name:'Chinese',     section:'Chinese',        role:'section_chinese',     icon:'🥢',color:'#D4B44A'},
-              {id:'TAB-TD', name:'Tandoor',     section:'Tandoor',        role:'section_tandoor',     icon:'🔥',color:'#D04040'},
-              {id:'TAB-CT', name:'Chaat',       section:'Chaat',          role:'section_chaat',       icon:'🥗',color:'#3EAA68'},
-              {id:'TAB-SW', name:'Sweets',      section:'Sweets',         role:'section_sweets',      icon:'🍮',color:'#9060C8'},
-              {id:'TAB-CN', name:'Continental', section:'Continental',    role:'section_continental', icon:'🍝',color:'#4A8FD0'},
-            ].map(function(s) {
-              return React.createElement('button', {
-                key:s.id,
-                onClick:function(){
-                  onLogin({staffListId:s.id,staff_id:s.id,name:s.name+' Section',
-                    section:s.section,dept:'kitchen',role:s.role,
-                    pin:'0000',is_active:true});
-                },
-                style:{padding:'16px 8px',borderRadius:12,cursor:'pointer',
-                  background:'transparent',border:'2px solid '+s.color,
-                  textAlign:'center',minHeight:80}
-              },
-                React.createElement('div',{style:{fontSize:28,marginBottom:4}},s.icon),
-                React.createElement('div',{style:{fontSize:13,fontWeight:700,color:s.color}},s.name)
-              );
-            })}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -3654,7 +3584,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
       {currentUser&&currentUser.venue&&(
         <div style={{textAlign:"center",padding:"12px",marginBottom:16,background:"#1A1714",borderRadius:12,border:"1px solid #2A2520",width:"100%",maxWidth:500,boxSizing:"border-box"}}>
           <div style={{fontSize:18,fontWeight:700,color:"#D4B44A",fontFamily:"var(--font-display)"}}>{currentUser.venue}</div>
-          <div style={{fontSize:11,color:"#7A6F62"}}>Gate Attendance Kiosk</div>
+          <div style={{fontSize:11,color:"#7A6F62"}}>Gate Kiosk</div>
         </div>
       )}
 
@@ -9768,7 +9698,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     {v:"crockery",           l:"🍶 Crockery Dept"},
     {v:"beverages",          l:"🥤 Beverages Dept"},
     {v:"transport",          l:"🚛 Transport"},
-    {v:"kiosk_gate",         l:"🏛 Gate Attendance Kiosk"},
+    {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
   ];
   const SECTION_OPTIONS = ["Management","Indian Curries","Tandoor","Chinese","Chaat","Sweets","Bakery","Service","Crockery","Beverages","Transportation","ODC","Continental"];
 
@@ -10384,7 +10314,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     React.createElement('div', {style:{fontSize:22,fontWeight:700,
       color:'#D4B44A',fontFamily:'var(--font-display)'}}, venueName),
     React.createElement('div', {style:{fontSize:12,color:'#7A6F62',marginTop:4}},
-      'Gate Attendance Kiosk · ' + TODAY_LABEL)
+      'Gate Kiosk · ' + TODAY_LABEL)
   );
 
   // ── STEP 1: SELECT DEPARTMENT ──
