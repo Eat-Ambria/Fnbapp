@@ -4321,66 +4321,72 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             );
           })()}
 
-          {/* ── GATE KIOSK ATTENDANCE TABLE (admin / head_chef) ── */}
+          {/* ── TODAY'S ATTENDANCE DASHBOARD (admin / head_chef) ── */}
           {(currentUser?.role==='admin'||currentUser?.role==='head_chef') && (()=>{
-            function calcHours(inT, outT) {
-              if (!inT || !outT) return '';
-              var parse = function(t) {
-                var m = t.match(/(\d+):(\d+)\s*(AM|PM)?/i);
-                if (!m) return null;
-                var h = parseInt(m[1]), mn = parseInt(m[2]), ap = m[3];
-                if (ap) { if (/pm/i.test(ap) && h!==12) h+=12; if (/am/i.test(ap) && h===12) h=0; }
-                return h*60+mn;
-              };
-              var a=parse(inT), b=parse(outT);
-              if (a===null||b===null) return '';
-              var diff=b-a; if(diff<0) diff+=1440;
-              return Math.floor(diff/60)+'h'+(diff%60>0?' '+diff%60+'m':'');
-            }
-            var gateRecs = safeArr(attendance)
-              .filter(function(a){ return a.date===TODAY && a.staff_id; })
-              .sort(function(a,b){
-                var sd=(a.section||'').localeCompare(b.section||'');
-                return sd!==0?sd:(a.staff_name||'').localeCompare(b.staff_name||'');
-              });
-            if (gateRecs.length===0) return null;
+            var todayAtt = safeArr(attendance)
+              .filter(function(a){return a.date===TODAY;})
+              .sort(function(a,b){return (a.in_time||'').localeCompare(b.in_time||'');});
+            var currentlyIn = todayAtt.filter(function(a){return a.in_time&&!a.out_time;}).length;
+            var punchedOut  = todayAtt.filter(function(a){return a.in_time&&a.out_time;}).length;
+            var totalActive = safeArr(empDb).filter(function(s){
+              return s.is_active!==false && s.role!=='kiosk_gate' && s.role!=='admin' && s.role!=='head_chef' && !s.role?.startsWith('section_');
+            }).length;
+            var notYetIn = Math.max(0, totalActive - todayAtt.length);
+            if (todayAtt.length===0) return null;
             return (
               <div style={{marginTop:20}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>
-                  📋 Gate Kiosk Attendance — {TODAY_LABEL}
+                <div style={{fontSize:16,fontWeight:700,color:C.text,
+                  fontFamily:'var(--font-display)',marginBottom:4}}>
+                  📋 Today's Attendance
                 </div>
-                <div style={{overflowX:'auto'}}>
-                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                    <thead>
-                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                        {['Photo','Name','Section','IN','OUT','Hours','Venue'].map(h=>(
-                          <th key={h} style={{padding:'6px 8px',textAlign:'left',
-                            color:C.muted,fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gateRecs.map(function(r,i){
-                        var hours = calcHours(r.in_time, r.out_time);
-                        return (
-                          <tr key={r.id||i} style={{borderBottom:`1px solid ${C.border}20`}}>
-                            <td style={{padding:'6px 8px'}}>
-                              {r.photo
-                                ? <img src={r.photo} style={{width:28,height:28,borderRadius:'50%',objectFit:'cover',border:`1px solid ${C.green}`}}/>
-                                : <Avatar name={r.staff_name||'?'} size={28} index={i}/>}
-                            </td>
-                            <td style={{padding:'6px 8px',fontWeight:600,color:C.text,whiteSpace:'nowrap'}}>{r.staff_name||r.staff_id}</td>
-                            <td style={{padding:'6px 8px',color:C.muted,whiteSpace:'nowrap'}}>{r.section||r.dept||'—'}</td>
-                            <td style={{padding:'6px 8px',color:C.green,fontWeight:600,whiteSpace:'nowrap'}}>{r.in_time||'—'}</td>
-                            <td style={{padding:'6px 8px',color:r.out_time?C.green:C.red,fontWeight:600,whiteSpace:'nowrap'}}>{r.out_time||'—'}</td>
-                            <td style={{padding:'6px 8px',color:C.muted,whiteSpace:'nowrap'}}>{hours||'—'}</td>
-                            <td style={{padding:'6px 8px',color:C.muted,whiteSpace:'nowrap'}}>{r.venue||'—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div style={{fontSize:12,color:C.muted,marginBottom:12}}>
+                  {todayAtt.length} staff punched in today
                 </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+                  <div style={{background:'#0A2010',borderRadius:10,padding:'10px',textAlign:'center',border:'1px solid #1A4828'}}>
+                    <div style={{fontSize:20,fontWeight:700,color:C.green}}>{currentlyIn}</div>
+                    <div style={{fontSize:10,color:C.green}}>Currently IN</div>
+                  </div>
+                  <div style={{background:'#200810',borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.redBorder}`}}>
+                    <div style={{fontSize:20,fontWeight:700,color:C.red}}>{punchedOut}</div>
+                    <div style={{fontSize:10,color:C.red}}>Punched OUT</div>
+                  </div>
+                  <div style={{background:C.surface,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:20,fontWeight:700,color:C.muted}}>{notYetIn}</div>
+                    <div style={{fontSize:10,color:C.muted}}>Not yet IN</div>
+                  </div>
+                </div>
+                {todayAtt.map(function(a,i){
+                  return (
+                    <div key={a.id||a.staff_id} style={{display:'flex',gap:12,alignItems:'center',
+                      padding:'10px 14px',marginBottom:6,background:C.surface,
+                      borderRadius:10,border:`1px solid ${C.border}`}}>
+                      <div>
+                        {(a.in_photo||a.out_photo||a.photo)
+                          ? <img src={a.in_photo||a.out_photo||a.photo}
+                              style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:`2px solid ${C.green}`}}/>
+                          : <Avatar name={a.staff_name||'?'} size={36} index={i}/>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:C.text,
+                          overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                          {a.staff_name||a.staff_id}
+                        </div>
+                        <div style={{fontSize:11,color:C.muted}}>
+                          {a.section||''}{a.venue?' · '+a.venue:''}
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0}}>
+                        <div style={{fontSize:12,color:C.green,fontWeight:700}}>
+                          IN: {a.in_time||'—'}
+                        </div>
+                        {a.out_time
+                          ? <div style={{fontSize:12,color:C.red,fontWeight:700}}>OUT: {a.out_time}</div>
+                          : <div style={{fontSize:11,color:C.amber}}>⏳ Still working</div>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })()}
@@ -10308,46 +10314,52 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   function handlePunch(type) {
     var now = new Date();
-    var timeStr = now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+    var timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     var sid = selStaff.staffListId || selStaff.staff_id;
-    var todayRecord = safeArr(attendance).find(function(a) {
-      return a.staff_id === sid && a.date === TODAY;
+    var todayRec = safeArr(attendance).find(function(a){
+      return a.staff_id===sid && a.date===TODAY;
     });
-    var newRec = {
-      id: (todayRecord && todayRecord.id) ? todayRecord.id : ('att-' + Date.now()),
+    var recordId = (todayRec && todayRec.id) ? todayRec.id : 'att-'+Date.now();
+    var newRecord = {
+      id: recordId,
       staff_id: sid,
       staff_name: selStaff.name,
       section: selStaff.section || '',
       dept: selStaff.dept || '',
       date: TODAY,
       status: 'Present',
-      in_time: type === 'IN' ? timeStr : (todayRecord ? todayRecord.in_time || '' : ''),
-      out_time: type === 'OUT' ? timeStr : (todayRecord ? todayRecord.out_time || '' : ''),
-      photo: photo || (todayRecord ? todayRecord.photo || null : null),
+      in_time: type==='IN' ? timeStr : (todayRec ? todayRec.in_time||'' : ''),
+      out_time: type==='OUT' ? timeStr : '',
+      in_photo: type==='IN' ? photo : (todayRec ? todayRec.in_photo||null : null),
+      out_photo: type==='OUT' ? photo : null,
       venue: venueName,
     };
+    // Update React state
     setAttendance(function(prev) {
-      var existing = prev.find(function(a) { return a.staff_id === sid && a.date === TODAY; });
-      if (existing) {
-        return prev.map(function(a) {
-          return (a.staff_id === sid && a.date === TODAY) ? {...a, ...newRec} : a;
-        });
-      }
-      return [...prev, newRec];
+      var exists = prev.find(function(a){return a.id===recordId;});
+      if (exists) return prev.map(function(a){return a.id===recordId?{...a,...newRecord}:a;});
+      return [...prev, newRecord];
     });
-    // Supabase sync
-    dbUpsert('attendance', newRec, 'id').catch(function(e){ console.error('gate att sync:', e); });
-    // localStorage fallback
+    // localStorage
     try {
-      var allAtt = JSON.parse(localStorage.getItem('ambria_attendance') || '[]');
-      var idx = allAtt.findIndex(function(a){ return a.staff_id === sid && a.date === TODAY; });
-      if (idx >= 0) { allAtt[idx] = {...allAtt[idx], ...newRec}; }
-      else { allAtt.push(newRec); }
+      var allAtt = JSON.parse(localStorage.getItem('ambria_attendance')||'[]');
+      var idx = allAtt.findIndex(function(a){return a.staff_id===sid && a.date===TODAY;});
+      if (idx>=0){allAtt[idx]={...allAtt[idx],...newRecord};}else{allAtt.push(newRecord);}
       localStorage.setItem('ambria_attendance', JSON.stringify(allAtt));
-    } catch(e) {}
-    setSuccess({name: selStaff.name, type: type, time: timeStr});
+    } catch(e){}
+    // Supabase (strip large photo fields to avoid payload limits)
+    try {
+      if (typeof supabase!=='undefined' && supabase) {
+        var dbRec = {id:newRecord.id,staff_id:newRecord.staff_id,staff_name:newRecord.staff_name,
+          section:newRecord.section,dept:newRecord.dept,date:newRecord.date,status:newRecord.status,
+          in_time:newRecord.in_time,out_time:newRecord.out_time,venue:newRecord.venue};
+        supabase.from('attendance').upsert(dbRec,{onConflict:'staff_id,date'})
+          .then(function(){}).catch(function(e){console.error('gate att:',e);});
+      }
+    } catch(e){}
+    setSuccess({name:selStaff.name, type:type, time:timeStr});
     setStep('success');
-    setTimeout(function() {
+    setTimeout(function(){
       setStep('dept');
       setSelDept(null);
       setSelStaff(null);
@@ -10455,7 +10467,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
               var statusColor = (isIn || isComplete) ? '#3EAA68' : '#7A6F62';
               return React.createElement('button', {
                 key: sid,
-                onClick: function() { setSelStaff(s); setStep('photo'); },
+                onClick: function() { setSelStaff(s); setStep('selfie'); },
                 style:{padding:'14px 12px',borderRadius:12,
                   background: (isIn || isComplete) ? '#0A2010' : '#141210',
                   border:'1.5px solid '+((isIn || isComplete) ? '#1A4828' : '#2A2520'),
@@ -10476,31 +10488,30 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     );
   }
 
-  // ── STEP 3: TAKE PHOTO ──
-  if (step === 'photo' && selStaff) {
+  // ── STEP 3: SELFIE + PUNCH ──
+  if (step === 'selfie' && selStaff) {
     var sid3 = selStaff.staffListId || selStaff.staff_id;
-    var todayRecord3 = safeArr(attendance).find(function(a) {
-      return a.staff_id === sid3 && a.date === TODAY;
+    var todayRec3 = safeArr(attendance).find(function(a){
+      return a.staff_id===sid3 && a.date===TODAY;
     });
-    var hasPunchedIn  = todayRecord3 && todayRecord3.in_time;
-    var hasPunchedOut = todayRecord3 && todayRecord3.out_time;
-    var punchButtonEl = (hasPunchedIn && hasPunchedOut)
-      ? React.createElement('div', {style:{padding:'20px',background:'#0A2010',borderRadius:14,
-          border:'1px solid #1A4828',textAlign:'center',maxWidth:300,margin:'0 auto'}},
-          React.createElement('div',{style:{fontSize:16,color:'#3EAA68',fontWeight:700,marginBottom:4}},
-            '✅ Attendance complete for today'),
-          React.createElement('div',{style:{fontSize:13,color:'#7A6F62'}},
-            'IN: '+todayRecord3.in_time+' · OUT: '+todayRecord3.out_time)
+    var punchedIn3  = todayRec3 && todayRec3.in_time;
+    var punchedOut3 = todayRec3 && todayRec3.out_time;
+    var punchEl = punchedIn3 && punchedOut3
+      ? React.createElement('div',{style:{padding:20,background:'#0A2010',borderRadius:14,
+          border:'1px solid #1A4828'}},
+          React.createElement('div',{style:{fontSize:16,color:'#3EAA68',fontWeight:700}},
+            '✅ Attendance complete'),
+          React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginTop:4}},
+            'IN: '+todayRec3.in_time+' · OUT: '+todayRec3.out_time)
         )
-      : hasPunchedIn
-        ? React.createElement('div', null,
-            React.createElement('div',{style:{fontSize:13,color:'#3EAA68',marginBottom:12,
-              fontWeight:700,textAlign:'center'}}, '✅ Punched IN at '+todayRecord3.in_time),
+      : punchedIn3
+        ? React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:13,color:'#3EAA68',marginBottom:10,fontWeight:700}},
+              '✅ Punched IN at '+todayRec3.in_time),
             React.createElement('button',{
               onClick:function(){handlePunch('OUT');},
               style:{padding:'18px 50px',borderRadius:14,fontSize:18,fontWeight:700,
-                cursor:'pointer',minHeight:64,width:'100%',maxWidth:300,
-                margin:'0 auto',display:'block',
+                cursor:'pointer',minHeight:64,width:'100%',maxWidth:320,
                 background:'linear-gradient(135deg,#D04040,#8A1010)',
                 color:'#fff',border:'none'}
             },'🚪 PUNCH OUT')
@@ -10508,44 +10519,44 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         : React.createElement('button',{
             onClick:function(){handlePunch('IN');},
             style:{padding:'18px 50px',borderRadius:14,fontSize:18,fontWeight:700,
-              cursor:'pointer',minHeight:64,width:'100%',maxWidth:300,
-              margin:'0 auto',display:'block',
+              cursor:'pointer',minHeight:64,width:'100%',maxWidth:320,
               background:'linear-gradient(135deg,#3EAA68,#1A5030)',
               color:'#fff',border:'none'}
           },'✅ PUNCH IN');
-    return React.createElement('div', {style:{textAlign:'center',padding:'40px 20px'}},
+    return React.createElement('div',{style:{textAlign:'center',padding:'30px 20px'}},
       header,
-      React.createElement('div',{style:{fontSize:48,marginBottom:12}},'📸'),
+      React.createElement('div',{style:{fontSize:48,marginBottom:8}},'📸'),
       React.createElement('div',{style:{fontSize:22,fontWeight:700,color:'#F5F0E8',
         fontFamily:'var(--font-display)',marginBottom:4}},selStaff.name),
-      React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginBottom:24}},
+      React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginBottom:20}},
         (selStaff.section||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
-      photo ?
-        React.createElement('div',{style:{marginBottom:20}},
-          React.createElement('img',{src:photo,style:{width:120,height:120,
-            borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}),
-          React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6}},
-            '✅ Photo captured')
-        ) : null,
+      photo ? React.createElement('div',{style:{marginBottom:16}},
+        React.createElement('img',{src:photo,style:{width:140,height:140,
+          borderRadius:20,objectFit:'cover',border:'3px solid #D4B44A'}}),
+        React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6,fontWeight:700}},
+          '✅ Selfie captured')
+      ) : null,
       React.createElement('div',{style:{marginBottom:20}},
         React.createElement('input',{
-          ref:photoRef, type:'file', accept:'image/*', capture:'user',
-          onChange:handlePhoto,
-          style:{display:'none'}
+          ref:photoRef,type:'file',accept:'image/*',capture:'user',
+          onChange:handlePhoto,style:{display:'none'}
         }),
         React.createElement('button',{
-          onClick:function(){photoRef.current && photoRef.current.click();},
-          style:{padding:'14px 28px',borderRadius:12,
+          onClick:function(){photoRef.current&&photoRef.current.click();},
+          style:{padding:'16px 32px',borderRadius:14,
             background:photo?'#1A1714':'linear-gradient(135deg,#D4B44A,#A8891E)',
             color:photo?'#D4B44A':'#0A0908',
             border:photo?'2px solid #D4B44A':'none',
-            fontSize:14,fontWeight:700,cursor:'pointer',minHeight:50}
-        }, photo ? '📸 Retake Photo' : '📸 Take Selfie')
+            fontSize:15,fontWeight:700,cursor:'pointer',minHeight:54}
+        }, photo?'📸 Retake Selfie':'📸 Take Selfie First')
       ),
-      punchButtonEl,
+      photo
+        ? React.createElement('div',{style:{marginTop:8}}, punchEl)
+        : React.createElement('div',{style:{fontSize:12,color:'#D4914A',marginTop:8}},
+            '⚠️ Take selfie first to enable punch button'),
       React.createElement('button',{
         onClick:function(){setStep('name');setSelStaff(null);setPhoto(null);},
-        style:{marginTop:16,padding:'10px 20px',borderRadius:10,
+        style:{marginTop:20,padding:'10px 24px',borderRadius:10,
           background:'#1A1714',border:'1px solid #2A2520',
           color:'#7A6F62',fontSize:12,cursor:'pointer'}
       },'← Wrong person? Go back')
@@ -10583,7 +10594,12 @@ export default function App() {
   const T2 = s => T(s, lang);
 
   // ── Attendance ──
-  const [attendance,setAttendance_raw] = useState([]);
+  const [attendance,setAttendance_raw] = useState(function() {
+    try { var s=localStorage.getItem('ambria_attendance'); return s?JSON.parse(s):[]; } catch(e){return [];}
+  });
+  useEffect(function() {
+    try { localStorage.setItem('ambria_attendance', JSON.stringify(attendance)); } catch(e){}
+  }, [attendance]);
   const setAttendance = (updater) => {
     setAttendance_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
