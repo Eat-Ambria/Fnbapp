@@ -433,13 +433,6 @@ const EMPLOYEE_DB_INIT = [
   {staffListId:"IN006",staff_id:"IN006",name:"Anas Khan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
   {staffListId:"BK001",staff_id:"BK001",name:"Shobhan Singh",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
   {staffListId:"BK002",staff_id:"BK002",name:"Disha",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
-  // ── KITCHEN SECTION TABLETS (6) ──
-  {staffListId:"TAB-IN",staff_id:"TAB-IN",name:"Indian Section Tablet",section:"Indian Curries",dept:"kitchen",role:"section_indian",pin:"1111",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TAB-CH",staff_id:"TAB-CH",name:"Chinese Section Tablet",section:"Chinese",dept:"kitchen",role:"section_chinese",pin:"2222",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TAB-TD",staff_id:"TAB-TD",name:"Tandoor Section Tablet",section:"Tandoor",dept:"kitchen",role:"section_tandoor",pin:"3333",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TAB-CT",staff_id:"TAB-CT",name:"Chaat Section Tablet",section:"Chaat",dept:"kitchen",role:"section_chaat",pin:"4444",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TAB-SW",staff_id:"TAB-SW",name:"Sweets Section Tablet",section:"Sweets",dept:"kitchen",role:"section_sweets",pin:"5555",is_active:true,joining:"2025-01-01"},
-  {staffListId:"TAB-CN",staff_id:"TAB-CN",name:"Continental Section Tablet",section:"Continental",dept:"kitchen",role:"section_continental",pin:"6666",is_active:true,joining:"2025-01-01"},
   // ── HEAD CHEF (Yatender & Gopal shared login) ──
   {staffListId:"HC001",staff_id:"HC001",name:"Yatender / Gopal",section:"Management",dept:"kitchen",role:"head_chef",pin:"7777",is_active:true,joining:"2025-01-01"},
 ];
@@ -1650,6 +1643,43 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
                   <div style={{fontSize:12,fontWeight:700,color:v.color}}>{v.name}</div>
                   <div style={{fontSize:10,color:"#7A6F62",marginTop:2}}>{v.id.replace("GATE-","")}</div>
                 </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Section Tablets — 6 kitchen sections, no PIN */}
+        <div style={{marginTop:16,padding:'16px',background:'#1A1714',
+          border:'2px solid #2A2520',borderRadius:16}}>
+          <div style={{fontSize:14,fontWeight:700,color:'#F5F0E8',
+            textAlign:'center',marginBottom:12,fontFamily:'var(--font-display)'}}>
+            👨‍🍳 Kitchen Section Tablets
+          </div>
+          <div style={{fontSize:11,color:'#7A6F62',textAlign:'center',marginBottom:14}}>
+            No login required — tap your section to start making dishes
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+            {[
+              {id:'TAB-IN', name:'Indian',      section:'Indian Curries', role:'section_indian',      icon:'🍛',color:'#D4914A'},
+              {id:'TAB-CH', name:'Chinese',     section:'Chinese',        role:'section_chinese',     icon:'🥢',color:'#D4B44A'},
+              {id:'TAB-TD', name:'Tandoor',     section:'Tandoor',        role:'section_tandoor',     icon:'🔥',color:'#D04040'},
+              {id:'TAB-CT', name:'Chaat',       section:'Chaat',          role:'section_chaat',       icon:'🥗',color:'#3EAA68'},
+              {id:'TAB-SW', name:'Sweets',      section:'Sweets',         role:'section_sweets',      icon:'🍮',color:'#9060C8'},
+              {id:'TAB-CN', name:'Continental', section:'Continental',    role:'section_continental', icon:'🍝',color:'#4A8FD0'},
+            ].map(function(s) {
+              return React.createElement('button', {
+                key:s.id,
+                onClick:function(){
+                  onLogin({staffListId:s.id,staff_id:s.id,name:s.name+' Section',
+                    section:s.section,dept:'kitchen',role:s.role,
+                    pin:'0000',is_active:true});
+                },
+                style:{padding:'16px 8px',borderRadius:12,cursor:'pointer',
+                  background:'transparent',border:'2px solid '+s.color,
+                  textAlign:'center',minHeight:80}
+              },
+                React.createElement('div',{style:{fontSize:28,marginBottom:4}},s.icon),
+                React.createElement('div',{style:{fontSize:13,fontWeight:700,color:s.color}},s.name)
               );
             })}
           </div>
@@ -10727,6 +10757,40 @@ export default function App() {
         <GateKiosk empDb={empDb} attendance={attendance}
           setAttendance={setAttendance} currentUser={currentUser}
           setCurrentUser={setCurrentUser} lang={lang}/>
+      </div>
+    );
+  }
+  // ── SECTION TABLET INTERCEPT ──
+  if(currentUser && currentUser.role && currentUser.role.startsWith('section_')) {
+    return (
+      <div style={{minHeight:'100vh',background:'#0A0908'}}>
+        <div style={{padding:'12px 20px',background:'#1A1714',
+          borderBottom:'1px solid #2A2520',display:'flex',
+          justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:20}}>
+              {currentUser.section==='Chinese'?'🥢':currentUser.section==='Tandoor'?'🔥':
+               currentUser.section==='Indian Curries'?'🍛':currentUser.section==='Chaat'?'🥗':
+               currentUser.section==='Sweets'?'🍮':currentUser.section==='Continental'?'🍝':'🍽'}
+            </span>
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:'#D4B44A',
+                fontFamily:'var(--font-display)'}}>{currentUser.section} Section</div>
+              <div style={{fontSize:11,color:'#7A6F62'}}>Kitchen Tablet · {TODAY_LABEL}</div>
+            </div>
+          </div>
+          <button onClick={function(){setCurrentUser(null);}}
+            style={{padding:'8px 16px',borderRadius:10,background:'#141210',
+              border:'1px solid #2A2520',color:'#7A6F62',fontSize:11,
+              cursor:'pointer'}}>
+            ← Exit
+          </button>
+        </div>
+        <div style={{padding:'20px'}}>
+          <KitchenHub events={events} kitchenTracking={kitchenTracking}
+            setKitchenTracking={setKitchenTracking} lang={lang}
+            currentUser={currentUser}/>
+        </div>
       </div>
     );
   }
