@@ -10586,6 +10586,29 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     padding:40,color:'#7A6F62'}},'Loading...');
 }
 
+// ── Unified attendance record schema ──────────────────────────────
+// Every attendance record in state always has BOTH naming conventions so
+// GateKiosk (staff_id / in_time / out_time) and legacy KioskAttendance
+// (staffId / time / punchOut) components can read each other's records.
+function normalizeAtt(a) {
+  var sid   = String(a.staff_id  || a.staffId  || '');
+  var sname = a.staff_name || a.staffName || '';
+  var inT   = a.in_time   || a.time      || '';
+  var outT  = a.out_time  || a.punchOut  || '';
+  var sec   = a.section   || a.staffSection || '';
+  return {
+    ...a,
+    staff_id: sid,   staffId: sid,
+    staff_name: sname, staffName: sname,
+    in_time: inT,    time: inT,
+    out_time: outT,  punchOut: outT,
+    section: sec,    staffSection: sec,
+    dept: a.dept || '',
+    date: a.date || TODAY,
+    status: a.status || 'Present',
+  };
+}
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -10595,7 +10618,7 @@ export default function App() {
 
   // ── Attendance ──
   const [attendance,setAttendance_raw] = useState(function() {
-    try { var s=localStorage.getItem('ambria_attendance'); return s?JSON.parse(s):[]; } catch(e){return [];}
+    try { var s=localStorage.getItem('ambria_attendance'); return s?JSON.parse(s).map(normalizeAtt):[]; } catch(e){return [];}
   });
   useEffect(function() {
     try { localStorage.setItem('ambria_attendance', JSON.stringify(attendance)); } catch(e){}
@@ -10603,15 +10626,19 @@ export default function App() {
   const setAttendance = (updater) => {
     setAttendance_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      const prevByKey = new Map(safeArr(prev).map(a=>[a.staffId+"_"+a.date, a]));
-      safeArr(next).forEach(a => {
-        const key = a.staffId+"_"+a.date;
+      // Normalize every record to unified schema on the way in
+      const normalized = safeArr(next).map(normalizeAtt);
+      const prevByKey = new Map(safeArr(prev).map(a=>[(a.staff_id||a.staffId)+"_"+a.date, a]));
+      normalized.forEach(a => {
+        const key = (a.staff_id||a.staffId)+"_"+a.date;
         const old = prevByKey.get(key);
-        if(!old || old.status!==a.status || old.time!==a.time) {
-          dbUpsert("attendance",{staff_id:a.staffId,staff_name:a.staffName,section:a.section,date:a.date,status:a.status||"Present",in_time:a.time||null},"staff_id,date").catch(e=>console.error("att sync:",e));
+        if(!old || old.status!==a.status || old.in_time!==a.in_time || old.out_time!==a.out_time) {
+          dbUpsert("attendance",{staff_id:a.staff_id,staff_name:a.staff_name,section:a.section,
+            date:a.date,status:a.status||"Present",in_time:a.in_time||null,out_time:a.out_time||null},
+            "staff_id,date").catch(e=>console.error("att sync:",e));
         }
       });
-      return next;
+      return normalized;
     });
   };
 
@@ -10712,7 +10739,7 @@ export default function App() {
         return {...e, menuPackage:e.menu_package||e.menuPackage, menu, extras};
       }));
       const todayAtt = attData.filter(a=>a.date===TODAY);
-      setAttendance_raw(todayAtt.map(a=>({id:a.id,staffId:a.staff_id||a.staffId,staffName:a.staff_name||a.staffName,section:a.section,date:a.date,status:a.status||"Present",time:a.in_time||a.time})));
+      setAttendance_raw(todayAtt.map(normalizeAtt));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       setRepairs(repairData.map(t=>({...t,assignTo:t.assign_to||t.assignTo,createdBy:t.created_by||t.createdBy,updates:t.updates||[]})));
       if(ktData.length>0){
@@ -10736,10 +10763,10 @@ export default function App() {
     const u2 = dbSubscribe('attendance', (payload) => {
       if(payload.eventType==='INSERT'||payload.eventType==='UPDATE'){
         if(payload.new?.date!==TODAY)return;
-        const r={id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,section:payload.new.section,date:payload.new.date,status:payload.new.status||"Present",time:payload.new.in_time};
-        setAttendance_raw(p=>{const ex=p.some(a=>a.staffId===r.staffId&&a.date===r.date);return ex?p.map(a=>a.staffId===r.staffId&&a.date===r.date?r:a):[...p,r];});
+        const r=normalizeAtt(payload.new);
+        setAttendance_raw(p=>{const key=r.staff_id;const ex=p.some(a=>(a.staff_id||a.staffId)===key&&a.date===r.date);return ex?p.map(a=>(a.staff_id||a.staffId)===key&&a.date===r.date?r:a):[...p,r];});
       }
-      if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>a.staffId!==payload.old.staff_id||a.date!==payload.old.date));
+      if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>(a.staff_id||a.staffId)!==payload.old.staff_id||a.date!==payload.old.date));
     });
     const u3 = dbSubscribe('repair_tickets', (payload) => {
       const t=payload.new?{...payload.new,assignTo:payload.new.assign_to,createdBy:payload.new.created_by,updates:payload.new.updates||[]}:null;
