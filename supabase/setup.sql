@@ -218,6 +218,15 @@ values
   ('IN004',    'Roshan',                       'Indian Curries','kitchen',    'staff',      '1111', false, true, '2025-01-01'),
   ('IN005',    'Hina',                         'Indian Curries','kitchen',    'staff',      '1111', false, true, '2025-01-01'),
   ('IN006',    'Anas Khan',                    'Indian Curries','kitchen',    'staff',      '1111', false, true, '2025-01-01'),
-  ('BK001',    'Shobhan Singh',                'Bakery',        'kitchen',    'staff',      '1111', false, true, '2025-01-01'),
-  ('BK002',    'Disha',                        'Bakery',        'kitchen',    'staff',      '1111', false, true, '2025-01-01')
+  ('BK001',    'Shobhan Singh',                'Bakery',        'kitchen',    'staff',              '1111', false, true, '2025-01-01'),
+  ('BK002',    'Disha',                        'Bakery',        'kitchen',    'staff',              '1111', false, true, '2025-01-01'),
+  -- kitchen section tablets
+  ('TAB-IN',   'Indian Section Tablet',        'Indian Curries','kitchen',    'section_indian',     '1111', false, true, '2025-01-01'),
+  ('TAB-CH',   'Chinese Section Tablet',       'Chinese',       'kitchen',    'section_chinese',    '2222', false, true, '2025-01-01'),
+  ('TAB-TD',   'Tandoor Section Tablet',       'Tandoor',       'kitchen',    'section_tandoor',    '3333', false, true, '2025-01-01'),
+  ('TAB-CT',   'Chaat Section Tablet',         'Chaat',         'kitchen',    'section_chaat',      '4444', false, true, '2025-01-01'),
+  ('TAB-SW',   'Sweets Section Tablet',        'Sweets',        'kitchen',    'section_sweets',     '5555', false, true, '2025-01-01'),
+  ('TAB-CN',   'Continental Section Tablet',   'Continental',   'kitchen',    'section_continental','6666', false, true, '2025-01-01'),
+  -- head chef shared login
+  ('HC001',    'Yatender / Gopal',             'Management',    'kitchen',    'head_chef',          '7777', false, true, '2025-01-01')
 on conflict (staff_id) do nothing;

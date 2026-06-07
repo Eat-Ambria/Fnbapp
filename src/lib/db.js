@@ -2,7 +2,7 @@ import { supabase } from './supabase.js'
 
 // Versioned cache key for staff busts old cached data on deploy
 function cacheKey(table) {
-  return table === 'staff' ? 'ambria_empdb_v9' : 'ambria_' + table;
+  return table === 'staff' ? 'ambria_empdb_v10' : 'ambria_' + table;
 }
 
 export async function dbLoad(table, fallback = []) {

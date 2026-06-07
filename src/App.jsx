@@ -433,6 +433,15 @@ const EMPLOYEE_DB_INIT = [
   {staffListId:"IN006",staff_id:"IN006",name:"Anas Khan",section:"Indian Curries",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
   {staffListId:"BK001",staff_id:"BK001",name:"Shobhan Singh",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
   {staffListId:"BK002",staff_id:"BK002",name:"Disha",section:"Bakery",dept:"kitchen",role:"staff",pin:"1111",is_active:true,joining:"2025-01-01"},
+  // ── KITCHEN SECTION TABLETS (6) ──
+  {staffListId:"TAB-IN",staff_id:"TAB-IN",name:"Indian Section Tablet",section:"Indian Curries",dept:"kitchen",role:"section_indian",pin:"1111",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TAB-CH",staff_id:"TAB-CH",name:"Chinese Section Tablet",section:"Chinese",dept:"kitchen",role:"section_chinese",pin:"2222",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TAB-TD",staff_id:"TAB-TD",name:"Tandoor Section Tablet",section:"Tandoor",dept:"kitchen",role:"section_tandoor",pin:"3333",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TAB-CT",staff_id:"TAB-CT",name:"Chaat Section Tablet",section:"Chaat",dept:"kitchen",role:"section_chaat",pin:"4444",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TAB-SW",staff_id:"TAB-SW",name:"Sweets Section Tablet",section:"Sweets",dept:"kitchen",role:"section_sweets",pin:"5555",is_active:true,joining:"2025-01-01"},
+  {staffListId:"TAB-CN",staff_id:"TAB-CN",name:"Continental Section Tablet",section:"Continental",dept:"kitchen",role:"section_continental",pin:"6666",is_active:true,joining:"2025-01-01"},
+  // ── HEAD CHEF (Yatender & Gopal shared login) ──
+  {staffListId:"HC001",staff_id:"HC001",name:"Yatender / Gopal",section:"Management",dept:"kitchen",role:"head_chef",pin:"7777",is_active:true,joining:"2025-01-01"},
 ];
 
 function getEmpByStaffId(empDb, staffListId) {
@@ -9580,7 +9589,7 @@ const SCREEN_PERMISSIONS = {
 // Role → allowed screen IDs map (single source of truth)
 const PRESET_ROLES = {
   admin:            {label:"Admin",              screens:["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc"]},
-  head_chef:        {label:"Head Chef",          screens:["dashboard","kitchen","store","team","transport","repair"]},
+  head_chef:        {label:"Head Chef",          screens:["dashboard","kitchen","menus","store","team","transport","repair"]},
   service:          {label:"Service",            screens:["dashboard","dept_service","team","vendors","repair"]},
   crockery:         {label:"Crockery",           screens:["dashboard","dept_crockery","team","store","repair"]},
   beverages:        {label:"Beverages",          screens:["dashboard","dept_beverages","menus","team","store","repair"]},
