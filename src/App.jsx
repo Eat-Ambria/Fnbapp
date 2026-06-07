@@ -10550,7 +10550,12 @@ export default function App() {
         dbLoad('kitchen_tracking', []),
       ]);
 
-      setEmpDb(staffData.map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false})));
+      // Merge: Supabase is authoritative; fill any missing entries from EMPLOYEE_DB_INIT
+      // (ensures device/role accounts — gate kiosks, section tablets, HC — always exist
+      //  even if Supabase DB was not re-seeded after adding them)
+      const supaIds = new Set(staffData.map(s => s.staff_id || s.staffListId || s.id).filter(Boolean));
+      const initOnly = EMPLOYEE_DB_INIT.filter(e => !supaIds.has(e.staff_id) && !supaIds.has(e.staffListId));
+      setEmpDb([...staffData, ...initOnly].map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false})));
       // If Supabase returns empty events, fall back to LIVE_EVENTS_INIT (demo data)
       const finalEvents = eventsData.length > 0 ? eventsData : LIVE_EVENTS_INIT;
       setEvents_raw(finalEvents.map(e=>{
