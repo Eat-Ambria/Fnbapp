@@ -1909,7 +1909,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {activeTab==="attendance"&&(()=>{
         const curDeptConfig = DEPTS.find(d=>d.id===selDept);
         const deptStaff = curDeptConfig ? STAFF_LIST.filter(curDeptConfig.staffFilter) : [];
-        const deptPresent = todayAtts.filter(a=>a.status==="Present"&&deptStaff.some(s=>String(s.id)===String(a.staffId)));
+        const deptPresent = todayAtts.filter(a=>a.status==="Present"&&deptStaff.some(s=>String(s.staffListId||s.staff_id||s.id)===String(a.staffId||a.staff_id)));
         return (
           <div>
             <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:14}}>
@@ -3523,7 +3523,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
   const filteredStaff = search ? sectionStaff.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())) : sectionStaff;
   const presentToday = todayAtt.filter(a=>a.status==="Present");
 
-  function getStaffAtt(staff){ return todayAtt.find(a=>String(a.staffId)===String(staff.id)&&a.status==="Present"); }
+  function getStaffAtt(staff){ return todayAtt.find(a=>String(a.staffId||a.staff_id)===String(staff.staffListId||staff.staff_id||staff.id)&&a.status==="Present"); }
 
   function handlePickStaff(staff){
     const att = getStaffAtt(staff);
