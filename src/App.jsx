@@ -4256,12 +4256,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             var todayAtt = safeArr(attendance)
               .filter(function(a){return a.date===TODAY;})
               .sort(function(a,b){return (a.in_time||'').localeCompare(b.in_time||'');});
-            var currentlyIn = todayAtt.filter(function(a){return a.in_time&&!a.out_time;}).length;
-            var punchedOut  = todayAtt.filter(function(a){return a.in_time&&a.out_time;}).length;
+            var staffAtt  = todayAtt.filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
+            var vendorAtt = todayAtt.filter(function(a){return a.is_vendor || a.dept==='vendor';});
+            var currentlyIn = staffAtt.filter(function(a){return a.in_time&&!a.out_time;}).length;
+            var punchedOut  = staffAtt.filter(function(a){return a.in_time&&a.out_time;}).length;
             var totalActive = safeArr(empDb).filter(function(s){
               return s.is_active!==false && s.role!=='kiosk_gate' && s.role!=='admin' && s.role!=='head_chef' && !s.role?.startsWith('section_');
             }).length;
-            var notYetIn = Math.max(0, totalActive - todayAtt.length);
+            var notYetIn = Math.max(0, totalActive - staffAtt.length);
             if (todayAtt.length===0) return null;
             return (
               <div style={{marginTop:20}}>
@@ -4270,7 +4272,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                   📋 Today's Attendance
                 </div>
                 <div style={{fontSize:12,color:C.muted,marginBottom:12}}>
-                  {todayAtt.length} staff punched in today
+                  {staffAtt.length} staff · {vendorAtt.length} vendor{vendorAtt.length!==1?'s':''} today
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
                   <div style={{background:'#0A2010',borderRadius:10,padding:'10px',textAlign:'center',border:'1px solid #1A4828'}}>
@@ -4286,7 +4288,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     <div style={{fontSize:10,color:C.muted}}>Not yet IN</div>
                   </div>
                 </div>
-                {todayAtt.map(function(a,i){
+                {staffAtt.map(function(a,i){
                   return (
                     <div key={a.id||a.staff_id} style={{display:'flex',gap:12,alignItems:'center',
                       padding:'10px 14px',marginBottom:6,background:C.surface,
@@ -4317,6 +4319,52 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     </div>
                   );
                 })}
+                {vendorAtt.length>0&&(
+                  <div style={{marginTop:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.muted,
+                      textTransform:'uppercase',letterSpacing:0.8,marginBottom:8}}>
+                      🏢 Outside Vendors ({vendorAtt.length})
+                    </div>
+                    {vendorAtt.map(function(a,i){
+                      var timeLabel = a.in_time ? 'IN: '+a.in_time : a.out_time ? 'OUT: '+a.out_time : '—';
+                      var timeColor = a.in_time ? C.green : C.red;
+                      return (
+                        <div key={a.id||a.staff_id+i} style={{display:'flex',gap:12,alignItems:'flex-start',
+                          padding:'10px 14px',marginBottom:6,background:'#141018',
+                          borderRadius:10,border:'1px solid #2A1F30'}}>
+                          <div style={{flexShrink:0}}>
+                            {a.photo
+                              ? <img src={a.photo} style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:'2px solid #9060C8'}}/>
+                              : <div style={{width:36,height:36,borderRadius:'50%',background:'#2A1F30',
+                                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏢</div>}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>
+                              {a.staff_name||'Unknown'}
+                            </div>
+                            <div style={{fontSize:11,color:'#9060C8',fontWeight:600}}>
+                              {a.vendor_company||''}
+                              {a.vendor_purpose?' · '+a.vendor_purpose:''}
+                            </div>
+                            {(a.vendor_phone||a.vendor_vehicle)&&(
+                              <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                                {a.vendor_phone?'📞 '+a.vendor_phone:''}
+                                {a.vendor_phone&&a.vendor_vehicle?' · ':''}
+                                {a.vendor_vehicle?'🚗 '+a.vendor_vehicle:''}
+                              </div>
+                            )}
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              {a.section||'General'}{a.venue?' · '+a.venue:''}
+                            </div>
+                          </div>
+                          <div style={{textAlign:'right',flexShrink:0}}>
+                            <div style={{fontSize:12,color:timeColor,fontWeight:700}}>{timeLabel}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -10217,6 +10265,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   const [selStaff, setSelStaff] = useState(null);
   const [success, setSuccess] = useState(null);
   const [photo, setPhoto] = useState(null);
+  const [vendorForm, setVendorForm] = useState({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
   const photoRef = useRef(null);
 
   const venueName = currentUser.venue || 'Ambria';
@@ -10231,6 +10280,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     {id:'odc',label:'ODC',icon:'🏕'},
     {id:'management',label:'Management',icon:'🔐'},
     {id:'maintenance',label:'Maintenance',icon:'🔧'},
+    {id:'vendor',label:'Outside Vendor',icon:'🏢'},
   ];
 
   function getStaffForDept(dept) {
@@ -10298,6 +10348,56 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     }, 4000);
   }
 
+  function handleVendorPunch(type) {
+    var now = new Date();
+    var timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    var vid = 'VND-'+Date.now();
+    var record = {
+      id: vid,
+      staff_id: vid,
+      staff_name: vendorForm.name.trim(),
+      section: vendorForm.section || 'Vendor',
+      dept: 'vendor',
+      date: TODAY,
+      status: 'Vendor',
+      in_time: type==='IN' ? timeStr : '',
+      out_time: type==='OUT' ? timeStr : '',
+      venue: venueName,
+      vendor_company: vendorForm.company.trim(),
+      vendor_purpose: vendorForm.purpose,
+      vendor_phone: vendorForm.phone,
+      vendor_vehicle: vendorForm.vehicle,
+      photo: photo || null,
+      is_vendor: true,
+    };
+    setAttendance(function(prev){ return [...prev, record]; });
+    try {
+      var allAtt = JSON.parse(localStorage.getItem('ambria_attendance')||'[]');
+      allAtt.push(record);
+      localStorage.setItem('ambria_attendance', JSON.stringify(allAtt));
+    } catch(e){}
+    try {
+      if (typeof supabase!=='undefined' && supabase) {
+        supabase.from('attendance').insert({
+          id:vid, staff_id:vid, staff_name:record.staff_name,
+          section:record.section, dept:'vendor', date:TODAY,
+          status:'Vendor', in_time:record.in_time, out_time:record.out_time,
+          venue:venueName
+        }).then(function(){}).catch(function(e){console.error(e);});
+      }
+    } catch(e){}
+    setSuccess({name:vendorForm.name+' ('+vendorForm.company+')', type:type, time:timeStr});
+    setStep('success');
+    setTimeout(function(){
+      setStep('dept');
+      setSelDept(null);
+      setSelStaff(null);
+      setSuccess(null);
+      setPhoto(null);
+      setVendorForm({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
+    }, 4000);
+  }
+
   function handlePhoto(e) {
     var file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -10330,7 +10430,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           var count = getStaffForDept(d).length;
           return React.createElement('button', {
             key: d.id,
-            onClick: function() { setSelDept(d); setStep('name'); },
+            onClick: function() {
+              if (d.id === 'vendor') {
+                setVendorForm({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
+                setStep('vendor');
+              } else {
+                setSelDept(d);
+                setStep('name');
+              }
+            },
             style:{background:'#1A1714',border:'2px solid #2A2520',
               borderRadius:16,padding:'24px 12px',cursor:'pointer',
               textAlign:'center',minHeight:110}
@@ -10339,7 +10447,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             React.createElement('div',{style:{fontSize:14,fontWeight:700,
               color:'#F5F0E8'}},d.label),
             React.createElement('div',{style:{fontSize:11,color:'#7A6F62',
-              marginTop:4}},count+' staff')
+              marginTop:4}},d.id==='vendor'?'Entry Form':count+' staff')
           );
         })
       ),
@@ -10415,6 +10523,130 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       staffList.length === 0 ?
         React.createElement('div', {style:{textAlign:'center',padding:24,
           color:'#7A6F62',fontSize:13}}, T2('No staff in this department')) : null
+    );
+  }
+
+  // ── STEP 2b: VENDOR ENTRY FORM ──
+  if (step === 'vendor') {
+    var fld = {width:'100%',padding:'12px',borderRadius:10,
+      border:'1px solid #2A2520',fontSize:14,color:'#F5F0E8',
+      background:'#141210',boxSizing:'border-box',minHeight:44};
+    var lbl = {fontSize:11,fontWeight:700,color:'#7A6F62',marginBottom:4,
+      textTransform:'uppercase',letterSpacing:0.8};
+    var canSubmitIn = vendorForm.name.trim()&&vendorForm.company.trim()&&vendorForm.purpose&&photo;
+    var canSubmitOut = vendorForm.name.trim()&&vendorForm.company.trim();
+    return React.createElement('div',null,
+      header,
+      React.createElement('button',{
+        onClick:function(){setStep('dept');setPhoto(null);},
+        style:{padding:'10px 18px',borderRadius:10,background:'#1A1714',
+          border:'1px solid #2A2520',color:'#7A6F62',fontSize:13,
+          cursor:'pointer',marginBottom:16,minHeight:44}
+      },'← Back'),
+      React.createElement('div',{style:{fontSize:18,fontWeight:700,
+        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:16}},
+        '🏢 Outside Vendor Entry'),
+      React.createElement('div',{style:{background:'#1A1714',borderRadius:14,
+        padding:'18px',border:'1px solid #2A2520'}},
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Visitor Name *'),
+          React.createElement('input',{value:vendorForm.name,
+            onChange:function(e){setVendorForm(function(p){return{...p,name:e.target.value};});},
+            placeholder:'Enter full name',style:fld})
+        ),
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Company / Vendor Name *'),
+          React.createElement('input',{value:vendorForm.company,
+            onChange:function(e){setVendorForm(function(p){return{...p,company:e.target.value};});},
+            placeholder:'e.g. Fresh Farms, Gupta Traders',style:fld})
+        ),
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Purpose of Visit *'),
+          React.createElement('select',{value:vendorForm.purpose,
+            onChange:function(e){setVendorForm(function(p){return{...p,purpose:e.target.value};});},
+            style:fld},
+            React.createElement('option',{value:''},'Select purpose'),
+            React.createElement('option',{value:'Delivery'},'📦 Delivery'),
+            React.createElement('option',{value:'Pickup'},'🚛 Pickup'),
+            React.createElement('option',{value:'Maintenance'},'🔧 Maintenance / Repair'),
+            React.createElement('option',{value:'Meeting'},'🤝 Meeting'),
+            React.createElement('option',{value:'Installation'},'⚙️ Installation'),
+            React.createElement('option',{value:'Inspection'},'🔍 Inspection'),
+            React.createElement('option',{value:'Other'},'📋 Other')
+          )
+        ),
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Visiting Section / Department'),
+          React.createElement('select',{value:vendorForm.section,
+            onChange:function(e){setVendorForm(function(p){return{...p,section:e.target.value};});},
+            style:fld},
+            React.createElement('option',{value:''},'Select section'),
+            React.createElement('option',{value:'Kitchen'},'Kitchen'),
+            React.createElement('option',{value:'Service'},'Service'),
+            React.createElement('option',{value:'Crockery'},'Crockery'),
+            React.createElement('option',{value:'Beverages'},'Beverages'),
+            React.createElement('option',{value:'Transport'},'Transport'),
+            React.createElement('option',{value:'ODC'},'ODC'),
+            React.createElement('option',{value:'Management'},'Management'),
+            React.createElement('option',{value:'Maintenance'},'Maintenance'),
+            React.createElement('option',{value:'General'},'General / Multiple')
+          )
+        ),
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Phone Number'),
+          React.createElement('input',{value:vendorForm.phone,
+            onChange:function(e){setVendorForm(function(p){return{...p,phone:e.target.value.replace(/[^0-9]/g,'').slice(0,10)};});},
+            placeholder:'10 digit mobile',inputMode:'numeric',maxLength:10,style:fld})
+        ),
+        React.createElement('div',{style:{marginBottom:12}},
+          React.createElement('div',{style:lbl},'Vehicle Number'),
+          React.createElement('input',{value:vendorForm.vehicle,
+            onChange:function(e){setVendorForm(function(p){return{...p,vehicle:e.target.value.toUpperCase()};});},
+            placeholder:'e.g. DL 01 AB 1234',style:fld})
+        ),
+        React.createElement('div',{style:{marginBottom:16}},
+          React.createElement('div',{style:lbl},'Visitor Photo *'),
+          React.createElement('input',{
+            ref:photoRef,type:'file',accept:'image/*',capture:'user',
+            onChange:handlePhoto,style:{display:'none'}
+          }),
+          photo ?
+            React.createElement('div',{style:{display:'flex',gap:12,alignItems:'center'}},
+              React.createElement('img',{src:photo,style:{width:80,height:80,
+                borderRadius:12,objectFit:'cover',border:'2px solid #D4B44A'}}),
+              React.createElement('button',{
+                onClick:function(){photoRef.current&&photoRef.current.click();},
+                style:{padding:'8px 16px',borderRadius:10,background:'#1A1714',
+                  border:'1px solid #2A2520',color:'#D4B44A',fontSize:12,cursor:'pointer'}
+              },'📸 Retake')
+            ) :
+            React.createElement('button',{
+              onClick:function(){photoRef.current&&photoRef.current.click();},
+              style:{padding:'14px 20px',borderRadius:12,width:'100%',
+                background:'linear-gradient(135deg,#D4B44A,#A8891E)',
+                color:'#0A0908',border:'none',fontSize:13,fontWeight:700,
+                cursor:'pointer',minHeight:48,boxSizing:'border-box'}
+            },'📸 Take Visitor Photo')
+        ),
+        React.createElement('div',{style:{display:'flex',gap:10,marginTop:8}},
+          React.createElement('button',{
+            onClick:function(){handleVendorPunch('IN');},
+            disabled:!canSubmitIn,
+            style:{flex:1,padding:'16px',borderRadius:12,fontSize:16,fontWeight:700,
+              cursor:canSubmitIn?'pointer':'not-allowed',minHeight:56,
+              background:canSubmitIn?'linear-gradient(135deg,#3EAA68,#1A5030)':'#333',
+              color:canSubmitIn?'#fff':'#666',border:'none'}
+          },'✅ VENDOR IN'),
+          React.createElement('button',{
+            onClick:function(){handleVendorPunch('OUT');},
+            disabled:!canSubmitOut,
+            style:{flex:1,padding:'16px',borderRadius:12,fontSize:16,fontWeight:700,
+              cursor:canSubmitOut?'pointer':'not-allowed',minHeight:56,
+              background:canSubmitOut?'linear-gradient(135deg,#D04040,#8A1010)':'#333',
+              color:canSubmitOut?'#fff':'#666',border:'none'}
+          },'🚪 VENDOR OUT')
+        )
+      )
     );
   }
 
