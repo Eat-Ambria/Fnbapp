@@ -6029,7 +6029,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         var prePrep=nonStoreSI.filter(function(x){return !!x.step.d1;});
                         var cooking=nonStoreSI.filter(function(x){return !x.step.d1;});
                         var steps=nonStoreSI.map(function(x){return x.step;});
-                        var allStepsDone=(!!d3.storeEnd||!!d3.mesaDone)&&nonStoreSI.every(function(item){return stepDone(d3,item.origIdx);});
+                        var doneCount=0;
+                        for(var ci=0;ci<steps.length;ci++){
+                          var isManual=d3.manual&&(d3.manual[ci]||d3.manual['step_'+ci]||d3.manual[String(ci)]);
+                          var startVal=d3.starts&&(d3.starts[ci]||d3.starts['step_'+ci]||d3.starts[String(ci)]);
+                          var isTimerDone=startVal&&steps[ci].tm&&Math.floor((Date.now()-startVal)/1000)>=steps[ci].tm;
+                          if(isManual||isTimerDone) doneCount++;
+                        }
+                        var allStepsDone=doneCount===steps.length&&steps.length>0;
                         var isCompleted=d3.completed||d3.ready;
                         var isDispatched=d3.readyForDispatch;
                         function renderStep(item,globalIdx,groupIdx,groupLen){
@@ -6078,16 +6085,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               var d2c=ds(dish.fEvId,dish.fIdx);
                               var doneCount=0;
                               for(var ci=0;ci<steps.length;ci++){
-                                var isManual=(d2c.manual&&(d2c.manual[ci]||d2c.manual['step_'+ci]||d2c.manual[String(ci)]));
-                                var hasStart=d2c.starts&&(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]);
-                                var startTime=hasStart?(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]):0;
-                                var isTimerDone=hasStart&&steps[ci].tm&&Math.floor((Date.now()-startTime)/1000)>=steps[ci].tm;
+                                var isManual=d2c.manual&&(d2c.manual[ci]||d2c.manual['step_'+ci]||d2c.manual[String(ci)]);
+                                var startVal=d2c.starts&&(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]);
+                                var isTimerDone=startVal&&steps[ci].tm&&Math.floor((Date.now()-startVal)/1000)>=steps[ci].tm;
                                 if(isManual||isTimerDone) doneCount++;
                               }
-                              var allDone=doneCount===steps.length&&steps.length>0;
-                              var storeOk=!!(d2c.storeEnd||d2c.mesaDone||(d2c.storeStart&&Math.floor((Date.now()-d2c.storeStart)/1000)>=1800));
-                              var fullyDone=allDone&&storeOk;
-                              if(!fullyDone) return null;
+                              var allStepsDone=doneCount===steps.length&&steps.length>0;
+                              if(!allStepsDone) return null;
                               var isComp=d2c.completed||d2c.ready;
                               var isDisp=d2c.readyForDispatch;
                               return (
