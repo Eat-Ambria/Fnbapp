@@ -10928,6 +10928,14 @@ export default function App() {
     return () => { u1(); u2(); u3(); u4(); };
   }, [appReady]);
 
+  // Admin skips dept selector — go straight to Management Dashboard
+  useEffect(function(){
+    if (currentUser && currentUser.role === 'admin' && !activeDept) {
+      setActiveDept('management');
+      setScreen('dashboard');
+    }
+  }, [currentUser]);
+
   async function syncStaff(action, data) {
     const record = {
       staff_id: data.staffListId||data.staff_id, name: data.name||'',
@@ -11081,108 +11089,7 @@ export default function App() {
   }
   // ── DEPT SELECTOR (first screen for everyone) ──
   if(!activeDept) {
-    if(currentUser?.role === 'admin') return (
-      <div style={{minHeight:'100vh',background:'#0A0908',padding:'40px 20px'}}>
-        <div style={{maxWidth:400,margin:'0 auto',textAlign:'center'}}>
-          <div style={{fontSize:14,color:'#7A6F62',marginBottom:8}}>
-            Welcome, <strong style={{color:'#F5F0E8'}}>{currentUser.name}</strong>
-          </div>
-          <div style={{fontSize:24,fontWeight:700,color:'#F5F0E8',
-            fontFamily:'var(--font-display)',marginBottom:24}}>
-            Ambria FnB Operations
-          </div>
-          <button onClick={()=>{setActiveDept('management');setScreen('dashboard');}}
-            style={{width:'100%',padding:'32px 24px',borderRadius:20,cursor:'pointer',
-              background:'#1A1714',border:'2px solid #9060C8',textAlign:'center'}}>
-            <div style={{fontSize:48,marginBottom:12}}>🔐</div>
-            <div style={{fontSize:22,fontWeight:700,color:'#9060C8',
-              fontFamily:'var(--font-display)'}}>Management Dashboard</div>
-            <div style={{fontSize:13,color:'#7A6F62',marginTop:8}}>
-              All departments, staff control, attendance, kitchen, reports
-            </div>
-          </button>
-
-          <div style={{marginTop:24,padding:'16px 20px',background:'#1A1714',
-            borderRadius:16,border:'1px solid #2A2520',textAlign:'center'}}>
-            <div style={{fontSize:16,fontWeight:700,color:'#F5F0E8',
-              fontFamily:'var(--font-display)',marginBottom:4}}>
-              🏛 Gate Attendance Kiosk
-            </div>
-            <div style={{fontSize:11,color:'#7A6F62',marginBottom:14}}>
-              Open on gate tablets — staff punch IN/OUT here
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              {[
-                {id:'GATE-AP',name:'Ambria Pushpanjali',code:'AP',color:'#D04040',icon:'🏛'},
-                {id:'GATE-AE',name:'Ambria Exotica',code:'AE',color:'#D4914A',icon:'✨'},
-                {id:'GATE-MKT',name:'Manaktala Farm',code:'MKT',color:'#3EAA68',icon:'🌿'},
-                {id:'GATE-RST',name:'Ambria Restro',code:'RST',color:'#9060C8',icon:'🍽'},
-              ].map(function(v) {
-                return React.createElement('button', {
-                  key:v.id,
-                  onClick:function(){
-                    setCurrentUser({staffListId:v.id,staff_id:v.id,
-                      name:'Gate — '+v.name,section:'Gate',dept:'gate',
-                      role:'kiosk_gate',pin:'9999',is_active:true,venue:v.name});
-                  },
-                  style:{padding:'14px 10px',borderRadius:12,cursor:'pointer',
-                    background:'transparent',border:'1.5px solid '+v.color,
-                    textAlign:'center',minHeight:70}
-                },
-                  React.createElement('div',{style:{fontSize:24,marginBottom:4}},v.icon),
-                  React.createElement('div',{style:{fontSize:12,fontWeight:700,color:v.color}},v.name),
-                  React.createElement('div',{style:{fontSize:10,color:'#7A6F62',marginTop:2}},v.code)
-                );
-              })}
-            </div>
-          </div>
-
-          <div style={{marginTop:16,padding:'16px 20px',background:'#1A1714',
-            borderRadius:16,border:'1px solid #2A2520',textAlign:'center'}}>
-            <div style={{fontSize:16,fontWeight:700,color:'#F5F0E8',
-              fontFamily:'var(--font-display)',marginBottom:4}}>
-              👨‍🍳 Kitchen Section Tablets
-            </div>
-            <div style={{fontSize:11,color:'#7A6F62',marginBottom:14}}>
-              Quick launch for kitchen section tablets
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
-              {[
-                {id:'TAB-IN',name:'Indian',section:'Indian Curries',role:'section_indian',icon:'🍛',color:'#D4914A'},
-                {id:'TAB-CH',name:'Chinese',section:'Chinese',role:'section_chinese',icon:'🥢',color:'#D4B44A'},
-                {id:'TAB-TD',name:'Tandoor',section:'Tandoor',role:'section_tandoor',icon:'🔥',color:'#D04040'},
-                {id:'TAB-CT',name:'Chaat',section:'Chaat',role:'section_chaat',icon:'🥗',color:'#3EAA68'},
-                {id:'TAB-SW',name:'Sweets',section:'Sweets',role:'section_sweets',icon:'🍮',color:'#9060C8'},
-                {id:'TAB-CN',name:'Continental',section:'Continental',role:'section_continental',icon:'🍝',color:'#4A8FD0'},
-              ].map(function(s) {
-                return React.createElement('button', {
-                  key:s.id,
-                  onClick:function(){
-                    setCurrentUser({staffListId:s.id,staff_id:s.id,
-                      name:s.name+' Section',section:s.section,dept:'kitchen',
-                      role:s.role,pin:'0000',is_active:true});
-                  },
-                  style:{padding:'14px 8px',borderRadius:12,cursor:'pointer',
-                    background:'transparent',border:'1.5px solid '+s.color,
-                    textAlign:'center',minHeight:70}
-                },
-                  React.createElement('div',{style:{fontSize:24,marginBottom:4}},s.icon),
-                  React.createElement('div',{style:{fontSize:12,fontWeight:700,color:s.color}},s.name)
-                );
-              })}
-            </div>
-          </div>
-
-          <div style={{marginTop:24}}>
-            <button onClick={handleLogout}
-              style={{background:'none',border:'none',color:'#4A4238',
-                fontSize:12,cursor:'pointer',textDecoration:'underline'}}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    if(currentUser?.role === 'admin') return null; // useEffect redirects to management dashboard
     return (
       <DeptView
         attendance={attendance} setAttendance={setAttendance}
