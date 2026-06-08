@@ -5675,10 +5675,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           return Math.round(raw)+" "+u;
         }
         const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date===DAY_AFTER)];
-        const linkedEv = scaleEventId!=="manual" ? allEvs.find(e=>e.id===scaleEventId) : null;
+        const linkedEv = scaleEventId ? allEvs.find(e=>e.id===scaleEventId) : null;
         const autoPercent = linkedEv ? Math.round((+linkedEv.pax/BASE_PAX)*100) : null;
-        const effectivePct = scaleEventId==="manual" ? (scalePercent||100) : (autoPercent||100);
-        const pctLabel = scaleEventId==="manual" ? `${effectivePct}%` : `${effectivePct}% (auto from ${linkedEv?.guest||""} · ${linkedEv?.pax||0} pax)`;
+        const effectivePct = scaleEventId===null ? 100 : (scalePercent||100);
+        const pctLabel = `${effectivePct}%${linkedEv?" ("+linkedEv.guest+" · "+linkedEv.pax+" pax)":""}`;
         const mode=scaleMode||"single";
         const pkgNames=Object.keys(MENU_PACKAGES);
         const selPkg=scalePkg||pkgNames[0];
@@ -6748,10 +6748,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         // Effective % from selected event or manual
         const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date===DAY_AFTER)];
-        const linkedEv = scaleEventId!=="manual" ? allEvs.find(e=>e.id===scaleEventId) : null;
+        const linkedEv = scaleEventId ? allEvs.find(e=>e.id===scaleEventId) : null;
         const autoPercent = linkedEv ? Math.round((+linkedEv.pax/BASE_PAX)*100) : null;
-        const effectivePct = scaleEventId==="manual" ? (scalePercent||100) : (autoPercent||100);
-        const pctLabel = scaleEventId==="manual" ? `${effectivePct}%` : `${effectivePct}% (auto from ${linkedEv?.guest||""} · ${linkedEv?.pax||0} pax)`;
+        const effectivePct = scaleEventId===null ? 100 : (scalePercent||100);
+        const pctLabel = `${effectivePct}%${linkedEv?" ("+linkedEv.guest+" · "+linkedEv.pax+" pax)":""}`;
 
         const mode=scaleMode||"single";
         const pkgNames=Object.keys(MENU_PACKAGES);
@@ -6833,13 +6833,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             {StepChip(1,T2("Select Function"))}
             <Card style={{marginBottom:0,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
               <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
-                {allEvs.length>0?T2("Tap an event to auto-calculate the scaling percentage"):T2("No upcoming events — use Manual % mode")}
+                {allEvs.length>0?T2("Tap an upcoming event to begin scaling"):T2("No upcoming events found")}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <button onClick={()=>setScaleEventId("manual")}
-                  style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:scaleEventId==="manual"?700:400,cursor:"pointer",background:scaleEventId==="manual"?C.gold:C.surface,color:scaleEventId==="manual"?"#0A0908":C.muted,border:`1.5px solid ${scaleEventId==="manual"?C.gold:C.border}`,minHeight:44}}>
-                  ✏️ {T2("Manual %")}
-                </button>
+                {allEvs.length===0&&<div style={{fontSize:12,color:C.faint,padding:"4px 0"}}>{T2("Add events in the Dashboard to enable scaling")}</div>}
                 {allEvs.map(ev=>{
                   const autoPct=Math.round((+ev.pax/BASE_PAX)*100);
                   const isSel=scaleEventId===ev.id;
@@ -6848,41 +6845,54 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <button key={ev.id} onClick={()=>{setScaleEventId(ev.id);setScalePercent(autoPct);}}
                       style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#0A0908":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
                       <div style={{fontWeight:isSel?800:600}}>{ev.guest}</div>
-                      <div style={{fontSize:10,opacity:.8}}>📅 {ev.date} · {ev.pax} pax · {autoPct}%{evPkg?" · "+evPkg:""}</div>
+                      <div style={{fontSize:10,opacity:.8}}>📅 {ev.date} · {ev.pax} pax{evPkg?" · "+evPkg:""}</div>
                     </button>
                   );
                 })}
               </div>
-              {scaleEventId==="manual"&&(
-                <div style={{marginTop:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Manual Scaling %")}</div>
-                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
-                    {[25,50,75,80,100,110,120,125,150].map(p=>(
+              {scaleEventId!==null&&linkedEv&&(
+                <div style={{marginTop:14}}>
+                  <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+                    <div style={{fontSize:11,color:C.muted}}>Auto-calculated</div>
+                    <div style={{fontSize:20,fontWeight:800,color:C.gold}}>{autoPercent}%</div>
+                    <div style={{fontSize:11,color:C.muted}}>({linkedEv.pax} pax ÷ 1100)</div>
+                    {effectivePct!==autoPercent&&(
+                      <div style={{marginLeft:"auto",fontSize:11,color:C.amber,fontWeight:600}}>
+                        ⚙️ {T2("Overridden")} → {effectivePct}%
+                      </div>
+                    )}
+                    {effectivePct===autoPercent&&<div style={{marginLeft:"auto",fontSize:10,color:C.faint}}>{T2("Using auto")}</div>}
+                  </div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>⚙️ {T2("Override %")} <span style={{fontWeight:400,fontSize:10,textTransform:"none"}}>({T2("optional")})</span></div>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+                    <button onClick={()=>setScalePercent(autoPercent)}
+                      style={{padding:"6px 12px",borderRadius:10,fontSize:11,fontWeight:scalePercent===autoPercent?700:400,cursor:"pointer",background:scalePercent===autoPercent?C.goldBg:"transparent",color:scalePercent===autoPercent?C.gold:C.muted,border:`1.5px solid ${scalePercent===autoPercent?C.gold:C.border}`,minHeight:34}}>
+                      Auto ({autoPercent}%)
+                    </button>
+                    {[25,50,75,80,100,110,120,125,150].filter(p=>p!==autoPercent).map(p=>(
                       <button key={p} onClick={()=>setScalePercent(p)}
-                        style={{padding:"7px 12px",borderRadius:10,fontSize:12,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:36}}>
+                        style={{padding:"6px 11px",borderRadius:10,fontSize:12,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:34}}>
                         {p}%
                       </button>
                     ))}
                     <input type="number" value={scalePercent} onChange={e=>setScalePercent(Math.max(1,Math.min(500,+e.target.value||100)))} min={1} max={500}
-                      style={{width:68,padding:"7px 8px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:13,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:36}}/>
+                      style={{width:64,padding:"6px 8px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:13,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:34}}/>
+                    <span style={{fontSize:12,color:C.muted}}>%</span>
                   </div>
-                  <div style={{position:"relative"}}>
+                  <div style={{position:"relative",marginBottom:10}}>
                     <input type="range" min={10} max={200} step={5} value={Math.min(200,scalePercent)}
                       onChange={e=>setScalePercent(+e.target.value)}
-                      style={{width:"100%",accentColor:scalePercent<100?C.amber:scalePercent>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
+                      style={{width:"100%",accentColor:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
                     <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:9,color:C.faint}}>
                       <span>10%</span><span style={{color:C.gold,fontWeight:700}}>100%</span><span>200%</span>
                     </div>
                     <div style={{position:"absolute",left:"47.4%",top:0,width:2,height:14,background:C.gold+"60",borderRadius:1,pointerEvents:"none"}}/>
                   </div>
-                </div>
-              )}
-              {scaleEventId!==null&&(
-                <div style={{marginTop:12,background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
-                  <div style={{fontSize:18,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
-                  {linkedEv&&<div style={{fontSize:11,color:C.muted}}>← {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
-                  {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>= SOP quantities</div>}
+                  <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
+                    <div style={{fontSize:11,color:C.muted}}>← {linkedEv.guest} · {linkedEv.pax} pax</div>
+                  </div>
                 </div>
               )}
             </Card>
