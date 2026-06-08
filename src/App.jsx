@@ -6759,99 +6759,78 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const multiSel=scaleMultiSel||{};
         const activeDishes=mode==="single"?(scaleDish&&RECIPE_INGREDIENTS[scaleDish]?[scaleDish]:[]):mode==="multi"?Object.keys(multiSel).filter(d=>multiSel[d]):pkgDishes;
 
+        // step chip helper
+        const StepChip=(n,label)=>(
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,marginTop:n>1?20:0}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:C.gold,color:"#0A0908",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,textTransform:"uppercase",letterSpacing:.6}}>{label}</div>
+          </div>
+        );
+
         return(
           <div>
             <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Menu applicability matrix + ingredient quantities. Base: 1100 pax")} <span style={{color:"#FF6B35"}}>★</span></div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Scale ingredient quantities to any function's pax. Base: 1100 pax")} <span style={{color:"#FF6B35"}}>★</span></div>
 
-            {/* ── % SCALING CONTROL PANEL ── */}
-            <Card style={{marginBottom:16,padding:"16px 18px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📐 {T2("Scaling Control")}</div>
-
-              {/* Source: Event or Manual */}
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scale based on")}</div>
-              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
-                <button onClick={()=>setScaleEventId("manual")} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:scaleEventId==="manual"?700:400,cursor:"pointer",background:scaleEventId==="manual"?C.gold:C.surface,color:scaleEventId==="manual"?"#0A0908":C.muted,border:`1.5px solid ${scaleEventId==="manual"?C.gold:C.border}`,minHeight:38}}>
+            {/* ══ STEP 1: SELECT FUNCTION ══ */}
+            {StepChip(1,T2("Select Function"))}
+            <Card style={{marginBottom:0,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
+                {allEvs.length>0?T2("Tap an event to auto-calculate the scaling percentage"):T2("No upcoming events — use Manual % mode")}
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>setScaleEventId("manual")}
+                  style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:scaleEventId==="manual"?700:400,cursor:"pointer",background:scaleEventId==="manual"?C.gold:C.surface,color:scaleEventId==="manual"?"#0A0908":C.muted,border:`1.5px solid ${scaleEventId==="manual"?C.gold:C.border}`,minHeight:44}}>
                   ✏️ {T2("Manual %")}
                 </button>
                 {allEvs.map(ev=>{
                   const autoPct=Math.round((+ev.pax/BASE_PAX)*100);
                   const isSel=scaleEventId===ev.id;
+                  const evPkg=ev.menu_package||ev.package||"";
                   return(
                     <button key={ev.id} onClick={()=>{setScaleEventId(ev.id);setScalePercent(autoPct);}}
-                      style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#0A0908":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:38}}>
-                      📅 {ev.guest.split(" ")[0]} · {ev.pax} pax → {autoPct}%
+                      style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#0A0908":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
+                      <div style={{fontWeight:isSel?800:600}}>{ev.guest}</div>
+                      <div style={{fontSize:10,opacity:.8}}>📅 {ev.date} · {ev.pax} pax · {autoPct}%{evPkg?" · "+evPkg:""}</div>
                     </button>
                   );
                 })}
               </div>
-
-              {/* % input (only for manual mode) */}
               {scaleEventId==="manual"&&(
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scaling %")}</div>
-                  {/* Quick buttons */}
+                <div style={{marginTop:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Manual Scaling %")}</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
                     {[25,50,75,80,100,110,120,125,150].map(p=>(
                       <button key={p} onClick={()=>setScalePercent(p)}
-                        style={{padding:"7px 14px",borderRadius:10,fontSize:13,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:38}}>
+                        style={{padding:"7px 12px",borderRadius:10,fontSize:12,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:36}}>
                         {p}%
                       </button>
                     ))}
                     <input type="number" value={scalePercent} onChange={e=>setScalePercent(Math.max(1,Math.min(500,+e.target.value||100)))} min={1} max={500}
-                      style={{width:72,padding:"8px 10px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:14,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:38}}/>
-                    <span style={{fontSize:12,color:C.muted}}>%</span>
+                      style={{width:68,padding:"7px 8px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:13,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:36}}/>
                   </div>
-                  {/* Drag slider */}
-                  <div style={{position:"relative",marginTop:4}}>
+                  <div style={{position:"relative"}}>
                     <input type="range" min={10} max={200} step={5} value={Math.min(200,scalePercent)}
                       onChange={e=>setScalePercent(+e.target.value)}
                       style={{width:"100%",accentColor:scalePercent<100?C.amber:scalePercent>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
                     <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:9,color:C.faint}}>
                       <span>10%</span><span style={{color:C.gold,fontWeight:700}}>100%</span><span>200%</span>
                     </div>
-                    {/* Tick at 100% */}
                     <div style={{position:"absolute",left:"47.4%",top:0,width:2,height:14,background:C.gold+"60",borderRadius:1,pointerEvents:"none"}}/>
                   </div>
                 </div>
               )}
-
-              {/* Effective % display */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg,borderRadius:10,padding:"10px 14px"}}>
-                <div>
-                  <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
-                  <div style={{fontSize:16,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
-                  {linkedEv&&<div style={{fontSize:11,color:C.muted}}>auto from {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
-                </div>
-                {effectivePct!==100&&activeDishes.length>0&&hasPermission(currentUser,"kitchen.scaling_apply")&&(
-                  <button onClick={()=>{
-                    const evId=scaleEventId==="manual"?null:scaleEventId;
-                    const entry={percent:effectivePct,appliedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
-                    setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
-                    if(evId&&setKitchenTracking){
-                      setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),__scaling:{percent:effectivePct,dishes:activeDishes,appliedAt:entry.appliedAt}};return o;});
-                    }
-                  }} style={{padding:"10px 18px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#1A5030)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                    ✅ {T2("Apply to D-1 & Event Day")}
-                  </button>
-                )}
-                {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>{T2("100% = SOP quantities (no change)")}</div>}
+              <div style={{marginTop:12,background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
+                <div style={{fontSize:18,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
+                {linkedEv&&<div style={{fontSize:11,color:C.muted}}>← {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
+                {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>= SOP quantities</div>}
               </div>
-
-              {/* Applied scaling badges */}
-              {Object.values(appliedScales).length>0&&(
-                <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {Object.values(appliedScales).map((s,i)=>(
-                    <div key={i} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:s.percent<100?C.amberBg:C.greenBg,border:`1px solid ${s.percent<100?C.amberBorder:C.greenBorder}`,color:s.percent<100?C.amber:C.green}}>
-                      ✅ {s.eventName} — {s.percent}% · {s.dishes.length} dishes · {s.appliedAt}
-                    </div>
-                  ))}
-                </div>
-              )}
             </Card>
-            {/* ── Mode selector ── */}
-            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>⚖️ {T2("Ingredient Scaling")}</div>
-            <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:14}}>
+
+            {/* ══ STEP 2: SELECT DISHES ══ */}
+            {StepChip(2,T2("Select Dishes"))}
+            <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
               {[{v:"single",l:"🍽 Single"},{v:"multi",l:"📋 Multiple"},{v:"bulk",l:"📦 Full Menu"}].map(m=>(
                 <button key={m.v} onClick={()=>{setScaleMode(m.v);if(m.v==="single")setScaleDish("");if(m.v!=="single")setScaleMultiSel({});}}
                   style={{flex:1,padding:"11px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="single"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
@@ -6859,9 +6838,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </button>
               ))}
             </div>
-
             {mode==="single"&&(
-              <select value={scaleDish||""} onChange={e=>setScaleDish(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:14}}>
+              <select value={scaleDish||""} onChange={e=>setScaleDish(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:4}}>
                 <option value="">— {T2("Select a dish")} —</option>
                 {pkgNames.map(pkg=>(
                   <optgroup key={pkg} label={"📦 "+pkg+" ("+MENU_APPLICABILITY[pkg]?.code+")"}>
@@ -6871,7 +6849,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </select>
             )}
             {(mode==="multi"||mode==="bulk")&&(
-              <div style={{marginBottom:14}}>
+              <div style={{marginBottom:4}}>
                 <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setScaleMultiSel({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:mode==="multi"?8:0}}>
                   {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} dishes</option>)}
                 </select>
@@ -6892,14 +6870,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>
             )}
 
-            {/* ── Scaling tables ── */}
+            {/* ══ STEP 3: REVIEW & CUSTOMIZE ══ */}
+            {StepChip(3,T2("Review & Customize Scaling"))}
             {activeDishes.map(dish=>{
               const ingr=RECIPE_INGREDIENTS[dish]||[];
               return(
                 <div key={dish} style={{marginBottom:18}}>
                   <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:6,fontFamily:"var(--font-display)",display:"flex",gap:8,alignItems:"center"}}>
                     {dish}
-                    {Object.keys(scaleOverrides).some(k=>k.startsWith(dish+"|"))&&<button onClick={()=>setScaleOverrides(p=>{const n={...p};Object.keys(n).filter(k=>k.startsWith(dish+"|")).forEach(k=>delete n[k]);return n;})} style={{fontSize:9,padding:"2px 7px",borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer"}}>↺</button>}
+                    {Object.keys(scaleOverrides).some(k=>k.startsWith(dish+"|"))&&<button onClick={()=>setScaleOverrides(p=>{const n={...p};Object.keys(n).filter(k=>k.startsWith(dish+"|")).forEach(k=>delete n[k]);return n;})} style={{fontSize:9,padding:"2px 7px",borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer"}}>↺ reset</button>}
                   </div>
                   <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
                     <table style={{borderCollapse:"collapse",fontSize:10,minWidth:"100%"}}>
@@ -6941,9 +6920,48 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>
               );
             })}
-            {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{mode==="single"?T2("Select a dish above"):mode==="multi"?T2("Select dishes from the package"):T2("Select a menu package")}</div></Card>}
+            {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center",marginBottom:4}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{mode==="single"?T2("Select a dish in Step 2 above"):mode==="multi"?T2("Select dishes from the package"):T2("Select a menu package")}</div></Card>}
 
-            {/* ── Menu Applicability matrix (moved below ingredient tables) ── */}
+            {/* ══ STEP 4: APPLY ══ */}
+            {StepChip(4,T2("Apply"))}
+            <Card style={{padding:"14px 16px",marginBottom:4,border:`1px solid ${effectivePct!==100&&activeDishes.length>0?C.greenBorder:C.border}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:2}}>
+                    {effectivePct===100?T2("Quantities at 100% — no adjustment needed"):T2("Apply scaled quantities to D-1 & Event Day steps")}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted}}>
+                    {activeDishes.length>0?`${activeDishes.length} ${T2("dish"+(activeDishes.length===1?"":"es"))} · ${effectivePct}% scaling`:T2("Select dishes in Step 2 first")}
+                    {linkedEv?` · ${linkedEv.guest} (${linkedEv.pax} pax)`:""}
+                  </div>
+                </div>
+                {effectivePct!==100&&activeDishes.length>0&&hasPermission(currentUser,"kitchen.scaling_apply")&&(
+                  <button onClick={()=>{
+                    const evId=scaleEventId==="manual"?null:scaleEventId;
+                    const entry={percent:effectivePct,appliedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
+                    setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
+                    if(evId&&setKitchenTracking){
+                      setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),__scaling:{percent:effectivePct,dishes:activeDishes,appliedAt:entry.appliedAt}};return o;});
+                    }
+                  }} style={{padding:"12px 22px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#1A5030)`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44,whiteSpace:"nowrap"}}>
+                    ✅ {T2("Apply to D-1 & Event Day")}
+                  </button>
+                )}
+                {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>100% = SOP quantities</div>}
+                {activeDishes.length===0&&effectivePct!==100&&<div style={{fontSize:11,color:C.faint}}>{T2("Select dishes first")}</div>}
+              </div>
+              {Object.values(appliedScales).length>0&&(
+                <div style={{marginTop:12,display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {Object.values(appliedScales).map((s,i)=>(
+                    <div key={i} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:s.percent<100?C.amberBg:C.greenBg,border:`1px solid ${s.percent<100?C.amberBorder:C.greenBorder}`,color:s.percent<100?C.amber:C.green}}>
+                      ✅ {s.eventName} — {s.percent}% · {s.dishes.length} {T2("dishes")} · {s.appliedAt}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* ══ MENU APPLICABILITY MATRIX ══ */}
             <Card style={{marginTop:24,marginBottom:16,padding:0,overflow:"hidden"}}>
               <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{fontSize:13,fontWeight:700,color:C.text}}>📊 {T2("Menu Applicability by Pax")}</div>
@@ -6983,7 +7001,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </tbody>
                 </table>
               </div>
-              <div style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted}}>💡 {T2("Tap any ✅ to load that menu's scaling above")}</div>
+              <div style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted}}>💡 {T2("Tap any ✅ to load that menu's scaling in Step 2")}</div>
             </Card>
           </div>
         );
@@ -11119,6 +11137,109 @@ function normalizeAtt(a) {
   };
 }
 
+function ActivityLog({lang, currentUser, empDb, attendance, kitchenTracking, events}) {
+  var T2 = function(s){return T(s,lang||'en');};
+  var [filter, setFilter] = useState('all');
+  var logs = [];
+
+  safeArr(attendance).forEach(function(a){
+    if(a.in_time){
+      logs.push({time:a.date+' '+a.in_time,type:'attendance',icon:'✅',color:'#3EAA68',
+        msg:(a.staff_name||a.staff_id)+' punched IN',
+        detail:(a.venue||'')+(a.section?' · '+a.section:''),
+        sortKey:new Date(a.date+'T'+(a.in_time||'00:00')).getTime()||0});
+    }
+    if(a.out_time){
+      logs.push({time:a.date+' '+a.out_time,type:'attendance',icon:'🚪',color:'#D04040',
+        msg:(a.staff_name||a.staff_id)+' punched OUT',
+        detail:(a.venue||'')+(a.section?' · '+a.section:''),
+        sortKey:new Date(a.date+'T'+(a.out_time||'23:59')).getTime()||0});
+    }
+    if(a.is_vendor){
+      logs.push({time:a.date+' '+(a.in_time||a.out_time||''),type:'vendor',icon:'🏢',color:'#D4914A',
+        msg:'Vendor: '+(a.staff_name||'Unknown')+' ('+(a.vendor_company||'')+')',
+        detail:(a.vendor_purpose||'')+(a.venue?' · '+a.venue:''),
+        sortKey:new Date(a.date+'T'+(a.in_time||'00:00')).getTime()||0});
+    }
+  });
+
+  var kt=kitchenTracking||{};
+  Object.keys(kt).forEach(function(evId){
+    Object.keys(kt[evId]||{}).forEach(function(dk){
+      var d=kt[evId][dk];
+      if(d.storeEnd){
+        logs.push({time:d.storeEndAt||'',type:'kitchen',icon:'🏪',color:'#D4B44A',
+          msg:'Store sourcing done',detail:evId+' · '+dk,sortKey:d.storeEnd||0});
+      }
+      if(d.completed||d.ready){
+        logs.push({time:d.completedAt||d.readyAt||'',type:'kitchen',icon:'✅',color:'#3EAA68',
+          msg:'Dish completed by '+(d.completedBy||'Chef'),detail:evId+' · '+dk,sortKey:1});
+      }
+      if(d.readyForDispatch){
+        logs.push({time:d.dispatchMarkedAt||'',type:'dispatch',icon:'🚛',color:'#4A8FD0',
+          msg:'Dispatch ready — '+(d.dispatchMarkedBy||'Chef'),detail:evId+' · '+dk,sortKey:2});
+      }
+      if(d.selfie){
+        logs.push({time:d.completedAt||'',type:'kitchen',icon:'📸',color:'#C084FC',
+          msg:'Chef selfie captured by '+(d.completedBy||'Chef'),detail:evId,sortKey:3});
+      }
+    });
+  });
+
+  logs.sort(function(a,b){return (b.sortKey||0)-(a.sortKey||0);});
+
+  var FILTERS=[
+    {v:'all',l:'All',c:'#D4B44A'},
+    {v:'attendance',l:'Attendance',c:'#3EAA68'},
+    {v:'kitchen',l:'Kitchen',c:'#D4914A'},
+    {v:'dispatch',l:'Dispatch',c:'#4A8FD0'},
+    {v:'vendor',l:'Vendors',c:'#9060C8'},
+  ];
+  var filtered=filter==='all'?logs:logs.filter(function(l){return l.type===filter;});
+
+  return(
+    <div>
+      <div style={{fontSize:20,fontWeight:700,color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:4}}>📋 {T2('Activity Log')}</div>
+      <div style={{fontSize:12,color:'#7A6F62',marginBottom:16}}>{T2('All actions across the app')} — {logs.length} {T2('entries')}</div>
+      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+        {FILTERS.map(function(f){
+          var cnt=f.v==='all'?logs.length:logs.filter(function(l){return l.type===f.v;}).length;
+          return(
+            <button key={f.v} onClick={function(){setFilter(f.v);}}
+              style={{padding:'6px 14px',borderRadius:8,fontSize:11,cursor:'pointer',
+                background:filter===f.v?f.c+'20':'transparent',
+                border:'1px solid '+(filter===f.v?f.c:'#2A2520'),
+                color:filter===f.v?f.c:'#7A6F62',fontWeight:filter===f.v?700:400}}>
+              {f.l} ({cnt})
+            </button>
+          );
+        })}
+      </div>
+      {filtered.length===0?(
+        <div style={{textAlign:'center',padding:40,color:'#7A6F62'}}>
+          <div style={{fontSize:28,marginBottom:8}}>📋</div>
+          <div>{T2('No log entries found')}</div>
+        </div>
+      ):(
+        filtered.slice(0,200).map(function(l,i){
+          return(
+            <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 14px',
+              marginBottom:4,background:'#141210',borderRadius:10,border:'1px solid #2A2520'}}>
+              <div style={{width:32,height:32,borderRadius:8,background:l.color+'15',display:'flex',
+                alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{l.icon}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:'#F5F0E8'}}>{l.msg}</div>
+                {l.detail&&<div style={{fontSize:11,color:'#7A6F62',marginTop:2}}>{l.detail}</div>}
+              </div>
+              <div style={{fontSize:10,color:'#4A4238',whiteSpace:'nowrap',marginTop:2}}>{l.time}</div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -11387,6 +11508,7 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
       {id:"access",label:"Access Manager",icon:"🔐"},
+      {id:"logs",label:"Activity Log",icon:"📋"},
     ],
   };
 
@@ -11496,6 +11618,7 @@ export default function App() {
       case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff}/>;
+      case "logs":           return <ActivityLog lang={lang} currentUser={currentUser} empDb={empDb} attendance={attendance} kitchenTracking={kitchenTracking} events={events}/>;
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service"/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
