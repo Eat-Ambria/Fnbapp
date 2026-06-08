@@ -6072,47 +6072,68 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
                             {/* ── COMPLETION SECTION ── */}
                             {(function(){
-                              var d2c=d3;
-                              var fullyDone=allStepsDone;
+                              var d2c=ds(dish.fEvId,dish.fIdx);
+                              var doneCount=0;
+                              for(var ci=0;ci<steps.length;ci++){
+                                var isManual=(d2c.manual&&(d2c.manual[ci]||d2c.manual['step_'+ci]||d2c.manual[String(ci)]));
+                                var hasStart=d2c.starts&&(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]);
+                                var startTime=hasStart?(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]):0;
+                                var isTimerDone=hasStart&&steps[ci].tm&&Math.floor((Date.now()-startTime)/1000)>=steps[ci].tm;
+                                if(isManual||isTimerDone) doneCount++;
+                              }
+                              var allDone=doneCount===steps.length&&steps.length>0;
+                              var storeOk=!!(d2c.storeEnd||d2c.mesaDone||(d2c.storeStart&&Math.floor((Date.now()-d2c.storeStart)/1000)>=1800));
+                              var fullyDone=allDone&&storeOk;
                               if(!fullyDone) return null;
-                              if(isCompleted&&isDispatched){
-                                return React.createElement('div',{style:{marginTop:16,padding:14,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828',display:'flex',gap:12,alignItems:'center'}},
-                                  d2c.selfie?React.createElement('img',{src:d2c.selfie,style:{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}):null,
-                                  React.createElement('div',{style:{flex:1}},
-                                    React.createElement('div',{style:{fontSize:14,fontWeight:700,color:'#3EAA68'}},'✅ Completed by '+(d2c.completedBy||'Chef')+' at '+(d2c.completedAt||'')),
-                                    React.createElement('div',{style:{fontSize:12,color:'#4A8FD0',marginTop:2}},'🚛 Dispatch ready — marked at '+(d2c.dispatchMarkedAt||''))
-                                  )
-                                );
-                              }
-                              if(isCompleted&&!isDispatched){
-                                return React.createElement('div',{style:{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}},
-                                  React.createElement('div',{style:{display:'flex',gap:12,alignItems:'center',marginBottom:12}},
-                                    d2c.selfie?React.createElement('img',{src:d2c.selfie,style:{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}):null,
-                                    React.createElement('div',null,
-                                      React.createElement('div',{style:{fontSize:14,fontWeight:700,color:'#3EAA68'}},'✅ Dish Completed'),
-                                      React.createElement('div',{style:{fontSize:12,color:'#7A6F62'}},'By '+(d2c.completedBy||'Chef')+' at '+(d2c.completedAt||d2c.readyAt||''))
-                                    )
-                                  ),
-                                  React.createElement('button',{onClick:function(){setDs(dish.fEvId,dish.fIdx,{readyForDispatch:true,dispatchMarkedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),dispatchMarkedBy:currentUser?currentUser.name:'Chef'});},style:{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#4A8FD0,#1A3050)',color:'#fff',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}},'🚛 Ready for Dispatch — Transport to Venue')
-                                );
-                              }
-                              // Not completed yet — selfie + mark complete
-                              return React.createElement('div',{style:{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}},
-                                React.createElement('div',{style:{fontSize:15,fontWeight:700,color:'#3EAA68',textAlign:'center',marginBottom:14}},'✅ All '+steps.length+' steps complete — finish this dish'),
-                                React.createElement('div',{style:{textAlign:'center',marginBottom:14}},
-                                  d2c.selfie?
-                                    React.createElement('div',null,
-                                      React.createElement('img',{src:d2c.selfie,style:{width:100,height:100,borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}),
-                                      React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6,fontWeight:700}},'✅ Chef selfie captured')
-                                    ):
-                                    React.createElement('div',null,
-                                      React.createElement('input',{type:'file',accept:'image/*',capture:'user',id:'selfie-'+dish.fEvId+'-'+dish.fIdx,style:{display:'none'},onChange:function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){setDs(dish.fEvId,dish.fIdx,{selfie:ev.target.result});};r.readAsDataURL(f);}}),
-                                      React.createElement('button',{onClick:function(){document.getElementById('selfie-'+dish.fEvId+'-'+dish.fIdx).click();},style:{padding:'14px 28px',borderRadius:12,background:'linear-gradient(135deg,#D4B44A,#A8891E)',color:'#0A0908',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}},'📸 Take Chef Selfie')
-                                    )
-                                ),
-                                d2c.selfie?
-                                  React.createElement('button',{onClick:function(){setDs(dish.fEvId,dish.fIdx,{completed:true,completedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),completedBy:currentUser?currentUser.name:'Chef'});},style:{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#3EAA68,#1A5030)',color:'#fff',border:'none',fontSize:15,fontWeight:700,cursor:'pointer',minHeight:50}},'✅ Mark as Completed'):
-                                  React.createElement('div',{style:{fontSize:12,color:'#D4914A',textAlign:'center',marginTop:8}},'⚠️ Take selfie first to mark as completed')
+                              var isComp=d2c.completed||d2c.ready;
+                              var isDisp=d2c.readyForDispatch;
+                              return (
+                                <div>
+                                  {!isComp&&(
+                                    <div style={{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
+                                      <div style={{fontSize:15,fontWeight:700,color:'#3EAA68',textAlign:'center',marginBottom:14}}>✅ All {steps.length} steps complete</div>
+                                      <div style={{textAlign:'center',marginBottom:14}}>
+                                        {d2c.selfie?(
+                                          <div>
+                                            <img src={d2c.selfie} style={{width:100,height:100,borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}/>
+                                            <div style={{fontSize:11,color:'#3EAA68',marginTop:6}}>✅ Chef selfie captured</div>
+                                          </div>
+                                        ):(
+                                          <div>
+                                            <input type="file" accept="image/*" capture="user" id={'selfie-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}} onChange={function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){setDs(dish.fEvId,dish.fIdx,{selfie:ev.target.result});};r.readAsDataURL(f);}}/>
+                                            <button onClick={function(){document.getElementById('selfie-'+dish.fEvId+'-'+dish.fIdx).click();}} style={{padding:'14px 28px',borderRadius:12,background:'linear-gradient(135deg,#D4B44A,#A8891E)',color:'#0A0908',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>📸 Take Chef Selfie</button>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {d2c.selfie?(
+                                        <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{completed:true,ready:true,completedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),completedBy:currentUser?currentUser.name:'Chef'});}} style={{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#3EAA68,#1A5030)',color:'#fff',border:'none',fontSize:15,fontWeight:700,cursor:'pointer',minHeight:50}}>✅ Dish Ready</button>
+                                      ):(
+                                        <div style={{fontSize:12,color:'#D4914A',textAlign:'center'}}>⚠️ Take selfie first</div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {isComp&&!isDisp&&(
+                                    <div style={{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
+                                      <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:12}}>
+                                        {d2c.selfie&&<img src={d2c.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
+                                        <div>
+                                          <div style={{fontSize:14,fontWeight:700,color:'#3EAA68'}}>✅ Dish Ready</div>
+                                          <div style={{fontSize:12,color:'#7A6F62'}}>By {d2c.completedBy||'Chef'} at {d2c.completedAt||d2c.readyAt||''}</div>
+                                        </div>
+                                      </div>
+                                      <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{readyForDispatch:true,dispatchMarkedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),dispatchMarkedBy:currentUser?currentUser.name:'Chef'});}} style={{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#4A8FD0,#1A3050)',color:'#fff',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>🚛 Ready for Dispatch</button>
+                                    </div>
+                                  )}
+                                  {isComp&&isDisp&&(
+                                    <div style={{marginTop:16,padding:14,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828',display:'flex',gap:12,alignItems:'center'}}>
+                                      {d2c.selfie&&<img src={d2c.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
+                                      <div style={{flex:1}}>
+                                        <div style={{fontSize:14,fontWeight:700,color:'#3EAA68'}}>✅ Completed by {d2c.completedBy||'Chef'} at {d2c.completedAt||''}</div>
+                                        <div style={{fontSize:12,color:'#4A8FD0',marginTop:2}}>🚛 Dispatch ready — marked at {d2c.dispatchMarkedAt||''}</div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               );
                             })()}
                           </div>
