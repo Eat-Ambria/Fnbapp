@@ -5254,7 +5254,7 @@ function findRecipeForDish(dishName) {
 function getStepsForDish(name) {
   try {
     const r = findRecipeForDish(name);
-    if(r && r.steps && r.steps.length) return r.steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null}));
+    if(r && r.steps && r.steps.length) return r.steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null,d1:!!s.d1}));
   } catch(e){}
   return GENERIC_STEPS;
 }
@@ -6020,121 +6020,117 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         );
                       })()}
 
-                      {/* ── SOP Steps (Step 1 onwards) — gated on storeEnd ── */}
-                      {steps3.filter(s=>!s.store).map((step,si)=>{
-                        const prevOk3=si===0?!!d3.storeEnd:stepDone(d3,si);
-                        const realSi=steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si+1);
-                        const running3=!!(d3.starts?.[realSi])&&!stepDone(d3,realSi);
-                        const done3=stepDone(d3,realSi);
-                        const d1Done=isD1Step(d3,realSi);
-                        const el5=running3?elapsed(d3,realSi):0;
-                        const tm5=step.tm||0;
-                        const rem3=Math.max(0,tm5-el5);
-                        const pct4=tm5>0?Math.min(100,Math.round(el5/tm5*100)):(done3?100:0);
-                        const nonStoreBefore=steps3.slice(0,realSi).filter(s=>!s.store);
-                        const prevRealSi=nonStoreBefore.length>0?steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si):-1;
-                        const prevOk3Final=si===0?!!d3.storeEnd:(prevRealSi>=0?stepDone(d3,prevRealSi):true);
-                        return(<div key={si} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:si<steps3.filter(s=>!s.store).length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start",opacity:d1Done?.6:1}}>
-                          <div style={{width:32,height:32,borderRadius:8,background:done3?C.green:running3?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:done3||running3?"#0A0A0F":C.muted,flexShrink:0}}>{done3?"✓":si+1}</div>
-                          <div style={{flex:1}}>
-                            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                              <span style={{fontSize:12,fontWeight:700,color:done3?C.green:C.text}}>{step.t}{step.live?" 🔴":""}</span>
-                              {d1Done&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>D-1 ✅</span>}
-                            </div>
-                            {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{step.i}</div>}
-                            {step.ccp&&<div style={{fontSize:11,color:C.red,background:C.redBg,padding:"6px 10px",borderRadius:4,display:"inline-block",marginTop:3}}>🔴 CCP: {step.ccp}</div>}
-                            <div style={{marginTop:6}}>
-                              {/* Progress bar when running */}
-                              {running3&&tm5>0&&<div>
-                                <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}>
-                                  <div style={{height:"100%",width:pct4+"%",background:C.amber,borderRadius:3,transition:"width 1s"}}/>
+                      {/* ── SOP Steps — split into Pre-Preparation (D-1) and Cooking ── */}
+                      {(function(){
+                        var nonStoreSI=steps3.map(function(s,i){return {step:s,origIdx:i};}).filter(function(x){return !x.step.store;});
+                        var prePrep=nonStoreSI.filter(function(x){return !!x.step.d1;});
+                        var cooking=nonStoreSI.filter(function(x){return !x.step.d1;});
+                        var allStepsDone=nonStoreSI.length>0&&nonStoreSI.every(function(item){return stepDone(d3,item.origIdx);});
+                        var isCompleted=d3.completed||d3.ready;
+                        var isDispatched=d3.readyForDispatch;
+                        function renderStep(item,globalIdx,groupIdx,groupLen){
+                          var step=item.step; var realSi=item.origIdx;
+                          var running3=!!(d3.starts?.[realSi])&&!stepDone(d3,realSi);
+                          var done3=stepDone(d3,realSi);
+                          var d1Done=isD1Step(d3,realSi);
+                          var el5=running3?elapsed(d3,realSi):0;
+                          var tm5=step.tm||0; var rem3=Math.max(0,tm5-el5);
+                          var pct4=tm5>0?Math.min(100,Math.round(el5/tm5*100)):(done3?100:0);
+                          var prevOk=globalIdx===0?!!d3.storeEnd:stepDone(d3,nonStoreSI[globalIdx-1].origIdx);
+                          return (
+                            <div key={realSi} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:groupIdx<groupLen-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start",opacity:d1Done?.6:1}}>
+                              <div style={{width:32,height:32,borderRadius:8,background:done3?C.green:running3?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:done3||running3?"#0A0A0F":C.muted,flexShrink:0}}>{done3?"✓":globalIdx+1}</div>
+                              <div style={{flex:1}}>
+                                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:done3?C.green:C.text}}>{step.t}{step.live?" 🔴":""}</span>
+                                  {d1Done&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>D-1 ✅</span>}
                                 </div>
-                                <div style={{fontSize:11,color:C.amber,fontWeight:700}}>⏱ {Math.floor(el5/60)}m {el5%60}s / {Math.floor(tm5/60)}m — {Math.floor(rem3/60)}m {rem3%60}s left</div>
-                              </div>}
-                              {/* Done indicator */}
-                              {done3&&tm5>0&&<div style={{fontSize:11,color:C.green}}>✅ {Math.floor(tm5/60)}m — done</div>}
-                              {/* Not started timer label */}
-                              {!running3&&!done3&&tm5>0&&<div style={{fontSize:11,color:C.faint}}>⏱ {Math.floor(tm5/60)}m{tm5%60>0?" "+tm5%60+"s":""}</div>}
-                            </div>
-                          </div>
-                          {/* Action button */}
-                          <div style={{flexShrink:0}}>
-                            {!running3&&!done3&&tm5>0&&prevOk3Final&&(
-                              <button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,realSi,tm5);}}
-                                style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
-                                ▶ {Math.floor(tm5/60)}m
-                              </button>
-                            )}
-                            {running3&&(
-                              <button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}}
-                                style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
-                                ⏹ Done
-                              </button>
-                            )}
-                            {!running3&&!done3&&!tm5&&prevOk3Final&&!step.live&&(
-                              <button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}}
-                                style={{padding:"8px 14px",borderRadius:10,background:C.gold,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>
-                                ✓
-                              </button>
-                            )}
-                            {!running3&&!done3&&!prevOk3Final&&(
-                              <div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint,minHeight:38,display:"flex",alignItems:"center"}}>
-                                🔒
-                              </div>
-                            )}
-                          </div>
-                        </div>);
-                      })}
-
-                      {/* Mark as Complete — all SOP steps done AND store collected */}
-                      {!!d3.storeEnd&&steps3.filter(s=>!s.store).every((_,si)=>{const rsi=steps3.findIndex((s,i)=>!s.store&&steps3.slice(0,i+1).filter(x=>!x.store).length===si+1);return stepDone(d3,rsi);})&&!d3.ready&&(
-                        <button onClick={e=>{e.stopPropagation();markReady(dish.fEvId,dish.fIdx,dish.name);}}
-                          style={{width:"100%",padding:"16px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:10,minHeight:52}}>
-                          ✅ {T2("Mark as Complete")} — {dish.name}
-                        </button>
-                      )}
-
-                      {/* Ready for Dispatch — per function that needs delivery */}
-                      {d3.ready&&(
-                        <div style={{marginTop:10}}>
-                          {dish.fns.map((fn,fi)=>{
-                            const needsDispatch=!/pushpanjali|exotica/i.test(fn.v);
-                            const dKey=`dish_dispatch_${dish.fEvId}_${dish.fIdx}_${fn.evId}`;
-                            const dispatched=!!d3[dKey];
-                            if(!needsDispatch) return (
-                              <div key={fi} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10,marginBottom:4}}>
-                                <span style={{fontSize:12,color:C.green}}>✅ {fn.g} — {fn.v} ({fn.p} {T2("pax")}) · {T2("In-house — no dispatch needed")}</span>
-                              </div>
-                            );
-                            return (
-                              <div key={fi} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:dispatched?C.greenBg:C.surface,border:`1px solid ${dispatched?C.greenBorder:C.amberBorder}`,borderRadius:10,marginBottom:4}}>
-                                <div>
-                                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{fn.g} — {fn.v}</div>
-                                  <div style={{fontSize:11,color:C.muted}}>{fn.p} {T2("pax")} · {T2("Needs dispatch to venue")}</div>
+                                {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{step.i}</div>}
+                                {step.ccp&&<div style={{fontSize:11,color:C.red,background:C.redBg,padding:"6px 10px",borderRadius:4,display:"inline-block",marginTop:3}}>🔴 CCP: {step.ccp}</div>}
+                                <div style={{marginTop:6}}>
+                                  {running3&&tm5>0&&<div><div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}><div style={{height:"100%",width:pct4+"%",background:C.amber,borderRadius:3,transition:"width 1s"}}/></div><div style={{fontSize:11,color:C.amber,fontWeight:700}}>⏱ {Math.floor(el5/60)}m {el5%60}s / {Math.floor(tm5/60)}m — {Math.floor(rem3/60)}m {rem3%60}s left</div></div>}
+                                  {done3&&tm5>0&&<div style={{fontSize:11,color:C.green}}>✅ {Math.floor(tm5/60)}m — done</div>}
+                                  {!running3&&!done3&&tm5>0&&<div style={{fontSize:11,color:C.faint}}>⏱ {Math.floor(tm5/60)}m{tm5%60>0?" "+tm5%60+"s":""}</div>}
                                 </div>
-                                {dispatched?
-                                  <span style={{fontSize:11,color:C.green,fontWeight:700}}>🚛 ✅ {T2("Dispatched")}</span>:
-                                  <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{[dKey]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}}
-                                    style={{padding:"10px 18px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:44}}>
-                                    🚛 {T2("Ready for Dispatch")}
-                                  </button>
+                              </div>
+                              <div style={{flexShrink:0}}>
+                                {!running3&&!done3&&tm5>0&&prevOk&&<button onClick={e=>{e.stopPropagation();startStep(dish.fEvId,dish.fIdx,realSi,tm5);}} style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>▶ {Math.floor(tm5/60)}m</button>}
+                                {running3&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}} style={{padding:"8px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>⏹ Done</button>}
+                                {!running3&&!done3&&!tm5&&prevOk&&!step.live&&<button onClick={e=>{e.stopPropagation();markManual(dish.fEvId,dish.fIdx,realSi);}} style={{padding:"8px 14px",borderRadius:10,background:C.gold,color:"#0A0908",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:38}}>✓</button>}
+                                {!running3&&!done3&&!prevOk&&<div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint,minHeight:38,display:"flex",alignItems:"center"}}>🔒</div>}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div>
+                            {prePrep.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D4914A',marginTop:12,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#28150820',borderRadius:8,border:'1px solid #4A281040'}}>🔶 Pre-Preparation (D-1) — {prePrep.length} steps</div>}
+                            {prePrep.map(function(item,i){return renderStep(item,i,i,prePrep.length);})}
+                            {cooking.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:16,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
+                            {cooking.map(function(item,i){return renderStep(item,prePrep.length+i,i,cooking.length);})}
+
+                            {/* ── COMPLETION SECTION ── */}
+                            {allStepsDone&&!isCompleted&&(
+                              <div style={{marginTop:16,padding:'16px',background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
+                                <div style={{fontSize:14,fontWeight:700,color:'#3EAA68',marginBottom:12,textAlign:'center'}}>✅ All steps complete — Mark this dish as finished</div>
+                                <div style={{textAlign:'center',marginBottom:12}}>
+                                  {d3.selfie ?
+                                    <div>
+                                      <img src={d3.selfie} style={{width:100,height:100,borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}/>
+                                      <div style={{fontSize:11,color:'#3EAA68',marginTop:4}}>✅ Chef selfie captured</div>
+                                    </div> :
+                                    <div>
+                                      <input type='file' accept='image/*' capture='user'
+                                        id={'selfie-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}}
+                                        onChange={function(e){var file=e.target.files&&e.target.files[0];if(!file)return;var reader=new FileReader();reader.onload=function(ev){setDs(dish.fEvId,dish.fIdx,{selfie:ev.target.result});};reader.readAsDataURL(file);}}
+                                      />
+                                      <button onClick={function(){document.getElementById('selfie-'+dish.fEvId+'-'+dish.fIdx).click();}}
+                                        style={{padding:'14px 24px',borderRadius:12,background:'linear-gradient(135deg,#D4B44A,#A8891E)',color:'#0A0908',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>
+                                        📸 Take Chef Selfie
+                                      </button>
+                                    </div>
+                                  }
+                                </div>
+                                {d3.selfie ?
+                                  <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{completed:true,completedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),completedBy:currentUser?currentUser.name:'Chef'});}}
+                                    style={{width:'100%',padding:'14px',borderRadius:12,background:'linear-gradient(135deg,#3EAA68,#1A5030)',color:'#fff',border:'none',fontSize:15,fontWeight:700,cursor:'pointer',minHeight:50,marginTop:8}}>
+                                    ✅ Mark as Completed
+                                  </button> :
+                                  <div style={{fontSize:12,color:'#D4914A',textAlign:'center',marginTop:8}}>⚠️ Take selfie first to mark as completed</div>
                                 }
                               </div>
-                            );
-                          })}
-                          {/* Completion info — chef + selfie */}
-                          {d3.completedBy&&(
-                            <div style={{display:"flex",gap:10,alignItems:"center",marginTop:8,padding:"8px 12px",background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10}}>
-                              {d3.selfie&&<img src={d3.selfie} alt="selfie" style={{width:44,height:44,borderRadius:8,objectFit:"cover",border:`2px solid ${C.greenBorder}`,flexShrink:0}}/>}
-                              <div>
-                                <div style={{fontSize:12,fontWeight:700,color:C.green}}>✅ {d3.completedBy}</div>
-                                <div style={{fontSize:11,color:C.muted}}>{d3.completedAt||d3.readyAt}</div>
+                            )}
+
+                            {/* ── COMPLETED BADGE + DISPATCH ── */}
+                            {isCompleted&&!isDispatched&&(
+                              <div style={{marginTop:16,padding:'16px',background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
+                                <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:12}}>
+                                  {d3.selfie&&<img src={d3.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
+                                  <div>
+                                    <div style={{fontSize:14,fontWeight:700,color:'#3EAA68'}}>✅ Dish Completed</div>
+                                    <div style={{fontSize:12,color:'#7A6F62'}}>By {d3.completedBy||'Chef'} at {d3.completedAt||d3.readyAt||''}</div>
+                                  </div>
+                                </div>
+                                <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{readyForDispatch:true,dispatchMarkedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),dispatchMarkedBy:currentUser?currentUser.name:'Chef'});}}
+                                  style={{width:'100%',padding:'14px',borderRadius:12,background:'linear-gradient(135deg,#4A8FD0,#1A3050)',color:'#fff',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>
+                                  🚛 Ready for Dispatch — Transport to venue
+                                </button>
                               </div>
-                              {d3.signature&&<img src={d3.signature} alt="sig" style={{height:36,maxWidth:80,objectFit:"contain",border:`1px solid ${C.border}`,borderRadius:6,background:"#fff",marginLeft:"auto",flexShrink:0}}/>}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            )}
+
+                            {/* ── FULLY DONE BADGE ── */}
+                            {isCompleted&&isDispatched&&(
+                              <div style={{marginTop:16,padding:'14px',background:'#0A2010',borderRadius:14,border:'2px solid #1A4828',display:'flex',gap:12,alignItems:'center'}}>
+                                {d3.selfie&&<img src={d3.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:13,fontWeight:700,color:'#3EAA68'}}>✅ Completed by {d3.completedBy||''} at {d3.completedAt||''}</div>
+                                  <div style={{fontSize:12,color:'#4A8FD0',marginTop:2}}>🚛 Ready for dispatch — marked at {d3.dispatchMarkedAt||''}</div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>)}
                   </div>);})}</div>}
               </Card>);
