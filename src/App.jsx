@@ -6025,6 +6025,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         var nonStoreSI=steps3.map(function(s,i){return {step:s,origIdx:i};}).filter(function(x){return !x.step.store;});
                         var prePrep=nonStoreSI.filter(function(x){return !!x.step.d1;});
                         var cooking=nonStoreSI.filter(function(x){return !x.step.d1;});
+                        var steps=nonStoreSI.map(function(x){return x.step;});
                         var allStepsDone=!!d3.storeEnd&&nonStoreSI.every(function(item){return stepDone(d3,item.origIdx);});
                         var isCompleted=d3.completed||d3.ready;
                         var isDispatched=d3.readyForDispatch;
@@ -6068,6 +6069,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             {prePrep.map(function(item,i){return renderStep(item,i,i,prePrep.length);})}
                             {cooking.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:16,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
                             {cooking.map(function(item,i){return renderStep(item,prePrep.length+i,i,cooking.length);})}
+
+                            {/* ── TEMP DEBUG ── */}
+                            {(function(){
+                              var d2x=ds(dish.fEvId,dish.fIdx);
+                              var doneCount=0;
+                              for(var xi=0;xi<steps.length;xi++){
+                                var xk='step_'+xi;
+                                var xm=d2x.manual&&d2x.manual[xk];
+                                var xt=d2x.starts&&d2x.starts[xk]&&steps[xi].tm&&Math.floor((Date.now()-(d2x.starts[xk]||0))/1000)>=steps[xi].tm;
+                                if(xm||xt)doneCount++;
+                              }
+                              return React.createElement('div',{style:{padding:10,margin:'10px 0',background:'#331100',borderRadius:8,border:'1px solid #663300',fontSize:12,color:'#FFaa00'}},
+                                'DEBUG: '+doneCount+'/'+steps.length+' steps done | completed='+String(!!d2x.completed)+' | selfie='+String(!!d2x.selfie)+' | dispatch='+String(!!d2x.readyForDispatch)+' | storeEnd='+String(!!d2x.storeEnd)+' | manual keys='+JSON.stringify(Object.keys(d2x.manual||{}))
+                              );
+                            })()}
 
                             {/* ── COMPLETION SECTION ── */}
                             {allStepsDone&&!isCompleted&&(
