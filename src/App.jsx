@@ -5396,7 +5396,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const todayEvs = evList.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
   const tomorrowEvs = evList.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
 
-  const [tab, setTab] = useState("scale");
+  const [tab, setTab] = useState(()=>todayEvs.length>0?"today":"d1");
   const [expandedDish, setExpandedDish] = useState(null); // "evId|idx"
   const [expandedSecs, setExpandedSecs] = useState({});
   const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
@@ -5566,7 +5566,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
 
   const TABS=[
-    {v:"scale", l:`⚖️ ${T2("Pax Scaling")}`},
     {v:"today", l:todayTabL},
     {v:"d1",    l:d1TabL},
     {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
@@ -5648,6 +5647,250 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           </div>
         </div>
       )}
+
+      {/* ═══ INGREDIENT SCALING — always visible above tabs ═══ */}
+      {(()=>{
+        const MENU_APPLICABILITY={
+          "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
+          "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
+          "Double Magnum Veg":    {code:"DMVM", ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Veg"},
+          "Double Magnum Non-Veg":{code:"DMNVM",ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Non-Veg"},
+          "Multi-Cuisine Veg":    {code:"MCVM", ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Veg"},
+          "Multi-Cuisine Non-Veg":{code:"MCNVM",ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Non-Veg"},
+          "Luxury Veg":           {code:"LVM",  ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Veg"},
+          "Luxury Non-Veg":       {code:"LNVM", ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Non-Veg"},
+        };
+        const PAX_BANDS=[{v:100},{v:200},{v:250},{v:300},{v:400},{v:500},{v:600},{v:700},{v:800},{v:900},{v:1000},{v:1100}];
+        const PAX_COLS=[100,200,300,400,500,600,700,800,900,1000,1100];
+        const BASE_PAX=1100;
+        function isApplicable(pkg,pax){const m=MENU_APPLICABILITY[pkg];return m?m.ranges.some(r=>pax>=r.min&&pax<=r.max):false;}
+        function fmtScaled(q,u,pax,pct){
+          if(!q||q===0) return "—";
+          const raw=q*pax*((pct||100)/100);
+          if(u==="g") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g";
+          if(u==="ml") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml";
+          if(u==="pcs") return Math.ceil(raw)+" pcs";
+          return Math.round(raw)+" "+u;
+        }
+        const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date===DAY_AFTER)];
+        const linkedEv = scaleEventId!=="manual" ? allEvs.find(e=>e.id===scaleEventId) : null;
+        const autoPercent = linkedEv ? Math.round((+linkedEv.pax/BASE_PAX)*100) : null;
+        const effectivePct = scaleEventId==="manual" ? (scalePercent||100) : (autoPercent||100);
+        const pctLabel = scaleEventId==="manual" ? `${effectivePct}%` : `${effectivePct}% (auto from ${linkedEv?.guest||""} · ${linkedEv?.pax||0} pax)`;
+        const mode=scaleMode||"single";
+        const pkgNames=Object.keys(MENU_PACKAGES);
+        const selPkg=scalePkg||pkgNames[0];
+        const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]);
+        const multiSel=scaleMultiSel||{};
+        const activeDishes=mode==="single"?(scaleDish&&RECIPE_INGREDIENTS[scaleDish]?[scaleDish]:[]):mode==="multi"?Object.keys(multiSel).filter(d=>multiSel[d]):pkgDishes;
+        return(
+          <div style={{marginBottom:24}}>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Menu applicability matrix + ingredient quantities. Base: 1100 pax")} <span style={{color:"#FF6B35"}}>★</span></div>
+            <Card style={{marginBottom:16,padding:"16px 18px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📐 {T2("Scaling Control")}</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scale based on")}</div>
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                <button onClick={()=>setScaleEventId("manual")} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:scaleEventId==="manual"?700:400,cursor:"pointer",background:scaleEventId==="manual"?C.gold:C.surface,color:scaleEventId==="manual"?"#0A0908":C.muted,border:`1.5px solid ${scaleEventId==="manual"?C.gold:C.border}`,minHeight:38}}>✏️ {T2("Manual %")}</button>
+                {allEvs.map(ev=>{
+                  const autoPct=Math.round((+ev.pax/BASE_PAX)*100);
+                  const isSel=scaleEventId===ev.id;
+                  return(
+                    <button key={ev.id} onClick={()=>{setScaleEventId(ev.id);setScalePercent(autoPct);}}
+                      style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#0A0908":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:38}}>
+                      📅 {ev.guest.split(" ")[0]} · {ev.pax} pax → {autoPct}%
+                    </button>
+                  );
+                })}
+              </div>
+              {scaleEventId==="manual"&&(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>{T2("Scaling %")}</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+                    {[25,50,75,80,100,110,120,125,150].map(p=>(
+                      <button key={p} onClick={()=>setScalePercent(p)}
+                        style={{padding:"7px 14px",borderRadius:10,fontSize:13,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:38}}>
+                        {p}%
+                      </button>
+                    ))}
+                    <input type="number" value={scalePercent} onChange={e=>setScalePercent(Math.max(1,Math.min(500,+e.target.value||100)))} min={1} max={500}
+                      style={{width:72,padding:"8px 10px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:14,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:38}}/>
+                    <span style={{fontSize:12,color:C.muted}}>%</span>
+                  </div>
+                  <div style={{position:"relative",marginTop:4}}>
+                    <input type="range" min={10} max={200} step={5} value={Math.min(200,scalePercent)}
+                      onChange={e=>setScalePercent(+e.target.value)}
+                      style={{width:"100%",accentColor:scalePercent<100?C.amber:scalePercent>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:9,color:C.faint}}>
+                      <span>10%</span><span style={{color:C.gold,fontWeight:700}}>100%</span><span>200%</span>
+                    </div>
+                    <div style={{position:"absolute",left:"47.4%",top:0,width:2,height:14,background:C.gold+"60",borderRadius:1,pointerEvents:"none"}}/>
+                  </div>
+                </div>
+              )}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg,borderRadius:10,padding:"10px 14px"}}>
+                <div>
+                  <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
+                  {linkedEv&&<div style={{fontSize:11,color:C.muted}}>auto from {linkedEv.guest} · {linkedEv.pax} pax ÷ 1100</div>}
+                </div>
+                {effectivePct!==100&&activeDishes.length>0&&hasPermission(currentUser,"kitchen.scaling_apply")&&(
+                  <button onClick={()=>{
+                    const evId=scaleEventId==="manual"?null:scaleEventId;
+                    const entry={percent:effectivePct,appliedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
+                    setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
+                    if(evId&&setKitchenTracking){
+                      setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),__scaling:{percent:effectivePct,dishes:activeDishes,appliedAt:entry.appliedAt}};return o;});
+                    }
+                  }} style={{padding:"10px 18px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#1A5030)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                    ✅ {T2("Apply to D-1 & Event Day")}
+                  </button>
+                )}
+                {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>{T2("100% = SOP quantities (no change)")}</div>}
+              </div>
+              {Object.values(appliedScales).length>0&&(
+                <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {Object.values(appliedScales).map((s,i)=>(
+                    <div key={i} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:s.percent<100?C.amberBg:C.greenBg,border:`1px solid ${s.percent<100?C.amberBorder:C.greenBorder}`,color:s.percent<100?C.amber:C.green}}>
+                      ✅ {s.eventName} — {s.percent}% · {s.dishes.length} dishes · {s.appliedAt}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+            <Card style={{marginBottom:16,padding:0,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text}}>📊 {T2("Menu Applicability by Pax")}</div>
+                <div style={{fontSize:10,color:C.muted}}>✅ {T2("Applicable")} · — {T2("Not recommended")}</div>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
+                  <thead>
+                    <tr style={{background:C.darkCard}}>
+                      <th style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontWeight:700,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:150}}>{T2("Menu")}</th>
+                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:48}}>Code</th>
+                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:42}}>V/NV</th>
+                      {PAX_BANDS.map(b=><th key={b.v} style={{padding:"9px 6px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:46}}>{b.v}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(MENU_APPLICABILITY).map(([pkg,meta],ri)=>(
+                      <tr key={pkg} style={{borderTop:`1px solid ${C.borderLight}`,background:ri%2===0?C.surface:C.darkCard}}>
+                        <td style={{padding:"9px 12px",position:"sticky",left:0,background:ri%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`,fontWeight:600,color:meta.color,fontSize:11}}>{pkg}</td>
+                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
+                          <span style={{fontSize:10,fontWeight:700,color:meta.color,background:meta.color+"15",padding:"2px 7px",borderRadius:6}}>{meta.code}</span>
+                        </td>
+                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
+                          <span style={{fontSize:11,color:meta.type==="Veg"?C.green:C.amber}}>{meta.type==="Veg"?"🌿":"🍗"}</span>
+                        </td>
+                        {PAX_BANDS.map(b=>{
+                          const ok=isApplicable(pkg,b.v);
+                          return(
+                            <td key={b.v} onClick={ok?()=>{setScalePkg(pkg);setScaleMode("bulk");}:undefined}
+                              style={{padding:"8px 4px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`,cursor:ok?"pointer":"default",background:ok?meta.color+"12":"transparent"}}>
+                              {ok?<span style={{fontSize:14,color:meta.color}}>✅</span>:<span style={{color:C.faint}}>—</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted}}>💡 {T2("Tap any ✅ to load that menu's scaling below")}</div>
+            </Card>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>⚖️ {T2("Ingredient Scaling")}</div>
+            <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:14}}>
+              {[{v:"single",l:"🍽 Single"},{v:"multi",l:"📋 Multiple"},{v:"bulk",l:"📦 Full Menu"}].map(m=>(
+                <button key={m.v} onClick={()=>{setScaleMode(m.v);if(m.v==="single")setScaleDish("");if(m.v!=="single")setScaleMultiSel({});}}
+                  style={{flex:1,padding:"11px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="single"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
+                  <div style={{fontSize:12,fontWeight:mode===m.v?700:400,color:mode===m.v?C.gold:C.muted}}>{m.l}</div>
+                </button>
+              ))}
+            </div>
+            {mode==="single"&&(
+              <select value={scaleDish||""} onChange={e=>setScaleDish(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:14}}>
+                <option value="">— {T2("Select a dish")} —</option>
+                {pkgNames.map(pkg=>(
+                  <optgroup key={pkg} label={"📦 "+pkg+" ("+MENU_APPLICABILITY[pkg]?.code+")"}>
+                    {(MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]).map(d=><option key={d} value={d}>{d}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+            {(mode==="multi"||mode==="bulk")&&(
+              <div style={{marginBottom:14}}>
+                <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setScaleMultiSel({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:mode==="multi"?8:0}}>
+                  {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} dishes</option>)}
+                </select>
+                {mode==="multi"&&(
+                  <div style={{background:C.darkCard,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                      <div style={{fontSize:11,color:C.muted}}>{Object.values(multiSel).filter(Boolean).length} {T2("selected")}</div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>setScaleMultiSel(Object.fromEntries(pkgDishes.map(d=>[d,true])))} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer"}}>{T2("All")}</button>
+                        <button onClick={()=>setScaleMultiSel({})} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer"}}>{T2("Clear")}</button>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                      {pkgDishes.map(d=><button key={d} onClick={()=>setScaleMultiSel(p=>({...p,[d]:!p[d]}))} style={{padding:"5px 10px",borderRadius:8,fontSize:10,cursor:"pointer",background:multiSel[d]?C.goldBg:C.surface,border:`1.5px solid ${multiSel[d]?C.gold:C.border}`,color:multiSel[d]?C.gold:C.muted,fontWeight:multiSel[d]?700:400}}>{multiSel[d]?"✓ ":""}{d}</button>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {activeDishes.map(dish=>{
+              const ingr=RECIPE_INGREDIENTS[dish]||[];
+              return(
+                <div key={dish} style={{marginBottom:18}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:6,fontFamily:"var(--font-display)",display:"flex",gap:8,alignItems:"center"}}>
+                    {dish}
+                    {Object.keys(scaleOverrides).some(k=>k.startsWith(dish+"|"))&&<button onClick={()=>setScaleOverrides(p=>{const n={...p};Object.keys(n).filter(k=>k.startsWith(dish+"|")).forEach(k=>delete n[k]);return n;})} style={{fontSize:9,padding:"2px 7px",borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,cursor:"pointer"}}>↺</button>}
+                  </div>
+                  <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
+                    <table style={{borderCollapse:"collapse",fontSize:10,minWidth:"100%"}}>
+                      <thead>
+                        <tr style={{background:C.darkCard}}>
+                          <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:120}}>Ingredient</th>
+                          {PAX_COLS.map(p=><th key={p} style={{padding:"8px 6px",textAlign:"center",fontWeight:p===BASE_PAX?800:500,color:p===BASE_PAX?"#FF6B35":C.muted,background:p===BASE_PAX?"#2A0D00":C.darkCard,borderLeft:`1px solid ${C.border}`,minWidth:58,whiteSpace:"nowrap"}}>{p===BASE_PAX?`★${p}`:p}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ingr.map((ing,ii)=>{
+                          const isAcc=!ing.q||ing.q===0;
+                          return(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"8px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.n}</div>
+                                {ing.h&&<div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
+                                {isAcc&&<div style={{fontSize:9,color:C.amber}}>acc. to taste</div>}
+                              </td>
+                              {PAX_COLS.map(p=>{
+                                const ovKey=`${dish}|${ing.n}|${p}`;
+                                const isBase=p===BASE_PAX;
+                                const hasOv=scaleOverrides[ovKey]!==undefined;
+                                const dv=isAcc?"—":(hasOv?scaleOverrides[ovKey]:fmtScaled(ing.q,ing.u,p,effectivePct));
+                                return(
+                                  <td key={p} style={{padding:"5px 3px",textAlign:"center",background:isBase?"#2A0D0080":undefined,borderLeft:`1px solid ${C.borderLight}`}}>
+                                    {isAcc?<span style={{color:C.faint}}>—</span>:scaleEditing===ovKey
+                                      ?<input autoFocus type="text" defaultValue={dv} onBlur={e=>{setScaleOverrides(p2=>({...p2,[ovKey]:e.target.value}));setScaleEditing(null);}} onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){setScaleOverrides(p2=>({...p2,[ovKey]:e.target.value}));setScaleEditing(null);}}} style={{width:52,padding:"2px 3px",borderRadius:4,border:`1px solid ${C.gold}`,fontSize:10,color:C.text,background:C.bg,textAlign:"center"}}/>
+                                      :<span onClick={()=>setScaleEditing(ovKey)} style={{display:"block",padding:"3px 2px",cursor:"pointer",color:isBase?"#FF6B35":hasOv?C.amber:C.text,fontWeight:isBase?700:hasOv?600:400,minWidth:50,borderRadius:3}}>{dv}</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+            {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{mode==="single"?T2("Select a dish above"):mode==="multi"?T2("Select dishes from the package"):T2("Select a menu package")}</div></Card>}
+          </div>
+        );
+      })()}
 
       {/* TABS */}
       <div style={{display:"flex",gap:8,marginBottom:18,alignItems:"center"}}>
@@ -6476,8 +6719,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         );
       })()}
 
-      {/* ═══ PAX SCALING LOGIC PANEL ═══ */}
-      {tab==="scale"&&(()=>{
+      {/* OLD SCALE TAB REMOVED — scaling now always visible above tabs */}
+      {false&&(()=>{
         const MENU_APPLICABILITY={
           "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
           "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
