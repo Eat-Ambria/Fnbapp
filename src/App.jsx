@@ -10959,6 +10959,8 @@ export default function App() {
   // ── Master load: session + all data ──
   useEffect(() => {
     async function loadAll() {
+      // Clear any legacy localStorage kitchen tracking keys
+      try { localStorage.removeItem('ambria_kt'); localStorage.removeItem('ambria_kitchen_tracking'); } catch(e) {}
       // Restore session (always localStorage — device-specific)
       try {
         const suRaw = localStorage.getItem("ambria_session_user");
