@@ -11105,18 +11105,25 @@ export default function App() {
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     management: [
+      // ── OVERVIEW ──
       {id:"dashboard",label:"Dashboard",icon:"📊"},
+      // ── KITCHEN ──
+      {id:"_divider_kitchen",label:"── Kitchen ──",icon:"",divider:true},
       {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
       {id:"menus",label:"Menu Packages",icon:"📜"},
-      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"vendors",label:"Vendor Directory",icon:"📇"},
+      // ── OPERATIONS ──
+      {id:"_divider_ops",label:"── Operations ──",icon:"",divider:true},
+      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"dept_service",label:"Service Ops",icon:"🍽"},
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
+      // ── MANAGEMENT ──
+      {id:"_divider_mgmt",label:"── Management ──",icon:"",divider:true},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"vendors",label:"Vendor Directory",icon:"📇"},
       {id:"access",label:"Access Manager",icon:"🔐"},
     ],
   };
@@ -11263,7 +11270,14 @@ export default function App() {
               ← Back to Departments
             </button>
           )}
-          {curNav.filter(item=>canAccessScreen(currentUser, item.id)).map(item=>{
+          {curNav.filter(item=>item.divider||canAccessScreen(currentUser, item.id)).map(item=>{
+            if(item.divider){
+              return(
+                <div key={item.id} style={{fontSize:10,fontWeight:700,color:'#7A6F62',textTransform:'uppercase',letterSpacing:1.2,padding:'16px 16px 6px 16px',marginTop:4}}>
+                  {item.label.replace(/──/g,'').trim()}
+                </div>
+              );
+            }
             const active=screen===item.id;
             const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
             return(
