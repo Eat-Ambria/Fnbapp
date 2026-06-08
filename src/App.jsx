@@ -6025,7 +6025,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         var nonStoreSI=steps3.map(function(s,i){return {step:s,origIdx:i};}).filter(function(x){return !x.step.store;});
                         var prePrep=nonStoreSI.filter(function(x){return !!x.step.d1;});
                         var cooking=nonStoreSI.filter(function(x){return !x.step.d1;});
-                        var allStepsDone=nonStoreSI.length>0&&nonStoreSI.every(function(item){return stepDone(d3,item.origIdx);});
+                        var allStepsDone=!!d3.storeEnd&&nonStoreSI.every(function(item){return stepDone(d3,item.origIdx);});
                         var isCompleted=d3.completed||d3.ready;
                         var isDispatched=d3.readyForDispatch;
                         function renderStep(item,globalIdx,groupIdx,groupLen){
