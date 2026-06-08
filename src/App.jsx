@@ -4982,11 +4982,11 @@ function guessSectionForDish(name) {
 
 // ─── GENERIC STEPS (fallback for dishes without recipe) ──────────
 const GENERIC_STEPS = [
-  {t:"Mesa",desc:"Wash, cut, measure all ingredients",tm:600,ccp:null},
-  {t:"Primary prep",desc:"Prepare base masala / paste / batter",tm:480,ccp:null},
-  {t:"Cooking",desc:"Cook the dish as per standard method",tm:900,ccp:null},
-  {t:"Final seasoning",desc:"Adjust salt, spice, garnish",tm:120,ccp:null},
-  {t:"Garnish & plate",desc:"Garnish and transfer to serving vessel",tm:60,ccp:null},
+  {t:"Mesa",desc:"Wash, cut, measure all ingredients",tm:600,ccp:null,d1:true},
+  {t:"Primary prep",desc:"Prepare base masala / paste / batter",tm:480,ccp:null,d1:true},
+  {t:"Cooking",desc:"Cook the dish as per standard method",tm:900,ccp:null,d1:false},
+  {t:"Final seasoning",desc:"Adjust salt, spice, garnish",tm:120,ccp:null,d1:false},
+  {t:"Garnish & plate",desc:"Garnish and transfer to serving vessel",tm:60,ccp:null,d1:false},
 ];
 
 // ─── RECIPE DATABASE (will be populated with actual SOPs in next phase) ──
@@ -6065,9 +6065,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         }
                         return (
                           <div>
-                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D4914A',marginTop:12,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#28150820',borderRadius:8,border:'1px solid #4A281040'}}>🔶 Pre-Preparation (D-1){prePrep.length>0?' — '+prePrep.length+' steps':' — none'}</div>}
+                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D4914A',marginTop:12,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#28150820',borderRadius:8,border:'1px solid #4A281040'}}>🔶 Pre-Preparation (D-1) — {prePrep.length} steps</div>}
                             {prePrep.map(function(item,i){return renderStep(item,i,i,prePrep.length);})}
-                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:prePrep.length>0?16:8,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
+                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:16,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
                             {cooking.map(function(item,i){return renderStep(item,prePrep.length+i,i,cooking.length);})}
 
                             {/* ── COMPLETION SECTION ── */}
