@@ -6065,9 +6065,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         }
                         return (
                           <div>
-                            {prePrep.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D4914A',marginTop:12,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#28150820',borderRadius:8,border:'1px solid #4A281040'}}>🔶 Pre-Preparation (D-1) — {prePrep.length} steps</div>}
+                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D4914A',marginTop:12,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#28150820',borderRadius:8,border:'1px solid #4A281040'}}>🔶 Pre-Preparation (D-1){prePrep.length>0?' — '+prePrep.length+' steps':' — none'}</div>}
                             {prePrep.map(function(item,i){return renderStep(item,i,i,prePrep.length);})}
-                            {cooking.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:16,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
+                            {nonStoreSI.length>0&&<div style={{fontSize:12,fontWeight:700,color:'#D04040',marginTop:prePrep.length>0?16:8,marginBottom:8,textTransform:'uppercase',letterSpacing:1,padding:'6px 12px',background:'#20081020',borderRadius:8,border:'1px solid #40182840'}}>🔴 Cooking (Event Day) — {cooking.length} steps</div>}
                             {cooking.map(function(item,i){return renderStep(item,prePrep.length+i,i,cooking.length);})}
 
                             {/* ── COMPLETION SECTION ── */}
