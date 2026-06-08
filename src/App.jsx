@@ -5566,10 +5566,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
 
   const TABS=[
-    {v:"today", l:todayTabL},
-    {v:"d1",    l:d1TabL},
-    {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
-    {v:"menus", l:`📜 ${T2("Menu")}`},
+    {v:"today",   l:todayTabL},
+    {v:"d1",      l:d1TabL},
+    {v:"scaling", l:`⚖️ ${T2("Pax Scaling")}`},
+    {v:"sops",    l:`📖 ${T2("Recipe SOPs")}`},
+    {v:"menus",   l:`📜 ${T2("Menu")}`},
   ];
   const TABS_FILTERED = isSectionUser
     ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
@@ -5648,8 +5649,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         </div>
       )}
 
-      {/* ═══ INGREDIENT SCALING — always visible above tabs ═══ */}
-      {(()=>{
+      {/* ═══ SCALING TAB — rendered below in tab content ═══ */}
+      {false&&(()=>{
         const MENU_APPLICABILITY={
           "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
           "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
@@ -6719,8 +6720,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         );
       })()}
 
-      {/* OLD SCALE TAB REMOVED — scaling now always visible above tabs */}
-      {false&&(()=>{
+      {/* ═══ PAX SCALING LOGIC PANEL ═══ */}
+      {tab==="scaling"&&(()=>{
         const MENU_APPLICABILITY={
           "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
           "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
