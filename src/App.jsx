@@ -5650,10 +5650,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       )}
 
       {/* TABS */}
-      <div style={{display:"flex",gap:8,marginBottom:18}}>
+      <div style={{display:"flex",gap:8,marginBottom:18,alignItems:"center"}}>
         {TABS_FILTERED.map(t=>(
           <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"14px 24px",borderRadius:24,fontSize:15,fontWeight:600,cursor:"pointer",minHeight:48,background:tab===t.v?C.gold:"transparent",color:tab===t.v?"#0A0A0F":C.muted,border:`2px solid ${tab===t.v?C.gold:C.border}`}}>{t.l}</button>
         ))}
+        {currentUser&&currentUser.role==='admin'&&(
+          <button onClick={function(){
+            if(!window.confirm('Reset ALL dish progress? This clears store sourcing, step timers, selfies, completion status for ALL dishes. Cannot undo.'))return;
+            setKitchenTracking({});
+            try{localStorage.removeItem('ambria_kt');}catch(e){}
+            try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
+            alert('✅ All dishes reset to fresh state');
+          }} style={{padding:'6px 14px',borderRadius:8,background:'#200810',border:'1px solid #401828',color:'#D04040',fontSize:11,fontWeight:700,cursor:'pointer',marginLeft:'auto'}}>
+            ↺ Reset All Dishes
+          </button>
+        )}
       </div>
 
       {/* ═══ D-1 PREP ═══ */}
