@@ -3058,6 +3058,8 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         const kitchenKt = kitchenTracking&&typeof kitchenTracking==="object"?kitchenTracking:{};
         const readyDishes = Object.values(kitchenKt).reduce((s,ev)=>s+Object.values(ev||{}).filter(d=>d&&d.ready).length,0);
         const openRepairs = safeArr(repairs).filter(t=>t.status==="Open"||t.status==="In Progress").length;
+        var dispatchReady=0;
+        safeArr(events).forEach(function(ev){Object.keys(kitchenKt[ev.id]||{}).forEach(function(k){var d=(kitchenKt[ev.id]||{})[k];if(d&&(d.completed||d.ready)&&!d.readyForDispatch)dispatchReady++;});});
         return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
             {[
@@ -3067,6 +3069,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
               {icon:"👨‍🍳",l:T2("Staff Today"),v:staffToday,sub:`${T2("of")} ${allStaff} ${T2("total")}`,c:staffToday>0?C.green:C.red,bg:staffToday>0?C.greenBg:C.redBg,bdr:staffToday>0?C.greenBorder:C.redBorder,action:()=>setScreen&&setScreen("team")},
               {icon:"📦",l:T2("Low Stock"),v:lowStockCount,sub:T2("items need reorder"),c:lowStockCount>0?C.amber:C.green,bg:lowStockCount>0?C.amberBg:C.greenBg,bdr:lowStockCount>0?C.amberBorder:C.greenBorder,action:()=>setScreen&&setScreen("store")},
               {icon:"🔧",l:T2("Open Issues"),v:openRepairs,sub:T2("repair tickets"),c:openRepairs>0?C.red:C.green,bg:openRepairs>0?C.redBg:C.greenBg,bdr:openRepairs>0?C.redBorder:C.greenBorder,action:()=>setScreen&&setScreen("repair")},
+              {icon:"🚛",l:T2("Ready to Load"),v:dispatchReady,sub:T2("dishes awaiting transport"),c:dispatchReady>0?"#D4914A":C.green,bg:dispatchReady>0?"#28150820":C.greenBg,bdr:dispatchReady>0?"#4A281040":C.greenBorder,action:()=>setScreen&&setScreen("transport")},
             ].map(s=>(
               <div key={s.l} onClick={s.action||null} style={{background:s.bg,borderRadius:14,padding:"16px 14px",border:`1px solid ${s.bdr}`,cursor:s.action?"pointer":"default",transition:"all .2s"}}>
                 <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
@@ -6907,7 +6910,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
   const vehForMap=VEHICLES.map(v=>{const p=gps[v.id]||{lat:28.592,lng:77.047,status:"At Base",speed:0};return{id:v.id,name:v.name,icon:v.icon,lat:p.lat,lng:p.lng,status:p.status,speed:p.speed};});
   const mapHtml=`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script><style>*{margin:0;padding:0;}html,body,#map{width:100%;height:100%;}</style></head><body><div id="map"></div><script>var map=L.map("map",{center:[28.592,77.047],zoom:15});L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:19}).addTo(map);var venues=${JSON.stringify(venues)};venues.forEach(function(v){L.marker([v.lat,v.lng],{icon:L.divIcon({className:"",html:'<div style="background:'+v.color+';color:#fff;padding:4px 9px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35);border:2px solid #fff">'+v.name+'<\/div>',iconAnchor:[18,14]})}).addTo(map).bindPopup(v.name);});var SC={"En Route":"#1B5EAB",T2("At Venue"):"#2B8A50","At Base":"#888"};var mk={};function render(vl){vl.forEach(function(v){var col=SC[v.status]||"#888";var lbl=v.icon+" "+v.id.slice(-6)+(v.speed>0?" · "+v.speed+"km/h":"");var html='<div style="background:'+col+';color:#fff;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4);border:1.5px solid #fff">'+lbl+'<\/div>';var ic=L.divIcon({className:"",html:html,iconAnchor:[30,12]});if(mk[v.id]){mk[v.id].setLatLng([v.lat,v.lng]);mk[v.id].setIcon(ic);}else{mk[v.id]=L.marker([v.lat,v.lng],{icon:ic}).addTo(map).bindPopup(v.name+"<br>"+v.status);}});}render(${JSON.stringify(vehForMap)});window.addEventListener("message",function(e){if(e.data&&e.data.type==="vehicles")render(e.data.vehicles);});<\/script></body></html>`;
 
-  const TABS=[{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"gps",l:`🗺 ${T2("Live Map")}`}];
+  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"gps",l:`🗺 ${T2("Live Map")}`}];
 
   return (
     <div>
@@ -6966,6 +6969,87 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
           <button key={t.v} onClick={()=>setActiveTab(t.v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",background:activeTab===t.v?C.wine:"transparent",color:activeTab===t.v?"#fff":C.muted,border:`1.5px solid ${activeTab===t.v?C.wine:C.border}`}}>{t.l}</button>
         ))}
       </div>
+
+      {activeTab==="ready"&&(function(){
+        var readyDishes=[];
+        var dispatchedDishes=[];
+        safeEvs.forEach(function(ev){
+          var menuArr=Array.isArray(ev.menu)?ev.menu:[];
+          menuArr.forEach(function(dishName,idx){
+            var evKt=kt[ev.id]||{};
+            var key=ev.id+'_'+idx;
+            var dishData=evKt[key]||evKt[idx]||evKt[dishName]||null;
+            if(!dishData){
+              Object.keys(evKt).forEach(function(k){
+                if(evKt[k]&&(evKt[k].completed||evKt[k].ready)){
+                  if(k.includes(String(idx))||k.includes(dishName)){dishData=evKt[k];}
+                }
+              });
+            }
+            if(!dishData) return;
+            if(dishData.readyForDispatch){dispatchedDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
+            else if(dishData.completed||dishData.ready){readyDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
+          });
+        });
+        var totalDishes=safeEvs.reduce(function(s,e){return s+(Array.isArray(e.menu)?e.menu.length:0);},0);
+        return (
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍳 Dishes Ready for Dispatch</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Live feed from Kitchen Hub — dishes marked ready by chefs</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:16}}>
+              <div style={{background:'#28150840',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #4A281040'}}>
+                <div style={{fontSize:24,fontWeight:800,color:'#D4914A'}}>{readyDishes.length}</div>
+                <div style={{fontSize:10,color:'#D4914A',fontWeight:600}}>Ready to Load</div>
+              </div>
+              <div style={{background:'#0A201040',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #1A482840'}}>
+                <div style={{fontSize:24,fontWeight:800,color:'#3EAA68'}}>{dispatchedDishes.length}</div>
+                <div style={{fontSize:10,color:'#3EAA68',fontWeight:600}}>Dispatch Marked</div>
+              </div>
+              <div style={{background:'#1A171440',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #2A252040'}}>
+                <div style={{fontSize:24,fontWeight:800,color:'#7A6F62'}}>{Math.max(0,totalDishes-readyDishes.length-dispatchedDishes.length)}</div>
+                <div style={{fontSize:10,color:'#7A6F62',fontWeight:600}}>Still Cooking</div>
+              </div>
+            </div>
+            {readyDishes.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#D4914A',marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>⏳ Ready — Waiting for Transport</div>
+                {readyDishes.map(function(d,i){return(
+                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:'#28150820',borderRadius:10,border:'1px solid #4A281040'}}>
+                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:'2px solid #D4B44A'}}/>:<div style={{width:44,height:44,borderRadius:10,background:'#2A2520',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🍽</div>}
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:'#F5F0E8'}}>{d.name}</div>
+                      <div style={{fontSize:11,color:'#7A6F62'}}>{d.ev.venue+' · '+d.ev.pax+' pax · By '+(d.data.completedBy||'Chef')+' at '+(d.data.completedAt||'')}</div>
+                    </div>
+                    <div style={{padding:'6px 12px',borderRadius:8,background:'#D4914A20',border:'1px solid #D4914A40',fontSize:11,color:'#D4914A',fontWeight:700}}>Ready</div>
+                  </div>
+                );})}
+              </div>
+            )}
+            {dispatchedDishes.length>0&&(
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#3EAA68',marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>🚛 Dispatch Marked</div>
+                {dispatchedDishes.map(function(d,i){return(
+                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:'#0A201040',borderRadius:10,border:'1px solid #1A482840'}}>
+                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:'2px solid #3EAA68'}}/>:<div style={{width:44,height:44,borderRadius:10,background:'#0A2010',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>✅</div>}
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:'#F5F0E8'}}>{d.name}</div>
+                      <div style={{fontSize:11,color:'#7A6F62'}}>{d.ev.venue+' · By '+(d.data.dispatchMarkedBy||'Chef')+' at '+(d.data.dispatchMarkedAt||'')}</div>
+                    </div>
+                    <div style={{padding:'6px 12px',borderRadius:8,background:'#3EAA6820',border:'1px solid #3EAA6840',fontSize:11,color:'#3EAA68',fontWeight:700}}>🚛 Dispatched</div>
+                  </div>
+                );})}
+              </div>
+            )}
+            {readyDishes.length===0&&dispatchedDishes.length===0&&(
+              <div style={{textAlign:'center',padding:'40px 20px',color:'#7A6F62'}}>
+                <div style={{fontSize:36,marginBottom:8}}>🍳</div>
+                <div style={{fontSize:14}}>No dishes ready for dispatch yet</div>
+                <div style={{fontSize:12,marginTop:4}}>Dishes will appear here when chefs mark them as ready in Kitchen Hub</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab==="todayplan"&&(()=>{
         const todayEvs = safeEvs.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
