@@ -5396,7 +5396,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const todayEvs = evList.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
   const tomorrowEvs = evList.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
 
-  const [tab, setTab] = useState(()=>todayEvs.length>0?"today":"d1");
+  const [tab, setTab] = useState("scale");
   const [expandedDish, setExpandedDish] = useState(null); // "evId|idx"
   const [expandedSecs, setExpandedSecs] = useState({});
   const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
@@ -5566,9 +5566,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
 
   const TABS=[
+    {v:"scale", l:`⚖️ ${T2("Pax Scaling")}`},
     {v:"today", l:todayTabL},
     {v:"d1",    l:d1TabL},
-    {v:"scale", l:`⚖️ ${T2("Pax Scaling")}`},
     {v:"sops",  l:`📖 ${T2("Recipe SOPs")}`},
     {v:"menus", l:`📜 ${T2("Menu")}`},
   ];
