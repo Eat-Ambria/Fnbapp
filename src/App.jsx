@@ -5405,7 +5405,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const tomorrowEvs = evList.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
 
   const [tab, setTab] = useState(()=>todayEvs.length>0?"today":"d1");
-  const [expandedDish, setExpandedDish] = useState(null); // "evId|idx"
+  const [expandedDishes, setExpandedDishes] = useState(()=>new Set());
+  function toggleDish(key){setExpandedDishes(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});}
   const [expandedSecs, setExpandedSecs] = useState({});
   const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
   const toggleSec = (sec)=>setExpandedSecs(p=>({...p,[sec]:p[sec]===false?true:(p[sec]===undefined?false:!p[sec])}));
@@ -5430,6 +5431,32 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function applyScale(q, evId){return q*(getEventScale(evId)/100);}
   const [tick, setTick] = useState(0);
   const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
+
+  // ── Camera for chef selfie ──
+  const camRef = useRef(null);
+  const capRef = useRef(null);
+  const camStreamRef = useRef(null);
+  const [camOn, setCamOn] = useState(false);
+  function openCam(fbId){
+    if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+      navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false})
+        .then(function(stream){camStreamRef.current=stream;setCamOn(true);})
+        .catch(function(){var el=document.getElementById(fbId);if(el)el.click();});
+    }else{var el=document.getElementById(fbId);if(el)el.click();}
+  }
+  function capturePhoto(){
+    var v=camRef.current;var c=capRef.current;if(!v||!c)return;
+    c.width=v.videoWidth||320;c.height=v.videoHeight||240;
+    c.getContext('2d').drawImage(v,0,0);
+    var url=c.toDataURL('image/jpeg',0.7);
+    setDishSignoff(function(p){return p?{...p,selfie:url}:p;});
+    stopCam();
+  }
+  function stopCam(){
+    if(camStreamRef.current){camStreamRef.current.getTracks().forEach(function(t){t.stop();});camStreamRef.current=null;}
+    setCamOn(false);
+  }
+  useEffect(function(){return function(){stopCam();};},[]);
 
   // ── Chef Photo on Mark as Complete ──
   const [readyModal, setReadyModal] = useState(null); // {evId,idx,dishName}
@@ -5982,19 +6009,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     {d1Specials.map((sp,si)=><div key={si} style={{fontSize:12,color:C.red,padding:"6px 0",borderBottom:si<d1Specials.length-1?`1px solid ${C.redBorder}40`:"none"}}>🚫 <b>{sp.pax} {T2("pax")}</b> — {sp.guest}: {sp.instruction}</div>)}
                   </div>}
                   {d1Open&&<div style={{padding:"10px 16px"}}>{items.map((dish,di)=>{
-                    const cKey=`d1t_${dish.fEvId}_${dish.fIdx}`;const isExp2=expandedDish===cKey;const d2=ds(dish.fEvId,dish.fIdx);
+                    const cKey=`d1t_${dish.fEvId}_${dish.fIdx}`;const isExp2=expandedDishes.has(cKey);const d2=ds(dish.fEvId,dish.fIdx);
                     const allStepsTmp=getStepsForDish(dish.name);
                     const steps2=allStepsTmp.length>0?allStepsTmp:[{t:"Mesa",i:"Wash, cut, measure all ingredients as per recipe",tm:600},{t:"Primary prep",i:"Prepare base masala / paste / marinade",tm:480}];
                     const allDone2=!!d2.mesaDone;
                     return(<div key={di} style={{marginBottom:6}}>
-                      <div onClick={()=>setExpandedDish(isExp2?null:cKey)} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 8px",borderRadius:10,cursor:"pointer",background:allDone2?C.greenBg:C.surface,border:`1px solid ${allDone2?C.greenBorder:C.border}`}}>
+                      <div onClick={()=>toggleDish(cKey)} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 8px",borderRadius:10,cursor:"pointer",background:allDone2?C.greenBg:C.surface,border:`1px solid ${allDone2?C.greenBorder:C.border}`}}>
                         <div style={{width:28,height:28,borderRadius:8,border:`2px solid ${allDone2?C.green:C.border}`,background:allDone2?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{allDone2&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}</div>
                         <div style={{flex:1}}>
                           <div style={{fontSize:13,fontWeight:700,color:allDone2?C.green:C.text}}>{dish.name}</div>
                           <div style={{fontSize:12,color:C.gold}}>{dish.totalPax} {T2("pax")} · {steps2.length} {T2("mesa steps")}</div>
                           <div style={{fontSize:11,color:C.muted,marginTop:2}}>{dish.fns.map(f=>`${f.g} (${f.p})`).join(" · ")}</div>
                         </div>
-                        <span style={{fontSize:14,color:C.muted,transform:isExp2?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                        <span style={{fontSize:12,color:C.muted,transition:"transform .2s"}}>{isExp2?'▼':'▶'}</span>
                       </div>
                       {isExp2&&(<div style={{padding:"8px 8px 8px 44px"}}>
                         {/* ── Step 0: Store Sourcing ── */}
@@ -6124,11 +6151,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <div style={{marginTop:12,padding:16,borderRadius:12,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.15)'}}>
                                 <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:12}}>{soD1.mode==='ready_for_transport'?'🚛 Mark for Transport — Chef Sign-off':'✅ Mark Completed — Chef Sign-off'}</div>
                                 <input type="file" accept="image/*" capture="user" id={'d1s-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}} onChange={function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev2){setDishSignoff(function(p){return p?{...p,selfie:ev2.target.result}:p;});};r.readAsDataURL(f);}}/>
-                                <button onClick={function(){document.getElementById('d1s-'+dish.fEvId+'-'+dish.fIdx).click();}} style={{width:'100%',padding:'10px',borderRadius:8,background:'rgba(255,255,255,0.08)',border:'1px dashed rgba(255,255,255,0.25)',color:'rgba(255,255,255,0.8)',fontSize:12,cursor:'pointer',marginBottom:6}}>📷 Take Selfie</button>
-                                {soD1.selfie&&<img src={soD1.selfie} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:8,marginBottom:8,display:'block'}}/>}
+                                <canvas ref={capRef} style={{display:'none'}}/>
+                                {camOn?(
+                                  <div style={{marginBottom:10}}>
+                                    <video ref={function(el){camRef.current=el;if(el&&camStreamRef.current){el.srcObject=camStreamRef.current;el.play().catch(function(){});}}} autoPlay playsInline muted style={{width:'100%',maxHeight:200,borderRadius:10,objectFit:'cover',background:'#000',display:'block'}}/>
+                                    <div style={{display:'flex',gap:8,marginTop:8}}>
+                                      <button onClick={capturePhoto} style={{flex:1,padding:'10px',borderRadius:8,background:'#2B8A50',border:'none',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>📸 Capture Photo</button>
+                                      <button onClick={stopCam} style={{padding:'10px 14px',borderRadius:8,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.7)',fontSize:12,cursor:'pointer'}}>✕</button>
+                                    </div>
+                                  </div>
+                                ):soD1.selfie?(
+                                  <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:10}}>
+                                    <img src={soD1.selfie} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:8,border:'2px solid #D4B44A'}}/>
+                                    <button onClick={function(){setDishSignoff(function(p){return p?{...p,selfie:null}:p;});}} style={{padding:'8px 12px',borderRadius:8,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.7)',fontSize:11,cursor:'pointer'}}>🔄 Retake</button>
+                                  </div>
+                                ):(
+                                  <button onClick={function(){openCam('d1s-'+dish.fEvId+'-'+dish.fIdx);}} style={{width:'100%',padding:'12px',borderRadius:8,background:'rgba(255,255,255,0.08)',border:'1px dashed rgba(255,255,255,0.25)',color:'rgba(255,255,255,0.8)',fontSize:12,cursor:'pointer',marginBottom:6}}>📷 Open Camera</button>
+                                )}
                                 <div style={{fontSize:11,color:'#D4914A',marginBottom:12}}>📸 Selfie required to submit</div>
                                 <div style={{display:'flex',gap:8}}>
-                                  <button onClick={function(e){e.stopPropagation();setDishSignoff(null);}} style={{flex:1,padding:'12px',borderRadius:8,background:'transparent',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.7)',fontSize:13,cursor:'pointer'}}>← Back</button>
+                                  <button onClick={function(e){e.stopPropagation();stopCam();setDishSignoff(null);}} style={{flex:1,padding:'12px',borderRadius:8,background:'transparent',border:'1px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.7)',fontSize:13,cursor:'pointer'}}>← Back</button>
                                   <button
                                     disabled={!soD1.selfie}
                                     onClick={function(e){
@@ -6249,10 +6291,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const d3=ds(dish.fEvId,dish.fIdx);const steps3=getFullSteps(dish.name);
                   const runSi=steps3.findIndex((_,si)=>d3.starts?.[si]&&!stepDone(d3,si));
                   const doneSi=steps3.filter((_,si)=>stepDone(d3,si)).length;const pctA=safePct(doneSi,steps3.length);
-                  const isExp3=expandedDish===dk(dish.fEvId,dish.fIdx);
+                  const isExp3=expandedDishes.has(dk(dish.fEvId,dish.fIdx));
                   const imgUrl=getDishImageUrl(dish.name);
                   return(<div key={di} style={{marginBottom:8,border:`1.5px solid ${d3.ready?C.greenBorder:runSi>=0?C.amberBorder:C.border}`,borderRadius:14,overflow:"hidden",boxShadow:"0 4px 16px rgba(0,0,0,.4)"}}>
-                    <div onClick={()=>setExpandedDish(isExp3?null:dk(dish.fEvId,dish.fIdx))} style={{cursor:"pointer",position:"relative",minHeight:72}}>
+                    <div onClick={()=>toggleDish(dk(dish.fEvId,dish.fIdx))} style={{cursor:"pointer",position:"relative",minHeight:72}}>
                       {/* Dish image background */}
                       <div style={{position:"absolute",inset:0,backgroundImage:`url(${imgUrl})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(.35) saturate(.8)"}}/>
                       <div style={{position:"absolute",inset:0,background:`linear-gradient(90deg, rgba(10,9,8,.92) 45%, rgba(10,9,8,.4) 100%)`}}/>
@@ -6266,7 +6308,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {!d3.ready&&<div style={{height:3,background:"rgba(255,255,255,.1)",borderRadius:2,marginTop:5,overflow:"hidden"}}><div style={{height:"100%",width:pctA+"%",background:runSi>=0?C.amber:C.muted,borderRadius:2,transition:"width .5s"}}/></div>}
                         </div>
                         {runSi>=0&&(()=>{const el4=elapsed(d3,runSi);const tm4=d3.stepTm?.[runSi]||0;return <div style={{fontSize:16,fontWeight:700,color:C.amber,flexShrink:0,textShadow:"0 1px 4px rgba(0,0,0,.5)"}}>{fmtT(Math.max(0,tm4-el4))}</div>;})()}
-                        <span style={{fontSize:16,color:"rgba(255,255,255,.5)",transform:isExp3?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>▾</span>
+                        <span style={{fontSize:12,color:"rgba(255,255,255,.5)",flexShrink:0}}>{isExp3?'▼':'▶'}</span>
                       </div>
                     </div>
                     {isExp3&&(<div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
@@ -6408,19 +6450,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             {/* ── COMPLETION SECTION ── */}
                             {(function(){
                               var d2c=ds(dish.fEvId,dish.fIdx);
-                              var allStepsDone=nonStoreSI.length>0&&nonStoreSI.every(function(item){
-                                var oi=item.origIdx;
-                                var isManual=d2c.manual&&(d2c.manual[oi]||d2c.manual['step_'+oi]||d2c.manual[String(oi)]);
-                                var startVal=d2c.starts&&(d2c.starts[oi]||d2c.starts['step_'+oi]||d2c.starts[String(oi)]);
-                                var tm=item.step.tm;
-                                return isManual||(startVal&&tm&&Math.floor((Date.now()-startVal)/1000)>=tm);
-                              });
-                              if(!allStepsDone) return null;
                               var isTransport=d2c.status==='ready_for_transport';
                               var isComp=d2c.status==='completed'||d2c.completed||d2c.ready;
                               var isDone=isComp||isTransport;
-                              var so=dishSignoff&&dishSignoff.evId===dish.fEvId&&dishSignoff.idx===dish.fIdx?dishSignoff:null;
-                              // Already confirmed
+                              // Always show badge if already confirmed (don't gate behind allStepsDone)
                               if(isDone){
                                 return (
                                   <div style={{marginTop:16,padding:14,background:isTransport?'#150A10':'#0A1520',borderRadius:14,border:`2px solid ${isTransport?C.wine:'#1A4828'}`,display:'flex',gap:12,alignItems:'center'}}>
@@ -6433,6 +6466,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   </div>
                                 );
                               }
+                              var allStepsDone=(nonStoreSI.length===0)||(nonStoreSI.every(function(item){
+                                var oi=item.origIdx;
+                                return stepDone(d2c,oi);
+                              }));
+                              if(!allStepsDone) return null;
+                              var so=dishSignoff&&dishSignoff.evId===dish.fEvId&&dishSignoff.idx===dish.fIdx?dishSignoff:null;
                               // Sign-off panel
                               if(so){
                                 var modeBg=so.mode==='ready_for_transport'?C.wine:'#2B8A50';
@@ -6442,13 +6481,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>👨‍🍳 Chef Sign-off Required</div>
                                     <div style={{marginBottom:14}}>
                                       <input type="file" accept="image/*" capture="user" id={'so-selfie-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}} onChange={function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev2){setDishSignoff(function(p){return p?{...p,selfie:ev2.target.result}:p;});};r.readAsDataURL(f);}}/>
-                                      {so.selfie?(
+                                      <canvas ref={capRef} style={{display:'none'}}/>
+                                      {camOn?(
+                                        <div>
+                                          <video ref={function(el){camRef.current=el;if(el&&camStreamRef.current){el.srcObject=camStreamRef.current;el.play().catch(function(){});}}} autoPlay playsInline muted style={{width:'100%',maxHeight:200,borderRadius:10,objectFit:'cover',background:'#000',display:'block'}}/>
+                                          <div style={{display:'flex',gap:8,marginTop:8}}>
+                                            <button onClick={capturePhoto} style={{flex:1,padding:'10px',borderRadius:8,background:'#2B8A50',border:'none',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>📸 Capture Photo</button>
+                                            <button onClick={stopCam} style={{padding:'10px 14px',borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:'pointer'}}>✕</button>
+                                          </div>
+                                        </div>
+                                      ):so.selfie?(
                                         <div style={{display:'flex',gap:10,alignItems:'center'}}>
                                           <img src={so.selfie} style={{width:60,height:60,borderRadius:10,objectFit:'cover',border:`2px solid ${C.gold}`}}/>
-                                          <button onClick={function(){setDishSignoff(function(p){return p?{...p,selfie:null}:p;});}} style={{padding:'6px 12px',borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:'pointer'}}>Remove</button>
+                                          <button onClick={function(){setDishSignoff(function(p){return p?{...p,selfie:null}:p;});}} style={{padding:'6px 12px',borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:'pointer'}}>🔄 Retake</button>
                                         </div>
                                       ):(
-                                        <button onClick={function(){document.getElementById('so-selfie-'+dish.fEvId+'-'+dish.fIdx).click();}} style={{padding:'10px 20px',borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.gold,fontSize:12,fontWeight:600,cursor:'pointer'}}>📸 Take Selfie</button>
+                                        <button onClick={function(){openCam('so-selfie-'+dish.fEvId+'-'+dish.fIdx);}} style={{padding:'10px 20px',borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.gold,fontSize:12,fontWeight:600,cursor:'pointer'}}>📷 Open Camera</button>
                                       )}
                                       <div style={{fontSize:11,color:C.amber,marginTop:6}}>📸 Selfie required to submit</div>
                                     </div>
@@ -6485,7 +6533,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         style={{flex:1,padding:14,borderRadius:12,background:!so.selfie?'#1A1510':modeBg,color:!so.selfie?C.muted:'#fff',border:`1px solid ${!so.selfie?C.border:modeBg}`,fontSize:13,fontWeight:700,cursor:!so.selfie?'not-allowed':'pointer',minHeight:48}}>
                                         Confirm &amp; Submit
                                       </button>
-                                      <button onClick={function(){setDishSignoff(null);}} style={{padding:14,borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:'pointer',minHeight:48}}>Cancel</button>
+                                      <button onClick={function(){stopCam();setDishSignoff(null);}} style={{padding:14,borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:'pointer',minHeight:48}}>Cancel</button>
                                     </div>
                                   </div>
                                 );
@@ -6674,7 +6722,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const nDish = newItems.find(d=>d.name===dishName);
                       const inBoth = cDish && nDish;
                       const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
-                      const isExp = expandedDish===cKey;
+                      const isExp = expandedDishes.has(cKey);
 
                       // Get steps for this dish
                       const allStepsFn = getStepsForDish(dishName);
@@ -6686,11 +6734,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       return(
                         <div key={dishName} style={{marginBottom:6}}>
                           {/* Dish row — side by side pax */}
-                          <div onClick={()=>setExpandedDish(isExp?null:cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                          <div onClick={()=>toggleDish(cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                             {/* Top: dish name */}
                             <div style={{padding:"9px 14px",background:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dishName}</div>
-                              <span style={{fontSize:13,color:C.muted,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                              <span style={{fontSize:12,color:C.muted}}>{isExp?'▼':'▶'}</span>
                             </div>
                             {/* Side-by-side pax columns — only show relevant columns */}
                             <div style={{display:"grid",gridTemplateColumns:d1View==="all"?"1fr 1fr":d1View==="cont"?"1fr":"1fr",gap:0}}>
