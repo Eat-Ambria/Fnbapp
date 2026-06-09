@@ -11539,6 +11539,23 @@ export default function App() {
   const [repairs,setRepairs]         = useState([]);
   const T2 = s => T(s, lang);
 
+  // ── PWA auto-update ──
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(function(){
+    if(!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function(reg){
+      reg.addEventListener('updatefound', function(){
+        var nw = reg.installing;
+        if(!nw) return;
+        nw.addEventListener('statechange', function(){
+          if(nw.state === 'activated' && navigator.serviceWorker.controller){
+            setUpdateReady(true);
+          }
+        });
+      });
+    });
+  },[]);
+
   // ── Attendance ──
   const [attendance,setAttendance_raw] = useState(function() {
     try { var s=localStorage.getItem('ambria_attendance'); return s?JSON.parse(s).map(normalizeAtt):[]; } catch(e){return [];}
@@ -11927,7 +11944,15 @@ export default function App() {
   }
 
   return (
-    <div style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:C.bg,overflow:"hidden"}}>
+    <div style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:C.bg,overflow:"hidden",flexDirection:"column"}}>
+      {/* ── PWA update banner ── */}
+      {updateReady&&(
+        <div style={{flexShrink:0,background:"#2B8A50",color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:"0 2px 8px rgba(0,0,0,0.3)",zIndex:9999}}>
+          <span>🔄 New version available</span>
+          <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
+        </div>
+      )}
+      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
       <div style={{width:260,background:`linear-gradient(180deg, ${C.surface} 0%, #0C0B0A 100%)`,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
         {/* Decorative gold accent line */}
@@ -12017,6 +12042,7 @@ export default function App() {
         <div style={{flex:1,overflowY:"auto",padding:"28px 32px",scrollBehavior:"smooth"}}>
           <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
         </div>
+      </div>
       </div>
     </div>
   );
