@@ -1290,6 +1290,14 @@ const HI = {
   "Select dishes from the package":"पैकेज से व्यंजन चुनें",
   "Select a menu package":"मेनू पैकेज चुनें",
   "categories":"श्रेणियां",
+  "Gate Attendance":"गेट उपस्थिति","Mark Present":"उपस्थित करें","Mark Absent":"अनुपस्थित करें",
+  "Event Day":"इवेंट दिवस","Pre-Preparation":"पूर्व तैयारी","Dispatch Ready":"डिस्पैच तैयार",
+  "All Steps Done":"सभी चरण पूर्ण","Chef Selfie":"शेफ सेल्फी","Dish Ready":"डिश तैयार",
+  "Ingredient Scaling":"सामग्री स्केलिंग","Guests":"मेहमान","Base Quantity":"आधार मात्रा",
+  "Required":"आवश्यक","Activity Log":"गतिविधि लॉग","Venue":"वेन्यू",
+  "Transport":"परिवहन","Store":"स्टोर","Vendors":"विक्रेता","Menu Packages":"मेनू पैकेज",
+  "Select an event above to enable ingredient scaling":"इवेंट चुनें — सामग्री स्केलिंग के लिए",
+  "Select a function above to continue":"ऊपर से फंक्शन चुनें",
 };
 // T() — translate string if Hindi mode
 function T(key, lang) {
@@ -6285,14 +6293,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         var prePrep=nonStoreSI.filter(function(x){return !!x.step.d1;});
                         var cooking=nonStoreSI.filter(function(x){return !x.step.d1;});
                         var steps=nonStoreSI.map(function(x){return x.step;});
-                        var doneCount=0;
-                        for(var ci=0;ci<steps.length;ci++){
-                          var isManual=d3.manual&&(d3.manual[ci]||d3.manual['step_'+ci]||d3.manual[String(ci)]);
-                          var startVal=d3.starts&&(d3.starts[ci]||d3.starts['step_'+ci]||d3.starts[String(ci)]);
-                          var isTimerDone=startVal&&steps[ci].tm&&Math.floor((Date.now()-startVal)/1000)>=steps[ci].tm;
-                          if(isManual||isTimerDone) doneCount++;
-                        }
-                        var allStepsDone=doneCount===steps.length&&steps.length>0;
+                        var allStepsDone=nonStoreSI.length>0&&nonStoreSI.every(function(item){
+                          var oi=item.origIdx;
+                          var isManual=d3.manual&&(d3.manual[oi]||d3.manual['step_'+oi]||d3.manual[String(oi)]);
+                          var startVal=d3.starts&&(d3.starts[oi]||d3.starts['step_'+oi]||d3.starts[String(oi)]);
+                          var tm=item.step.tm;
+                          return isManual||(startVal&&tm&&Math.floor((Date.now()-startVal)/1000)>=tm);
+                        });
                         var isCompleted=d3.completed||d3.ready;
                         var isDispatched=d3.readyForDispatch;
                         function renderStep(item,globalIdx,groupIdx,groupLen){
@@ -6310,6 +6317,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <div style={{flex:1}}>
                                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                                   <span style={{fontSize:12,fontWeight:700,color:done3?C.green:C.text}}>{step.t}{step.live?" 🔴":""}</span>
+                                  <span style={{fontSize:9,color:step.d1?C.blue:C.amber,fontWeight:600}}>{step.d1?"PRE-PREP":"COOKING"}</span>
                                   {d1Done&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>D-1 ✅</span>}
                                 </div>
                                 {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{step.i}</div>}
@@ -6339,14 +6347,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             {/* ── COMPLETION SECTION ── */}
                             {(function(){
                               var d2c=ds(dish.fEvId,dish.fIdx);
-                              var doneCount=0;
-                              for(var ci=0;ci<steps.length;ci++){
-                                var isManual=d2c.manual&&(d2c.manual[ci]||d2c.manual['step_'+ci]||d2c.manual[String(ci)]);
-                                var startVal=d2c.starts&&(d2c.starts[ci]||d2c.starts['step_'+ci]||d2c.starts[String(ci)]);
-                                var isTimerDone=startVal&&steps[ci].tm&&Math.floor((Date.now()-startVal)/1000)>=steps[ci].tm;
-                                if(isManual||isTimerDone) doneCount++;
-                              }
-                              var allStepsDone=doneCount===steps.length&&steps.length>0;
+                              var allStepsDone=nonStoreSI.length>0&&nonStoreSI.every(function(item){
+                                var oi=item.origIdx;
+                                var isManual=d2c.manual&&(d2c.manual[oi]||d2c.manual['step_'+oi]||d2c.manual[String(oi)]);
+                                var startVal=d2c.starts&&(d2c.starts[oi]||d2c.starts['step_'+oi]||d2c.starts[String(oi)]);
+                                var tm=item.step.tm;
+                                return isManual||(startVal&&tm&&Math.floor((Date.now()-startVal)/1000)>=tm);
+                              });
                               if(!allStepsDone) return null;
                               var isComp=d2c.completed||d2c.ready;
                               var isDisp=d2c.readyForDispatch;
@@ -6792,9 +6799,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <tr style={{background:C.darkCard}}>
                     <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:130}}>Ingredient</th>
                     <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>Unit</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:"#FF6B35",borderLeft:`1px solid ${C.border}`,minWidth:90}}>SOP ★1100</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Scaled {effectivePct}%</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:64}}>Diff</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:"#FF6B35",borderLeft:`1px solid ${C.border}`,minWidth:90}}>Base (SOP)</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Required ({linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100))}pax)</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:64}}>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6814,7 +6821,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
                         <td style={{padding:"7px 8px",textAlign:"right",color:"#FF6B35",fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{sopFmt}</td>
                         <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:dc,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
-                        <td style={{padding:"7px 8px",textAlign:"right",color:dc,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{diffFmt}</td>
+                        <td style={{padding:"7px 8px",textAlign:"right",color:isAcc?C.amber:dc,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"Acc to taste":diffFmt}</td>
                       </tr>
                     );
                   })}
@@ -6900,7 +6907,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             {scaleEventId===null&&(
               <Card style={{marginTop:16,padding:"20px",textAlign:"center"}}>
                 <div style={{fontSize:28,marginBottom:8}}>👆</div>
-                <div style={{fontSize:13,color:C.muted}}>{T2("Select a function above to continue")}</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:4}}>← {T2("Select an event above to enable ingredient scaling")}</div>
               </Card>
             )}
 
@@ -9437,6 +9444,8 @@ function MenuPackagesView({lang="en"}) {
   const T2 = s => T(s, lang);
   const pkgNames = Object.keys(MENU_PACKAGES);
   const [selPkg, setSelPkg] = useState(null);
+  const [openSections, setOpenSections] = useState({});
+  function toggleSection(sec){setOpenSections(p=>({...p,[sec]:!p[sec]}));}
 
   const PKG_META = {
     "Multi-Cuisine Veg":    {icon:"🌱",c:"#4DAA6A",bg:C.greenBg},
@@ -9493,16 +9502,22 @@ function MenuPackagesView({lang="en"}) {
 
       {Object.entries(bySection).filter(([sec])=>sec!=="Beverages").map(([sec,dishes])=>{
         const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+        const isOpen=!!openSections[sec];
         return (
-          <div key={sec} style={{marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:m2.color,marginBottom:8}}>{m2.icon} {T2(sec)} ({dishes.length})</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {dishes.map((d,i)=>(
-                <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.text}}>
-                  {d}
-                </div>
-              ))}
-            </div>
+          <div key={sec} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <button onClick={()=>toggleSection(sec)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",background:isOpen?m2.color+"15":C.darkCard,border:"none",cursor:"pointer",textAlign:"left"}}>
+              <span style={{fontSize:13,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)} <span style={{fontWeight:400,fontSize:12,color:C.muted}}>({dishes.length} items)</span></span>
+              <span style={{fontSize:14,color:m2.color,transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▼</span>
+            </button>
+            {isOpen&&(
+              <div style={{padding:"8px 14px 12px"}}>
+                {dishes.map((d,i)=>(
+                  <div key={i} style={{padding:"6px 0",borderBottom:i<dishes.length-1?`1px solid ${C.borderLight}`:"none",fontSize:12,color:C.text,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:m2.color,fontSize:10}}>•</span>{d}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -10774,6 +10789,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       in_photo: type==='IN' ? photo : (todayRec ? todayRec.in_photo||null : null),
       out_photo: type==='OUT' ? photo : null,
       venue: venueName,
+      method: 'kiosk',
     };
     // Update React state
     setAttendance(function(prev) {
@@ -11544,11 +11560,14 @@ export default function App() {
   // ── NAV per department ──
   const DEPT_NAV = {
     kitchen: [
+      {id:"_divider_k1",label:"KITCHEN",icon:"",divider:true},
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"kitchen",label:"Kitchen",icon:"👨‍🍳"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"_divider_k2",label:"OPERATIONS",icon:"",divider:true},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"_divider_k3",label:"MANAGEMENT",icon:"",divider:true},
+      {id:"team",label:"Team & Attendance",icon:"👥"},
     ],
     service: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -11583,25 +11602,21 @@ export default function App() {
       {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     management: [
-      // ── OVERVIEW ──
+      {id:"_divider_kitchen",label:"KITCHEN",icon:"",divider:true},
       {id:"dashboard",label:"Dashboard",icon:"📊"},
-      // ── KITCHEN ──
-      {id:"_divider_kitchen",label:"── Kitchen ──",icon:"",divider:true},
       {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
+      {id:"_divider_ops",label:"OPERATIONS",icon:"",divider:true},
       {id:"menus",label:"Menu Packages",icon:"📜"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-      // ── OPERATIONS ──
-      {id:"_divider_ops",label:"── Operations ──",icon:"",divider:true},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
+      {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"vendors",label:"Vendor Directory",icon:"📇"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
       {id:"dept_service",label:"Service Ops",icon:"🍽"},
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
-      // ── MANAGEMENT ──
-      {id:"_divider_mgmt",label:"── Management ──",icon:"",divider:true},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+      {id:"_divider_mgmt",label:"MANAGEMENT",icon:"",divider:true},
       {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"vendors",label:"Vendor Directory",icon:"📇"},
       {id:"access",label:"Access Manager",icon:"🔐"},
       {id:"logs",label:"Activity Log",icon:"📋"},
     ],
@@ -11753,7 +11768,7 @@ export default function App() {
           {curNav.filter(item=>item.divider||canAccessScreen(currentUser, item.id)).map(item=>{
             if(item.divider){
               return(
-                <div key={item.id} style={{fontSize:10,fontWeight:700,color:'#7A6F62',textTransform:'uppercase',letterSpacing:1.2,padding:'16px 16px 6px 16px',marginTop:4}}>
+                <div key={item.id} style={{fontSize:9,fontWeight:700,color:C.faint,textTransform:'uppercase',letterSpacing:1.2,padding:'10px 11px 4px',marginTop:4}}>
                   {item.label.replace(/──/g,'').trim()}
                 </div>
               );
