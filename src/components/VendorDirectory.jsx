@@ -1,8 +1,9 @@
 // Ambria FnB — Vendor Directory
 import React, { useState } from "react";
-import { C, VENDOR_CATEGORIES } from '../data/constants.js';
+import { C, VENDOR_CATEGORIES, SECTIONS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { Card, Btn, Chip } from './SharedUI.jsx';
+import { Card, Btn, Chip, Avatar, STag } from './SharedUI.jsx';
+import { TODAY } from '../utils/helpers.js';
 
 function VendorDirectory({lang="en"}) {
   const T2 = s => T(s, lang||"en");

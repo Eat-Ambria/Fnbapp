@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { C, SECTIONS, ALL_DEPARTMENTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { safeArr } from '../utils/helpers.js';
+import { safeArr, TODAY } from '../utils/helpers.js';
 import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission } from '../data/permissions.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 

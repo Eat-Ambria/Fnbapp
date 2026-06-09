@@ -4,9 +4,10 @@ import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS, yrsOfService } from '../data/staffData.js';
-import { Avatar, Card, Btn, Chip, STag, SelfieCapture } from './SharedUI.jsx';
+import { Avatar, Card, Btn, Chip, STag, SelfieCapture, DonutChart } from './SharedUI.jsx';
 import { KioskAttendance } from './KioskAttendance.jsx';
 import { dbUpsert } from '../lib/db.js';
+import { hasPermission } from '../data/permissions.js';
 
 function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null}) {
   const [tab,setTab]             = useState("attendance");

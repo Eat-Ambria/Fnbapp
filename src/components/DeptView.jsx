@@ -1,14 +1,15 @@
 // Ambria FnB — Department View / Selector
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
+import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
 import { canAccessScreen } from '../data/permissions.js';
 import { dbUpsert } from '../lib/db.js';
 import { KioskAttendance } from './KioskAttendance.jsx';
+import { guessSectionForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
 
 function calcDispatch(time){
   if(!time) return "TBD";

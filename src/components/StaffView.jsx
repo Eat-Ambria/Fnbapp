@@ -3,7 +3,8 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
-import { Avatar, Card, Btn } from './SharedUI.jsx';
+import { STAFF_LIST, GROOMING_CHECKS, yrsOfService } from '../data/staffData.js';
+import { Avatar, Card, Btn, Chip, SectionHeader, SelfieCapture } from './SharedUI.jsx';
 
 function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout, lang="en"}) {
   const T2 = s => T(s, lang);

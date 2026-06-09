@@ -5,6 +5,8 @@ import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbLoad, dbUpsert } from '../lib/db.js';
+import { supabase } from '../lib/supabase.js';
+import { hasPermission } from '../data/permissions.js';
 
 function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"}) {
   const T2 = s => T(s, lang);

@@ -1,9 +1,10 @@
 // Ambria FnB — Menu Packages View
 import React, { useState } from "react";
-import { C } from '../data/constants.js';
+import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { Card } from './SharedUI.jsx';
+import { guessSectionForDish } from '../data/recipeData.js';
 
 function MenuPackagesView({lang="en"}) {
   const T2 = s => T(s, lang);

@@ -6,6 +6,7 @@ import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
 import { Avatar, SelfieCapture } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
+import { supabase } from '../lib/supabase.js';
 
 function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang}) {
   const T2 = s => T(s, lang || 'en');
