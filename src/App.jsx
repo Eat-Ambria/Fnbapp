@@ -5372,7 +5372,7 @@ function getDishImageUrl(dishName) {
   return "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=70";
 }
 
-function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null }) {
+function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
 
   // Safe menu array — handles JSONB array or stringified JSON from Supabase
@@ -5429,6 +5429,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // Apply scaling to a raw per-pax quantity
   function applyScale(q, evId){return q*(getEventScale(evId)/100);}
   const [tick, setTick] = useState(0);
+  const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
 
   // ── Chef Photo on Mark as Complete ──
   const [readyModal, setReadyModal] = useState(null); // {evId,idx,dishName}
@@ -6355,54 +6356,93 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 return isManual||(startVal&&tm&&Math.floor((Date.now()-startVal)/1000)>=tm);
                               });
                               if(!allStepsDone) return null;
-                              var isComp=d2c.completed||d2c.ready;
-                              var isDisp=d2c.readyForDispatch;
-                              return (
-                                <div>
-                                  {!isComp&&(
-                                    <div style={{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
-                                      <div style={{fontSize:15,fontWeight:700,color:'#3EAA68',textAlign:'center',marginBottom:14}}>✅ All {steps.length} steps complete</div>
-                                      <div style={{textAlign:'center',marginBottom:14}}>
-                                        {d2c.selfie?(
-                                          <div>
-                                            <img src={d2c.selfie} style={{width:100,height:100,borderRadius:16,objectFit:'cover',border:'3px solid #D4B44A'}}/>
-                                            <div style={{fontSize:11,color:'#3EAA68',marginTop:6}}>✅ Chef selfie captured</div>
-                                          </div>
-                                        ):(
-                                          <div>
-                                            <input type="file" accept="image/*" capture="user" id={'selfie-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}} onChange={function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){setDs(dish.fEvId,dish.fIdx,{selfie:ev.target.result});};r.readAsDataURL(f);}}/>
-                                            <button onClick={function(){document.getElementById('selfie-'+dish.fEvId+'-'+dish.fIdx).click();}} style={{padding:'14px 28px',borderRadius:12,background:'linear-gradient(135deg,#D4B44A,#A8891E)',color:'#0A0908',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>📸 Take Chef Selfie</button>
-                                          </div>
-                                        )}
-                                      </div>
-                                      {d2c.selfie?(
-                                        <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{completed:true,ready:true,completedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),completedBy:currentUser?currentUser.name:'Chef'});}} style={{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#3EAA68,#1A5030)',color:'#fff',border:'none',fontSize:15,fontWeight:700,cursor:'pointer',minHeight:50}}>✅ Dish Ready</button>
+                              var isTransport=d2c.status==='ready_for_transport';
+                              var isComp=d2c.status==='completed'||d2c.completed||d2c.ready;
+                              var isDone=isComp||isTransport;
+                              var so=dishSignoff&&dishSignoff.evId===dish.fEvId&&dishSignoff.idx===dish.fIdx?dishSignoff:null;
+                              // Already confirmed
+                              if(isDone){
+                                return (
+                                  <div style={{marginTop:16,padding:14,background:isTransport?'#150A10':'#0A1520',borderRadius:14,border:`2px solid ${isTransport?C.wine:'#1A4828'}`,display:'flex',gap:12,alignItems:'center'}}>
+                                    {d2c.selfie&&<img src={d2c.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:`2px solid ${isTransport?C.wine:C.green}`}}/>}
+                                    <div style={{flex:1}}>
+                                      <div style={{fontSize:14,fontWeight:700,color:isTransport?C.wine:C.green}}>{isTransport?'🚛 Marked for Transport':'✅ Completed'}</div>
+                                      <div style={{fontSize:12,color:C.muted,marginTop:2}}>By {d2c.completedBy||'Chef'} at {d2c.completedAt||''}</div>
+                                      {isTransport&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>Pending pickup by transport team</div>}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              // Sign-off panel
+                              if(so){
+                                var modeBg=so.mode==='ready_for_transport'?C.wine:'#2B8A50';
+                                return (
+                                  <div style={{marginTop:16,padding:16,background:'#0A0F18',borderRadius:14,border:`2px solid ${modeBg}40`}}>
+                                    <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:12}}>👨‍🍳 Chef Sign-off Required</div>
+                                    <div style={{marginBottom:12}}>
+                                      <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Chef Name</div>
+                                      <input type="text" value={so.chefName||''} onChange={function(e){var v=e.target.value;setDishSignoff(function(p){return p?{...p,chefName:v}:p;});}} style={{width:'100%',padding:'10px 12px',borderRadius:10,background:'#1A1510',border:`1px solid ${C.border}`,color:C.text,fontSize:13}} placeholder="Enter chef name"/>
+                                    </div>
+                                    <div style={{marginBottom:14}}>
+                                      <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Selfie (Optional)</div>
+                                      {so.selfie?(
+                                        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                                          <img src={so.selfie} style={{width:60,height:60,borderRadius:10,objectFit:'cover',border:`2px solid ${C.gold}`}}/>
+                                          <button onClick={function(){setDishSignoff(function(p){return p?{...p,selfie:null}:p;});}} style={{padding:'6px 12px',borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:'pointer'}}>Remove</button>
+                                        </div>
                                       ):(
-                                        <div style={{fontSize:12,color:'#D4914A',textAlign:'center'}}>⚠️ Take selfie first</div>
+                                        <div>
+                                          <input type="file" accept="image/*" capture="user" id={'so-selfie-'+dish.fEvId+'-'+dish.fIdx} style={{display:'none'}} onChange={function(e){var f=e.target.files&&e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev2){setDishSignoff(function(p){return p?{...p,selfie:ev2.target.result}:p;});};r.readAsDataURL(f);}}/>
+                                          <button onClick={function(){document.getElementById('so-selfie-'+dish.fEvId+'-'+dish.fIdx).click();}} style={{padding:'10px 20px',borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.gold,fontSize:12,fontWeight:600,cursor:'pointer'}}>📸 Take Selfie</button>
+                                        </div>
                                       )}
                                     </div>
-                                  )}
-                                  {isComp&&!isDisp&&(
-                                    <div style={{marginTop:16,padding:16,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828'}}>
-                                      <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:12}}>
-                                        {d2c.selfie&&<img src={d2c.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
-                                        <div>
-                                          <div style={{fontSize:14,fontWeight:700,color:'#3EAA68'}}>✅ Dish Ready</div>
-                                          <div style={{fontSize:12,color:'#7A6F62'}}>By {d2c.completedBy||'Chef'} at {d2c.completedAt||d2c.readyAt||''}</div>
-                                        </div>
-                                      </div>
-                                      <button onClick={function(){setDs(dish.fEvId,dish.fIdx,{readyForDispatch:true,dispatchMarkedAt:new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}),dispatchMarkedBy:currentUser?currentUser.name:'Chef'});}} style={{width:'100%',padding:14,borderRadius:12,background:'linear-gradient(135deg,#4A8FD0,#1A3050)',color:'#fff',border:'none',fontSize:14,fontWeight:700,cursor:'pointer',minHeight:48}}>🚛 Ready for Dispatch</button>
+                                    <div style={{display:'flex',gap:10}}>
+                                      <button
+                                        disabled={!so.chefName||!so.chefName.trim()}
+                                        onClick={function(){
+                                          if(!so.chefName||!so.chefName.trim())return;
+                                          var now2=new Date();
+                                          var nowTime=now2.getHours().toString().padStart(2,'0')+':'+now2.getMinutes().toString().padStart(2,'0');
+                                          var updates={status:so.mode,completed:true,ready:true,completedBy:so.chefName.trim(),completedAt:nowTime,selfie:so.selfie||null};
+                                          if(so.mode==='ready_for_transport'){
+                                            updates.transportLinked=true;
+                                            var tev=evList.find(function(e){return e.id===dish.fEvId;});
+                                            if(setTransportQueue){
+                                              setTransportQueue(function(prev){
+                                                return [...(prev||[]),{
+                                                  id:localDateStr(now2)+'_'+dish.fEvId+'_'+dish.fIdx,
+                                                  dishName:dish.name||'Dish',
+                                                  event:tev?tev.guest:'Unknown',
+                                                  pax:tev?tev.pax:0,
+                                                  venue:tev?tev.venue:'',
+                                                  eventDate:tev?tev.date:localDateStr(now2),
+                                                  preparedBy:so.chefName.trim(),
+                                                  markedAt:nowTime,
+                                                  status:'Pending Pickup',
+                                                }];
+                                              });
+                                            }
+                                          }
+                                          setDs(dish.fEvId,dish.fIdx,updates);
+                                          setDishSignoff(null);
+                                        }}
+                                        style={{flex:1,padding:14,borderRadius:12,background:(!so.chefName||!so.chefName.trim())?'#1A1510':modeBg,color:(!so.chefName||!so.chefName.trim())?C.muted:'#fff',border:`1px solid ${(!so.chefName||!so.chefName.trim())?C.border:modeBg}`,fontSize:13,fontWeight:700,cursor:(!so.chefName||!so.chefName.trim())?'not-allowed':'pointer',minHeight:48}}>
+                                        Confirm &amp; Submit
+                                      </button>
+                                      <button onClick={function(){setDishSignoff(null);}} style={{padding:14,borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:'pointer',minHeight:48}}>Cancel</button>
                                     </div>
-                                  )}
-                                  {isComp&&isDisp&&(
-                                    <div style={{marginTop:16,padding:14,background:'#0A2010',borderRadius:14,border:'2px solid #1A4828',display:'flex',gap:12,alignItems:'center'}}>
-                                      {d2c.selfie&&<img src={d2c.selfie} style={{width:50,height:50,borderRadius:12,objectFit:'cover',border:'2px solid #3EAA68'}}/>}
-                                      <div style={{flex:1}}>
-                                        <div style={{fontSize:14,fontWeight:700,color:'#3EAA68'}}>✅ Completed by {d2c.completedBy||'Chef'} at {d2c.completedAt||''}</div>
-                                        <div style={{fontSize:12,color:'#4A8FD0',marginTop:2}}>🚛 Dispatch ready — marked at {d2c.dispatchMarkedAt||''}</div>
-                                      </div>
-                                    </div>
-                                  )}
+                                  </div>
+                                );
+                              }
+                              // Two action buttons
+                              return (
+                                <div style={{marginTop:16,padding:16,background:'#0A1018',borderRadius:14,border:`1px solid ${C.border}`}}>
+                                  <div style={{fontSize:13,fontWeight:700,color:C.green,textAlign:'center',marginBottom:12}}>✅ All {steps.length} steps complete</div>
+                                  <div style={{display:'flex',gap:10}}>
+                                    <button onClick={function(){setDishSignoff({evId:dish.fEvId,idx:dish.fIdx,mode:'completed',chefName:currentUser?currentUser.name:'',selfie:null});}} style={{flex:1,padding:14,borderRadius:12,background:'#2B8A50',color:'#fff',border:'none',fontSize:13,fontWeight:700,cursor:'pointer',minHeight:50}}>✅ Mark Completed</button>
+                                    <button onClick={function(){setDishSignoff({evId:dish.fEvId,idx:dish.fIdx,mode:'ready_for_transport',chefName:currentUser?currentUser.name:'',selfie:null});}} style={{flex:1,padding:14,borderRadius:12,background:C.wine,color:'#fff',border:'none',fontSize:13,fontWeight:700,cursor:'pointer',minHeight:50}}>🚛 Mark for Transport</button>
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -7163,7 +7203,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     </div>
   );
 }
-function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=null}) {
+function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = Array.isArray(events) ? events : [];
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -7344,7 +7384,45 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
             ))}
           </div>
         );
-      })()}       <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
+      })()}
+
+      {/* ── FROM KITCHEN — READY FOR PICKUP ── */}
+      {(function(){
+        var pending=(transportQueue||[]).filter(function(item){return item.status==='Pending Pickup';});
+        var pickedUp=(transportQueue||[]).filter(function(item){return item.status==='Picked Up';});
+        if(!pending.length&&!pickedUp.length) return null;
+        return (
+          <div style={{marginBottom:14,border:`1.5px solid ${C.wine}`,borderRadius:12,overflow:'hidden'}}>
+            <div style={{background:C.wine+'20',padding:'10px 16px',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:14}}>🍳</span>
+              <span style={{fontSize:13,fontWeight:700,color:C.wine}}>From Kitchen — Ready for Pickup</span>
+              {pending.length>0&&<span style={{fontSize:11,background:C.wine,color:'#fff',padding:'2px 8px',borderRadius:20,fontWeight:700}}>{pending.length}</span>}
+            </div>
+            {pending.map(function(item,i){return (
+              <div key={item.id||i} style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{item.dishName}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{item.event} · {item.venue} · {item.pax} pax</div>
+                  <div style={{fontSize:11,color:C.muted}}>By {item.preparedBy} at {item.markedAt}</div>
+                </div>
+                <button onClick={function(){setTransportQueue&&setTransportQueue(function(prev){return prev.map(function(q){return q.id===item.id?{...q,status:'Picked Up',pickedUpAt:new Date().getHours().toString().padStart(2,'0')+':'+new Date().getMinutes().toString().padStart(2,'0')}:q;});});}} style={{padding:'8px 14px',borderRadius:10,background:C.green,color:'#fff',border:'none',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,minHeight:38}}>✅ Confirm Pickup</button>
+              </div>
+            );})}
+            {pickedUp.length>0&&(
+              <div style={{padding:'8px 16px',background:C.darkCard}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:'uppercase',letterSpacing:0.8}}>Already Picked Up ({pickedUp.length})</div>
+                {pickedUp.map(function(item,i){return (
+                  <div key={item.id||i} style={{fontSize:11,color:C.muted,padding:'4px 0',borderBottom:i<pickedUp.length-1?`1px solid ${C.borderLight}`:'none'}}>
+                    {item.dishName} · {item.event} · By {item.preparedBy}{item.pickedUpAt?' · Picked up '+item.pickedUpAt:''}
+                  </div>
+                );})}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
         {TABS.map(t=>(
           <button key={t.v} onClick={()=>setActiveTab(t.v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",background:activeTab===t.v?C.wine:"transparent",color:activeTab===t.v?"#fff":C.muted,border:`1.5px solid ${activeTab===t.v?C.wine:C.border}`}}>{t.l}</button>
         ))}
@@ -11439,6 +11517,14 @@ export default function App() {
   };
   const kitchenTracking = kitchenTracking_raw;
 
+  // ── Transport Queue ──
+  const [transportQueue, setTransportQueue] = useState(function(){
+    try{return JSON.parse(localStorage.getItem("ambria_transport_queue")||"[]");}catch(e){return [];}
+  });
+  useEffect(function(){
+    try{localStorage.setItem("ambria_transport_queue",JSON.stringify(transportQueue));}catch(e){}
+  },[transportQueue]);
+
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
   const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
@@ -11688,7 +11774,7 @@ export default function App() {
         <div style={{padding:'20px'}}>
           <KitchenHub events={events} kitchenTracking={kitchenTracking}
             setKitchenTracking={setKitchenTracking} lang={lang}
-            currentUser={currentUser}/>
+            currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>
         </div>
       </div>
     );
@@ -11721,9 +11807,9 @@ export default function App() {
     switch(s){
       case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang} currentUser={currentUser}/>;
       case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser}/>;
-      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser}/>;
+      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "menus":          return <MenuPackagesView lang={lang}/>;
-      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser}/>;
+      case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
