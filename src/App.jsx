@@ -6104,7 +6104,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           });
                           if(!allDoneD1) return null;
                           var isTransD1=d2.status==='ready_for_transport';
-                          var isCompD1=d2.status==='completed'||d2.completedAt||d2.mesaDone;
+                          var isCompD1=d2.status==='completed'||d2.completedAt;
                           var isDoneD1=isCompD1||isTransD1;
                           var soD1=dishSignoff&&dishSignoff.evId===dish.fEvId&&dishSignoff.idx===dish.fIdx?dishSignoff:null;
                           if(isDoneD1){
