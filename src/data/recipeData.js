@@ -59,7 +59,7 @@ const GENERIC_STEPS = [
 
 // ─── RECIPE DATABASE (will be populated with actual SOPs in next phase) ──
 // ─── RECIPE INGREDIENTS (per-pax in grams/ml, calculated from SOP 200-pax base) ──
-const RECIPE_INGREDIENTS = {
+let RECIPE_INGREDIENTS = {
   "Aloo Pakoda":[{n:"Potato",h:"आलू",q:20,u:"g"},{n:"Besan",h:"बेसन",q:10,u:"g"},{n:"Oil (frying)",h:"तेल",q:40,u:"ml"}],
   "Gobhi Pakoda":[{n:"Cauliflower",h:"फूलगोभी",q:25,u:"g"},{n:"Besan",h:"बेसन",q:10,u:"g"},{n:"Oil (frying)",h:"तेल",q:40,u:"ml"}],
   "Pyaz Pakoda":[{n:"Onion",h:"प्याज",q:30,u:"g"},{n:"Besan",h:"बेसन",q:8,u:"g"},{n:"Oil (frying)",h:"तेल",q:35,u:"ml"}],
@@ -186,7 +186,7 @@ const RECIPE_INGREDIENTS = {
   "Golgappe":[{n:"Semolina",h:"सूजी",q:5,u:"g"},{n:"Wheat Flour",h:"गेहूं आटा",q:3,u:"g"},{n:"Tamarind",h:"इमली",q:3,u:"g"},{n:"Mint",h:"पुदीना",q:2,u:"g"},{n:"Chickpeas (boiled)",h:"छोले उबले",q:5,u:"g"},{n:"Potato (boiled)",h:"आलू उबला",q:5,u:"g"}],
 };
 
-const RECIPE_DB = {
+let RECIPE_DB = {
   cats:[
     {id:"halwai",name:"Halwai & Savoury",icon:"🫓",count:8},
     {id:"tandoor",name:"Indian Tandoor",icon:"🔥",count:15},
@@ -430,4 +430,20 @@ function getDishImageUrl(dishName) {
 }
 
 
-export { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl };
+function hydrateRecipeData(config) {
+  if (config.recipeIngredients && Object.keys(config.recipeIngredients).length > 0) {
+    Object.keys(RECIPE_INGREDIENTS).forEach(k => delete RECIPE_INGREDIENTS[k]);
+    Object.assign(RECIPE_INGREDIENTS, config.recipeIngredients);
+  }
+  if (config.recipes && Object.keys(config.recipes).length > 0 && config.recipeCategories) {
+    RECIPE_DB.cats = config.recipeCategories.map(c => ({
+      id: c.id,
+      name: c.name,
+      icon: c.icon || '🍽',
+      count: (config.recipes[c.id] || []).length,
+    }));
+    RECIPE_DB.recipes = config.recipes;
+  }
+}
+
+export { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };

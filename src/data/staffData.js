@@ -1,7 +1,7 @@
 // Ambria FnB — Staff list, Employee DB seed, Grooming checks
 // Extracted from App.jsx
 
-const STAFF_LIST = [
+let STAFF_LIST = [
   {id:1, name:"Gopal",           role:"Head Chef",  section:"Management",     shift:"Morning"},
   {id:2, name:"Yatender",        role:"Head Chef",  section:"Management",     shift:"Evening"},
   {id:3, name:"Caonty",          role:"Chef",       section:"Beverages",           shift:"Morning"},
@@ -141,7 +141,7 @@ function yrsOfService(joining) {
   return yrs > 0 ? `${yrs}y ${mos}m` : `${mos} months`;
 }
 
-const GROOMING_CHECKS = [
+let GROOMING_CHECKS = [
   {id:"uniform",label:"Uniform clean & proper"},
   {id:"hair",   label:"Hair covered / groomed"},
   {id:"shave",  label:"Clean shaven / beard trimmed"},
@@ -149,4 +149,13 @@ const GROOMING_CHECKS = [
   {id:"shoes",  label:"Clean shoes / proper footwear"},
 ];
 
-export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, getEmpByStaffId, yrsOfService };
+function hydrateStaffData(config) {
+  if (config.groomingChecks && config.groomingChecks.length) {
+    GROOMING_CHECKS = config.groomingChecks.map(c => ({
+      id: c.item_key,
+      label: c.label_en,
+    }));
+  }
+}
+
+export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, getEmpByStaffId, yrsOfService, hydrateStaffData };

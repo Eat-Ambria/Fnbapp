@@ -6,11 +6,13 @@ import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 
 // Data
-import { C } from './data/constants.js';
-import { MENU_PACKAGES } from './data/menuPackages.js';
-import { EMPLOYEE_DB_INIT } from './data/staffData.js';
+import { C, hydrateConstants } from './data/constants.js';
+import { MENU_PACKAGES, hydrateMenuPackages } from './data/menuPackages.js';
+import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
+import { hydrateRecipeData } from './data/recipeData.js';
 import { T } from './data/translations.js';
 import { canAccessScreen } from './data/permissions.js';
+import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
@@ -175,6 +177,15 @@ export default function App() {
         const suRaw = localStorage.getItem("ambria_session_user");
         if(suRaw){ const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } }
       } catch(e) {}
+
+      // ── Hydrate config data from Supabase (replaces hardcoded constants) ──
+      try {
+        const cfg = await loadAllConfig();
+        hydrateConstants(cfg);
+        hydrateMenuPackages(cfg.menuPackages);
+        hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
+        hydrateRecipeData(cfg);
+      } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
 
       const [staffData, eventsData, attData, lvData, repairData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),

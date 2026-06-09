@@ -42,7 +42,7 @@ const SECTION_META = {
   "Outdoor Staff":  {color:"#E8A040", bg:"#1E1810", dot:"#E8A040", icon:"👷"},
 };
 // ─── OUTSIDE VENDORS ──────────────────────────────────────────────
-const OUTSIDE_VENDORS = [
+let OUTSIDE_VENDORS = [
   {id:"v1", name:"Ramesh Kumar",  specialty:"Indian Curries", phone:"98100-11111", rating:"4.8", rate:2500, active:true},
   {id:"v2", name:"Anil Yadav",    specialty:"Tandoor",        phone:"98200-22222", rating:"4.9", rate:2800, active:true},
   {id:"v3", name:"Suresh Tiwari", specialty:"Beverages",           phone:"98300-33333", rating:"4.5", rate:2200, active:true},
@@ -52,7 +52,7 @@ const OUTSIDE_VENDORS = [
 ];
 
 // ─── VEHICLES ─────────────────────────────────────────────────────
-const VEHICLES = [
+let VEHICLES = [
   {id:"DL1LAJ1250", name:"DL1LAJ 1250", icon:"🚛", type:"dry",   note:"Truck open body — main food + equipment runs"},
   {id:"DL1LAN1814", name:"DL1LAN 1814", icon:"🚛", type:"dry",   note:"Truck open body — secondary load carrier"},
   {id:"DL1LAN2125", name:"DL1LAN 2125", icon:"❄🚛",type:"cold",  note:"Truck close body AC — dairy, sweets, cold items"},
@@ -64,7 +64,7 @@ const VEHICLES = [
 ];
 
 // ─── COLD ITEMS (require fridge truck) ────────────────────────────
-const COLD_ITEMS = [
+let COLD_ITEMS = [
   "cream","chhena","paneer","rabri","rasmalai","kulfi","ice cream",
   "butter","dairy","milk","curd","raita","lassi","mousse","parfait",
   "cheesecake","tiramisu","gajar halwa","kheer",
@@ -113,7 +113,17 @@ const AMBRIA_VENUES = [
 ];
 
 
-const VENDOR_CATEGORIES = ["Outside Chef","Vegetable Supplier","Dairy Supplier","Meat & Poultry","Dry Goods","Ice & Cold Storage","Equipment Rental","Tent & Decor","Flower Vendor","Gas & Fuel","Cleaning & Hygiene","Packaging"];
+let VENDOR_CATEGORIES = ["Outside Chef","Vegetable Supplier","Dairy Supplier","Meat & Poultry","Dry Goods","Ice & Cold Storage","Equipment Rental","Tent & Decor","Flower Vendor","Gas & Fuel","Cleaning & Hygiene","Packaging"];
 
 
-export { C, AVATAR_COLORS, SECTIONS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES };
+function hydrateConstants(config) {
+  if (config.vehicles && config.vehicles.length) VEHICLES = config.vehicles;
+  if (config.coldItems && config.coldItems.length) COLD_ITEMS = config.coldItems;
+  if (config.vendors) {
+    const outsideChefs = config.vendors.filter(v => v.type === 'outside_chef' || v.cat === 'Outside Chef');
+    if (outsideChefs.length) OUTSIDE_VENDORS = outsideChefs.map(v => ({id:v.id,name:v.name,specialty:v.section,phone:v.phone,rating:String(v.rating),rate:v.rate_per_day,active:v.is_active!==false}));
+  }
+  if (config.vendorCategories && config.vendorCategories.length) VENDOR_CATEGORIES = config.vendorCategories;
+}
+
+export { C, AVATAR_COLORS, SECTIONS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants };

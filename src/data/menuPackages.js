@@ -3,7 +3,7 @@
 
 // ─── AMBRIA MENU PACKAGES ─────────────────────────────────────────
 // Source: Official Ambria Cuisines menu PDFs (6 packages)
-const MENU_PACKAGES = {
+let MENU_PACKAGES = {
   "Multi-Cuisine Veg": [
     "Jaljeera","Shikanji","Aerated Drinks","Virgin Mojito","Pina Colada","Green Apple Cooler","Jamun Shots",
     "Fresh Fruit Counter",
@@ -158,7 +158,14 @@ const MENU_PACKAGES = {
   ],
 };
 
-const MENU_PACKAGE_NAMES = Object.keys(MENU_PACKAGES);
+let MENU_PACKAGE_NAMES = Object.keys(MENU_PACKAGES);
 
+function hydrateMenuPackages(pkgMap) {
+  if (pkgMap && typeof pkgMap === 'object' && Object.keys(pkgMap).length > 0) {
+    Object.keys(MENU_PACKAGES).forEach(k => delete MENU_PACKAGES[k]);
+    Object.assign(MENU_PACKAGES, pkgMap);
+    MENU_PACKAGE_NAMES = Object.keys(MENU_PACKAGES);
+  }
+}
 
-export { MENU_PACKAGES, MENU_PACKAGE_NAMES };
+export { MENU_PACKAGES, MENU_PACKAGE_NAMES, hydrateMenuPackages };
