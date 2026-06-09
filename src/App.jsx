@@ -11674,17 +11674,30 @@ export default function App() {
   const kitchenTracking = kitchenTracking_raw;
 
   // ── Transport Queue ──
-  const [transportQueue, setTransportQueue] = useState(function(){
-    try{return JSON.parse(localStorage.getItem("ambria_transport_queue")||"[]");}catch(e){return [];}
-  });
-  useEffect(function(){
-    try{localStorage.setItem("ambria_transport_queue",JSON.stringify(transportQueue));}catch(e){}
-  },[transportQueue]);
+  const [transportQueue, setTransportQueue_raw] = useState([]);
+  const setTransportQueue = (updater) => {
+    setTransportQueue_raw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem("ambria_transport_queue", JSON.stringify(next)); } catch(e) {}
+      const prevMap = new Map(safeArr(prev).map(q=>[q.id, q]));
+      const nextMap = new Map(safeArr(next).map(q=>[q.id, q]));
+      nextMap.forEach((q, id) => {
+        if(!prevMap.has(id) || prevMap.get(id).status !== q.status) {
+          dbUpsert("transport_queue",{id:q.id,dish_name:q.dishName,event_guest:q.event,pax:+q.pax||0,venue:q.venue,event_date:q.eventDate,prepared_by:q.preparedBy,marked_at:q.markedAt,status:q.status,picked_up_at:q.pickedUpAt||null},"id").catch(e=>console.error("tq sync:",e));
+        }
+      });
+      prevMap.forEach((_,id) => {
+        if(!nextMap.has(id)) dbDelete("transport_queue","id",id).catch(e=>console.error("tq del:",e));
+      });
+      return next;
+    });
+  };
 
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
   const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
   const [appReady, setAppReady]       = useState(false);
+  const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
 
   // ── Master load: session + all data ──
   useEffect(() => {
@@ -11697,13 +11710,14 @@ export default function App() {
         if(suRaw){ const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } }
       } catch(e) {}
 
-      const [staffData, eventsData, attData, lvData, repairData, ktData] = await Promise.all([
+      const [staffData, eventsData, attData, lvData, repairData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),
         dbLoad('events', LIVE_EVENTS_INIT),
         dbLoad('attendance', []),
         dbLoad('leaves', []),
         dbLoad('repair_tickets', []),
         dbLoad('kitchen_tracking', []),
+        dbLoad('transport_queue', []),
       ]);
 
       // Merge: Supabase is authoritative; fill any missing entries from EMPLOYEE_DB_INIT
@@ -11733,6 +11747,14 @@ export default function App() {
         ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data||{};});
         setKitchenTracking_raw(ktObj);
       }
+      if(tqData.length>0){
+        setTransportQueue_raw(tqData.map(q=>({id:q.id,dishName:q.dish_name,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined})));
+      } else {
+        try{const c=JSON.parse(localStorage.getItem("ambria_transport_queue")||"[]");if(c.length)setTransportQueue_raw(c);}catch(e){}
+      }
+      // Seed AM001 to Supabase on every load (idempotent)
+      const am001=EMPLOYEE_DB_INIT.find(e=>e.staff_id==='AM001'||e.staffListId==='AM001');
+      if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',pin:String(am001.pin||'0000'),is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(()=>{});
       setAppReady(true);
     }
     loadAll();
@@ -11766,8 +11788,35 @@ export default function App() {
       if(payload.eventType==='UPDATE'&&ev) setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e));
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
-    return () => { u1(); u2(); u3(); u4(); };
+    const u5 = dbSubscribe('kitchen_tracking', (payload) => {
+      if(payload.new){const {ev_id,dish_key,data}=payload.new;setKitchenTracking_raw(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:data||{}}}));}
+    });
+    const u6 = dbSubscribe('leaves', (payload) => {
+      const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
+      if(payload.eventType==='INSERT'&&nl) setLeaves_raw(p=>{if(p.some(x=>x.id===nl.id))return p;return[...p,nl];});
+      if(payload.eventType==='UPDATE'&&nl) setLeaves_raw(p=>p.map(x=>x.id===nl.id?nl:x));
+      if(payload.eventType==='DELETE') setLeaves_raw(p=>p.filter(x=>x.id!==payload.old.id));
+    });
+    const u7 = dbSubscribe('transport_queue', (payload) => {
+      const nq=payload.new?{id:payload.new.id,dishName:payload.new.dish_name,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined}:null;
+      if(payload.eventType==='INSERT'&&nq) setTransportQueue_raw(p=>{if(p.some(i=>i.id===nq.id))return p;return[...p,nq];});
+      if(payload.eventType==='UPDATE'&&nq) setTransportQueue_raw(p=>p.map(i=>i.id===nq.id?nq:i));
+      if(payload.eventType==='DELETE') setTransportQueue_raw(p=>p.filter(i=>i.id!==payload.old.id));
+    });
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, [appReady]);
+
+  // ── Supabase connectivity indicator ──
+  useEffect(() => {
+    if(!supabase){setSupaLive(false);return;}
+    const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>setSupaLive(!error)).catch(()=>setSupaLive(false));
+    ping();
+    const onOnline=()=>ping();
+    const onOffline=()=>setSupaLive(false);
+    window.addEventListener('online',onOnline);
+    window.addEventListener('offline',onOffline);
+    return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);};
+  },[]);
 
   // Admin skips dept selector — go straight to Management Dashboard
   useEffect(function(){
@@ -12046,6 +12095,13 @@ export default function App() {
           })}
         </nav>
 
+        {/* Supabase connection indicator */}
+        {supabase&&<div style={{padding:"0 16px 8px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
+            <span style={{width:6,height:6,borderRadius:"50%",flexShrink:0,background:supaLive===null?C.muted:supaLive?C.green:C.red,boxShadow:supaLive?`0 0 4px ${C.green}`:"none"}}/>
+            <span style={{fontSize:10,fontWeight:600,color:supaLive===null?C.muted:supaLive?C.green:C.red,letterSpacing:.3}}>{supaLive===null?"Connecting…":supaLive?"Live Sync":"Offline"}</span>
+          </div>
+        </div>}
         {/* User + lang + logout */}
         <div style={{padding:"16px 16px",borderTop:`1px solid ${C.borderLight}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
