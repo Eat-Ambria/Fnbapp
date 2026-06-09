@@ -1,7 +1,9 @@
 // Ambria FnB — Login Screen
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
+import { safeArr } from '../utils/helpers.js';
+import { STAFF_LIST } from '../data/staffData.js';
 
 function LoginScreen({ empDb, onLogin, lang="en" }) {
   const T2 = s => T(s, lang);
@@ -123,7 +125,5 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
     </div>
   );
 }
-
-
 
 export { LoginScreen };
