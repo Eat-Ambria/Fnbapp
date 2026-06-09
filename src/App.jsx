@@ -484,6 +484,42 @@ const LIVE_EVENTS_INIT = [
     menuPackage:"Magnum Non-Veg",menu:MENU_PACKAGES["Magnum Non-Veg"]||[],
     special:"Dry fruit counter must be premium. Saffron theme decor.",
     extras:[{item:"Dry Fruit Counter",qty:1,type:"Chargeable",rate:12000,by:"Sales Team"}]},
+  {
+    id:"FP-2025-107",
+    guest:"Verma Wedding (ODC)",
+    venue:"Outdoor Catering (ODC)",
+    date:TOMORROW,
+    time:"7:00 PM",
+    type:"Wedding",
+    pax:350,
+    veg:250,
+    nonveg:100,
+    menuPackage:"Multi-Cuisine Non-Veg",
+    menu:MENU_PACKAGES["Multi-Cuisine Non-Veg"]||[],
+    special:"ODC test event. Outdoor setup at client farmhouse, Chattarpur. Generator on standby. Gopal in-charge.",
+    extras:[
+      {item:"Chafing Dish Setup (Full)",qty:12,type:"Complimentary",by:"Ops Team"},
+      {item:"Generator Backup",qty:1,type:"Chargeable",rate:3500,by:"Ops Team"},
+    ],
+  },
+  {
+    id:"FP-2025-108",
+    guest:"Singh Reception",
+    venue:"Manaktala Farm",
+    date:DAY_AFTER,
+    time:"6:30 PM",
+    type:"Reception",
+    pax:300,
+    veg:300,
+    nonveg:0,
+    menuPackage:"Multi-Cuisine Veg",
+    menu:MENU_PACKAGES["Multi-Cuisine Veg"]||[],
+    special:"Pure Veg. Test event for Manaktala kitchen flow. Lokesh in-charge. Chinese section ready by 5:30 PM.",
+    extras:[
+      {item:"Live Chaat Counter",qty:1,type:"Complimentary",by:"Sales Team"},
+      {item:"Jalebi Live Station",qty:1,type:"Complimentary",by:"Sales Team"},
+    ],
+  },
 ];
 
 
