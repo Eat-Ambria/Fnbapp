@@ -529,9 +529,6 @@ export default function App() {
               <div style={{fontSize:11,color:C.muted,letterSpacing:.3}}>Ambria Cuisines</div>
             </div>
           </div>
-          <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,minHeight:44,fontWeight:500}}>
-            🔄 {T2("Change Department")}
-          </button>
         </div>
 
         {/* Nav items (tablet: larger touch targets) */}
