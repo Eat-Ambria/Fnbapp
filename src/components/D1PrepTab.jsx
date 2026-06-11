@@ -142,7 +142,7 @@ function D1PrepTab({
   const [openSecs, setOpenSecs] = useState({});
   const [openDishes, setOpenDishes] = useState({});
   const toggleSec = (sec) => setOpenSecs(p => ({ ...p, [sec]: p[sec] === undefined ? false : !p[sec] }));
-  const isSecOpen = (sec) => openSecs[sec] !== false; // default open
+  const isSecOpen = (sec) => openSecs[sec] !== true; // default collapsed
   const toggleDish = (key) => setOpenDishes(p => ({ ...p, [key]: !p[key] }));
   const isDishOpen = (key) => !!openDishes[key];
 

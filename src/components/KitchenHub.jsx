@@ -7,6 +7,7 @@ import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { D1PrepTab } from './D1PrepTab.jsx';
+import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
@@ -342,8 +343,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         )}
       </div>
 
-      {/* ═══ D-1 / EVENT DAY ═══ */}
-      {tab==="today"&&(
+      {/* ═══ D-1 PREP (no event today) ═══ */}
+      {tab==="today"&&!hasTodayEvs&&(
         <D1PrepTab
           events={events}
           kitchenTracking={kitchenTracking}
@@ -363,6 +364,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           capRef={capRef}
           camStreamRef={camStreamRef}
           tick={tick}
+        />
+      )}
+      {/* ═══ EVENT DAY (event today) ═══ */}
+      {tab==="today"&&hasTodayEvs&&(
+        <EventDayTab
+          events={events}
+          kitchenTracking={kitchenTracking}
+          setKitchenTracking={setKitchenTracking}
+          lang={lang}
+          currentUser={currentUser}
+          sectionFilter={sectionFilter}
+          transportQueue={transportQueue}
+          setTransportQueue={setTransportQueue}
+          dishSignoff={dishSignoff}
+          setDishSignoff={setDishSignoff}
+          openCam={openCam}
+          capturePhoto={capturePhoto}
+          stopCam={stopCam}
+          camOn={camOn}
+          camRef={camRef}
+          capRef={capRef}
+          camStreamRef={camStreamRef}
+          appliedScales={appliedScales}
+          tick={tick}
+          setTab={setTab}
         />
       )}
       {tab==="d1"&&(()=>{
