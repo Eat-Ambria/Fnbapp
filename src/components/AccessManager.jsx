@@ -251,7 +251,28 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             ))}
           </div>
         </Card>
-        {/* Screen Permission Cards */}
+        {/* ─── Quick Screen Visibility Toggles ─── */}
+        <Card style={{marginBottom:14,padding:"14px 18px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:.8}}>Screen Visibility</div>
+          <div style={{fontSize:11,color:C.faint,marginBottom:12}}>Toggle which screens this person can see. Use the detailed cards below for granular permissions.</div>
+          <div style={{display:"flex",flexDirection:"column",gap:2}}>
+            {Object.entries(SCREEN_PERMISSIONS).map(([screenId,screen])=>{
+              const sp = screen.perms.map(p=>p.id);
+              const enabledCt = sp.filter(p=>editPerms.includes(p)).length;
+              const allOn = enabledCt===sp.length;
+              const someOn = enabledCt>0&&!allOn;
+              return (
+                <div key={screenId} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:allOn?C.greenBg+"30":someOn?C.amberBg+"20":"transparent"}} onClick={()=>toggleScreen(screenId)}>
+                  <PToggle on={allOn||someOn} onChange={()=>toggleScreen(screenId)}/>
+                  <span style={{fontSize:15}}>{screen.icon}</span>
+                  <span style={{flex:1,fontSize:13,fontWeight:600,color:allOn?C.green:someOn?C.amber:C.faint}}>{screen.label}</span>
+                  <span style={{fontSize:11,color:allOn?C.green:someOn?C.amber:C.faint,fontWeight:600,minWidth:30,textAlign:"right"}}>{allOn?"ON":someOn?"Partial":"OFF"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+        {/* Screen Permission Cards (detailed) */}
         {Object.entries(SCREEN_PERMISSIONS).map(([screenId,screen])=>{
           const sp = screen.perms.map(p=>p.id);
           const enabledCt = sp.filter(p=>editPerms.includes(p)).length;
