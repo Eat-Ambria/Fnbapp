@@ -53,6 +53,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
   const [scaleDish, setScaleDish] = useState("");
+  const [scaleDishSearch, setScaleDishSearch] = useState("");
   const [scaleMode, setScaleMode] = useState("single");
   const [scalePkg, setScalePkg] = useState("");
   const [scaleMultiSel, setScaleMultiSel] = useState({});
@@ -778,8 +779,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Scale ingredient quantities to any function's pax. Base: 1100 pax")} <span style={{color:"#FF6B35"}}>★</span></div>
+            <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,marginBottom:16}}>
+              <span style={{fontWeight:600}}>{T2("Base SOP")}: 1,100 pax</span>
+              <span style={{color:C.muted}}>— {T2("all recipe quantities are calibrated for this base")}</span>
+            </div>
 
             {/* ══ STEP 1: SELECT FUNCTION ══ */}
             {StepChip(1,T2("Select Function"))}
@@ -869,14 +874,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   ))}
                 </div>
                 {mode==="single"&&(
-                  <select value={scaleDish||""} onChange={e=>setScaleDish(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:4}}>
-                    <option value="">— {T2("Select a dish")} —</option>
-                    {pkgNames.map(pkg=>(
-                      <optgroup key={pkg} label={"📦 "+pkg+" ("+MENU_APPLICABILITY[pkg]?.code+")"}>
-                        {(MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]).map(d=><option key={d} value={d}>{d}</option>)}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <div style={{position:"relative",marginBottom:4}}>
+                    <input
+                      value={scaleDish||scaleDishSearch}
+                      onChange={e=>{setScaleDishSearch(e.target.value);if(scaleDish)setScaleDish("");}}
+                      onFocus={()=>{if(scaleDish){setScaleDishSearch(scaleDish);setScaleDish("");}}}
+                      placeholder={T2("Search dishes… e.g. Paneer, Dal, Biryani")}
+                      style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,minHeight:46,boxSizing:"border-box"}}
+                    />
+                    {scaleDishSearch&&!scaleDish&&(()=>{
+                      const q=scaleDishSearch.toLowerCase();
+                      const matches=[];
+                      pkgNames.forEach(pkg=>{
+                        (MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]&&d.toLowerCase().includes(q)).forEach(d=>{
+                          if(!matches.find(m=>m.name===d))matches.push({name:d,pkg,code:MENU_APPLICABILITY[pkg]?.code||""});
+                        });
+                      });
+                      if(matches.length===0) return <div style={{padding:"10px 14px",fontSize:12,color:C.muted,border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface}}>{T2("No dishes found for")} "{scaleDishSearch}"</div>;
+                      return(
+                        <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface,maxHeight:240,overflowY:"auto"}}>
+                          {matches.slice(0,20).map(m=>(
+                            <div key={m.name} onClick={()=>{setScaleDish(m.name);setScaleDishSearch("");}}
+                              style={{padding:"10px 14px",fontSize:13,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <span>{m.name}</span>
+                              <span style={{fontSize:10,color:C.faint,padding:"2px 8px",borderRadius:6,background:C.bg}}>{m.code}</span>
+                            </div>
+                          ))}
+                          {matches.length>20&&<div style={{padding:"8px 14px",fontSize:11,color:C.faint,textAlign:"center"}}>{matches.length-20} {T2("more")} — {T2("keep typing to narrow")}</div>}
+                        </div>
+                      );
+                    })()}
+                    {scaleDish&&<div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:12,color:C.green}}>
+                      ✓ {scaleDish}
+                      <span onClick={()=>{setScaleDish("");setScaleDishSearch("");}} style={{cursor:"pointer",fontWeight:500,marginLeft:4}}>✕</span>
+                    </div>}
+                  </div>
                 )}
                 {mode==="multi"&&(
                   <div style={{marginBottom:4}}>
