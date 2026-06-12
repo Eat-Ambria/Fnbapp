@@ -409,9 +409,9 @@ export default function App() {
 
   // Loading
   if(!appReady) return (
-    <div style={{minHeight:"100vh",background:"#0A0908",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+    <div style={{minHeight:"100vh",background:"#F7F5F0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
       <div style={{fontSize:32,marginBottom:4}}>🔥</div>
-      <div style={{color:"#D4B44A",fontSize:14,fontFamily:"var(--font-display)"}}>Loading Ambria FnB Operations…</div>
+      <div style={{color:"#8B5E2F",fontSize:14,fontFamily:"var(--font-display)"}}>Loading Ambria FnB Operations…</div>
     </div>
   );
   // Login
@@ -420,7 +420,7 @@ export default function App() {
   // ── GATE KIOSK INTERCEPT ──
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
-      <div style={{minHeight:'100vh',background:'#0A0908',padding:20}}>
+      <div style={{minHeight:'100vh',background:'#F7F5F0',padding:20}}>
         <GateKiosk empDb={empDb} attendance={attendance}
           setAttendance={setAttendance} currentUser={currentUser}
           setCurrentUser={setCurrentUser} lang={lang}/>
@@ -516,9 +516,7 @@ export default function App() {
       )}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
-      <div style={{width:260,background:`linear-gradient(180deg, ${C.surface} 0%, #0C0B0A 100%)`,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
-        {/* Decorative gold accent line */}
-        <div style={{position:"absolute",top:0,right:0,width:1,height:"100%",background:`linear-gradient(180deg, ${C.gold}30, transparent 50%, ${C.gold}10)`}}/>
+      <div style={{width:260,background:"#FFFFFF",borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
 
         {/* Dept badge + branding */}
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
@@ -596,7 +594,7 @@ export default function App() {
 
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{background:`linear-gradient(90deg, ${C.surface}, ${C.darkCard})`,borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,boxShadow:`0 2px 12px ${C.shadow}`}}>
+        <div style={{background:"#FFFFFF",borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
           <div>
             <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
