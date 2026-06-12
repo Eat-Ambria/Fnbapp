@@ -337,53 +337,47 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         )}
       </div>
 
-      {/* ═══ D-1 PREP (no event today) ═══ */}
-      {tab==="today"&&!hasTodayEvs&&(
-        <D1PrepTab
-          events={events}
-          kitchenTracking={kitchenTracking}
-          setKitchenTracking={setKitchenTracking}
-          lang={lang}
-          currentUser={currentUser}
-          sectionFilter={sectionFilter}
-          transportQueue={transportQueue}
-          setTransportQueue={setTransportQueue}
-          dishSignoff={dishSignoff}
-          setDishSignoff={setDishSignoff}
-          openCam={openCam}
-          capturePhoto={capturePhoto}
-          stopCam={stopCam}
-          camOn={camOn}
-          camRef={camRef}
-          capRef={capRef}
-          camStreamRef={camStreamRef}
-          tick={tick}
-        />
-      )}
-      {/* ═══ EVENT DAY (event today) ═══ */}
-      {tab==="today"&&hasTodayEvs&&(
-        <EventDayTab
-          events={events}
-          kitchenTracking={kitchenTracking}
-          setKitchenTracking={setKitchenTracking}
-          lang={lang}
-          currentUser={currentUser}
-          sectionFilter={sectionFilter}
-          transportQueue={transportQueue}
-          setTransportQueue={setTransportQueue}
-          dishSignoff={dishSignoff}
-          setDishSignoff={setDishSignoff}
-          openCam={openCam}
-          capturePhoto={capturePhoto}
-          stopCam={stopCam}
-          camOn={camOn}
-          camRef={camRef}
-          capRef={capRef}
-          camStreamRef={camStreamRef}
-          appliedScales={appliedScales}
-          tick={tick}
-          setTab={setTab}
-        />
+      {/* ═══ EVENT DAY — only cooking/dispatch for today's functions ═══ */}
+      {tab==="today"&&(
+        hasTodayEvs?(
+          <EventDayTab
+            events={events}
+            kitchenTracking={kitchenTracking}
+            setKitchenTracking={setKitchenTracking}
+            lang={lang}
+            currentUser={currentUser}
+            sectionFilter={sectionFilter}
+            transportQueue={transportQueue}
+            setTransportQueue={setTransportQueue}
+            dishSignoff={dishSignoff}
+            setDishSignoff={setDishSignoff}
+            openCam={openCam}
+            capturePhoto={capturePhoto}
+            stopCam={stopCam}
+            camOn={camOn}
+            camRef={camRef}
+            capRef={capRef}
+            camStreamRef={camStreamRef}
+            appliedScales={appliedScales}
+            tick={tick}
+            setTab={setTab}
+          />
+        ):(
+          <div style={{textAlign:"center",padding:"60px 20px"}}>
+            <div style={{fontSize:48,marginBottom:16}}>👨‍🍳</div>
+            <div style={{fontSize:18,fontWeight:500,color:C.text,marginBottom:8}}>{T2("No event today")}</div>
+            <div style={{fontSize:13,color:C.muted,marginBottom:20}}>{T2("Event day cooking tasks will appear here when there's a function scheduled for today.")}</div>
+            {tomorrowEvs.length>0&&(
+              <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.border}`,fontSize:13,color:C.gold}}>
+                <span>📅</span>
+                <span>{T2("Next up")}: {tomorrowLabel} — {tomorrowEvs.map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ")}</span>
+              </div>
+            )}
+            <div style={{marginTop:16}}>
+              <button onClick={()=>setTab("d1")} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:500,cursor:"pointer"}}>{T2("Go to Prep day")} →</button>
+            </div>
+          </div>
+        )
       )}
       {tab==="d1"&&(()=>{
         // D-1 logic: if today has an event, prep for DAY_AFTER. If no event today, prep for TOMORROW.
