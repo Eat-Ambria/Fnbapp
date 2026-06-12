@@ -141,8 +141,8 @@ function D1PrepTab({
   // ── Section + dish expand state ──
   const [openSecs, setOpenSecs] = useState({});
   const [openDishes, setOpenDishes] = useState({});
-  const toggleSec = (sec) => setOpenSecs(p => ({ ...p, [sec]: p[sec] === undefined ? false : !p[sec] }));
-  const isSecOpen = (sec) => openSecs[sec] !== true; // default collapsed
+  const toggleSec = (sec) => setOpenSecs(p => ({ ...p, [sec]: !p[sec] }));
+  const isSecOpen = (sec) => openSecs[sec] === true; // default collapsed
   const toggleDish = (key) => setOpenDishes(p => ({ ...p, [key]: !p[key] }));
   const isDishOpen = (key) => !!openDishes[key];
 
