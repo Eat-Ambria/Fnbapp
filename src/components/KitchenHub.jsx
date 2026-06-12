@@ -224,33 +224,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const tomorrowEv0 = tomorrowEvs[0];
   const dayAfterEv0 = evList.find(e=>e.date===DAY_AFTER);
 
-  // Tab 1:
-  // No event today  → "🔥 31 May — D-1 for 1 Jun"
-  // Event today     → "🔥 1 Jun  — Final Cooking"
-  const todayTabL = hasTodayEvs
-    ? `🔥 ${todayLabel2} — ${T2("Final Cooking")} (${todayEvs.reduce((s,e)=>s+(+e.pax||0),0)} pax)`
-    : `🔥 ${todayLabel2} — D-1 ${T2("for")} ${tomorrowLabel} (${tomorrowEvs.reduce((s,e)=>s+(+e.pax||0),0)} pax)`;
-
-  // Tab 2:
-  // No event today  → "Continue of 31 May D-1 & D-1 for 2 Jun"  (Jun 1 event day = continuation + new D-1 for Jun 2)
-  // Event today     → "Continue of [today] D-1 & D-1 for [dayAfter]"
-  const contDate    = hasTodayEvs ? todayLabel2 : todayLabel2;
-  const nextD1Date  = hasTodayEvs ? dayAfterLabel : dayAfterLabel;
-  const nextD1Ev    = hasTodayEvs ? dayAfterEv0 : dayAfterEv0;
-  const d1ForDate   = hasTodayEvs ? DAY_AFTER : TOMORROW;
-  const d1ForLabel  = hasTodayEvs ? dayAfterLabel : tomorrowLabel;
-  const d1Ev        = hasTodayEvs ? dayAfterEv0 : tomorrowEv0;
-
   const contPax  = hasTodayEvs ? todayEvs.reduce((s,e)=>s+(+e.pax||0),0) : tomorrowEvs.reduce((s,e)=>s+(+e.pax||0),0);
   const newD1Pax = evList.filter(e=>e.date===DAY_AFTER).reduce((s,e)=>s+(+e.pax||0),0);
-  const d1TabL = `📋 ${T2("Continue")} ${todayLabel2} D-1 (${contPax} pax) & D-1 ${T2("for")} ${dayAfterLabel}${newD1Pax?` (${newD1Pax} pax)`:""}`;
+
+  // Prep day context: which events are being prepped for
+  const contEvLabel = (hasTodayEvs ? todayEvs : tomorrowEvs).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
+  const newEvLabel = evList.filter(e=>e.date===DAY_AFTER).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
+  const prepContextParts = [];
+  if(contEvLabel) prepContextParts.push(`${tomorrowLabel}: ${contEvLabel}`);
+  if(newEvLabel) prepContextParts.push(`${dayAfterLabel}: ${newEvLabel}`);
 
   const TABS=[
-    {v:"today",   l:todayTabL},
-    {v:"d1",      l:d1TabL},
-    {v:"scaling", l:`⚖️ ${T2("Pax Scaling")}`},
-    {v:"sops",    l:`📖 ${T2("Recipe SOPs")}`},
-    {v:"menus",   l:`📜 ${T2("Menu")}`},
+    {v:"today",   l:T2("Event day")},
+    {v:"d1",      l:T2("Prep day")},
+    {v:"scaling", l:T2("Scaling")},
+    {v:"sops",    l:T2("SOPs")},
+    {v:"menus",   l:T2("Menu")},
   ];
   const TABS_FILTERED = isSectionUser
     ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
@@ -330,10 +319,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       )}
 
 
-      {/* TABS */}
-      <div style={{display:"flex",gap:8,marginBottom:18,alignItems:"center"}}>
+      {/* TABS — underline style */}
+      <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,marginBottom:20,gap:0}}>
         {TABS_FILTERED.map(t=>(
-          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"14px 24px",borderRadius:24,fontSize:15,fontWeight:600,cursor:"pointer",minHeight:48,background:tab===t.v?C.gold:"transparent",color:tab===t.v?"#fff":C.muted,border:`2px solid ${tab===t.v?C.gold:C.border}`}}>{t.l}</button>
+          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"10px 18px",fontSize:13,fontWeight:tab===t.v?500:400,cursor:"pointer",background:"none",color:tab===t.v?C.gold:C.muted,border:"none",borderBottom:`2px solid ${tab===t.v?C.gold:"transparent"}`,whiteSpace:"nowrap"}}>{t.l}</button>
         ))}
         {currentUser&&currentUser.role==='admin'&&(
           <button onClick={function(){
@@ -342,8 +331,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             try{localStorage.removeItem('ambria_kt');}catch(e){}
             try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
             alert('✅ All dishes reset to fresh state');
-          }} style={{padding:'6px 14px',borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:700,cursor:'pointer',marginLeft:'auto'}}>
-            ↺ Reset All Dishes
+          }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
+            ↺ {T2("Reset all")}
           </button>
         )}
       </div>
@@ -452,57 +441,46 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const totalCont = Object.keys(byDishCont).length;
         const totalNew  = Object.keys(byDishNew).length;
 
+        const totalCollectivePax=(contPax||0)+(newD1Pax||0);
+        const totalCollDone=totalContDone+totalNewDone;
+        const totalColl=totalCont+totalNew;
+
         return(
           <div>
-            {/* ── Header strip ── */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-              <div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:12,padding:"12px 14px"}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>🔥 {T2("Continue")} {todayLabel2} D-1</div>
-                <div style={{fontSize:20,fontWeight:800,color:C.amber,lineHeight:1}}>{contPax} <span style={{fontSize:11,fontWeight:400}}>pax</span></div>
-                <div style={{fontSize:11,color:C.muted,marginTop:3}}>{totalContDone}/{totalCont} {T2("dishes done")}</div>
-                <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:totalCont>0?Math.round(totalContDone/totalCont*100)+"%":"0%",background:C.amber,borderRadius:2}}/></div>
+            {/* ── Context bar ── */}
+            {prepContextParts.length>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.border}`,marginBottom:16,fontSize:12,color:C.gold}}>
+                <span style={{fontSize:14}}>📅</span>
+                <span>{prepContextParts.join(" · ")}</span>
               </div>
-              <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:12,padding:"12px 14px"}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>📋 D-1 {T2("for")} {dayAfterLabel}</div>
-                <div style={{fontSize:20,fontWeight:800,color:C.gold,lineHeight:1}}>{newD1Pax||"—"} <span style={{fontSize:11,fontWeight:400}}>pax</span></div>
-                <div style={{fontSize:11,color:C.muted,marginTop:3}}>{totalNewDone}/{totalNew} {T2("dishes done")}</div>
-                <div style={{height:4,background:C.border,borderRadius:2,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:totalNew>0?Math.round(totalNewDone/totalNew*100)+"%":"0%",background:C.gold,borderRadius:2}}/></div>
-              </div>
+            )}
+
+            {/* ── Summary cards — single merged row with filter ── */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:20}}>
+              {[
+                {label:`${tomorrowLabel} ${T2("prep")}`,pax:contPax,done:totalContDone,total:totalCont,c:C.amber,view:"cont"},
+                {label:`${dayAfterLabel} ${T2("prep")}`,pax:newD1Pax,done:totalNewDone,total:totalNew,c:C.gold,view:"new"},
+                {label:T2("All prep"),pax:totalCollectivePax,done:totalCollDone,total:totalColl,c:C.blue,view:"all"},
+              ].map(h=>{
+                const pct=h.total>0?Math.round(h.done/h.total*100):0;
+                const isSel=d1View===h.view;
+                return(
+                  <div key={h.view} onClick={()=>setD1View(h.view)}
+                    style={{background:isSel?h.c+"10":C.surface,borderLeft:`3px solid ${h.c}`,border:isSel?`1.5px solid ${h.c}`:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",cursor:"pointer",transition:"all .15s"}}>
+                    <div style={{fontSize:10,fontWeight:500,color:h.c,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{h.label}</div>
+                    <div style={{fontSize:22,fontWeight:500,color:h.c,lineHeight:1.1}}>{h.pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:4}}>{h.done} / {h.total} {T2("done")}</div>
+                    <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:h.c,borderRadius:2,transition:"width .3s"}}/></div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* ── 3-column header: Cont D-1 | D-1 New | Collective ── */}
-            {(()=>{
-              const totalCollectivePax=(contPax||0)+(newD1Pax||0);
-              const totalCollDone=totalContDone+totalNewDone;
-              const totalColl=totalCont+totalNew;
-              return(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:14}}>
-                  {[
-                    {label:`🔥 ${T2("Continue")} ${todayLabel2} D-1`,pax:contPax,done:totalContDone,total:totalCont,c:C.amber,bg:C.amberBg,bdr:C.amberBorder,view:"cont"},
-                    {label:`📋 D-1 ${T2("for")} ${dayAfterLabel}`,pax:newD1Pax,done:totalNewDone,total:totalNew,c:C.gold,bg:C.goldBg,bdr:C.goldBorder,view:"new"},
-                    {label:`📦 ${T2("Collective")}`,pax:totalCollectivePax,done:totalCollDone,total:totalColl,c:C.blue,bg:C.blueBg,bdr:C.blueBorder,view:"all"},
-                  ].map(h=>{
-                    const pct=h.total>0?Math.round(h.done/h.total*100):0;
-                    const isSel=d1View===h.view;
-                    return(
-                      <div key={h.view} onClick={()=>setD1View(h.view)}
-                        style={{background:isSel?h.bg:"transparent",border:`2px solid ${isSel?h.c:C.border}`,borderRadius:12,padding:"12px 10px",cursor:"pointer",transition:"all .2s"}}>
-                        <div style={{fontSize:9,fontWeight:700,color:isSel?h.c:C.faint,textTransform:"uppercase",letterSpacing:.8,marginBottom:4,lineHeight:1.3}}>{h.label}</div>
-                        <div style={{fontSize:20,fontWeight:800,color:isSel?h.c:C.muted,lineHeight:1}}>{h.pax||"—"} <span style={{fontSize:10,fontWeight:400}}>pax</span></div>
-                        <div style={{fontSize:10,color:isSel?h.c:C.faint,marginTop:3}}>{h.done}/{h.total} done</div>
-                        <div style={{height:3,background:C.border,borderRadius:2,marginTop:5,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:isSel?h.c:C.border,borderRadius:2,transition:"width .3s"}}/></div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
             {/* ── Filter info ── */}
-            {d1View!=="all"&&<div style={{fontSize:11,color:C.muted,marginBottom:10,padding:"6px 12px",background:C.darkCard,borderRadius:8,border:`1px solid ${C.border}`}}>
-              {d1View==="cont"?`🔥 ${T2("Showing")} ${tomorrowLabel} ${T2("function dishes only")}`:
-                               `📋 ${T2("Showing")} ${dayAfterLabel} ${T2("function dishes only")}`}
-              &nbsp;<span style={{color:C.gold,cursor:"pointer",fontWeight:700}} onClick={()=>setD1View("all")}>→ {T2("Show all")}</span>
+            {d1View!=="all"&&<div style={{fontSize:11,color:C.muted,marginBottom:10,padding:"6px 12px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+              {d1View==="cont"?`${T2("Showing")} ${tomorrowLabel} ${T2("prep only")}`:
+                               `${T2("Showing")} ${dayAfterLabel} ${T2("prep only")}`}
+              &nbsp;<span style={{color:C.gold,cursor:"pointer",fontWeight:500}} onClick={()=>setD1View("all")}>→ {T2("Show all")}</span>
             </div>}
 
             {/* ── Section-wise view ── */}
@@ -526,20 +504,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const doneCount = [...activeContItems,...activeNewItems].filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
               const totalCount = allDishNames.length;
 
+              const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
               return(
-                <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden"}}>
+                <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
                   {/* Section header */}
-                  <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",background:m2.color+"12",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:14,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)}</span>
-                      <span style={{fontSize:11,color:C.muted}}>{allDishNames.length} {T2("dishes")}</span>
+                      <span style={{fontSize:16}}>{m2.icon}</span>
+                      <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(sec)}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{allDishNames.length} {T2("dishes")}</span>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      {d1View!=="new"&&<span style={{fontSize:11,color:C.amber}}>{contItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{contItems.length}</span>}
-                      {d1View==="all"&&<span style={{fontSize:11,color:C.faint}}>|</span>}
-                      {d1View!=="cont"&&<span style={{fontSize:11,color:C.gold}}>{newItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{newItems.length}</span>}
-                      <span style={{fontSize:11,color:C.gold}}>{newItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length}/{newItems.length}</span>
-                      <span style={{fontSize:13,color:C.muted,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {totalCount}</span>
+                      <div style={{width:60,height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:2,transition:"width .3s"}}/></div>
+                      <span style={{fontSize:14,color:C.faint,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                     </div>
                   </div>
 
@@ -692,11 +670,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       );
                     })}
                   </div>}
-                </Card>
+                </div>
               );
             })}
 
-            {allSecs.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></Card>}
+            {allSecs.length===0&&<div style={{padding:"24px",textAlign:"center",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></div>}{allSecs.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></Card>}
           </div>
         );
       })()}
