@@ -54,7 +54,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopSearch, setSopSearch] = useState("");
   const [scaleDish, setScaleDish] = useState("");
   const [scaleDishSearch, setScaleDishSearch] = useState("");
-  const [scaleMode, setScaleMode] = useState("single");
+  const [scaleMode, setScaleMode] = useState("dish");
   const [scalePkg, setScalePkg] = useState("");
   const [scaleMultiSel, setScaleMultiSel] = useState({});
   const [scaleOverrides, setScaleOverrides] = useState({});
@@ -706,12 +706,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const effectivePct = scaleEventId===null ? 100 : (scalePercent||100);
         const pctLabel = `${effectivePct}%${linkedEv?" ("+linkedEv.guest+" · "+linkedEv.pax+" pax)":""}`;
 
-        const mode=scaleMode||"single";
+        const mode=scaleMode||"dish";
         const pkgNames=Object.keys(MENU_PACKAGES);
         const selPkg=scalePkg||pkgNames[0];
         const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]);
         const multiSel=scaleMultiSel||{};
-        const activeDishes=mode==="single"?(scaleDish&&RECIPE_INGREDIENTS[scaleDish]?[scaleDish]:[]):mode==="multi"?Object.keys(multiSel).filter(d=>multiSel[d]):pkgDishes;
+        const selectedDishes=Object.keys(multiSel).filter(d=>multiSel[d]);
+        const activeDishes=mode==="bulk"?pkgDishes:selectedDishes;
 
         // step chip helper
         const StepChip=(n,label)=>(
@@ -865,74 +866,66 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               <div>
                 {/* ══ STEP 2: SELECT DISHES ══ */}
                 {StepChip(2,T2("Select Dishes"))}
-                <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
-                  {[{v:"single",l:"🍽 Single"},{v:"multi",l:"📋 Multiple"},{v:"bulk",l:"📦 Full Menu"}].map(m=>(
-                    <button key={m.v} onClick={()=>{setScaleMode(m.v);if(m.v==="single")setScaleDish("");if(m.v!=="single")setScaleMultiSel({});}}
-                      style={{flex:1,padding:"11px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="single"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
-                      <div style={{fontSize:12,fontWeight:mode===m.v?700:400,color:mode===m.v?C.gold:C.muted}}>{m.l}</div>
+                <div style={{display:"flex",gap:0,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
+                  {[{v:"dish",l:T2("Search dishes")},{v:"bulk",l:T2("Full menu")}].map(m=>(
+                    <button key={m.v} onClick={()=>{setScaleMode(m.v);setScaleDishSearch("");if(m.v==="dish")setScaleMultiSel({});}}
+                      style={{flex:1,padding:"10px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="dish"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
+                      <div style={{fontSize:12,fontWeight:mode===m.v?500:400,color:mode===m.v?C.gold:C.muted}}>{m.l}</div>
                     </button>
                   ))}
                 </div>
-                {mode==="single"&&(
-                  <div style={{position:"relative",marginBottom:4}}>
-                    <input
-                      value={scaleDish||scaleDishSearch}
-                      onChange={e=>{setScaleDishSearch(e.target.value);if(scaleDish)setScaleDish("");}}
-                      onFocus={()=>{if(scaleDish){setScaleDishSearch(scaleDish);setScaleDish("");}}}
-                      placeholder={T2("Search dishes… e.g. Paneer, Dal, Biryani")}
-                      style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,minHeight:46,boxSizing:"border-box"}}
-                    />
-                    {scaleDishSearch&&!scaleDish&&(()=>{
-                      const q=scaleDishSearch.toLowerCase();
-                      const matches=[];
-                      pkgNames.forEach(pkg=>{
-                        (MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]&&d.toLowerCase().includes(q)).forEach(d=>{
-                          if(!matches.find(m=>m.name===d))matches.push({name:d,pkg,code:MENU_APPLICABILITY[pkg]?.code||""});
-                        });
-                      });
-                      if(matches.length===0) return <div style={{padding:"10px 14px",fontSize:12,color:C.muted,border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface}}>{T2("No dishes found for")} "{scaleDishSearch}"</div>;
-                      return(
-                        <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface,maxHeight:240,overflowY:"auto"}}>
-                          {matches.slice(0,20).map(m=>(
-                            <div key={m.name} onClick={()=>{setScaleDish(m.name);setScaleDishSearch("");}}
-                              style={{padding:"10px 14px",fontSize:13,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                              <span>{m.name}</span>
-                              <span style={{fontSize:10,color:C.faint,padding:"2px 8px",borderRadius:6,background:C.bg}}>{m.code}</span>
-                            </div>
-                          ))}
-                          {matches.length>20&&<div style={{padding:"8px 14px",fontSize:11,color:C.faint,textAlign:"center"}}>{matches.length-20} {T2("more")} — {T2("keep typing to narrow")}</div>}
-                        </div>
-                      );
-                    })()}
-                    {scaleDish&&<div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:12,color:C.green}}>
-                      ✓ {scaleDish}
-                      <span onClick={()=>{setScaleDish("");setScaleDishSearch("");}} style={{cursor:"pointer",fontWeight:500,marginLeft:4}}>✕</span>
-                    </div>}
-                  </div>
-                )}
-                {mode==="multi"&&(
+                {mode==="dish"&&(
                   <div style={{marginBottom:4}}>
-                    <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setScaleMultiSel({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46,marginBottom:8}}>
-                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} dishes</option>)}
-                    </select>
-                    <div style={{background:C.darkCard,borderRadius:12,padding:"12px",border:`1px solid ${C.border}`}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                        <div style={{fontSize:11,color:C.muted}}>{Object.values(multiSel).filter(Boolean).length} {T2("selected")}</div>
-                        <div style={{display:"flex",gap:8}}>
-                          <button onClick={()=>setScaleMultiSel(Object.fromEntries(pkgDishes.map(d=>[d,true])))} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer"}}>{T2("All")}</button>
-                          <button onClick={()=>setScaleMultiSel({})} style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer"}}>{T2("Clear")}</button>
-                        </div>
-                      </div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                        {pkgDishes.map(d=><button key={d} onClick={()=>setScaleMultiSel(p=>({...p,[d]:!p[d]}))} style={{padding:"5px 10px",borderRadius:8,fontSize:10,cursor:"pointer",background:multiSel[d]?C.goldBg:C.surface,border:`1.5px solid ${multiSel[d]?C.gold:C.border}`,color:multiSel[d]?C.gold:C.muted,fontWeight:multiSel[d]?700:400}}>{multiSel[d]?"✓ ":""}{d}</button>)}
-                      </div>
+                    <div style={{position:"relative"}}>
+                      <input
+                        value={scaleDishSearch}
+                        onChange={e=>setScaleDishSearch(e.target.value)}
+                        placeholder={T2("Search dishes… e.g. Paneer, Dal, Biryani")}
+                        style={{width:"100%",padding:"12px 14px",borderRadius:scaleDishSearch?"12px 12px 0 0":"12px",border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,minHeight:46,boxSizing:"border-box"}}
+                      />
+                      {scaleDishSearch&&(()=>{
+                        const q=scaleDishSearch.toLowerCase();
+                        const matches=[];
+                        pkgNames.forEach(pkg=>{
+                          (MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]&&d.toLowerCase().includes(q)&&!multiSel[d]).forEach(d=>{
+                            if(!matches.find(m=>m.name===d))matches.push({name:d,pkg,code:MENU_APPLICABILITY[pkg]?.code||""});
+                          });
+                        });
+                        if(matches.length===0) return <div style={{padding:"10px 14px",fontSize:12,color:C.muted,border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface}}>{T2("No dishes found for")} "{scaleDishSearch}"</div>;
+                        return(
+                          <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface,maxHeight:200,overflowY:"auto"}}>
+                            {matches.slice(0,15).map(m=>(
+                              <div key={m.name} onClick={()=>{setScaleMultiSel(p=>({...p,[m.name]:true}));setScaleDishSearch("");}}
+                                style={{padding:"9px 14px",fontSize:13,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                <span>{m.name}</span>
+                                <span style={{fontSize:10,color:C.faint,padding:"2px 8px",borderRadius:6,background:C.bg}}>{m.code}</span>
+                              </div>
+                            ))}
+                            {matches.length>15&&<div style={{padding:"6px 14px",fontSize:11,color:C.faint,textAlign:"center"}}>{matches.length-15} {T2("more — keep typing")}</div>}
+                          </div>
+                        );
+                      })()}
                     </div>
+                    {selectedDishes.length>0&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                        {selectedDishes.map(d=>(
+                          <div key={d} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 10px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:12,color:C.green}}>
+                            <span>{d}</span>
+                            <span onClick={()=>setScaleMultiSel(p=>{const n={...p};delete n[d];return n;})} style={{cursor:"pointer",fontWeight:600,fontSize:14,lineHeight:1,marginLeft:2,color:C.green}}>×</span>
+                          </div>
+                        ))}
+                        {selectedDishes.length>1&&(
+                          <button onClick={()=>setScaleMultiSel({})} style={{padding:"5px 10px",borderRadius:8,fontSize:11,color:C.red,background:C.redBg,border:`1px solid ${C.redBorder}`,cursor:"pointer"}}>{T2("Clear all")}</button>
+                        )}
+                      </div>
+                    )}
+                    {selectedDishes.length===0&&<div style={{fontSize:11,color:C.faint,marginTop:6}}>{T2("Search and tap dishes to add them")}</div>}
                   </div>
                 )}
                 {mode==="bulk"&&(
                   <div style={{marginBottom:4}}>
                     <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setOpenSections({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46}}>
-                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} dishes</option>)}
+                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} {T2("dishes")}</option>)}
                     </select>
                   </div>
                 )}
@@ -995,7 +988,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </div>
                       );
                     })}
-                    {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center",marginBottom:4}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{mode==="single"?T2("Select a dish in Step 2 above"):T2("Select dishes from the package")}</div></Card>}
+                    {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center",marginBottom:4}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{T2("Search and select dishes in Step 2 above")}</div></Card>}
                   </>
                 )}
 
