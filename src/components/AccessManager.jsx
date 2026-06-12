@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { C, SECTIONS, ALL_DEPARTMENTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
-import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission } from '../data/permissions.js';
+import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 
 // ── Shared modal backdrop ──
@@ -60,7 +60,6 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   // Permission modal state
   const [permStaff, setPermStaff] = useState(null);
   const [editPerms, setEditPerms] = useState([]);
-  const [expandedScreens, setExpandedScreens] = useState({});
   const [copyFromId, setCopyFromId] = useState("");
   const [selected, setSelected]   = useState(new Set());
 
@@ -104,17 +103,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const canPerms = hasPermission(currentUser, "access.perms");
 
   // ── Permission helpers ──
-  const ALL_PERMS_LIST = Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms);
-  const ALL_PERM_IDS   = ALL_PERMS_LIST.map(p => p.id);
-  const ALL_VIEW_IDS   = ALL_PERMS_LIST.filter(p => p.type === "view").map(p => p.id);
-  const TYPE_C  = {view:C.blue, action:C.amber, approval:C.red, request:C.gold};
-  const TYPE_BG = {view:C.blueBg, action:C.amberBg, approval:C.redBg, request:C.goldBg};
-
   function permCounts(s) {
     const ep = getEffectivePerms(s);
-    const ct = {view:0, action:0, approval:0, request:0};
-    ep.forEach(pid => { const p = ALL_PERMS_LIST.find(x=>x.id===pid); if(p) ct[p.type]++; });
-    return {...ct, total: ep.length};
+    const screenCount = Object.keys(SCREEN_PERMISSIONS).filter(sid => {
+      const sp = SCREEN_PERMISSIONS[sid];
+      return sp.perms.some(p => ep.includes(p.id));
+    }).length;
+    return { total: screenCount };
   }
 
   // ── Auto ID generation ──
@@ -182,7 +177,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   // ── Permission functions ──
   function openPerms(s) {
     setPermStaff(s); setEditPerms(getEffectivePerms(s));
-    setExpandedScreens({}); setCopyFromId("");
+    setCopyFromId("");
   }
   function savePerms() {
     const sid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
@@ -190,24 +185,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(syncToServer) syncToServer('upsert', {...permStaff, permissions:editPerms});
     setPermStaff(null);
   }
-  function applyRoleTemplate(roleKey) {
-    setEditPerms(getEffectivePerms({role:roleKey, permissions:null}));
-  }
   function handleCopyFrom(fromId) {
     if (!fromId) return;
     const from = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===fromId);
     if (from) setEditPerms(getEffectivePerms(from));
     setCopyFromId(fromId);
   }
-  function toggleScreen(screenId) {
-    const sp = SCREEN_PERMISSIONS[screenId].perms.map(p=>p.id);
-    const allOn = sp.every(p=>editPerms.includes(p));
-    setEditPerms(prev => allOn ? prev.filter(id=>!sp.includes(id)) : [...new Set([...prev,...sp])]);
-  }
-  function togglePerm(permId) {
-    setEditPerms(prev => prev.includes(permId) ? prev.filter(x=>x!==permId) : [...prev, permId]);
-  }
-
   const fld={width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42};
   const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || (s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase()));
 
@@ -362,92 +345,111 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         {permStaff&&(()=>{
           const psid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
           const roleLabel = ROLE_MAP[permStaff.role]||permStaff.role||"—";
-          const totalAll = ALL_PERM_IDS.length;
-          const totalEnabled = editPerms.length;
-          const sumByType = {view:0,action:0,approval:0,request:0};
-          editPerms.forEach(pid => { const p=ALL_PERMS_LIST.find(x=>x.id===pid); if(p) sumByType[p.type]++; });
+          // Derive which screens are currently enabled from editPerms
+          const enabledScreens = Object.keys(SCREEN_PERMISSIONS).filter(sid=>{
+            const sp = SCREEN_PERMISSIONS[sid];
+            return sp.perms.some(p=>editPerms.includes(p.id));
+          });
+          const allScreenIds = Object.keys(SCREEN_PERMISSIONS);
+          // Toggle a whole screen on/off
+          function toggleScreenAccess(sid) {
+            const sp = SCREEN_PERMISSIONS[sid].perms.map(p=>p.id);
+            const isOn = sp.some(p=>editPerms.includes(p));
+            setEditPerms(prev => isOn ? prev.filter(id=>!sp.includes(id)) : [...new Set([...prev,...sp])]);
+          }
+          // Apply a role preset
+          function applyRole(roleKey) {
+            const screens = getScreensForRole(roleKey);
+            setEditPerms(permsFromScreens(screens));
+          }
+          // Role tier labels for visual grouping
+          const TIER_ROLES = [
+            {tier:"System",roles:[{v:"admin",l:"👑 Admin",desc:"Full access to everything"}]},
+            {tier:"Management",roles:[
+              {v:"head_chef",l:"👨‍🍳 Head Chef",desc:"Kitchen + Store + Transport + Team"},
+            ]},
+            {tier:"Departments",roles:[
+              {v:"service",l:"🍽 Service"},{v:"crockery",l:"🍶 Crockery"},{v:"beverages",l:"🥤 Beverages"},{v:"transport",l:"🚛 Transport"},
+            ]},
+            {tier:"Section Tablets",roles:[
+              {v:"section_indian",l:"🍛 Indian"},{v:"section_chinese",l:"🥢 Chinese"},{v:"section_tandoor",l:"🔥 Tandoor"},
+              {v:"section_chaat",l:"🥗 Chaat"},{v:"section_sweets",l:"🍮 Sweets"},{v:"section_continental",l:"🍝 Continental"},
+            ]},
+            {tier:"Special",roles:[
+              {v:"kiosk_gate",l:"🏛 Gate Kiosk"},{v:"staff",l:"👤 Basic Staff"},
+            ]},
+          ];
           return (
-            <div style={{maxHeight:"80vh",overflowY:"auto"}}>
-              {/* Header */}
+            <div style={{maxHeight:"85vh",overflowY:"auto"}}>
+              {/* ── Header ── */}
               <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface,zIndex:1,borderRadius:"16px 16px 0 0"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
                     <div style={{fontSize:18,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>🔐 {permStaff.name}</div>
                     <div style={{fontSize:11,color:C.muted,marginTop:2}}>{psid} · {roleLabel}</div>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{fontSize:22,fontWeight:800,color:totalEnabled>0?C.gold:C.faint}}>{totalEnabled}<span style={{fontSize:12,fontWeight:400,color:C.muted}}>/{totalAll}</span></div>
-                    {[{t:"view",l:"V"},{t:"action",l:"A"},{t:"approval",l:"Ap"},{t:"request",l:"R"}].map(x=>sumByType[x.t]>0&&(
-                      <span key={x.t} style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:TYPE_BG[x.t],color:TYPE_C[x.t],fontWeight:600}}>{sumByType[x.t]}{x.l}</span>
-                    ))}
+                  <div style={{fontSize:13,fontWeight:700,color:enabledScreens.length>0?C.gold:C.faint}}>
+                    {enabledScreens.length}<span style={{fontWeight:400,color:C.muted}}>/{allScreenIds.length} tabs</span>
                   </div>
                 </div>
-                {/* Quick Actions */}
-                <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap",alignItems:"center"}}>
-                  <button onClick={()=>setEditPerms(ALL_VIEW_IDS)} style={{padding:"5px 10px",borderRadius:8,background:C.blueBg,border:`1px solid ${C.blueBorder}`,color:C.blue,fontSize:10,fontWeight:600,cursor:"pointer"}}>👁 All Views</button>
-                  <button onClick={()=>setEditPerms(ALL_PERM_IDS)} style={{padding:"5px 10px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontSize:10,fontWeight:600,cursor:"pointer"}}>✅ Enable All</button>
-                  <button onClick={()=>setEditPerms([])} style={{padding:"5px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,fontWeight:600,cursor:"pointer"}}>🔒 Disable All</button>
+              </div>
+
+              {/* ── Role Presets ── */}
+              <div style={{padding:"16px 24px",borderBottom:`1px solid ${C.borderLight}`}}>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:.6}}>{T2("Quick assign — pick a role")}</div>
+                {TIER_ROLES.map(tier=>(
+                  <div key={tier.tier} style={{marginBottom:10}}>
+                    <div style={{fontSize:10,color:C.faint,marginBottom:5,fontWeight:600}}>{tier.tier}</div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {tier.roles.map(r=>{
+                        const roleScreens = getScreensForRole(r.v);
+                        const isMatch = roleScreens.length===enabledScreens.length && roleScreens.every(s=>enabledScreens.includes(s));
+                        return(
+                          <button key={r.v} onClick={()=>applyRole(r.v)}
+                            style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:isMatch?600:400,cursor:"pointer",
+                              background:isMatch?C.goldBg:C.bg,border:`1px solid ${isMatch?C.gold:C.borderLight}`,color:isMatch?C.gold:C.muted}}>
+                            {r.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:6,marginTop:8}}>
+                  <button onClick={()=>setEditPerms(permsFromScreens(allScreenIds))} style={{padding:"5px 10px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontSize:10,fontWeight:600,cursor:"pointer"}}>✅ All On</button>
+                  <button onClick={()=>setEditPerms([])} style={{padding:"5px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,fontWeight:600,cursor:"pointer"}}>🔒 All Off</button>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto"}}>
                     <span style={{fontSize:10,color:C.faint}}>Copy from:</span>
                     <select value={copyFromId} onChange={e=>handleCopyFrom(e.target.value)} style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:10,color:C.text,background:C.bg,minWidth:100}}>
-                      <option value="">— select —</option>
-                      {safeArr(empDb).filter(s=>(s.staffListId||s.staff_id||s.id)!==psid).map(s=>{
-                        const s2=s.staffListId||s.staff_id||s.id;
-                        return <option key={s2} value={s2}>{s.name} ({s.role})</option>;
-                      })}
+                      <option value="">— staff —</option>
+                      {safeArr(empDb).filter(s=>getSID(s)!==psid).map(s=><option key={getSID(s)} value={getSID(s)}>{s.name} ({s.role})</option>)}
                     </select>
                   </div>
                 </div>
-                {/* Role Templates */}
-                <div style={{display:"flex",gap:4,marginTop:10,flexWrap:"wrap"}}>
-                  {ROLE_OPTIONS.map(r=>(
-                    <button key={r.v} onClick={()=>applyRoleTemplate(r.v)} style={{padding:"4px 9px",borderRadius:6,background:C.bg,border:`1px solid ${C.borderLight}`,color:C.muted,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>
-                      {r.l.split(" — ")[0]}
-                    </button>
-                  ))}
+              </div>
+
+              {/* ── Screen Toggles (simple on/off per tab) ── */}
+              <div style={{padding:"16px 24px"}}>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:.6}}>{T2("Tab access")}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {allScreenIds.map(sid=>{
+                    const screen = SCREEN_PERMISSIONS[sid];
+                    const isOn = enabledScreens.includes(sid);
+                    return(
+                      <div key={sid} onClick={()=>toggleScreenAccess(sid)}
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,
+                          border:`1px solid ${isOn?C.green+"40":C.borderLight}`,background:isOn?C.greenBg+"20":"transparent",
+                          cursor:"pointer",transition:"all .15s"}}>
+                        <PToggle on={isOn} onChange={()=>toggleScreenAccess(sid)}/>
+                        <span style={{fontSize:16}}>{screen.icon}</span>
+                        <span style={{fontSize:12,fontWeight:isOn?600:400,color:isOn?C.green:C.faint}}>{screen.label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Screen toggles */}
-              <div style={{padding:"12px 24px"}}>
-                {Object.entries(SCREEN_PERMISSIONS).map(([screenId,screen])=>{
-                  const sp = screen.perms.map(p=>p.id);
-                  const enabledCt = sp.filter(p=>editPerms.includes(p)).length;
-                  const allOn = enabledCt===sp.length;
-                  const someOn = enabledCt>0&&!allOn;
-                  const isExp = expandedScreens[screenId]===true;
-                  return (
-                    <div key={screenId} style={{marginBottom:6,borderRadius:10,border:`1px solid ${allOn?C.green+"40":someOn?C.amber+"30":C.borderLight}`,overflow:"hidden"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:allOn?C.greenBg+"30":someOn?C.amberBg+"20":"transparent",cursor:"pointer"}}
-                        onClick={()=>setExpandedScreens(p=>({...p,[screenId]:!isExp}))}>
-                        <PToggle on={allOn||someOn} onChange={()=>toggleScreen(screenId)}/>
-                        <span style={{fontSize:15}}>{screen.icon}</span>
-                        <div style={{flex:1}}>
-                          <span style={{fontSize:13,fontWeight:600,color:allOn?C.green:someOn?C.amber:C.faint}}>{screen.label}</span>
-                          <span style={{fontSize:10,color:C.muted,marginLeft:8}}>{enabledCt}/{sp.length}</span>
-                        </div>
-                        <span style={{fontSize:11,color:C.faint,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-                      </div>
-                      {isExp&&(
-                        <div style={{borderTop:`1px solid ${C.borderLight}`}}>
-                          {screen.perms.map((perm,pi)=>{
-                            const on = editPerms.includes(perm.id);
-                            return (
-                              <div key={perm.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px 8px 48px",borderTop:pi>0?`1px solid ${C.borderLight}`:"none",opacity:on?1:.5}}>
-                                <PToggle on={on} onChange={()=>togglePerm(perm.id)}/>
-                                <span style={{flex:1,fontSize:12,color:on?C.text:C.muted}}>{perm.label}</span>
-                                <span style={{fontSize:9,padding:"2px 7px",borderRadius:5,background:TYPE_BG[perm.type]||C.surface,color:TYPE_C[perm.type]||C.muted,fontWeight:600}}>{perm.type}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Footer — sticky */}
+              {/* ── Footer ── */}
               <div style={{padding:"16px 24px",borderTop:`1px solid ${C.border}`,position:"sticky",bottom:0,background:C.surface,display:"flex",gap:10,borderRadius:"0 0 16px 16px"}}>
                 <button onClick={savePerms} style={{flex:1,padding:"12px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>
                   ✓ {T2("Save Permissions")}
@@ -513,11 +515,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                 <div style={{display:"flex",gap:4,marginTop:5,flexWrap:"wrap"}}>
                   {pc.total===0
                     ? <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.redBg,color:C.red,fontWeight:600}}>🔒 No access</span>
-                    : <>
-                        {pc.view>0&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.blueBg,color:C.blue}}>{pc.view} views</span>}
-                        {pc.action>0&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.amberBg,color:C.amber}}>{pc.action} actions</span>}
-                        {pc.approval>0&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.redBg,color:C.red}}>{pc.approval} approvals</span>}
-                      </>
+                    : <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.greenBg,color:C.green,fontWeight:600}}>{pc.total} tabs</span>
                   }
                 </div>
               </div>

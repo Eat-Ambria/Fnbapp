@@ -1,152 +1,92 @@
-// Ambria FnB — RBAC permissions system
-// Extracted from App.jsx
+// Ambria FnB — Simplified RBAC permissions
+// Role hierarchy: Chef → Head Chef → Manager → Admin
+// Each role auto-gets tab access + action permissions
+// Custom overrides: toggle individual screens on/off per user
 
+// ── SCREEN DEFINITIONS (for UI display in Access Manager) ──
 const SCREEN_PERMISSIONS = {
-  dashboard: {
-    label:"Dashboard", icon:"📊",
-    perms:[
-      {id:"dashboard.view",           label:"View dashboard KPIs",          type:"view"},
-      {id:"dashboard.closure_report", label:"Generate closure report",      type:"action"},
-      {id:"dashboard.export",         label:"Export reports",               type:"action"},
-    ]
+  dashboard:      {label:"Dashboard",           icon:"📊", perms:[{id:"dashboard.view",type:"view",label:"View dashboard KPIs"},{id:"dashboard.closure_report",type:"action",label:"Generate closure report"},{id:"dashboard.export",type:"action",label:"Export reports"}]},
+  kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"}]},
+  store:          {label:"Store & Inventory",   icon:"📦", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
+  transport:      {label:"Transport",           icon:"🚛", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
+  repair:         {label:"Repair & Maintenance",icon:"🔧", perms:[{id:"repair.view",type:"view",label:"View tickets"},{id:"repair.create",type:"action",label:"Raise ticket"},{id:"repair.update",type:"action",label:"Post updates"},{id:"repair.reassign",type:"action",label:"Reassign tickets"},{id:"repair.change_status",type:"action",label:"Change status"},{id:"repair.complete_photo",type:"action",label:"Complete with photo"},{id:"repair.delete",type:"action",label:"Delete tickets"}]},
+  team:           {label:"Team & Attendance",   icon:"👥", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.attendance_mark",type:"action",label:"Mark attendance"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"},{id:"team.daily_wages",type:"action",label:"Add daily wages staff"},{id:"team.export_attendance",type:"action",label:"Export attendance"}]},
+  menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
+  vendors:        {label:"Vendor Directory",    icon:"📇", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
+  dept_service:   {label:"Service Ops",         icon:"🍽", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
+  dept_crockery:  {label:"Crockery Ops",        icon:"🍶", perms:[{id:"dept_crockery.view",type:"view",label:"View crockery"},{id:"dept_crockery.check",type:"action",label:"Complete checklist"}]},
+  dept_beverages: {label:"Beverages Ops",       icon:"🥤", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
+  dept_odc:       {label:"ODC Operations",      icon:"🏕", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
+  access:         {label:"Access Manager",      icon:"🔐", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
+};
+
+// ── ROLE HIERARCHY ──
+// Defines: which screens each role can see, and which elevated actions they get
+// Tab access = auto-gets ALL permissions for that screen
+// Elevated actions = specific action-level perms that only certain roles have (across any screen they access)
+const PRESET_ROLES = {
+  admin: {
+    label: "Admin — Full Access",
+    tier: 4,
+    screens: ["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc"],
+    // Admin gets everything — no need to list elevated actions
   },
-  kitchen: {
-    label:"Kitchen Hub", icon:"👨‍🍳",
-    perms:[
-      {id:"kitchen.view",             label:"View today's tasks",           type:"view"},
-      {id:"kitchen.d1_view",          label:"View D-1 prep",               type:"view"},
-      {id:"kitchen.d1_mark_done",     label:"Mark mesa/prep as done",      type:"action"},
-      {id:"kitchen.mark_ready",       label:"Mark dish as ready + photo",  type:"action"},
-      {id:"kitchen.start_timer",      label:"Start/stop cooking timers",   type:"action"},
-      {id:"kitchen.store_collect",    label:"Collect items from store",    type:"action"},
-      {id:"kitchen.quality_rate",     label:"Rate ingredient quality",     type:"action"},
-      {id:"kitchen.scaling_view",     label:"View pax scaling",            type:"view"},
-      {id:"kitchen.scaling_apply",    label:"Apply scaling to events",     type:"action"},
-      {id:"kitchen.sops_view",        label:"View recipe SOPs",            type:"view"},
-      {id:"kitchen.menu_view",        label:"View menu packages",          type:"view"},
-    ]
+  head_chef: {
+    label: "Head Chef",
+    tier: 3,
+    screens: ["dashboard","kitchen","menus","store","team","transport","repair"],
+    elevated: ["kitchen.scaling_apply","team.leave_approve","repair.reassign","repair.change_status","repair.delete"],
   },
-  store: {
-    label:"Store & Inventory", icon:"📦",
-    perms:[
-      {id:"store.view",               label:"View inventory",               type:"view"},
-      {id:"store.issue",              label:"Issue items (stock out)",      type:"action"},
-      {id:"store.receive",            label:"Receive items (stock in)",     type:"action"},
-      {id:"store.barcode_scan",       label:"Scan barcodes",               type:"action"},
-      {id:"store.smart_issue",        label:"Use smart issue (auto-calc)",  type:"action"},
-      {id:"store.edit_stock",         label:"Edit stock levels",           type:"action"},
-    ]
+  service: {
+    label: "Service Dept",
+    tier: 2,
+    screens: ["dashboard","dept_service","team","vendors","repair"],
+    elevated: ["repair.create"],
+  },
+  crockery: {
+    label: "Crockery Dept",
+    tier: 2,
+    screens: ["dashboard","dept_crockery","team","store","repair"],
+    elevated: ["repair.create"],
+  },
+  beverages: {
+    label: "Beverages Dept",
+    tier: 2,
+    screens: ["dashboard","dept_beverages","menus","team","store","repair"],
+    elevated: ["repair.create"],
   },
   transport: {
-    label:"Transport", icon:"🚛",
-    perms:[
-      {id:"transport.view",           label:"View dispatch plan",           type:"view"},
-      {id:"transport.dispatch",       label:"Mark dispatch done",           type:"action"},
-      {id:"transport.temp_log",       label:"Log fridge temperature",      type:"action"},
-      {id:"transport.loading_check",  label:"Complete loading checklist",   type:"action"},
-    ]
+    label: "Transport",
+    tier: 2,
+    screens: ["dashboard","transport","repair"],
+    elevated: ["repair.create"],
   },
-  repair: {
-    label:"Repair & Maintenance", icon:"🔧",
-    perms:[
-      {id:"repair.view",              label:"View all tickets",             type:"view"},
-      {id:"repair.create",            label:"Raise new ticket",             type:"action"},
-      {id:"repair.update",            label:"Post updates on tickets",     type:"action"},
-      {id:"repair.reassign",          label:"Reassign tickets",            type:"action"},
-      {id:"repair.change_status",     label:"Change ticket status",        type:"action"},
-      {id:"repair.complete_photo",    label:"Mark complete with photo",    type:"action"},
-      {id:"repair.delete",            label:"Delete tickets",              type:"action"},
-    ]
+  kiosk_gate: {
+    label: "Gate Kiosk",
+    tier: 1,
+    screens: ["team"],
+    elevated: ["team.attendance_mark"],
   },
-  team: {
-    label:"Team & Attendance", icon:"👥",
-    perms:[
-      {id:"team.view",                label:"View staff list",              type:"view"},
-      {id:"team.attendance_mark",     label:"Mark attendance",             type:"action"},
-      {id:"team.leave_request",       label:"Submit leave request",        type:"request"},
-      {id:"team.leave_approve",       label:"Approve/reject leaves",       type:"approval"},
-      {id:"team.daily_wages",         label:"Add daily wages staff",       type:"action"},
-      {id:"team.export_attendance",   label:"Export attendance Excel",     type:"action"},
-    ]
-  },
-  menus: {
-    label:"Menu Packages", icon:"📜",
-    perms:[
-      {id:"menus.view",               label:"View menu packages",           type:"view"},
-    ]
-  },
-  vendors: {
-    label:"Vendor Directory", icon:"📇",
-    perms:[
-      {id:"vendors.view",             label:"View vendors",                 type:"view"},
-      {id:"vendors.add",              label:"Add new vendor",              type:"action"},
-      {id:"vendors.edit",             label:"Edit vendor details",         type:"action"},
-    ]
-  },
-  dept_service: {
-    label:"Service Ops", icon:"🍽",
-    perms:[
-      {id:"dept_service.view",        label:"View service checklist",       type:"view"},
-      {id:"dept_service.check",       label:"Complete checklist items",    type:"action"},
-    ]
-  },
-  dept_crockery: {
-    label:"Crockery Ops", icon:"🍶",
-    perms:[
-      {id:"dept_crockery.view",       label:"View crockery requirements",   type:"view"},
-      {id:"dept_crockery.check",      label:"Complete checklist items",    type:"action"},
-    ]
-  },
-  dept_beverages: {
-    label:"Beverages Ops", icon:"🥤",
-    perms:[
-      {id:"dept_beverages.view",      label:"View beverage prep",           type:"view"},
-      {id:"dept_beverages.check",     label:"Complete checklist items",    type:"action"},
-    ]
-  },
-  dept_odc: {
-    label:"ODC Operations", icon:"🏕",
-    perms:[
-      {id:"dept_odc.view",            label:"View ODC bookings",            type:"view"},
-      {id:"dept_odc.check",           label:"Complete site checklist",     type:"action"},
-    ]
-  },
-  access: {
-    label:"Access Manager", icon:"🔐",
-    perms:[
-      {id:"access.view",              label:"View staff list",              type:"view"},
-      {id:"access.add",               label:"Add new staff",               type:"action"},
-      {id:"access.edit",              label:"Edit staff details & PIN",    type:"action"},
-      {id:"access.delete",            label:"Delete staff",                type:"action"},
-      {id:"access.perms",             label:"Change permissions",          type:"action"},
-      {id:"access.bulk_ops",          label:"Bulk operations",             type:"action"},
-    ]
-  },
+  section_indian:      {label:"Indian Section",      tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_chinese:     {label:"Chinese Section",      tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_tandoor:     {label:"Tandoor Section",      tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_chaat:       {label:"Chaat Section",        tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_sweets:      {label:"Sweets Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_continental: {label:"Continental Section",  tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  section_bakery:      {label:"Bakery Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
+  staff:               {label:"Staff",                tier:1, screens:["dashboard","kitchen","repair"], elevated:[]},
 };
 
-// Role → allowed screen IDs map (single source of truth)
-const PRESET_ROLES = {
-  admin:            {label:"Admin",              screens:["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc"]},
-  head_chef:        {label:"Head Chef",          screens:["dashboard","kitchen","menus","store","team","transport","repair"]},
-  service:          {label:"Service",            screens:["dashboard","dept_service","team","vendors","repair"]},
-  crockery:         {label:"Crockery",           screens:["dashboard","dept_crockery","team","store","repair"]},
-  beverages:        {label:"Beverages",          screens:["dashboard","dept_beverages","menus","team","store","repair"]},
-  transport:        {label:"Transport",          screens:["dashboard","transport","repair"]},
-  kiosk_gate:       {label:"Gate Kiosk",         screens:["team"]},
-  section_indian:   {label:"Indian Section",     screens:["kitchen","repair"]},
-  section_chinese:  {label:"Chinese Section",    screens:["kitchen","repair"]},
-  section_tandoor:  {label:"Tandoor Section",    screens:["kitchen","repair"]},
-  section_chaat:    {label:"Chaat Section",      screens:["kitchen","repair"]},
-  section_sweets:   {label:"Sweets Section",     screens:["kitchen","repair"]},
-  section_continental:{label:"Continental Section",screens:["kitchen","repair"]},
-  section_bakery:   {label:"Bakery Section",     screens:["kitchen","repair"]},
-  staff:            {label:"Staff",              screens:["dashboard","kitchen","repair"]},
-};
+// ── CORE FUNCTIONS ──
 
+// Get the flat list of permission IDs a staff member effectively has
 function getEffectivePerms(staff) {
   if (!staff) return [];
+
+  // 1. Explicit permission array overrides everything (set via Access Manager)
   if (staff.permissions && staff.permissions.length > 0) return staff.permissions;
-  // custom_screens: derive perms from the allowed screen list
+
+  // 2. Custom screen list (legacy — derive all perms for those screens)
   if (staff.custom_screens && staff.custom_screens.length > 0) {
     const perms = [];
     staff.custom_screens.forEach(sid => {
@@ -155,40 +95,68 @@ function getEffectivePerms(staff) {
     });
     return perms.length > 0 ? perms : staff.custom_screens;
   }
-  const role = (staff.role || "staff");
+
+  // 3. Role-based: all perms for allowed screens + elevated actions
+  const role = staff.role || "staff";
   if (role === "admin") return Object.values(SCREEN_PERMISSIONS).flatMap(s => s.perms.map(p => p.id));
+
   const pr = PRESET_ROLES[role] || PRESET_ROLES.staff;
   const perms = [];
-  pr.screens.forEach(sid => { const sp = SCREEN_PERMISSIONS[sid]; if (sp) sp.perms.forEach(p => perms.push(p.id)); });
+  pr.screens.forEach(sid => {
+    const sp = SCREEN_PERMISSIONS[sid];
+    if (sp) sp.perms.forEach(p => perms.push(p.id));
+  });
+  // Add elevated actions (these might be for screens not in the base list, or specific overrides)
+  if (pr.elevated) pr.elevated.forEach(pid => { if (!perms.includes(pid)) perms.push(pid); });
   return perms;
 }
 
+// Check a single permission
 function hasPermission(staff, permId) {
-  if (!staff) return true;
+  if (!staff) return true; // no auth = allow (pre-login state)
   if (staff.role === "admin") return true;
   return getEffectivePerms(staff).includes(permId);
 }
 
 const hasPerm = hasPermission;
 
+// Check if user can see a screen/tab
 function canAccessScreen(user, screenId) {
   if (!user) return false;
   if (user.role === "admin") return true;
-  // Fine-grained permission override
+
+  // 1. Explicit permission array — check if ANY perm for that screen is enabled
   if (user.permissions && user.permissions.length > 0) {
     const sp = SCREEN_PERMISSIONS[screenId];
-    if (!sp) return true;
+    if (!sp) return true; // unknown screen = allow
     return sp.perms.some(p => user.permissions.includes(p.id));
   }
-  // Custom screen whitelist
+
+  // 2. Custom screen whitelist (legacy)
   if (user.custom_screens && user.custom_screens.length > 0) {
     return user.custom_screens.includes(screenId);
   }
-  // Role-based default
+
+  // 3. Role-based
   const pr = PRESET_ROLES[user.role || "staff"] || PRESET_ROLES.staff;
   return pr.screens.includes(screenId);
 }
 
+// ── HELPER: Get screens list for a role (used by Access Manager UI) ──
+function getScreensForRole(roleKey) {
+  if (roleKey === "admin") return Object.keys(SCREEN_PERMISSIONS);
+  const pr = PRESET_ROLES[roleKey] || PRESET_ROLES.staff;
+  return pr.screens || [];
+}
 
+// ── HELPER: Build permissions array from a screen list (for saving) ──
+function permsFromScreens(screenIds) {
+  const perms = [];
+  screenIds.forEach(sid => {
+    const sp = SCREEN_PERMISSIONS[sid];
+    if (sp) sp.perms.forEach(p => { if (!perms.includes(p.id)) perms.push(p.id); });
+  });
+  return perms;
+}
 
-export { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, hasPerm, canAccessScreen };
+export { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
