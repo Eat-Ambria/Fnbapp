@@ -6,7 +6,6 @@ import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, loc
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
-import { D1PrepTab } from './D1PrepTab.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { MenuPackagesView } from './MenuPackagesView.jsx';
@@ -47,28 +46,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [expandedDishes, setExpandedDishes] = useState(()=>new Set());
   function toggleDish(key){setExpandedDishes(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});}
   const [expandedSecs, setExpandedSecs] = useState({});
-  const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
   const toggleSec = (sec)=>setExpandedSecs(p=>({...p,[sec]:!p[sec]}));
   const isSecOpen = (sec)=>expandedSecs[sec]===true; // default collapsed
   const [sopCat, setSopCat] = useState(null);
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
-  const [scaleDish, setScaleDish] = useState("");
   const [scaleDishSearch, setScaleDishSearch] = useState("");
   const [scaleMode, setScaleMode] = useState("dish");
   const [scalePkg, setScalePkg] = useState("");
   const [scaleMultiSel, setScaleMultiSel] = useState({});
-  const [scaleOverrides, setScaleOverrides] = useState({});
-  const [scaleEditing, setScaleEditing] = useState(null);
   const [scalePercent, setScalePercent] = useState(100); // % multiplier
   const [scaleEventId, setScaleEventId] = useState(null); // null | "manual" | eventId
   const [openSections, setOpenSections] = useState({});
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
-  // Helper: get effective scaling % for an event
-  function getEventScale(evId){return appliedScales[evId]?.percent||100;}
-  // Apply scaling to a raw per-pax quantity
-  function applyScale(q, evId){return q*(getEventScale(evId)/100);}
   const [tick, setTick] = useState(0);
   const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
 
@@ -155,14 +146,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return c.toDataURL("image/jpeg",0.7);
   }
 
-  // ── Store Step: stoppable timer + quality remarks ──
-  const [storeRemarks, setStoreRemarks] = useState({}); // {"evId_idx_si": {rating:"",text:""}}
-  function stopStoreStep(evId,idx,si){
-    const d=ds(evId,idx);
-    setDs(evId,idx,{manual:{...(d.manual||{}),[si]:true},storeEndAt:{...(d.storeEndAt||{}),[si]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}});
-  }
-  function saveStoreRemark(key,field,val){setStoreRemarks(p=>({...p,[key]:{...(p[key]||{rating:"",text:""}),[field]:val}}))}
-
   // Global 1-second tick drives all running timers
   useEffect(()=>{const t=setInterval(()=>setTick(k=>k+1),1000);return()=>clearInterval(t);},[]);
 
@@ -175,46 +158,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function setEvMeta(evId,key,val){
     setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),[key]:val};return o;});
   }
-
-  // ── Timer logic ──
-  function startStep(evId,idx,si,tm){
-    const d=ds(evId,idx);
-    const starts={...(d.starts||{})};
-    starts[si]=Date.now();
-    setDs(evId,idx,{starts,stepTm:{...(d.stepTm||{}),[si]:tm}});
-  }
-  function elapsed(d,si){return d.starts?.[si]?Math.floor((Date.now()-d.starts[si])/1000):0;}
-  function stepDone(d,si){
-    if(d.manual?.[si]) return true;
-    // If Mesa was completed on D-1, first 2 steps (Store + Mesa) are auto-done
-    if(d.mesaDone && si <= 1) return true;
-    // No auto-complete — timers are informational, manual "Done" required
-    return false;
-  }
-  function isOverdue(d,si){
-    if(stepDone(d,si)) return false;
-    if(!d.starts?.[si]) return false;
-    const el=elapsed(d,si);const tm=d.stepTm?.[si]||0;
-    return tm>0&&el>=tm;
-  }
-  function isD1Step(d,si){ return d.mesaDone && si <= 1; }
-  function markManual(evId,idx,si){
-    const d=ds(evId,idx);
-    setDs(evId,idx,{manual:{...(d.manual||{}),[si]:true}});
-  }
-  function markComplete(evId,idx){setDs(evId,idx,{complete:true,completeAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}
   function markReady(evId,idx,dishName){setReadyModal({evId,idx,dishName});setReadyPhoto(null);setTimeout(startReadyCam,100);}
-  function markDishDispatch(evId,idx){setDs(evId,idx,{dispatchReady:true,dispatchAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})});}
-  function markDispatch(evId){setEvMeta(evId,"__dispatch_ready",true);setEvMeta(evId,"__dispatch_time",new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}));}
-  // Venues that need dispatch (not base kitchen)
-  const DISPATCH_VENUES=["Manaktala Farm","Ambria Restro","Ambria Cuisine","Outdoor Catering (ODC)"];
-  function evStats(ev){
-    const menu=safeArr(ev.menu);
-    const kitchenMenu=menu.filter(n=>guessSectionForDish(n)!=="Beverages");
-    let rdy=0;
-    kitchenMenu.forEach((n,i)=>{const realIdx=menu.indexOf(n);if(ds(ev.id,realIdx).ready)rdy++;});
-    return{rdy,total:kitchenMenu.length,allRdy:rdy===kitchenMenu.length&&kitchenMenu.length>0,dispatched:!!(kt[ev.id]?.__dispatch_ready)};
-  }
 
   const tomorrowLabel = new Date(TOMORROW+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{day:"numeric",month:"short"});
   const todayLabel2   = new Date(TODAY+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{day:"numeric",month:"short"});
@@ -580,7 +524,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 {cDish?(
                                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                                     <div style={{width:18,height:18,borderRadius:5,background:cDone?C.green:C.amber,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                      {cDone&&<span style={{fontSize:9,fontWeight:700,color:"#0A0A0F"}}>✓</span>}
+                                      {cDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
                                     </div>
                                     <div>
                                       <div style={{fontSize:11,fontWeight:700,color:cDone?C.green:C.amber}}>{cDish.totalPax} pax</div>
@@ -596,7 +540,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 {nDish?(
                                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                                     <div style={{width:18,height:18,borderRadius:5,background:nDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                      {nDone&&<span style={{fontSize:9,fontWeight:700,color:"#0A0A0F"}}>✓</span>}
+                                      {nDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
                                     </div>
                                     <div>
                                       <div style={{fontSize:11,fontWeight:700,color:nDone?C.green:C.gold}}>{nDish.totalPax} pax</div>
