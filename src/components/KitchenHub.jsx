@@ -9,6 +9,7 @@ import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './S
 import { D1PrepTab } from './D1PrepTab.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
+import { MenuPackagesView } from './MenuPackagesView.jsx';
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
@@ -354,6 +355,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             setKitchenTracking({});
             try{localStorage.removeItem('ambria_kt');}catch(e){}
             try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
+            // Also clear from Supabase
+            import('../lib/supabase.js').then(function(mod){
+              mod.supabase.from('kitchen_tracking').delete().neq('ev_id','__never__').then(function(r){
+                if(r.error)console.error('KT clear error:',r.error);
+                else console.log('✅ Supabase kitchen_tracking cleared');
+              });
+            }).catch(function(e){console.error('KT clear import error:',e);});
             alert('✅ All dishes reset to fresh state');
           }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
             ↺ {T2("Reset all")}
