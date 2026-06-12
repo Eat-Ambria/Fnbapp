@@ -228,6 +228,29 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const contPax  = hasTodayEvs ? todayEvs.reduce((s,e)=>s+(+e.pax||0),0) : tomorrowEvs.reduce((s,e)=>s+(+e.pax||0),0);
   const newD1Pax = evList.filter(e=>e.date===DAY_AFTER).reduce((s,e)=>s+(+e.pax||0),0);
 
+  // ── Auto-scaling: compute effective scale per event ──
+  // BASE_PAX = 1100 (all SOP recipes calibrated for this)
+  const BASE_PAX = 1100;
+  function getEffectiveScale(evId, evPax) {
+    // If chef applied an override via Scaling tab, use that
+    const override = appliedScales[evId] || appliedScales["manual"];
+    if (override?.percent) return override.percent;
+    // Otherwise auto-scale based on pax
+    if (evPax && evPax > 0) return Math.round((evPax / BASE_PAX) * 100);
+    return 100;
+  }
+
+  // Build a combined scales object that includes auto-computed ones
+  const effectiveScales = {};
+  evList.forEach(ev => {
+    effectiveScales[ev.id] = {
+      percent: getEffectiveScale(ev.id, +ev.pax || 0),
+      isOverride: !!(appliedScales[ev.id]?.percent || appliedScales["manual"]?.percent),
+      eventName: ev.guest || "Function",
+      pax: +ev.pax || 0,
+    };
+  });
+
   // Prep day context: which events are being prepped for
   const contEvLabel = (hasTodayEvs ? todayEvs : tomorrowEvs).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
   const newEvLabel = evList.filter(e=>e.date===DAY_AFTER).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
@@ -360,6 +383,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             capRef={capRef}
             camStreamRef={camStreamRef}
             appliedScales={appliedScales}
+            effectiveScales={effectiveScales}
             tick={tick}
             setTab={setTab}
           />
@@ -614,6 +638,38 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     {!ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeStart:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:'#fff',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:8}}>🏃 Go Collect Items — Start 30 min Timer</button>}
                                     {ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeEnd:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:`linear-gradient(135deg,${C.green},#147A54)`,color:'#fff',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
                                     {ssDone&&<div style={{fontSize:12,color:C.green,fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
+                                  </div>
+                                );
+                              })()}
+                              {/* Ingredient list (when store sourcing is active) */}
+                              {(()=>{
+                                const tdish=cDish||nDish;if(!tdish)return null;
+                                const d2s=ds(tdish.fEvId,tdish.fIdx);
+                                if(!d2s.storeStart||d2s.storeEnd) return null;
+                                const ing=RECIPE_INGREDIENTS[dishName];
+                                if(!ing) return null;
+                                const pax=tdish.totalPax||0;
+                                const eff=effectiveScales[tdish.fEvId];
+                                const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);
+                                const isOvr=eff?.isOverride||false;
+                                return(
+                                  <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>
+                                      🧺 {T2("Items to collect")} — {pax} pax @ {pct}%
+                                      {isOvr
+                                        ?<span style={{fontSize:10,color:C.amber,marginLeft:6}}>⚙️ {T2("override")}</span>
+                                        :<span style={{fontSize:10,color:C.faint,marginLeft:6}}>{T2("auto-scaled")}</span>
+                                      }
+                                    </div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>
+                                      {ing.filter(i=>i.q>0).map((i,ii)=>{
+                                        const raw=i.q*pax*(pct/100);
+                                        const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):
+                                          i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):
+                                            i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;
+                                        return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;
+                                      })}
+                                    </div>
                                   </div>
                                 );
                               })()}

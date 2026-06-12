@@ -45,7 +45,7 @@ function EventDayTab({
   transportQueue = [], setTransportQueue,
   dishSignoff, setDishSignoff,
   openCam, capturePhoto, stopCam, camOn, camRef, capRef, camStreamRef,
-  appliedScales = {}, tick, setTab,
+  appliedScales = {}, effectiveScales = {}, tick, setTab,
 }) {
   const T2 = s => T(s, lang);
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -302,12 +302,19 @@ function EventDayTab({
                             const ing = RECIPE_INGREDIENTS[dish.name];
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             const pax = evObj ? +evObj.pax : 0;
-                            const scale = appliedScales[dish.fEvId] || appliedScales["manual"];
-                            const pct = scale?.percent || 100;
+                            const eff = effectiveScales[dish.fEvId];
+                            const pct = eff?.percent || (pax > 0 ? Math.round(pax / 1100 * 100) : 100);
+                            const isOverridden = eff?.isOverride || false;
                             if (!ing || pax <= 0) return null;
                             return (
                               <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.border}` }}>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 5 }}>🧺 {T2("Items to collect")} — {pax} pax{pct !== 100 ? ` @ ${pct}%` : ""}</div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 5 }}>
+                                  🧺 {T2("Items to collect")} — {pax} pax @ {pct}%
+                                  {isOverridden
+                                    ? <span style={{ fontSize: 10, color: C.amber, marginLeft: 6 }}>⚙️ {T2("override")}</span>
+                                    : <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>{T2("auto-scaled")}</span>
+                                  }
+                                </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
                                   {ing.filter(i => i.q > 0).map((i, ii) => {
                                     const raw = i.q * pax * (pct / 100);
