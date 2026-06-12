@@ -2,22 +2,22 @@
 // Extracted from App.jsx
 
 const C = {
-  navy:"#08070A",
-  wine:"#C9A84C",   wineMid:"#A88B30",  wineBg:"#1A1810",   wineBorder:"#332E1E",
-  bg:"#0A0908",     surface:"#131210",   surfaceHover:"#1A1918",
-  border:"#252320", borderLight:"#1C1B18",
-  text:"#F4F0E4",   muted:"#8E8678",     faint:"#5C5850",
-  green:"#3EAA68",  greenBg:"#0E1E16",   greenBorder:"#1A3826",
-  red:"#D64040",    redBg:"#1E0E0E",     redBorder:"#381A1A",
-  amber:"#D4A843",  amberBg:"#1E1A0E",   amberBorder:"#382E16",
-  blue:"#5B8FD0",   blueBg:"#0E1420",    blueBorder:"#1A2E42",
-  purple:"#8A70C8", purpleBg:"#120E1E",  purpleBorder:"#281E40",
-  teal:"#50B0A0",   tealBg:"#0E1E1A",    tealBorder:"#1A3830",
-  gold:"#D4B44A",   goldBg:"#1A1710",    goldBorder:"#38321E",
-  cream:"#F4F0E4",  darkCard:"#161514",  darkCardHover:"#1E1D1A",
-  shadow:"rgba(0,0,0,.6)",
-  glow:"rgba(212,180,74,.08)",
-  glass:"rgba(20,18,16,.85)",
+  navy:"#1A1816",
+  wine:"#8B5E2F",   wineMid:"#6D4A25",  wineBg:"#FDF6EE",   wineBorder:"#E8D5BD",
+  bg:"#F7F5F0",     surface:"#FFFFFF",   surfaceHover:"#F2F0EB",
+  border:"#E2DFD8", borderLight:"#ECEAE4",
+  text:"#1A1816",   muted:"#8E8678",     faint:"#B8B2A6",
+  green:"#1D9E75",  greenBg:"#E1F5EE",   greenBorder:"#9FE1CB",
+  red:"#D64040",    redBg:"#FCEBEB",     redBorder:"#F7C1C1",
+  amber:"#BA7517",  amberBg:"#FAEEDA",   amberBorder:"#FAC775",
+  blue:"#378ADD",   blueBg:"#E6F1FB",    blueBorder:"#B5D4F4",
+  purple:"#7F77DD", purpleBg:"#EEEDFE",  purpleBorder:"#CECBF6",
+  teal:"#1D9E75",   tealBg:"#E1F5EE",    tealBorder:"#9FE1CB",
+  gold:"#8B5E2F",   goldBg:"#FDF6EE",    goldBorder:"#E8D5BD",
+  cream:"#1A1816",  darkCard:"#FFFFFF",  darkCardHover:"#F7F5F0",
+  shadow:"rgba(0,0,0,.08)",
+  glow:"rgba(139,94,47,.06)",
+  glass:"rgba(255,255,255,.92)",
 };
 
 const AVATAR_COLORS = [
@@ -28,18 +28,18 @@ const AVATAR_COLORS = [
 const SECTIONS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets"];
 const ALL_DEPARTMENTS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets","Beverages","Service","Crockery","Transportation","ODC","Outdoor Staff","Management"];
 const SECTION_META = {
-  "Indian Curries": {color:"#D4A843", bg:"#1E1A10", dot:"#D4A843", icon:"🍛"},
-  "Tandoor":        {color:"#D06040", bg:"#201410", dot:"#D06040", icon:"🔥"},
-  "Chinese":        {color:"#8A70C8", bg:"#14101E", dot:"#8A70C8", icon:"🥢"},
-  "Chaat":          {color:"#4DAA6A", bg:"#0E1E14", dot:"#4DAA6A", icon:"🌮"},
-  "Sweets":         {color:"#D06080", bg:"#1E1014", dot:"#D06080", icon:"🍮"},
-  "Beverages":      {color:"#50B0A0", bg:"#0E1E1A", dot:"#50B0A0", icon:"☕"},
-  "Service":        {color:"#5B8FD0", bg:"#0E1620", dot:"#5B8FD0", icon:"🍽️"},
-  "Crockery":       {color:"#8A70C8", bg:"#14101E", dot:"#8A70C8", icon:"🍶"},
-  "Transportation": {color:"#D4A843", bg:"#1A1710", dot:"#D4A843", icon:"🚛"},
-  "ODC":            {color:"#D06040", bg:"#201410", dot:"#D06040", icon:"🏕️"},
-  "Management":     {color:"#C4A44A", bg:"#1A1710", dot:"#C4A44A", icon:"👑"},
-  "Outdoor Staff":  {color:"#E8A040", bg:"#1E1810", dot:"#E8A040", icon:"👷"},
+  "Indian Curries": {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"🍛"},
+  "Tandoor":        {color:"#D85A30", bg:"#FAECE7", dot:"#D85A30", icon:"🔥"},
+  "Chinese":        {color:"#7F77DD", bg:"#EEEDFE", dot:"#7F77DD", icon:"🥢"},
+  "Chaat":          {color:"#1D9E75", bg:"#E1F5EE", dot:"#1D9E75", icon:"🌮"},
+  "Sweets":         {color:"#D4537E", bg:"#FBEAF0", dot:"#D4537E", icon:"🍮"},
+  "Beverages":      {color:"#1D9E75", bg:"#E1F5EE", dot:"#1D9E75", icon:"☕"},
+  "Service":        {color:"#378ADD", bg:"#E6F1FB", dot:"#378ADD", icon:"🍽️"},
+  "Crockery":       {color:"#7F77DD", bg:"#EEEDFE", dot:"#7F77DD", icon:"🍶"},
+  "Transportation": {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"🚛"},
+  "ODC":            {color:"#D85A30", bg:"#FAECE7", dot:"#D85A30", icon:"🏕️"},
+  "Management":     {color:"#8B5E2F", bg:"#FDF6EE", dot:"#8B5E2F", icon:"👑"},
+  "Outdoor Staff":  {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"👷"},
 };
 // ─── OUTSIDE VENDORS ──────────────────────────────────────────────
 let OUTSIDE_VENDORS = [
