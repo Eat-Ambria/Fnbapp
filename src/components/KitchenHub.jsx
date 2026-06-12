@@ -47,8 +47,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function toggleDish(key){setExpandedDishes(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});}
   const [expandedSecs, setExpandedSecs] = useState({});
   const [specialOpen, setSpecialOpen] = useState(null); // "today_Indian Curries" etc
-  const toggleSec = (sec)=>setExpandedSecs(p=>({...p,[sec]:p[sec]===false?true:(p[sec]===undefined?false:!p[sec])}));
-  const isSecOpen = (sec)=>expandedSecs[sec]!==true; // default open
+  const toggleSec = (sec)=>setExpandedSecs(p=>({...p,[sec]:!p[sec]}));
+  const isSecOpen = (sec)=>expandedSecs[sec]===true; // default collapsed
   const [sopCat, setSopCat] = useState(null);
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
