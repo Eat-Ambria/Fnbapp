@@ -21,6 +21,28 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return [];
   }
 
+  // ── Strip hardcoded quantities from SOP step text ──
+  // SOPs have "पनीर (15 kg / 200 PAX)" baked in — we show scaled ingredients separately
+  function cleanStepText(text) {
+    if (!text) return "";
+    return text
+      // Remove "(15 kg / 200 PAX)" or "(2 kg)" or "(10 L)" or "(500 gm)" patterns
+      .replace(/\(\s*[\d.,]+\s*(?:kg|gm?|ml|li?t(?:re|er)?s?|pcs?|pieces?)\s*(?:\/\s*[\d.,]+\s*(?:PAX|pax))?\s*\)/gi, "")
+      // Remove standalone "15 kg" or "200 gm" or "10 L" preceded by quantity context
+      .replace(/\b([\d.,]+)\s*(kg|gm?|ml|li?t(?:re|er)?s?)\b/gi, function(match, num, unit) {
+        // Keep temperature references like "170°C" and time references
+        return "";
+      })
+      // Remove "/ 200 PAX" or "200 PAX" standalone references
+      .replace(/\/?\s*[\d.,]+\s*PAX/gi, "")
+      // Clean up double spaces, leading/trailing dashes, extra punctuation
+      .replace(/\s{2,}/g, " ")
+      .replace(/\(\s*\)/g, "")
+      .replace(/\s*—\s*—\s*/g, " — ")
+      .replace(/^\s*[—,]\s*/, "")
+      .trim();
+  }
+
   // Section tablet filtering
   const isSectionUser = currentUser?.role?.startsWith('section_');
   const SECTION_ROLE_MAP = {
@@ -478,9 +500,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
                                       <div style={{width:38,height:38,borderRadius:10,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0}}>{stDone?"✓":si+1}</div>
                                       <div style={{flex:1}}>
-                                        <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{step.t}</div>
-                                        {(step.i||step.desc)&&<div style={{fontSize:13,color:C.muted,marginTop:2}}>{step.i||step.desc}</div>}
-                                        {step.ccp&&<div style={{fontSize:13,color:C.red,marginTop:3}}>🔴 {step.ccp}</div>}
+                                        <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{cleanStepText(step.t)}</div>
+                                        {(step.i||step.desc)&&<div style={{fontSize:13,color:C.muted,marginTop:2}}>{cleanStepText(step.i||step.desc)}</div>}
+                                        {step.ccp&&<div style={{fontSize:13,color:C.red,marginTop:3}}>🔴 {cleanStepText(step.ccp)}</div>}
                                         {stS&&!stDone&&step.tm>0&&<div style={{marginTop:6}}><div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:13,color:C.red,fontWeight:700,marginTop:3}}>⏱ {T2("Overdue")} — {T2("tap Done")}</div>:<div style={{fontSize:13,color:C.amber,marginTop:3}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
                                         {stDone&&step.tm>0&&<div style={{fontSize:13,color:C.green,marginTop:3}}>✅ {Math.floor(stEl/60)}m done</div>}
                                         {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:13,color:C.faint,marginTop:3}}>⏱ {fmtT(step.tm)}</div>}
@@ -569,9 +591,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
                                     <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
                                     <div style={{flex:1}}>
-                                      <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{step.t}</div>
-                                      {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{step.i||step.desc}</div>}
-                                      {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {step.ccp}</div>}
+                                      <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{cleanStepText(step.t)}</div>
+                                      {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{cleanStepText(step.i||step.desc)}</div>}
+                                      {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {cleanStepText(step.ccp)}</div>}
                                       {stS&&!stDone&&step.tm>0&&<div style={{marginTop:4}}><div style={{height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:2,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:10,color:C.red,fontWeight:700,marginTop:2}}>⏱ Overdue — tap Done</div>:<div style={{fontSize:10,color:C.amber,marginTop:2}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
                                       {stDone&&step.tm>0&&<div style={{fontSize:10,color:C.green,marginTop:2}}>✅ {Math.floor(stEl/60)}m done</div>}
                                       {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:10,color:C.faint,marginTop:2}}>⏱ {fmtT(step.tm)}</div>}
@@ -1052,8 +1074,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
                     <div style={{width:32,height:32,borderRadius:8,background:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.gold,flexShrink:0}}>{si+1}</div>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{step.t}</div>
-                      <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{step.i||step.desc||""}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}</div>
+                      <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
                       {step.tm&&<span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6}}>⏱ {fmtT(step.tm)}</span>}
                       {step.ccp&&<span style={{fontSize:12,color:C.red,background:C.redBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6,marginLeft:6}}>🔴 CCP: {step.ccp}</span>}
                     </div>
