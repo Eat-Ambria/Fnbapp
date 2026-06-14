@@ -407,25 +407,114 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             })()}
 
             {/* ── Section-wise view ── */}
-            {allSecs.map(sec=>{
+            {isSectionUser ? (
+            /* ═══ TABLET VIEW — large, chef-friendly ═══ */
+            allSecs.length===0
+              ? <div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:18,color:C.muted}}>🍳 {T2("No dishes to prep")}</div></div>
+              : allSecs.map(sec=>{
+                const secItems = bySecD1[sec]||[];
+                const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                const secOpen = isSecOpen("d1sec_"+sec);
+                if(secItems.length===0) return null;
+                const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+                const totalCount = secItems.length;
+                const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
+                return(
+                  <div key={sec} style={{marginBottom:14,borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
+                    <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"18px 22px",cursor:"pointer",borderBottom:secOpen?`1.5px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:70}}>
+                      <div style={{display:"flex",alignItems:"center",gap:14}}>
+                        <div style={{width:46,height:46,borderRadius:12,background:m2.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{m2.icon}</div>
+                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}</div></div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:14}}>
+                        <div style={{padding:"6px 14px",borderRadius:10,background:m2.color+"18",fontSize:16,fontWeight:700,color:m2.color}}>{doneCount} / {totalCount}</div>
+                        <div style={{width:80,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:3,transition:"width .3s"}}/></div>
+                        <span style={{fontSize:20,color:C.faint,transform:secOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}>▾</span>
+                      </div>
+                    </div>
+                    {secOpen&&<div style={{padding:"10px 14px 14px"}}>
+                      {secItems.map((dish,di)=>{
+                        const isDone = !!ds(dish.fEvId,dish.fIdx).mesaDone;
+                        const cKey = `d1dish_${dish.name.replace(/\s/g,"_")}`;
+                        const isExp = expandedDishes.has(cKey);
+                        const sp = dish.specials&&dish.specials.length>0 ? dish.specials.map(s=>s.instruction).join(", ") : "";
+                        return(
+                          <div key={dish.name} style={{marginBottom:10,borderRadius:12,border:`1.5px solid ${isDone?C.greenBorder:isExp?m2.color:C.border}`,background:C.surface,overflow:"hidden"}}>
+                            <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:isDone?C.greenBg+"60":"transparent"}}>
+                              <div style={{width:36,height:36,borderRadius:10,background:isDone?C.green:C.border,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:isDone?"#fff":C.muted}}>{isDone?"✓":di+1}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dish.name}</div>
+                                <div style={{fontSize:14,color:C.muted,marginTop:2}}>{dish.fns.length} {T2("event")}{dish.fns.length>1?"s":""}{sp?<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,fontSize:12,color:C.red}}>⚠ {sp}</span>:null}</div>
+                              </div>
+                              <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:20,fontWeight:700,color:isDone?C.green:m2.color}}>{dish.totalPax}</div><div style={{fontSize:12,color:C.muted}}>pax</div></div>
+                              <span style={{fontSize:18,color:C.faint,flexShrink:0}}>{isExp?"▼":"▶"}</span>
+                            </div>
+                            {isExp&&!isDone&&(()=>{
+                              const d2s=ds(dish.fEvId,dish.fIdx);
+                              const allStepsFn = getStepsForDish(dish.name);
+                              const steps = allStepsFn.length>0?allStepsFn:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600},{t:"Primary prep",i:"Prepare base masala / paste",tm:480}];
+                              const ssStarted=!!d2s.storeStart;const ssDone=!!d2s.storeEnd;
+                              const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
+                              const ssRem=Math.max(0,1800-ssEl);const ssPct=ssStarted?Math.min(100,Math.round(ssEl/1800*100)):0;
+                              return(
+                                <div style={{padding:"12px 20px 20px",borderTop:`1.5px solid ${C.border}`}}>
+                                  <div style={{padding:16,marginBottom:14,borderRadius:12,border:`2px solid ${ssDone?C.greenBorder:ssStarted?C.amberBorder:C.border}`,background:ssDone?C.greenBg:ssStarted?C.amberBg:C.bg}}>
+                                    <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                                      <div style={{width:40,height:40,borderRadius:10,background:ssDone?C.green:ssStarted?C.amber:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#fff",flexShrink:0}}>{ssDone?"✓":"0"}</div>
+                                      <div style={{flex:1}}><div style={{fontSize:16,fontWeight:700,color:ssDone?C.green:ssStarted?C.amber:C.text}}>🏪 {T2("Collect from store")}</div><div style={{fontSize:13,color:C.muted}}>30 min — {T2("collect all ingredients")}</div></div>
+                                    </div>
+                                    {ssStarted&&!ssDone&&<div style={{marginTop:10}}><div style={{height:8,background:C.border,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:ssPct+"%",background:C.amber,borderRadius:4,transition:"width 1s"}}/></div><div style={{fontSize:14,color:C.amber,fontWeight:700,marginTop:4}}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m — {Math.floor(ssRem/60)}m left</div></div>}
+                                    {!ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeStart:Date.now()})} style={{padding:"14px 20px",borderRadius:12,width:"100%",background:C.gold,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",minHeight:54,marginTop:10}}>🏃 {T2("Go Collect")} — 30 min</button>}
+                                    {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})} style={{padding:"14px 20px",borderRadius:12,width:"100%",background:C.green,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",minHeight:54,marginTop:10}}>⏹ {T2("Done")} — {T2("Items collected")}</button>}
+                                    {ssDone&&<div style={{fontSize:14,color:C.green,fontWeight:700,marginTop:8}}>✅ {T2("Store sourcing complete")}</div>}
+                                  </div>
+                                  {(()=>{if(ssDone)return null;const ing=RECIPE_INGREDIENTS[dish.name];if(!ing)return null;const pax=dish.totalPax||0;const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return(
+                                    <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${C.border}`}}>
+                                      <div style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:8}}>🧺 {T2("Items to collect")} — {pax} pax @ {pct}%</div>
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q*pax*(pct/100);const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
+                                    </div>);})()}
+                                  <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
+                                  {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
+                                    <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                      <div style={{width:38,height:38,borderRadius:10,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0}}>{stDone?"✓":si+1}</div>
+                                      <div style={{flex:1}}>
+                                        <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{step.t}</div>
+                                        {(step.i||step.desc)&&<div style={{fontSize:13,color:C.muted,marginTop:2}}>{step.i||step.desc}</div>}
+                                        {step.ccp&&<div style={{fontSize:13,color:C.red,marginTop:3}}>🔴 {step.ccp}</div>}
+                                        {stS&&!stDone&&step.tm>0&&<div style={{marginTop:6}}><div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:13,color:C.red,fontWeight:700,marginTop:3}}>⏱ {T2("Overdue")} — {T2("tap Done")}</div>:<div style={{fontSize:13,color:C.amber,marginTop:3}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
+                                        {stDone&&step.tm>0&&<div style={{fontSize:13,color:C.green,marginTop:3}}>✅ {Math.floor(stEl/60)}m done</div>}
+                                        {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:13,color:C.faint,marginTop:3}}>⏱ {fmtT(step.tm)}</div>}
+                                      </div>
+                                      <div style={{flexShrink:0}}>
+                                        {!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2d.starts||{}),[sk]:Date.now()}});}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                        {!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true}});}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓</button>}
+                                        {!stS&&!stDone&&!prevD&&<div style={{padding:"12px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:15,color:C.faint,minHeight:48,display:"flex",alignItems:"center"}}>🔒</div>}
+                                      </div>
+                                    </div>);})}
+                                  <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56,marginTop:14}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button>
+                                </div>);})()}
+                            {isExp&&isDone&&<div style={{padding:"16px 20px",borderTop:`1.5px solid ${C.greenBorder}`,background:C.greenBg,textAlign:"center"}}><div style={{fontSize:16,color:C.green,fontWeight:700}}>✅ {T2("Prep complete")}</div></div>}
+                          </div>);
+                      })}
+                    </div>}
+                  </div>);})
+            ) : (
+            /* ═══ ADMIN VIEW — compact ═══ */
+            allSecs.map(sec=>{
               const secItems = bySecD1[sec]||[];
               const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
               const secOpen = isSecOpen("d1sec_"+sec);
-
               if(secItems.length===0) return null;
-
               const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
               const totalCount = secItems.length;
-
               const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
               return(
                 <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
-                  {/* Section header */}
                   <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:16}}>{m2.icon}</span>
                       <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(sec)}</span>
-                      <span style={{fontSize:12,color:C.muted}}>{secItems.length} {T2("dishes")}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{totalCount} {T2("dishes")}</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {totalCount}</span>
@@ -433,156 +522,77 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <span style={{fontSize:14,color:C.faint,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                     </div>
                   </div>
-
                   {secOpen&&<div style={{padding:"8px 12px"}}>
                     {secItems.map(dish=>{
                       const dishName = dish.name;
                       const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
                       const isExp = expandedDishes.has(cKey);
-
-                      // Get steps for this dish
                       const allStepsFn = getStepsForDish(dishName);
                       const steps = allStepsFn.length>0?allStepsFn:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600},{t:"Primary prep",i:"Prepare base masala / paste",tm:480}];
-
                       const isDone = !!ds(dish.fEvId,dish.fIdx).mesaDone;
-
                       return(
                         <div key={dishName} style={{marginBottom:6}}>
-                          {/* Dish row */}
                           <div onClick={()=>toggleDish(cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                            <div style={{padding:"10px 14px",background:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div style={{padding:"10px 14px",background:isDone?C.greenBg:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                                <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                  {isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
-                                </div>
-                                <div>
-                                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dishName}</div>
-                                  <div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax · {d1Label}</div>
-                                </div>
+                                <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}</div>
+                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishName}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax · {d1Label}</div></div>
                               </div>
-                              <span style={{fontSize:12,color:C.muted}}>{isExp?'▼':'▶'}</span>
+                              <span style={{fontSize:12,color:C.muted}}>{isExp?"▼":"▶"}</span>
                             </div>
                           </div>
 
-                          {/* Expanded steps */}
-                          {isExp&&(
-                            <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
-                              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
-                              {/* ── Step 0: Store Sourcing (D-1 tab) ── */}
-                              {(()=>{
-                                const tdish=dish;if(!tdish)return null;
-                                const d2s=ds(tdish.fEvId,tdish.fIdx);
-                                const ssStarted=!!d2s.storeStart;
-                                const ssDone=!!d2s.storeEnd;
-                                const ssOverdue=ssStarted&&!ssDone&&Math.floor((Date.now()-(d2s.storeStart||0))/1000)>=1800;
-                                const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
-                                const ssRem=Math.max(0,1800-ssEl);
-                                const ssPct=ssStarted?Math.min(100,Math.round(ssEl/1800*100)):0;
-                                return(
-                                  <div style={{padding:12,marginBottom:10,borderRadius:10,
-                                    border:`2px solid ${ssDone?C.greenBorder:ssStarted?C.amberBorder:C.border}`,
-                                    background:ssDone?C.greenBg:ssStarted?C.amberBg:C.surface}}>
-                                    <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                                      <div style={{width:32,height:32,borderRadius:8,background:ssDone?C.green:ssStarted?C.amber:C.border,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'#fff',flexShrink:0}}>{ssDone?'✓':'0'}</div>
-                                      <div style={{flex:1}}>
-                                        <div style={{fontSize:13,fontWeight:700,color:ssDone?C.green:ssStarted?C.amber:C.text}}>🏪 Collect Items from Store</div>
-                                        <div style={{fontSize:11,color:C.muted}}>30 min stoppable timer — collect all ingredients</div>
-                                      </div>
-                                    </div>
-                                    {ssStarted&&!ssDone&&<div style={{marginTop:8}}>
-                                      <div style={{height:5,background:C.border,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:ssPct+'%',background:C.amber,borderRadius:3,transition:'width 1s'}}/></div>
-                                      <div style={{fontSize:11,color:C.amber,fontWeight:700,marginTop:3}}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m — {Math.floor(ssRem/60)}m {ssRem%60}s left</div>
-                                    </div>}
-                                    {!ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeStart:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:'#fff',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:8}}>🏃 Go Collect Items — Start 30 min Timer</button>}
-                                    {ssStarted&&!ssDone&&<button onClick={()=>setDs(tdish.fEvId,tdish.fIdx,{storeEnd:Date.now()})} style={{padding:'10px 16px',borderRadius:8,width:'100%',background:`linear-gradient(135deg,${C.green},#147A54)`,color:'#fff',border:'none',fontSize:12,fontWeight:700,cursor:'pointer',minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
-                                    {ssDone&&<div style={{fontSize:12,color:C.green,fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
+                          {isExp&&!isDone&&(()=>{
+                            const d2s=ds(dish.fEvId,dish.fIdx);
+                            const ssStarted=!!d2s.storeStart;const ssDone=!!d2s.storeEnd;
+                            const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
+                            const ssRem=Math.max(0,1800-ssEl);const ssPct=ssStarted?Math.min(100,Math.round(ssEl/1800*100)):0;
+                            return(
+                              <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
+                                <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
+                                <div style={{padding:12,marginBottom:10,borderRadius:10,border:`2px solid ${ssDone?C.greenBorder:ssStarted?C.amberBorder:C.border}`,background:ssDone?C.greenBg:ssStarted?C.amberBg:C.surface}}>
+                                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                                    <div style={{width:32,height:32,borderRadius:8,background:ssDone?C.green:ssStarted?C.amber:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:"#fff",flexShrink:0}}>{ssDone?"✓":"0"}</div>
+                                    <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:ssDone?C.green:ssStarted?C.amber:C.text}}>🏪 Collect Items from Store</div><div style={{fontSize:11,color:C.muted}}>30 min stoppable timer — collect all ingredients</div></div>
                                   </div>
-                                );
-                              })()}
-                              {/* Ingredient list (before & during store collection) */}
-                              {(()=>{
-                                const tdish=dish;if(!tdish)return null;
-                                const d2s=ds(tdish.fEvId,tdish.fIdx);
-                                if(d2s.storeEnd) return null;
-                                const ing=RECIPE_INGREDIENTS[dishName];
-                                if(!ing) return null;
-                                const pax=tdish.totalPax||0;
-                                const eff=effectiveScales[tdish.fEvId];
-                                const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);
-                                const isOvr=eff?.isOverride||false;
-                                return(
+                                  {ssStarted&&!ssDone&&<div style={{marginTop:8}}><div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:ssPct+"%",background:C.amber,borderRadius:3,transition:"width 1s"}}/></div><div style={{fontSize:11,color:C.amber,fontWeight:700,marginTop:3}}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m — {Math.floor(ssRem/60)}m left</div></div>}
+                                  {!ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeStart:Date.now()})} style={{padding:"10px 16px",borderRadius:8,width:"100%",background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,marginTop:8}}>🏃 Go Collect Items — Start 30 min Timer</button>}
+                                  {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})} style={{padding:"10px 16px",borderRadius:8,width:"100%",background:`linear-gradient(135deg,${C.green},#147A54)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
+                                  {ssDone&&<div style={{fontSize:12,color:C.green,fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
+                                </div>
+                                {(()=>{if(ssDone)return null;const ing=RECIPE_INGREDIENTS[dishName];if(!ing)return null;const pax=dish.totalPax||0;const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return(
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
-                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>
-                                      🧺 {T2("Items to collect")} — {pax} pax @ {pct}%
-                                      {isOvr
-                                        ?<span style={{fontSize:10,color:C.amber,marginLeft:6}}>⚙️ {T2("override")}</span>
-                                        :<span style={{fontSize:10,color:C.faint,marginLeft:6}}>{T2("auto-scaled")}</span>
-                                      }
-                                    </div>
-                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>
-                                      {ing.filter(i=>i.q>0).map((i,ii)=>{
-                                        const raw=i.q*pax*(pct/100);
-                                        const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):
-                                          i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):
-                                            i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;
-                                        return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;
-                                      })}
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                              {steps.map((step,si)=>{
-                                const trackDish=dish;
-                                const d2d=trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
-                                const sk='step_'+si;
-                                const stS=!!(d2d.starts&&d2d.starts[sk]);
-                                const stM=!!(d2d.manual&&d2d.manual[sk]);
-                                const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;
-                                const stDone=stM;
-                                const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;
-                                const stRem=step.tm?Math.max(0,step.tm-stEl):0;
-                                const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;
-                                const pk='step_'+(si-1);
-                                const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));
-                                return(
+                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 {T2("Items to collect")} — {pax} pax @ {pct}%</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q*pax*(pct/100);const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
+                                  </div>);})()}
+                                {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
                                   <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
                                     <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
                                     <div style={{flex:1}}>
                                       <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text}}>{step.t}</div>
                                       {(step.i||step.desc)&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{step.i||step.desc}</div>}
                                       {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {step.ccp}</div>}
-                                      {stS&&!stDone&&step.tm>0&&<div style={{marginTop:4}}>
-                                        <div style={{height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:2,transition:"width 1s"}}/></div>
-                                        {stOverdue
-                                          ?<div style={{fontSize:10,color:C.red,fontWeight:700,marginTop:2}}>⏱ +{Math.floor(Math.abs(stRem===0?(stEl-(step.tm||0)):0)/60)}m {Math.abs(stEl-(step.tm||0))%60}s over — tap Done ✓</div>
-                                          :<div style={{fontSize:10,color:C.amber,marginTop:2}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m {stRem%60}s left</div>}
-                                      </div>}
-                                      {stDone&&step.tm>0&&<div style={{fontSize:10,color:C.green,marginTop:2}}>✅ {Math.floor(stEl/60)}m {stEl%60}s done{step.tm&&stEl>step.tm?` (+${Math.floor((stEl-step.tm)/60)}m ${(stEl-step.tm)%60}s over)`:""}</div>}
+                                      {stS&&!stDone&&step.tm>0&&<div style={{marginTop:4}}><div style={{height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:2,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:10,color:C.red,fontWeight:700,marginTop:2}}>⏱ Overdue — tap Done</div>:<div style={{fontSize:10,color:C.amber,marginTop:2}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
+                                      {stDone&&step.tm>0&&<div style={{fontSize:10,color:C.green,marginTop:2}}>✅ {Math.floor(stEl/60)}m done</div>}
                                       {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:10,color:C.faint,marginTop:2}}>⏱ {fmtT(step.tm)}</div>}
                                     </div>
                                     <div style={{flexShrink:0}}>
-                                      {!stS&&!stDone&&step.tm>0&&prevD&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{starts:{...(d2d.starts||{}),[sk]:Date.now()}});}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
-                                      {!stS&&!stDone&&!step.tm&&prevD&&trackDish&&<button onClick={e=>{e.stopPropagation();setDs(trackDish.fEvId,trackDish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true}});}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                      {!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2d.starts||{}),[sk]:Date.now()}});}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                      {!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true}});}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
                                       {!stS&&!stDone&&!prevD&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,minHeight:32,display:"flex",alignItems:"center"}}>🔒</div>}
                                     </div>
-                                  </div>
-                                );
-                              })}
-                              {/* Mark prep done */}
-                              {!isDone&&<div style={{marginTop:8}}>
-                                <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {T2("Mark D-1 prep done")} — {dish.totalPax} pax</button>
-                              </div>}
-                            </div>
-                          )}
+                                  </div>);})}
+                                <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,marginTop:8}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button>
+                              </div>);})()}
                         </div>
                       );
                     })}
                   </div>}
                 </div>
               );
-            })}
-
-            {allSecs.length===0&&<div style={{padding:"24px",textAlign:"center",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></div>}{allSecs.length===0&&<Card style={{padding:"24px",textAlign:"center"}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></Card>}
+            })
+            )}
+            {allSecs.length===0&&!isSectionUser&&<div style={{padding:"24px",textAlign:"center",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}><div style={{fontSize:12,color:C.muted}}>{T2("No dishes to prep")}</div></div>}
           </div>
         );
       })()}
