@@ -36,6 +36,18 @@ import { AccessManager } from './components/AccessManager.jsx';
 import { GateKiosk } from './components/GateKiosk.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
 
+// ── LMS menu name normalization ──
+// LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg"
+function matchMenuPackage(rawName) {
+  if (!rawName) return "";
+  if (MENU_PACKAGES[rawName]) return rawName; // exact match
+  // Normalize: strip dashes, collapse spaces, lowercase compare
+  const norm = s => s.replace(/[-–—]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const target = norm(rawName);
+  const match = Object.keys(MENU_PACKAGES).find(k => norm(k) === target);
+  return match || rawName; // return matched key or original (will fall through as custom)
+}
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -215,7 +227,8 @@ export default function App() {
           else { menu = []; }
         }
         // LMS events arrive with menu:[] — resolve from menu_package
-        const pkg = e.menu_package||e.menuPackage||"";
+        const rawPkg = e.menu_package||e.menuPackage||"";
+        const pkg = matchMenuPackage(rawPkg);
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu = MENU_PACKAGES[pkg];
         let extras = e.extras;
         if (!Array.isArray(extras)) extras = [];
@@ -288,7 +301,7 @@ export default function App() {
       if(payload.new){
         let menu=payload.new.menu||[];
         if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
-        const pkg=payload.new.menu_package||"";
+        const pkg=matchMenuPackage(payload.new.menu_package||"");
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
         ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[]};
       }
