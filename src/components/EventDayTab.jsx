@@ -405,7 +405,7 @@ function EventDayTab({
                                       markedAt: now, status: "Pending Pickup",
                                     }]);
                                   }
-                                }} style={{ flex: 1, padding: "14px", borderRadius: 12, background: "#6B1818", color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                                }} style={{ flex: 1, padding: "14px", borderRadius: 12, background:C.red, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                                   🚛 {T2("Transport")}
                                 </button>
                               </div>

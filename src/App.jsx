@@ -16,7 +16,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, LIVE_EVENTS_INIT, safeArr, safeObj, normalizeAtt } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt } from './utils/helpers.js';
 
 // Components
 import { ErrorBoundary, Avatar } from './components/SharedUI.jsx';
@@ -104,7 +104,7 @@ export default function App() {
   };
 
   // ── Events ──
-  const [events,setEvents_raw]       = useState(LIVE_EVENTS_INIT);
+  const [events,setEvents_raw]       = useState([]);
   const setEvents = (updater) => {
     setEvents_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -192,7 +192,7 @@ export default function App() {
 
       const [staffData, eventsData, attData, lvData, repairData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),
-        dbLoad('events', LIVE_EVENTS_INIT),
+        dbLoad('events', []),
         dbLoad('attendance', []),
         dbLoad('leaves', []),
         dbLoad('repair_tickets', []),
@@ -206,8 +206,8 @@ export default function App() {
       const supaIds = new Set(staffData.map(s => s.staff_id || s.staffListId || s.id).filter(Boolean));
       const initOnly = EMPLOYEE_DB_INIT.filter(e => !supaIds.has(e.staff_id) && !supaIds.has(e.staffListId));
       setEmpDb([...staffData, ...initOnly].map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false})));
-      // If Supabase returns empty events, fall back to LIVE_EVENTS_INIT (demo data)
-      const finalEvents = eventsData.length > 0 ? eventsData : LIVE_EVENTS_INIT;
+      // Use whatever Supabase returns (empty is fine — LMS sync will populate)
+      const finalEvents = eventsData;
       setEvents_raw(finalEvents.map(e=>{
         let menu = e.menu;
         if (!Array.isArray(menu)) {
@@ -532,7 +532,7 @@ export default function App() {
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
       case "dept_odc":       return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="odc"/>;
-      default: return <div style={{padding:40,textAlign:"center",color:"#888"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:"#6B1818",color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
+      default: return <div style={{padding:40,textAlign:"center",color:"#888"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:C.red,color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
     }
   }
 

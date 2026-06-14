@@ -82,12 +82,7 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
             </div>
             <Card>
               <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>Today's Events at Ambria</div>
-              {LIVE_EVENTS_INIT.slice(0,2).map((ev,i)=>(
-                <div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`}}>
-                  <div style={{fontSize:12,fontWeight:500,color:C.text}}>{ev.guest}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{ev.date} · {ev.time} · {ev.pax} pax · {ev.venue}</div>
-                </div>
-              ))}
+              <div style={{padding:"12px 0",fontSize:12,color:C.muted}}>Event details available on the Dashboard.</div>
             </Card>
           </div>
         )}

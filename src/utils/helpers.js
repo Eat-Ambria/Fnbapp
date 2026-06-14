@@ -1,8 +1,6 @@
 // Ambria FnB — Utility functions & date helpers
 // Extracted from App.jsx
 
-import { MENU_PACKAGES } from '../data/menuPackages.js';
-
 function localDateStr(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${dd}`;}
 const TODAY = localDateStr(new Date());
 const TODAY_LABEL = new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
@@ -14,56 +12,7 @@ function relDate(daysFromToday){
 const TOMORROW = relDate(1);
 const DAY_AFTER = relDate(2);
 
-const LIVE_EVENTS_INIT = [
-  // ── TOMORROW (Jun 1) ──
-  {id:`FP-${CUR_YEAR}-104`,guest:"Gupta Reception",venue:"Ambria Pushpanjali",
-    date:TOMORROW,time:"7:00 PM",type:"Reception",pax:500,veg:320,nonveg:180,
-    menuPackage:"Multi-Cuisine Non-Veg",menu:MENU_PACKAGES["Multi-Cuisine Non-Veg"]||[],
-    special:"Ice cream counter by 9 PM. Bride is lactose intolerant — separate dessert.",
-    extras:[{item:"Mocktail Counter (Extra Flavours)",qty:3,type:"Complimentary",by:"Sales Team"}]},
-  // ── DAY AFTER (Jun 2) ──
-  {id:`FP-${CUR_YEAR}-106`,guest:"Mehra Engagement",venue:"Ambria Pushpanjali",
-    date:DAY_AFTER,time:"1:00 PM",type:"Other",pax:300,veg:180,nonveg:120,
-    menuPackage:"Magnum Non-Veg",menu:MENU_PACKAGES["Magnum Non-Veg"]||[],
-    special:"Dry fruit counter must be premium. Saffron theme decor.",
-    extras:[{item:"Dry Fruit Counter",qty:1,type:"Chargeable",rate:12000,by:"Sales Team"}]},
-  {
-    id:"FP-2025-107",
-    guest:"Verma Wedding (ODC)",
-    venue:"Outdoor Catering (ODC)",
-    date:TOMORROW,
-    time:"7:00 PM",
-    type:"Wedding",
-    pax:350,
-    veg:250,
-    nonveg:100,
-    menuPackage:"Multi-Cuisine Non-Veg",
-    menu:MENU_PACKAGES["Multi-Cuisine Non-Veg"]||[],
-    special:"ODC test event. Outdoor setup at client farmhouse, Chattarpur. Generator on standby. Gopal in-charge.",
-    extras:[
-      {item:"Chafing Dish Setup (Full)",qty:12,type:"Complimentary",by:"Ops Team"},
-      {item:"Generator Backup",qty:1,type:"Chargeable",rate:3500,by:"Ops Team"},
-    ],
-  },
-  {
-    id:"FP-2025-108",
-    guest:"Singh Reception",
-    venue:"Manaktala Farm",
-    date:DAY_AFTER,
-    time:"6:30 PM",
-    type:"Reception",
-    pax:300,
-    veg:300,
-    nonveg:0,
-    menuPackage:"Multi-Cuisine Veg",
-    menu:MENU_PACKAGES["Multi-Cuisine Veg"]||[],
-    special:"Pure Veg. Test event for Manaktala kitchen flow. Lokesh in-charge. Chinese section ready by 5:30 PM.",
-    extras:[
-      {item:"Live Chaat Counter",qty:1,type:"Complimentary",by:"Sales Team"},
-      {item:"Jalebi Live Station",qty:1,type:"Complimentary",by:"Sales Team"},
-    ],
-  },
-];
+const LIVE_EVENTS_INIT = [];
 
 function safeArr(v) { return Array.isArray(v) ? v : []; }
 function safeObj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
