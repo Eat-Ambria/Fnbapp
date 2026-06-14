@@ -395,6 +395,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
           });
         });
+        // Filter: only keep dishes that have at least one d1 (prep-day) step
+        // If dish has SOP steps with d1:true → show. If no SOP steps → fallback GENERIC_STEPS has d1 → show.
+        // If dish has SOP steps but NONE have d1:true → skip (all steps are event-day only)
+        Object.keys(byDishD1).forEach(name=>{
+          const sopSteps = getStepsForDish(name);
+          if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) delete byDishD1[name];
+        });
         const bySecD1={};Object.entries(byDishD1).forEach(([n,info])=>{if(!bySecD1[info.sec])bySecD1[info.sec]=[];bySecD1[info.sec].push({name:n,...info});});
         const allSecs = Object.keys(bySecD1).sort();
 
