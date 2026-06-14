@@ -430,9 +430,9 @@ export default function App() {
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && currentUser.role.startsWith('section_')) {
     return (
-      <div style={{minHeight:'100vh',background:'#0A0908'}}>
-        <div style={{padding:'12px 20px',background:'#1A1714',
-          borderBottom:'1px solid #2A2520',display:'flex',
+      <div style={{minHeight:'100vh',background:C.bg}}>
+        <div style={{padding:'12px 20px',background:C.surface,
+          borderBottom:`1px solid ${C.border}`,display:'flex',
           justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:20}}>
@@ -441,14 +441,14 @@ export default function App() {
                currentUser.section==='Sweets'?'🍮':currentUser.section==='Continental'?'🍝':'🍽'}
             </span>
             <div>
-              <div style={{fontSize:16,fontWeight:700,color:'#D4B44A',
+              <div style={{fontSize:16,fontWeight:700,color:C.gold,
                 fontFamily:'var(--font-display)'}}>{currentUser.section} Section</div>
-              <div style={{fontSize:11,color:'#7A6F62'}}>Kitchen Tablet · {TODAY_LABEL}</div>
+              <div style={{fontSize:11,color:C.muted}}>Kitchen Tablet · {TODAY_LABEL}</div>
             </div>
           </div>
           <button onClick={function(){setCurrentUser(null);}}
-            style={{padding:'8px 16px',borderRadius:10,background:'#141210',
-              border:'1px solid #2A2520',color:'#7A6F62',fontSize:11,
+            style={{padding:'8px 16px',borderRadius:10,background:C.surface,
+              border:`1px solid ${C.border}`,color:C.muted,fontSize:11,
               cursor:'pointer'}}>
             ← Exit
           </button>

@@ -60,14 +60,14 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   }
 
   return (
-    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 20%, #18150E 0%, #0A0908 50%, #06050A 100%)`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 20%, #FDFCF9 0%, ${C.bg} 50%, #F0EDE6 100%)`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
       {/* Background decorative elements */}
-      <div style={{position:"absolute",top:"-20%",right:"-10%",width:500,height:500,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.04) 0%, transparent 70%)",pointerEvents:"none"}}/>
-      <div style={{position:"absolute",bottom:"-15%",left:"-5%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.03) 0%, transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",top:"-20%",right:"-10%",width:500,height:500,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.06) 0%, transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:"-15%",left:"-5%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle, rgba(212,180,74,.05) 0%, transparent 70%)",pointerEvents:"none"}}/>
 
-      <div className="fade-in-up" style={{background:`linear-gradient(160deg, ${C.surface} 0%, #0E0D0B 100%)`,borderRadius:24,padding:"48px 44px",width:400,boxShadow:`0 32px 80px rgba(0,0,0,.5), 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.04)`,border:`1px solid ${C.border}`,position:"relative"}}>
+      <div className="fade-in-up" style={{background:`linear-gradient(160deg, #FFFFFF 0%, ${C.bg} 100%)`,borderRadius:24,padding:"48px 44px",width:400,boxShadow:`0 32px 80px rgba(0,0,0,.08), 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.5)`,border:`1px solid ${C.border}`,position:"relative"}}>
         {/* Subtle top gold line */}
-        <div style={{position:"absolute",top:0,left:"15%",right:"15%",height:1,background:`linear-gradient(90deg, transparent, ${C.gold}40, transparent)`}}/>
+        <div style={{position:"absolute",top:0,left:"15%",right:"15%",height:1,background:`linear-gradient(90deg, transparent, ${C.gold}60, transparent)`}}/>
 
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:36}}>
@@ -105,7 +105,7 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
 
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,cursor:"pointer"}} onClick={()=>setRemember(r=>!r)}>
           <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${remember?C.gold:C.border}`,background:remember?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {remember&&<span style={{color:"#0A0908",fontSize:11,fontWeight:700}}>✓</span>}
+            {remember&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
           </div>
           <span style={{fontSize:12,color:C.muted}}>{T2("Remember me on this device")}</span>
         </div>
@@ -113,7 +113,7 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         <button
           onClick={handleLogin}
           disabled={loading||!empId||pin.length<4}
-          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #A8891E)`,color:(!empId||pin.length<4)?C.muted:"#0A0908",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
+          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #A8891E)`,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
           {loading?T2("Signing in…"):T2("Sign In →")}
         </button>
 
