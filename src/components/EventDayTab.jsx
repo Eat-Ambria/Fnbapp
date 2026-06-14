@@ -297,8 +297,8 @@ function EventDayTab({
                             onDone={() => setDs(dish.fEvId, dish.fIdx, { storeEnd: Date.now() })}
                           />
 
-                          {/* Ingredient list (when store is active) */}
-                          {storeStarted && !storeDone && (() => {
+                          {/* Ingredient list (before & during store collection) */}
+                          {!storeDone && (() => {
                             const ing = RECIPE_INGREDIENTS[dish.name];
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             const pax = evObj ? +evObj.pax : 0;

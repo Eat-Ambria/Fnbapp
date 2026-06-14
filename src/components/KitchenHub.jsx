@@ -197,11 +197,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   });
 
   // Prep day context: which events are being prepped for
-  const contEvLabel = (hasTodayEvs ? todayEvs : tomorrowEvs).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
-  const newEvLabel = evList.filter(e=>e.date===DAY_AFTER).map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
+  const prepEvLabel = tomorrowEvs.map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ");
   const prepContextParts = [];
-  if(contEvLabel) prepContextParts.push(`${tomorrowLabel}: ${contEvLabel}`);
-  if(newEvLabel) prepContextParts.push(`${dayAfterLabel}: ${newEvLabel}`);
+  if(prepEvLabel) prepContextParts.push(`${tomorrowLabel}: ${prepEvLabel}`);
 
   const TABS=[
     {v:"today",   l:T2("Event day")},
@@ -357,64 +355,30 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         )
       )}
       {tab==="d1"&&(()=>{
-        // D-1 logic: if today has an event, prep for DAY_AFTER. If no event today, prep for TOMORROW.
-        // Section 1: Continuation of today's D-1 = tomorrowEvs (event day cooking)
-        // Section 2: New D-1 prep = dayAfterEvs (advance prep for day-after)
-        const continuationEvs = hasTodayEvs ? todayEvs : tomorrowEvs;
-        const newD1Evs = hasTodayEvs
-          ? evList.filter(e=>e.date===DAY_AFTER)
-          : evList.filter(e=>e.date===DAY_AFTER);
-        const d1ForLabel = hasTodayEvs ? dayAfterLabel : dayAfterLabel;
-        const contLabel = hasTodayEvs ? todayLabel2 : tomorrowLabel;
-        const newD1Label = dayAfterLabel;
+        // D-1 logic: prep only for TOMORROW's events
+        const d1Evs = tomorrowEvs;
+        const d1Label = tomorrowLabel;
 
-        // Build dishes for Section 1 (continuation - final cooking)
-        const byDishCont={};
-        continuationEvs.forEach(ev=>{
+        // Build dishes for tomorrow
+        const byDishD1={};
+        d1Evs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           menuArr(ev).forEach((name,idx)=>{
             if(guessSectionForDish(name)==="Beverages") return;
             if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
-            if(!byDishCont[name])byDishCont[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
-            byDishCont[name].totalPax+=ev.pax||0;
-            byDishCont[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
-            if(isSpecial)byDishCont[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
+            if(!byDishD1[name])byDishD1[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+            byDishD1[name].totalPax+=ev.pax||0;
+            byDishD1[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
+            if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
           });
         });
+        const bySecD1={};Object.entries(byDishD1).forEach(([n,info])=>{if(!bySecD1[info.sec])bySecD1[info.sec]=[];bySecD1[info.sec].push({name:n,...info});});
+        const allSecs = Object.keys(bySecD1).sort();
 
-        // Build dishes for Section 2 (new D-1 prep)
-        const byDishNew={};
-        newD1Evs.forEach(ev=>{
-          const sp=ev.special||"";
-          const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
-          menuArr(ev).forEach((name,idx)=>{
-            if(guessSectionForDish(name)==="Beverages") return;
-            if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
-            if(!byDishNew[name])byDishNew[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
-            byDishNew[name].totalPax+=ev.pax||0;
-            byDishNew[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
-            if(isSpecial) byDishNew[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
-          });
-        });
-        const bySecCont={};Object.entries(byDishCont).forEach(([n,info])=>{if(!bySecCont[info.sec])bySecCont[info.sec]=[];bySecCont[info.sec].push({name:n,...info});});
-        const bySecNew={};Object.entries(byDishNew).forEach(([n,info])=>{if(!bySecNew[info.sec])bySecNew[info.sec]=[];bySecNew[info.sec].push({name:n,...info});});
-        const secKeysCont=Object.keys(bySecCont).sort();
-        const secKeysNew=Object.keys(bySecNew).sort();
-        // ── Merge dishes from both sources by section ──
-        const allSecs = [...new Set([
-          ...Object.keys(bySecCont),
-          ...Object.keys(bySecNew)
-        ])].sort();
-
-        const totalContDone = Object.values(byDishCont).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
-        const totalNewDone  = Object.values(byDishNew).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
-        const totalCont = Object.keys(byDishCont).length;
-        const totalNew  = Object.keys(byDishNew).length;
-
-        const totalCollectivePax=(contPax||0)+(newD1Pax||0);
-        const totalCollDone=totalContDone+totalNewDone;
-        const totalColl=totalCont+totalNew;
+        const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+        const totalD1 = Object.keys(byDishD1).length;
+        const totalD1Pax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
 
         return(
           <div>
@@ -426,54 +390,32 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>
             )}
 
-            {/* ── Summary cards — single merged row with filter ── */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:20}}>
-              {[
-                {label:`${tomorrowLabel} ${T2("prep")}`,pax:contPax,done:totalContDone,total:totalCont,c:C.amber,view:"cont"},
-                {label:`${dayAfterLabel} ${T2("prep")}`,pax:newD1Pax,done:totalNewDone,total:totalNew,c:C.gold,view:"new"},
-                {label:T2("All prep"),pax:totalCollectivePax,done:totalCollDone,total:totalColl,c:C.blue,view:"all"},
-              ].map(h=>{
-                const pct=h.total>0?Math.round(h.done/h.total*100):0;
-                const isSel=d1View===h.view;
-                return(
-                  <div key={h.view} onClick={()=>setD1View(h.view)}
-                    style={{background:isSel?h.c+"10":C.surface,borderLeft:`3px solid ${h.c}`,border:isSel?`1.5px solid ${h.c}`:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",cursor:"pointer",transition:"all .15s"}}>
-                    <div style={{fontSize:10,fontWeight:500,color:h.c,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{h.label}</div>
-                    <div style={{fontSize:22,fontWeight:500,color:h.c,lineHeight:1.1}}>{h.pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:4}}>{h.done} / {h.total} {T2("done")}</div>
-                    <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:h.c,borderRadius:2,transition:"width .3s"}}/></div>
+            {/* ── Summary card ── */}
+            {(()=>{
+              const pct=totalD1>0?Math.round(totalD1Done/totalD1*100):0;
+              return(
+                <div style={{background:C.surface,borderLeft:`3px solid ${C.gold}`,border:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",marginBottom:20}}>
+                  <div style={{fontSize:10,fontWeight:500,color:C.gold,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{d1Label} {T2("prep")}</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                    <div style={{fontSize:22,fontWeight:500,color:C.gold,lineHeight:1.1}}>{totalD1Pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
+                    <div style={{fontSize:11,color:C.muted}}>{totalD1Done} / {totalD1} {T2("done")}</div>
                   </div>
-                );
-              })}
-            </div>
-
-            {/* ── Filter info ── */}
-            {d1View!=="all"&&<div style={{fontSize:11,color:C.muted,marginBottom:10,padding:"6px 12px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
-              {d1View==="cont"?`${T2("Showing")} ${tomorrowLabel} ${T2("prep only")}`:
-                               `${T2("Showing")} ${dayAfterLabel} ${T2("prep only")}`}
-              &nbsp;<span style={{color:C.gold,cursor:"pointer",fontWeight:500}} onClick={()=>setD1View("all")}>→ {T2("Show all")}</span>
-            </div>}
+                  <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:C.gold,borderRadius:2,transition:"width .3s"}}/></div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>{d1Evs.map(e=>`${e.guest||"Function"} (${e.pax} pax · ${e.time||"TBD"})`).join(" · ")}</div>
+                </div>
+              );
+            })()}
 
             {/* ── Section-wise view ── */}
             {allSecs.map(sec=>{
-              const contItems = bySecCont[sec]||[];
-              const newItems  = bySecNew[sec]||[];
+              const secItems = bySecD1[sec]||[];
               const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
               const secOpen = isSecOpen("d1sec_"+sec);
 
-              // Filter dish names based on selected view
-              const activeDishNames = d1View==="cont" ? contItems.map(d=>d.name)
-                                    : d1View==="new"  ? newItems.map(d=>d.name)
-                                    : [...new Set([...contItems.map(d=>d.name),...newItems.map(d=>d.name)])];
-              const allDishNames = [...new Set(activeDishNames)];
+              if(secItems.length===0) return null;
 
-              if(allDishNames.length===0) return null;
-
-              // Progress counts for header — based on active view only
-              const activeContItems = d1View!=="new" ? contItems : [];
-              const activeNewItems  = d1View!=="cont" ? newItems  : [];
-              const doneCount = [...activeContItems,...activeNewItems].filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
-              const totalCount = allDishNames.length;
+              const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
+              const totalCount = secItems.length;
 
               const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
               return(
@@ -483,7 +425,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:16}}>{m2.icon}</span>
                       <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(sec)}</span>
-                      <span style={{fontSize:12,color:C.muted}}>{allDishNames.length} {T2("dishes")}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{secItems.length} {T2("dishes")}</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {totalCount}</span>
@@ -493,10 +435,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
 
                   {secOpen&&<div style={{padding:"8px 12px"}}>
-                    {allDishNames.map(dishName=>{
-                      const cDish = contItems.find(d=>d.name===dishName);
-                      const nDish = newItems.find(d=>d.name===dishName);
-                      const inBoth = cDish && nDish;
+                    {secItems.map(dish=>{
+                      const dishName = dish.name;
                       const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
                       const isExp = expandedDishes.has(cKey);
 
@@ -504,58 +444,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const allStepsFn = getStepsForDish(dishName);
                       const steps = allStepsFn.length>0?allStepsFn:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600},{t:"Primary prep",i:"Prepare base masala / paste",tm:480}];
 
-                      const cDone = cDish ? !!ds(cDish.fEvId,cDish.fIdx).mesaDone : null;
-                      const nDone = nDish ? !!ds(nDish.fEvId,nDish.fIdx).mesaDone : null;
+                      const isDone = !!ds(dish.fEvId,dish.fIdx).mesaDone;
 
                       return(
                         <div key={dishName} style={{marginBottom:6}}>
-                          {/* Dish row — side by side pax */}
+                          {/* Dish row */}
                           <div onClick={()=>toggleDish(cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                            {/* Top: dish name */}
-                            <div style={{padding:"9px 14px",background:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                              <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dishName}</div>
+                            <div style={{padding:"10px 14px",background:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
+                                </div>
+                                <div>
+                                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>{dishName}</div>
+                                  <div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax · {d1Label}</div>
+                                </div>
+                              </div>
                               <span style={{fontSize:12,color:C.muted}}>{isExp?'▼':'▶'}</span>
                             </div>
-                            {/* Side-by-side pax columns — only show relevant columns */}
-                            <div style={{display:"grid",gridTemplateColumns:d1View==="all"?"1fr 1fr":d1View==="cont"?"1fr":"1fr",gap:0}}>
-                              {/* Left: Continue D-1 — only if view is cont or all */}
-                              {d1View!=="new"&&(
-                              <div style={{padding:"8px 12px",background:cDish?C.amberBg+"40":"transparent",borderRight:d1View==="all"?`1px solid ${C.border}`:"none"}}>
-                                {cDish?(
-                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                    <div style={{width:18,height:18,borderRadius:5,background:cDone?C.green:C.amber,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                      {cDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
-                                    </div>
-                                    <div>
-                                      <div style={{fontSize:11,fontWeight:700,color:cDone?C.green:C.amber}}>{cDish.totalPax} pax</div>
-                                      <div style={{fontSize:9,color:C.faint}}>{tomorrowLabel}</div>
-                                    </div>
-                                  </div>
-                                ):<div style={{fontSize:10,color:C.faint}}>—</div>}
-                              </div>
-                              )}
-                              {/* Right: New D-1 — only if view is new or all */}
-                              {d1View!=="cont"&&(
-                              <div style={{padding:"8px 12px",background:nDish?C.goldBg+"40":"transparent"}}>
-                                {nDish?(
-                                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                    <div style={{width:18,height:18,borderRadius:5,background:nDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                      {nDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}
-                                    </div>
-                                    <div>
-                                      <div style={{fontSize:11,fontWeight:700,color:nDone?C.green:C.gold}}>{nDish.totalPax} pax</div>
-                                      <div style={{fontSize:9,color:C.faint}}>{dayAfterLabel}</div>
-                                    </div>
-                                  </div>
-                                ):<div style={{fontSize:10,color:C.faint}}>—</div>}
-                              </div>
-                              )}
-                            </div>
-                            {/* Collective row if in both */}
-                            {inBoth&&<div style={{padding:"6px 12px",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                              <span style={{fontSize:10,color:C.muted}}>📦 {T2("Collective")}</span>
-                              <span style={{fontSize:11,fontWeight:700,color:C.text}}>{(cDish.totalPax||0)+(nDish.totalPax||0)} pax {T2("total")}</span>
-                            </div>}
                           </div>
 
                           {/* Expanded steps */}
@@ -564,7 +470,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
                               {/* ── Step 0: Store Sourcing (D-1 tab) ── */}
                               {(()=>{
-                                const tdish=cDish||nDish;if(!tdish)return null;
+                                const tdish=dish;if(!tdish)return null;
                                 const d2s=ds(tdish.fEvId,tdish.fIdx);
                                 const ssStarted=!!d2s.storeStart;
                                 const ssDone=!!d2s.storeEnd;
@@ -593,11 +499,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   </div>
                                 );
                               })()}
-                              {/* Ingredient list (when store sourcing is active) */}
+                              {/* Ingredient list (before & during store collection) */}
                               {(()=>{
-                                const tdish=cDish||nDish;if(!tdish)return null;
+                                const tdish=dish;if(!tdish)return null;
                                 const d2s=ds(tdish.fEvId,tdish.fIdx);
-                                if(!d2s.storeStart||d2s.storeEnd) return null;
+                                if(d2s.storeEnd) return null;
                                 const ing=RECIPE_INGREDIENTS[dishName];
                                 if(!ing) return null;
                                 const pax=tdish.totalPax||0;
@@ -626,7 +532,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 );
                               })()}
                               {steps.map((step,si)=>{
-                                const trackDish=cDish||nDish;
+                                const trackDish=dish;
                                 const d2d=trackDish?ds(trackDish.fEvId,trackDish.fIdx):{};
                                 const sk='step_'+si;
                                 const stS=!!(d2d.starts&&d2d.starts[sk]);
@@ -662,11 +568,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   </div>
                                 );
                               })}
-                              {/* Mark all done buttons — only for active view */}
-                              <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                                {d1View!=="new"&&cDish&&!cDone&&<button onClick={e=>{e.stopPropagation();setDs(cDish.fEvId,cDish.fIdx,{mesaDone:true});}} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.amber},#8A5A10)`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {tomorrowLabel} — {cDish.totalPax} pax</button>}
-                                {d1View!=="cont"&&nDish&&!nDone&&<button onClick={e=>{e.stopPropagation();setDs(nDish.fEvId,nDish.fIdx,{mesaDone:true});}} style={{flex:1,padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {dayAfterLabel} — {nDish.totalPax} pax</button>}
-                              </div>
+                              {/* Mark prep done */}
+                              {!isDone&&<div style={{marginTop:8}}>
+                                <button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true});}} style={{width:"100%",padding:"8px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:36}}>✅ {T2("Mark D-1 prep done")} — {dish.totalPax} pax</button>
+                              </div>}
                             </div>
                           )}
                         </div>
