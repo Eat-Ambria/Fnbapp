@@ -993,15 +993,30 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       })()}
 
       {/* ═══ RECIPE SOPs TAB ═══ */}
-      {tab==="sops"&&(
+      {tab==="sops"&&(()=>{
+        // Map section filter to relevant SOP category IDs
+        const SECTION_SOP_MAP = {
+          'Chinese':        ['chinese'],
+          'Tandoor':        ['tandoor'],
+          'Indian Curries':  ['halwai','indian'],
+          'Chaat':          ['chaat','halwai'],
+          'Sweets':         ['sweets'],
+          'Continental':    ['continental'],
+          'Beverages':      ['beverages'],
+        };
+        const allowedCats = sectionFilter ? (SECTION_SOP_MAP[sectionFilter]||null) : null;
+        const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
+        const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
+
+        return(
         <div>
           <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>📖 {T2("Recipe SOPs")}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>97 {T2("recipes")} · 6 {T2("categories")} · {T2("Procedures in Hindi")}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} · {filteredCats.length} {T2("categories")} · {T2("Procedures in Hindi")}</div>
           <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipes…")} style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",marginBottom:16,minHeight:48}}/>
           {!sopRecipe?(
             !sopCat?(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
-                {safeArr(RECIPE_DB.cats).map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;return(
+                {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;return(
                   <button key={cat.id} onClick={()=>setSopCat(cat.id)} style={{background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
                     <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
                   </button>);})}
@@ -1038,7 +1053,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ═══ MENU TAB ═══ */}
       {tab==="menus"&&<MenuPackagesView lang={lang}/>}
