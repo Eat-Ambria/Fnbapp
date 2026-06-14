@@ -72,7 +72,13 @@ function EventDayTab({
   }
   function markManual(evId, idx, si) {
     const d = ds(evId, idx);
-    setDs(evId, idx, { manual: { ...(d.manual || {}), [si]: true } });
+    const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    const el = d.starts?.[si] ? Math.floor((Date.now() - d.starts[si]) / 1000) : 0;
+    setDs(evId, idx, {
+      manual: { ...(d.manual || {}), [si]: true },
+      manualAt: { ...(d.manualAt || {}), [si]: now },
+      doneElapsed: { ...(d.doneElapsed || {}), [si]: el },
+    });
   }
   function startStep(evId, idx, si, tm) {
     const d = ds(evId, idx);
@@ -353,6 +359,8 @@ function EventDayTab({
                                     d1Badge={d1Done}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
+                                    doneTime={d.manualAt?.[si] || null}
+                                    doneElapsed={d.doneElapsed?.[si] ?? null}
                                   />;
                                 })}
 
@@ -372,6 +380,8 @@ function EventDayTab({
                                     elapsedSec={el} timerSec={tm} locked={!prevDone && !done && !started}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
+                                    doneTime={d.manualAt?.[si] || null}
+                                    doneElapsed={d.doneElapsed?.[si] ?? null}
                                   />;
                                 })}
                               </div>
@@ -458,8 +468,17 @@ function EventDayTab({
 }
 
 // ── StepRow (shared with D1PrepTab) ──
-function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone }) {
+function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, doneTime, doneElapsed }) {
   const remaining = timerSec - elapsedSec;
+  // Under/over calculation for completed steps
+  const hasDoneElapsed = done && doneElapsed != null && doneElapsed > 0 && timerSec > 0;
+  const wasOver = hasDoneElapsed && doneElapsed > timerSec;
+  const wasUnder = hasDoneElapsed && doneElapsed <= timerSec;
+  const diffSec = hasDoneElapsed ? Math.abs(doneElapsed - timerSec) : 0;
+  const diffM = Math.floor(diffSec / 60);
+  const diffS = diffSec % 60;
+  const doneM = doneElapsed != null ? Math.floor(doneElapsed / 60) : 0;
+  const doneS = doneElapsed != null ? doneElapsed % 60 : 0;
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.border}20` }}>
       <div style={{
@@ -490,6 +509,15 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
             </div>
           </div>
         )}
+        {/* Done: show time taken + under/over */}
+        {done && hasDoneElapsed && (
+          <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ color: C.green }}>✅ {doneM}m{doneS > 0 ? ` ${doneS}s` : ""} done</span>
+            {wasUnder && diffSec > 0 && <span style={{ color: C.green, fontWeight: 600 }}>🟢 {diffM > 0 ? `${diffM}m ` : ""}{diffS}s under</span>}
+            {wasOver && <span style={{ color: C.red, fontWeight: 600 }}>🔴 +{diffM > 0 ? `${diffM}m ` : ""}{diffS}s over</span>}
+          </div>
+        )}
+        {done && !hasDoneElapsed && doneTime && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ {doneTime}</div>}
         {!done && !running && !locked && timerSec > 0 && <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>⏱ {Math.floor(timerSec / 60)}m</div>}
       </div>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
