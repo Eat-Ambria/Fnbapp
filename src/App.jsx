@@ -112,7 +112,10 @@ export default function App() {
       const nextMap = new Map(safeArr(next).map(e=>[e.id, e]));
       nextMap.forEach((ev, id) => {
         if(!prevMap.has(id) || prevMap.get(id) !== ev) {
-          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:ev.menu||[],special:ev.special||null,extras:ev.extras||[]},"id").catch(e=>console.error("ev sync:",e));
+          // For LMS events, don't write the resolved dish array back — keep menu:[] in DB
+          const isLms = !!(ev.lms_source);
+          const menuToStore = isLms ? [] : (ev.menu||[]);
+          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,special:ev.special||null,extras:ev.extras||[]},"id").catch(e=>console.error("ev sync:",e));
         }
       });
       prevMap.forEach((_,id) => {
@@ -211,9 +214,12 @@ export default function App() {
           if (typeof menu === 'string' && menu) { try { menu = JSON.parse(menu); } catch(err) { menu = []; } }
           else { menu = []; }
         }
+        // LMS events arrive with menu:[] — resolve from menu_package
+        const pkg = e.menu_package||e.menuPackage||"";
+        if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu = MENU_PACKAGES[pkg];
         let extras = e.extras;
         if (!Array.isArray(extras)) extras = [];
-        return {...e, menuPackage:e.menu_package||e.menuPackage, menu, extras};
+        return {...e, menuPackage:pkg, menu, extras};
       }));
       const todayAtt = attData.filter(a=>a.date===TODAY);
       setAttendance_raw(todayAtt.map(normalizeAtt));
@@ -232,6 +238,27 @@ export default function App() {
       // Seed AM001 to Supabase on every load (idempotent)
       const am001=EMPLOYEE_DB_INIT.find(e=>e.staff_id==='AM001'||e.staffListId==='AM001');
       if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',pin:String(am001.pin||'0000'),is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(()=>{});
+
+      // Auto-sync from LMS (15-min cooldown)
+      try{
+        const lastSync=localStorage.getItem('ambria_lms_last_sync_ts');
+        const cooldown=15*60*1000; // 15 minutes
+        if(!lastSync||Date.now()-parseInt(lastSync)>cooldown){
+          import('../lib/supabase.js').then(mod=>{
+            if(!mod.supabase)return;
+            mod.supabase.functions.invoke('lms-sync',{body:{triggered_by:'auto-boot'}})
+              .then(({data})=>{
+                if(data?.status==='success') console.log(`✅ LMS auto-sync: ${data.events_upserted} events`);
+                else console.warn('LMS auto-sync returned:',data);
+                try{localStorage.setItem('ambria_lms_last_sync_ts',String(Date.now()));}catch(e){}
+                const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+                try{localStorage.setItem('ambria_lms_last_sync',now);}catch(e){}
+              })
+              .catch(e=>console.warn('LMS auto-sync failed:',e));
+          }).catch(()=>{});
+        }
+      }catch(e){}
+
       setAppReady(true);
     }
     loadAll();
@@ -260,7 +287,14 @@ export default function App() {
       if(payload.eventType==='DELETE') setRepairs(p=>p.filter(x=>x.id!==payload.old.id));
     });
     const u4 = dbSubscribe('events', (payload) => {
-      const ev=payload.new?{...payload.new,menuPackage:payload.new.menu_package,menu:payload.new.menu||[],extras:payload.new.extras||[]}:null;
+      let ev=null;
+      if(payload.new){
+        let menu=payload.new.menu||[];
+        if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
+        const pkg=payload.new.menu_package||"";
+        if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
+        ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[]};
+      }
       if(payload.eventType==='INSERT'&&ev) setEvents_raw(p=>[...p,ev]);
       if(payload.eventType==='UPDATE'&&ev) setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e));
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));

@@ -9,6 +9,34 @@ import { guessSectionForDish } from '../data/recipeData.js';
 
 function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null}) {
   const T2 = s => T(s, lang);
+  const [lmsSyncing, setLmsSyncing] = useState(false);
+  const [lmsResult, setLmsResult] = useState(null); // {status,events_upserted,...} or {status:'error',message}
+  const [lmsLastSync, setLmsLastSync] = useState(null); // timestamp string
+
+  // Check last sync time on mount
+  React.useEffect(()=>{
+    try{const t=localStorage.getItem('ambria_lms_last_sync');if(t)setLmsLastSync(t);}catch(e){}
+  },[]);
+
+  async function syncLms(){
+    if(lmsSyncing)return;
+    setLmsSyncing(true);setLmsResult(null);
+    try{
+      const { supabase } = await import('../lib/supabase.js');
+      if(!supabase){setLmsResult({status:'error',message:'Supabase not connected'});setLmsSyncing(false);return;}
+      const { data, error } = await supabase.functions.invoke('lms-sync',{
+        body:{triggered_by:currentUser?.id||currentUser?.staff_id||'admin'}
+      });
+      if(error) throw new Error(error.message||'Edge function error');
+      setLmsResult(data);
+      const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+      setLmsLastSync(now);
+      try{localStorage.setItem('ambria_lms_last_sync',now);}catch(e){}
+    }catch(err){
+      setLmsResult({status:'error',message:err.message||String(err)});
+    }
+    setLmsSyncing(false);
+  }
   const safeEvs = Array.isArray(events)?events.filter(e=>e&&typeof e.date==="string"&&e.date.length===10):[];
   const today = new Date(); today.setHours(0,0,0,0);
   const todayStr = TODAY;
@@ -184,8 +212,12 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     </div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:14,fontWeight:500,color:C.text}}>{ev.guest}</div>
-                      <div style={{fontSize:12,color:C.muted,marginTop:2}}>{ev.venue} · {ev.time} · {ev.menuPackage||"Custom"}</div>
+                      <div style={{fontSize:12,color:C.muted,marginTop:2}}>
+                        {ev.venue} · {ev.time} · {ev.menuPackage||"Custom"}
+                        {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
+                      </div>
                       {evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:evReady>=evMenu.length?C.greenBg:C.amberBg,color:evReady>=evMenu.length?"#0F6E56":"#854F0B"}}>{evReady}/{evMenu.length} dishes ready</span></div>}
+                      {ev.lms_balance>0&&<div style={{fontSize:11,color:C.amber,marginTop:3}}>₹{(+ev.lms_balance).toLocaleString('en-IN')} balance pending</div>}
                       {ev.special&&<div style={{fontSize:12,color:"#D64040",marginTop:3}}>{ev.special}</div>}
                     </div>
                     <div style={{textAlign:"right",flexShrink:0}}>
@@ -210,8 +242,34 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       <div style={{marginBottom:24}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:16,fontWeight:500,color:C.text}}>Upcoming <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{upcoming.length} functions</span></div>
-          <button onClick={()=>openAdd(todayStr)} style={{padding:"7px 16px",borderRadius:8,background:C.text,color:"#fff",border:"none",fontSize:12,fontWeight:500,cursor:"pointer"}}>+ Add function</button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {currentUser?.role==='admin'&&(
+              <button onClick={syncLms} disabled={lmsSyncing}
+                style={{padding:"7px 14px",borderRadius:8,background:lmsSyncing?C.border:C.goldBg,border:`1px solid ${lmsSyncing?C.border:C.goldBorder}`,color:lmsSyncing?C.muted:C.gold,fontSize:12,fontWeight:500,cursor:lmsSyncing?"wait":"pointer",display:"flex",alignItems:"center",gap:6}}>
+                {lmsSyncing?<span style={{display:"inline-block",width:12,height:12,border:`2px solid ${C.gold}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>:null}
+                {lmsSyncing?"Syncing…":"↻ Sync LMS"}
+              </button>
+            )}
+            <button onClick={()=>openAdd(todayStr)} style={{padding:"7px 16px",borderRadius:8,background:C.text,color:"#fff",border:"none",fontSize:12,fontWeight:500,cursor:"pointer"}}>+ Add function</button>
+          </div>
         </div>
+        {/* LMS sync status */}
+        {lmsResult&&(
+          <div style={{marginBottom:10,padding:"8px 14px",borderRadius:8,fontSize:12,
+            background:lmsResult.status==='success'?C.greenBg:C.redBg,
+            border:`1px solid ${lmsResult.status==='success'?C.greenBorder:C.redBorder}`,
+            color:lmsResult.status==='success'?C.green:C.red,
+            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>{lmsResult.status==='success'
+              ?`✅ Synced ${lmsResult.events_upserted||0} events from LMS (${lmsResult.venue_rows||0} venue + ${lmsResult.catering_rows||0} catering contracts)`
+              :`❌ Sync failed: ${lmsResult.message||'Unknown error'}`}</span>
+            <button onClick={()=>setLmsResult(null)} style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"inherit",padding:"0 4px"}}>×</button>
+          </div>
+        )}
+        {lmsLastSync&&!lmsResult&&(
+          <div style={{fontSize:11,color:C.faint,marginBottom:8}}>Last LMS sync: {lmsLastSync}</div>
+        )}
+        <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
         {/* Venue filter */}
         <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
           {["All",...VENUES].map(v=>{
@@ -234,8 +292,12 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:500,color:C.text}}>{ev.guest}</div>
-                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>{(VP[ev.venue]||{}).code||"EV"} · {ev.time} · {ev.menuPackage||"Custom"}</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>
+                    {(VP[ev.venue]||{}).code||"EV"} · {ev.time} · {ev.menuPackage||"Custom"}
+                    {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
+                  </div>
                   {isD1&&evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:d1Done>0?C.greenBg:C.amberBg,color:d1Done>0?"#0F6E56":"#854F0B"}}>D-1 prep: {d1Done}/{evMenu.length} done</span></div>}
+                  {ev.lms_balance>0&&<div style={{fontSize:11,color:C.amber,marginTop:3}}>₹{(+ev.lms_balance).toLocaleString('en-IN')} balance</div>}
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontSize:20,fontWeight:500,color:p.c}}>{ev.pax}</div>
