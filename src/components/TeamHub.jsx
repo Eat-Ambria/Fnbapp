@@ -8,7 +8,7 @@ import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
 
-function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null}) {
+function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
   const [tab,setTab]             = useState("attendance");
   const T2 = s => T(s, lang);
 
@@ -38,7 +38,18 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
 
   // Computed — filtered by active department
   const deptStaffList = deptSections ? STAFF_LIST.filter(s=>deptSections.includes(s.section)) : STAFF_LIST;
-  const deptEmpDb = deptSections ? safeArr(empDb).filter(e=>deptSections.includes(e.section)) : safeArr(empDb);
+  // Merge empDb + STAFF_LIST so directory shows all staff the kiosk sees
+  const allEmpDb = (function(){
+    var db = safeArr(empDb);
+    var dbNames = new Set(db.map(function(s){ return (s.name||'').toLowerCase(); }));
+    var fromList = STAFF_LIST.filter(function(s){
+      return !dbNames.has((s.name||'').toLowerCase());
+    }).map(function(s){
+      return {id:String(s.id),staff_id:String(s.id),staffListId:String(s.id),name:s.name,section:s.section,dept:s.section,role:s.role||'staff',is_active:true,pin:'0000',joining:'',source:'stafflist'};
+    });
+    return db.concat(fromList);
+  })();
+  const deptEmpDb = deptSections ? allEmpDb.filter(e=>deptSections.includes(e.section)) : allEmpDb;
   const deptStaffIds = new Set(deptStaffList.map(s=>String(s.id)));
   const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptStaffIds.has(String(a.staffId))));
   const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(l.staffSection)) : safeArr(leaves);
@@ -83,19 +94,29 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   // Employee helpers
   function addEmployee(){
     if(!newEmpForm.name.trim()) return;
-    const newId="AM"+String(Date.now()).slice(-3);
-    setEmpDb(p=>[...p,{...newEmpForm,id:newId}]);
+    const newId="STF-"+Date.now();
+    const record = {...newEmpForm,id:newId,staff_id:newId,staffListId:newId,is_active:true,active:true};
+    setEmpDb(p=>[...p,record]);
+    if(syncToServer) syncToServer('upsert',record);
     setNewEmpForm({name:"",section:"Indian Curries",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
     setShowAddEmp(false);
   }
   function saveEmpEdit(){
-    if(!editEmpForm) return;
-    setEmpDb(p=>p.map(e=>e.id!==selEmp.id?e:{...e,...editEmpForm}));
+    if(!editEmpForm||!selEmp) return;
+    const updated = {...selEmp,...editEmpForm};
+    setEmpDb(p=>p.map(e=>{
+      var eid = e.id||e.staff_id||e.staffListId;
+      var sid = selEmp.id||selEmp.staff_id||selEmp.staffListId;
+      return eid===sid?{...e,...editEmpForm}:e;
+    }));
+    if(syncToServer) syncToServer('upsert',updated);
     setSelEmp(null);setEditEmpForm(null);
   }
   function deleteEmployee(){
     if(!deleteConfirm) return;
-    setEmpDb(p=>p.filter(e=>e.id!==deleteConfirm.id));
+    var did = deleteConfirm.id||deleteConfirm.staff_id||deleteConfirm.staffListId;
+    setEmpDb(p=>p.filter(e=>(e.id||e.staff_id||e.staffListId)!==did));
+    if(syncToServer) syncToServer('delete',deleteConfirm);
     setDeleteConfirm(null);
   }
 
@@ -893,6 +914,12 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           </div>
                         ))}
                         <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Section</div>
+                          <select value={editEmpForm.section||""} onChange={e=>setEditEmpForm(p=>({...p,section:e.target.value}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                            {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div>
                           <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Role</div>
                           <select value={editEmpForm.role} onChange={e=>setEditEmpForm(p=>({...p,role:e.target.value}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
                             {[{v:"staff",l:"Staff"},{v:"headchef",l:"HC"},{v:"admin",l:"Admin"}].map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
@@ -919,8 +946,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6,flexShrink:0}}>
-                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,pin:emp.pin,joining:emp.joining,role:emp.role});}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
-                          <button onClick={()=>setEmpDb(p=>p.map(e=>e.id!==emp.id?e:{...e,active:!e.active}))} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:emp.active?C.greenBg:C.redBg,color:emp.active?C.green:C.red}}>{emp.active?T2("Active"):T2("Off")}</button>
+                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section});}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
+                          <button onClick={()=>{var eid=emp.id||emp.staff_id||emp.staffListId;var toggled=!emp.active;setEmpDb(p=>p.map(e=>(e.id||e.staff_id||e.staffListId)!==eid?e:{...e,active:toggled,is_active:toggled}));if(syncToServer)syncToServer('upsert',{...emp,active:toggled,is_active:toggled});}} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:emp.active?C.greenBg:C.redBg,color:emp.active?C.green:C.red}}>{emp.active?T2("Active"):T2("Off")}</button>
                           <button onClick={()=>setDeleteConfirm(emp)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,cursor:"pointer",border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red}}>🗑</button>
                         </div>
                       </div>
