@@ -404,23 +404,24 @@ function EventDayTab({
                             );
                           })()}
 
-                          {/* All done → sign off */}
-                          {storeDone && nonStore.every(x => stepDone(d, x.origIdx) || isD1Step(d, x.origIdx)) && !isReady && (
-                            <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: C.surface, border: `1px solid ${C.border}` }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: C.green, textAlign: "center", marginBottom: 10 }}>
+                          {/* All done → sign off (venue-aware) */}
+                          {storeDone && nonStore.every(x => stepDone(d, x.origIdx) || isD1Step(d, x.origIdx)) && !isReady && (()=>{
+                            const tev = todayEvs.find(e => e.id === dish.fEvId);
+                            const tabVenue = (currentUser?.venue||"").toLowerCase().trim();
+                            const evVenue = (tev?.venue||"").toLowerCase().trim();
+                            const sameVenue = tabVenue && evVenue && (evVenue.includes(tabVenue)||tabVenue.includes(evVenue));
+                            const needsTransport = tabVenue && evVenue && !sameVenue;
+                            return(
+                            <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: C.surface, border: `1px solid ${needsTransport?C.amberBorder:C.border}` }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: C.green, textAlign: "center", marginBottom: 6 }}>
                                 ✅ {T2("All steps complete — sign off")}
                               </div>
-                              <div style={{ display: "flex", gap: 8 }}>
-                                <button onClick={() => {
-                                  const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-                                  setDs(dish.fEvId, dish.fIdx, { ready: true, completed: true, completedBy: currentUser?.name || "Chef", completedAt: now, readyAt: now });
-                                }} style={{ flex: 1, padding: "14px", borderRadius: 12, background: C.green, color: "#0A0A0F", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                                  ✅ {T2("Mark Ready")}
-                                </button>
-                                <button onClick={() => {
-                                  const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-                                  const tev = todayEvs.find(e => e.id === dish.fEvId);
-                                  setDs(dish.fEvId, dish.fIdx, { ready: true, completed: true, transportLinked: true, completedBy: currentUser?.name || "Chef", completedAt: now, readyAt: now });
+                              {needsTransport&&<div style={{fontSize:11,color:C.amber,textAlign:"center",marginBottom:8}}>🚛 {T2("This dish needs transport to")} <b>{tev?.venue||"venue"}</b></div>}
+                              <button onClick={() => {
+                                const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+                                const updates = { ready: true, completed: true, completedBy: currentUser?.name || "Chef", completedAt: now, readyAt: now };
+                                if(needsTransport) {
+                                  updates.transportLinked = true;
                                   if (setTransportQueue) {
                                     setTransportQueue(prev => [...(prev || []), {
                                       id: localDateStr(new Date()) + "_" + dish.fEvId + "_" + dish.fIdx,
@@ -428,20 +429,22 @@ function EventDayTab({
                                       pax: tev?.pax || 0, venue: tev?.venue || "",
                                       eventDate: tev?.date || TODAY,
                                       preparedBy: currentUser?.name || "Chef",
-                                      markedAt: now, status: "Pending Pickup",
+                                      markedAt: now, status: "Ready",
+                                      fromVenue: currentUser?.venue || "",
                                     }]);
                                   }
-                                }} style={{ flex: 1, padding: "14px", borderRadius: 12, background:C.red, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                                  🚛 {T2("Transport")}
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                                }
+                                setDs(dish.fEvId, dish.fIdx, updates);
+                              }} style={{ width:"100%", padding: "14px", borderRadius: 12, background: needsTransport?`linear-gradient(135deg,${C.amber},#B07A10)`:C.green, color: needsTransport?"#fff":"#0A0A0F", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                                {needsTransport?`🚛 ${T2("Ready for Transport")}`:`✅ ${T2("Mark Complete")}`}
+                              </button>
+                            </div>);
+                          })()}
 
                           {/* Already done */}
                           {isReady && (
-                            <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 10, background: C.greenBg, border: `1px solid ${C.greenBorder}` }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: C.green }}>✅ {T2("Ready")}</span>
+                            <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 10, background: d.transportLinked?C.amberBg:C.greenBg, border: `1px solid ${d.transportLinked?C.amberBorder:C.greenBorder}` }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: d.transportLinked?C.amber:C.green }}>{d.transportLinked?"🚛 "+T2("Ready for Transport"):"✅ "+T2("Complete")}</span>
                               {d.completedBy && <span style={{ fontSize: 11, color: C.muted, marginLeft: 8 }}>{d.completedBy} · {d.completedAt}</span>}
                             </div>
                           )}

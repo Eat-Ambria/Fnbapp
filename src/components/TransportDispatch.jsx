@@ -6,7 +6,7 @@ import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../u
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { guessSectionForDish } from '../data/recipeData.js';
 
-function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
+function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = Array.isArray(events) ? events : [];
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -191,7 +191,7 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
 
       {/* ── FROM KITCHEN — READY FOR PICKUP ── */}
       {(function(){
-        var pending=(transportQueue||[]).filter(function(item){return item.status==='Pending Pickup';});
+        var pending=(transportQueue||[]).filter(function(item){return item.status==='Pending Pickup'||item.status==='Ready';});
         var pickedUp=(transportQueue||[]).filter(function(item){return item.status==='Picked Up';});
         if(!pending.length&&!pickedUp.length) return null;
         return (
@@ -205,10 +205,10 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
               <div key={item.id||i} style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:700,color:C.text}}>{item.dishName}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{item.event} · {item.venue} · {item.pax} pax</div>
-                  <div style={{fontSize:11,color:C.muted}}>By {item.preparedBy} at {item.markedAt}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{item.event} · 📍 {item.venue} · {item.pax} pax</div>
+                  <div style={{fontSize:11,color:C.muted}}>{item.fromVenue?`🏠 From: ${item.fromVenue} → ${item.venue}`:`By ${item.preparedBy}`} · {item.markedAt}</div>
                 </div>
-                <button onClick={function(){setTransportQueue&&setTransportQueue(function(prev){return prev.map(function(q){return q.id===item.id?{...q,status:'Picked Up',pickedUpAt:new Date().getHours().toString().padStart(2,'0')+':'+new Date().getMinutes().toString().padStart(2,'0')}:q;});});}} style={{padding:'8px 14px',borderRadius:10,background:C.green,color:'#fff',border:'none',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,minHeight:38}}>✅ Confirm Pickup</button>
+                <button onClick={function(){setTransportQueue&&setTransportQueue(function(prev){return prev.map(function(q){return q.id===item.id?{...q,status:'Picked Up',pickedUpAt:new Date().getHours().toString().padStart(2,'0')+':'+new Date().getMinutes().toString().padStart(2,'0')}:q;});});}} style={{padding:'8px 14px',borderRadius:10,background:C.green,color:'#fff',border:'none',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,minHeight:38}}>📦 {T2("Mark Loaded")}</button>
               </div>
             );})}
             {pickedUp.length>0&&(
@@ -714,7 +714,11 @@ function TransportDispatch({events, kitchenTracking={}, lang="en", currentUser=n
                                 <div style={{flexShrink:0,minWidth:70}}>
                                   {dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#0A0A0F",fontWeight:700}}>🚛 {dispatchTime}</span>}
                                   {ready&&!dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#0A0A0F",fontWeight:700}}>✅ {readyTime}</span>}
-                                  {!ready&&!dispatched2&&<span style={{fontSize:10,color:C.muted}}>⏳</span>}
+                                  {!ready&&!dispatched2&&<button onClick={(e)=>{e.stopPropagation();
+                                    const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+                                    const dk2=ev.id+"|"+d.idx;
+                                    setKitchenTracking&&setKitchenTracking(function(p){const o=p&&typeof p==="object"?{...p}:{};o[ev.id]={...(o[ev.id]||{}),[dk2]:{...(o[ev.id]?.[dk2]||{}),ready:true,completed:true,readyAt:now,completedAt:now,completedBy:"Dispatch"}};return o;});
+                                  }} style={{padding:"4px 10px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>✅ Done</button>}
                                 </div>
                                 <div onClick={(e)=>{e.stopPropagation();setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),loaded:!isLoaded}}));}}
                                   style={{width:32,height:32,borderRadius:8,border:`2px solid ${isLoaded?C.amber:C.border}`,background:isLoaded?C.amber:"transparent",
