@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { safeArr } from '../utils/helpers.js';
-import { STAFF_LIST } from '../data/staffData.js';
+import { STAFF_LIST, VENUE_OPTIONS } from '../data/staffData.js';
 
 function LoginScreen({ empDb, onLogin, lang="en" }) {
   const T2 = s => T(s, lang);
@@ -13,6 +13,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   const [error,  setError]  = useState("");
   const [loading,setLoading]= useState(false);
   const [remember,setRemember]=useState(false);
+  const [pendingEmp, setPendingEmp] = useState(null);
+  const [venueOverride, setVenueOverride] = useState("");
 
   useEffect(()=>{
     try{
@@ -26,7 +28,8 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
           const sl = STAFF_LIST.find(s=>s.name===emp.name);
           const rid = emp.id||emp.staffListId||emp.staff_id;
-          onLogin({...emp, id:rid, staffListId:emp.staffListId||sl?.id||rid});
+          const savedVenue = localStorage.getItem("ambria_venue_override")||emp.venue||"";
+          onLogin({...emp, id:rid, staffListId:emp.staffListId||sl?.id||rid, venue:savedVenue});
           return;
         }
         setEmpId(id); setPin(pin2); setRemember(true);
@@ -34,6 +37,14 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
     }catch(e){}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
+
+  function finalizeLogin(emp, venue) {
+    const sl = STAFF_LIST.find(s=>s.name===emp.name);
+    const resolvedId = emp.id || emp.staffListId || emp.staff_id;
+    const finalVenue = venue || emp.venue || "";
+    if(venue) try{localStorage.setItem("ambria_venue_override",venue);}catch(e){}
+    onLogin({...emp, id: resolvedId, staffListId: emp.staffListId || sl?.id || resolvedId, venue: finalVenue});
+  }
 
   async function handleLogin(){
     setError(""); setLoading(true);
@@ -53,9 +64,15 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         localStorage.removeItem("ambria_remember");
       }
     }catch(e){}
-    const sl = STAFF_LIST.find(s=>s.name===emp.name);
-    const resolvedId = emp.id || emp.staffListId || emp.staff_id;
-    onLogin({...emp, id: resolvedId, staffListId: emp.staffListId || sl?.id || resolvedId});
+    // Section tablets get venue selection step
+    if(emp.role?.startsWith("section_")){
+      const savedVenue = localStorage.getItem("ambria_venue_override")||"";
+      setVenueOverride(savedVenue||emp.venue||"");
+      setPendingEmp(emp);
+      setLoading(false);
+      return;
+    }
+    finalizeLogin(emp);
     setLoading(false);
   }
 
@@ -122,6 +139,34 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         </div>
 
       </div>
+
+      {/* Venue selection overlay for section tablets */}
+      {pendingEmp&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div className="fade-in-up" style={{background:C.surface,borderRadius:20,padding:"32px 28px",maxWidth:400,width:"100%",border:`1px solid ${C.border}`,boxShadow:"0 24px 64px rgba(0,0,0,.2)"}}>
+            <div style={{textAlign:"center",marginBottom:20}}>
+              <div style={{fontSize:28,marginBottom:8}}>🏠</div>
+              <div style={{fontSize:18,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>{T2("Select Venue")}</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:4}}>{T2("Where is this tablet located today?")}</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+              {VENUE_OPTIONS.map(v=>(
+                <button key={v} onClick={()=>setVenueOverride(v)}
+                  style={{padding:"16px 12px",borderRadius:12,border:`2px solid ${venueOverride===v?C.gold:C.border}`,background:venueOverride===v?C.goldBg:"transparent",cursor:"pointer",textAlign:"center"}}>
+                  <div style={{fontSize:14,fontWeight:venueOverride===v?700:400,color:venueOverride===v?C.gold:C.text}}>{v}</div>
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>{if(venueOverride)finalizeLogin(pendingEmp,venueOverride);}} disabled={!venueOverride}
+              style={{width:"100%",padding:"14px",borderRadius:14,background:venueOverride?`linear-gradient(135deg,${C.gold},#A8891E)`:C.border,color:venueOverride?"#fff":C.faint,border:"none",fontSize:15,fontWeight:700,cursor:venueOverride?"pointer":"not-allowed",fontFamily:"var(--font-display)",letterSpacing:1}}>
+              {T2("Continue")} →
+            </button>
+            <button onClick={()=>{setPendingEmp(null);setVenueOverride("");}} style={{width:"100%",marginTop:8,padding:"10px",borderRadius:10,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>
+              {T2("Back")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

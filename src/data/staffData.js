@@ -116,6 +116,8 @@ let GROOMING_CHECKS = [
   {id:"shoes",  label:"Clean shoes / proper footwear"},
 ];
 
+const VENUE_OPTIONS = ["Pushpanjali","Exotica","Manaktala","Restro"];
+
 function hydrateStaffData(config) {
   if (config.groomingChecks && config.groomingChecks.length) {
     GROOMING_CHECKS = config.groomingChecks.map(c => ({
@@ -125,4 +127,4 @@ function hydrateStaffData(config) {
   }
 }
 
-export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, getEmpByStaffId, yrsOfService, hydrateStaffData };
+export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, VENUE_OPTIONS, getEmpByStaffId, yrsOfService, hydrateStaffData };
