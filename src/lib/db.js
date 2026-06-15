@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js'
+import { enqueue } from './offlineQueue.js'
 
 // Versioned cache key for staff busts old cached data on deploy
 function cacheKey(table) {
@@ -26,18 +27,45 @@ export async function dbLoad(table, fallback = []) {
 
 export async function dbUpsert(table, record, conflictKey = 'id') {
   try { localStorage.setItem('ambria_' + table + '_dirty', 'true'); } catch(e) {}
-  if (!supabase) return;
-  await supabase.from(table).upsert(record, { onConflict: conflictKey });
+  if (!supabase) {
+    await enqueue({ action: 'upsert', table, record, conflictKey });
+    return;
+  }
+  try {
+    const { error } = await supabase.from(table).upsert(record, { onConflict: conflictKey });
+    if (error) throw error;
+  } catch(e) {
+    console.warn('dbUpsert offline-queued:', table, e.message||e);
+    await enqueue({ action: 'upsert', table, record, conflictKey });
+  }
 }
 
 export async function dbDelete(table, key, value) {
-  if (!supabase) return;
-  await supabase.from(table).delete().eq(key, value);
+  if (!supabase) {
+    await enqueue({ action: 'delete', table, key, value });
+    return;
+  }
+  try {
+    const { error } = await supabase.from(table).delete().eq(key, value);
+    if (error) throw error;
+  } catch(e) {
+    console.warn('dbDelete offline-queued:', table, e.message||e);
+    await enqueue({ action: 'delete', table, key, value });
+  }
 }
 
 export async function dbInsert(table, record) {
-  if (!supabase) return;
-  await supabase.from(table).insert(record);
+  if (!supabase) {
+    await enqueue({ action: 'insert', table, record });
+    return;
+  }
+  try {
+    const { error } = await supabase.from(table).insert(record);
+    if (error) throw error;
+  } catch(e) {
+    console.warn('dbInsert offline-queued:', table, e.message||e);
+    await enqueue({ action: 'insert', table, record });
+  }
 }
 
 export function dbSubscribe(table, callback) {

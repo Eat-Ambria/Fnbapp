@@ -327,16 +327,29 @@ export default function App() {
     return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, [appReady]);
 
-  // ── Supabase connectivity indicator ──
+  // ── Supabase connectivity indicator + offline queue replay ──
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   useEffect(() => {
     if(!supabase){setSupaLive(false);return;}
-    const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>setSupaLive(!error)).catch(()=>setSupaLive(false));
+    const checkQueue=()=>import('./lib/offlineQueue.js').then(m=>m.getQueueSize()).then(n=>setOfflineQueueCount(n)).catch(()=>{});
+    const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>{
+      const live=!error;
+      setSupaLive(live);
+      if(live){
+        import('./lib/offlineQueue.js').then(m=>m.replayQueue(supabase)).then(n=>{
+          if(n>0)console.log('✅ Replayed',n,'offline writes');
+          checkQueue();
+        }).catch(()=>{});
+      }
+    }).catch(()=>setSupaLive(false));
     ping();
+    checkQueue();
     const onOnline=()=>ping();
-    const onOffline=()=>setSupaLive(false);
+    const onOffline=()=>{setSupaLive(false);checkQueue();};
     window.addEventListener('online',onOnline);
     window.addEventListener('offline',onOffline);
-    return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);};
+    const interval=setInterval(()=>{if(navigator.onLine)ping();checkQueue();},30000);
+    return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);clearInterval(interval);};
   },[]);
 
   // Admin skips dept selector — go straight to Management Dashboard

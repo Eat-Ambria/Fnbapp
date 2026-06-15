@@ -29,6 +29,22 @@ export default defineConfig({
               cacheName: 'ambria-assets',
             },
           },
+          {
+            urlPattern: /ozibklsaweqizzyfwqmm\.supabase\.co\/rest\/v1\/.+\?.*select=/,
+            handler: 'NetworkFirst',
+            method: 'GET',
+            options: {
+              cacheName: 'ambria-supabase-reads',
+              networkTimeoutSeconds: 4,
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 86400,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
         ],
         skipWaiting: true,
         clientsClaim: true,
