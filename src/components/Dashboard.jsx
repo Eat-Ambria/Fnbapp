@@ -7,7 +7,7 @@ import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
 
-function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null}) {
+function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const [lmsSyncing, setLmsSyncing] = useState(false);
   const [lmsResult, setLmsResult] = useState(null); // {status,events_upserted,...} or {status:'error',message}
@@ -89,11 +89,12 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   safeEvs.forEach(ev=>{Object.keys(kt[ev.id]||{}).forEach(k=>{const d=(kt[ev.id]||{})[k];if(d&&(d.completed||d.ready)&&!d.readyForDispatch)dispatchReady++;});});
 
   // Staff stats
-  const attArr = Object.values(attendance||{});
-  const staffPresent = attArr.filter(r=>r.date===TODAY&&r.status==="Present").length;
-  const staffAbsent = attArr.filter(r=>r.date===TODAY&&r.status==="Absent").length;
-  const onLeave = safeArr(leaves).filter(l=>l.status==="Approved"&&l.startDate<=todayStr&&l.endDate>=todayStr).length;
-  const totalStaff = safeArr(events.length>0?Object.keys(attendance||{}):[]).length||1;
+  const attArr = safeArr(attendance).filter(r=>r.date===TODAY);
+  const staffPresent = attArr.filter(r=>r.status==="Present").length;
+  const staffAbsent = attArr.filter(r=>r.status==="Absent").length;
+  const onLeave = safeArr(leaves).filter(l=>l.status==="Approved"&&l.from<=todayStr&&l.to>=todayStr).length;
+  const totalActive = safeArr(empDb).filter(s=>s.is_active!==false&&s.role!=='kiosk_gate'&&s.role!=='admin'&&!s.role?.startsWith('section_')).length;
+  const totalStaff = totalActive || Math.max(staffPresent+staffAbsent, 1);
   const openRepairs = safeArr(repairs).filter(t=>t.status==="Open"||t.status==="In Progress").length;
 
   // Helpers
@@ -178,7 +179,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
         {[
           {label:"Today",value:todayEvs.length,sub:todayEvs.length>0?todayEvs.reduce((s,e)=>s+(+e.pax||0),0).toLocaleString()+" pax":"No events",color:"#D64040",borderColor:"#D64040",live:todayEvs.length>0,action:()=>setScreen&&setScreen("kitchen")},
-          {label:"Staff on duty",value:staffPresent,sub:`of ${totalStaff} total`,color:"#378ADD",borderColor:"#378ADD",action:()=>setScreen&&setScreen("team")},
+          {label:"Staff on duty",value:staffPresent,sub:totalActive?`of ${totalActive} · ${onLeave} on leave`:`${staffAbsent} absent · ${onLeave} on leave`,color:"#378ADD",borderColor:"#378ADD",action:()=>setScreen&&setScreen("team")},
           {label:"Kitchen",value:`${readyDishes}/${allDishCount||"—"}`,sub:"dishes ready",color:"#1D9E75",borderColor:"#1D9E75",action:()=>setScreen&&setScreen("kitchen")},
           {label:"Dispatch",value:dispatchReady,sub:"awaiting pickup",color:"#BA7517",borderColor:"#BA7517",action:()=>setScreen&&setScreen("transport")},
         ].map(s=>(
@@ -372,18 +373,24 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       {/* ══ STAFF ON DUTY ══ */}
       <div style={{marginBottom:24}}>
         <div style={{fontSize:16,fontWeight:500,color:C.text,marginBottom:12}}>Staff on duty <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{staffPresent} present · {staffAbsent} absent · {onLeave} on leave</span></div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8}}>
-          {Object.values(attendance||{}).filter(r=>r.date===TODAY).slice(0,12).map((r,i)=>(
-            <div key={i} style={{background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:r.status==="Present"?"#1D9E75":r.status==="Absent"?"#D64040":"#BA7517"}}/>
-              <div>
-                <div style={{fontSize:13,fontWeight:500,color:C.text}}>{r.name||r.staffName||"Staff"}</div>
-                <div style={{fontSize:11,color:C.muted}}>{r.section||r.dept||"—"}{r.status!=="Present"?` — ${r.status.toLowerCase()}`:""}</div>
+        {attArr.length>0?(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8}}>
+            {attArr.filter(r=>r.status==="Present").slice(0,12).map((r,i)=>(
+              <div key={r.staff_id||r.staffId||i} style={{background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:r.in_time&&!r.out_time?"#1D9E75":"#BA7517"}}/>
+                <div>
+                  <div style={{fontSize:13,fontWeight:500,color:C.text}}>{r.staff_name||r.staffName||"Staff"}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{r.section||r.dept||"—"}{r.in_time?" · IN "+r.in_time:""}{r.out_time?" · OUT "+r.out_time:""}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-        {Object.values(attendance||{}).filter(r=>r.date===TODAY).length>12&&<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:"8px 0",marginTop:4}}>+{Object.values(attendance||{}).filter(r=>r.date===TODAY).length-12} more</div>}
+            ))}
+          </div>
+        ):(
+          <div style={{background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:10,padding:"20px",textAlign:"center"}}>
+            <div style={{fontSize:13,color:C.muted}}>No attendance records yet today</div>
+          </div>
+        )}
+        {attArr.filter(r=>r.status==="Present").length>12&&<div style={{fontSize:12,color:C.muted,textAlign:"center",padding:"8px 0",marginTop:4}}>+{attArr.filter(r=>r.status==="Present").length-12} more — view all in Team Hub</div>}
       </div>
 
       {/* ══ QUICK STATS ROW ══ */}
