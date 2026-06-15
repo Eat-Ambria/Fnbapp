@@ -353,22 +353,31 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         const allEvs = [...todayEvs,...tomorrowEvs,...laterEvs];
 
         function isDishReady(evId, dishName, dishIdx){
-          // Check both state formats
-          const dk2 = kt[evId]?.[`d_${dishIdx}`];
-          if(dk2?.ready) return true;
+          const evKt = kt[evId]||{};
+          // Format 1: KitchenHub writes to "evId|idx" key with .ready flag
           const dId = evId+"|"+dishIdx;
-          const d = (kt[evId]||{})[dId];
-          if(!d||!Array.isArray(d.steps)||!d.steps.length) return false;
-          return Array.isArray(d.done) && d.done.length >= d.steps.length;
+          const d = evKt[dId];
+          if(d?.ready || d?.completed) return true;
+          // Format 2: legacy "d_idx" key
+          if(evKt[`d_${dishIdx}`]?.ready) return true;
+          // Format 3: all steps done (steps[] + done[] arrays)
+          if(d && Array.isArray(d.steps) && d.steps.length > 0 && Array.isArray(d.done) && d.done.length >= d.steps.length) return true;
+          return false;
         }
         function isDishDispatched(evId, dishIdx){
-          return !!(kt[evId]?.[`d_${dishIdx}`]?.dispatchReady);
+          const evKt = kt[evId]||{};
+          const dId = evId+"|"+dishIdx;
+          return !!(evKt[dId]?.readyForDispatch || evKt[dId]?.dispatchReady || evKt[`d_${dishIdx}`]?.dispatchReady);
         }
         function getDishReadyTime(evId, dishIdx){
-          return kt[evId]?.[`d_${dishIdx}`]?.readyAt||"";
+          const evKt = kt[evId]||{};
+          const dId = evId+"|"+dishIdx;
+          return evKt[dId]?.readyAt || evKt[dId]?.completedAt || evKt[`d_${dishIdx}`]?.readyAt || "";
         }
         function getDishDispatchTime(evId, dishIdx){
-          return kt[evId]?.[`d_${dishIdx}`]?.dispatchAt||"";
+          const evKt = kt[evId]||{};
+          const dId = evId+"|"+dishIdx;
+          return evKt[dId]?.dispatchAt || evKt[`d_${dishIdx}`]?.dispatchAt || "";
         }
         function dishProgress(evId, dishName, dishIdx){
           const dId = evId+"|"+dishIdx;
