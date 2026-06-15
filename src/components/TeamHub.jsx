@@ -3,9 +3,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
-import { STAFF_LIST, GROOMING_CHECKS, yrsOfService } from '../data/staffData.js';
-import { Avatar, Card, Btn, Chip, STag, SelfieCapture, DonutChart } from './SharedUI.jsx';
-import { KioskAttendance } from './KioskAttendance.jsx';
+import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
+import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
 

@@ -465,7 +465,6 @@ export default function App() {
   const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
   const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
-  const gAlerts   = attendance.filter(a=>a.date===TODAY&&a.groomingFailed).length;
   const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
   const showStaffView = currentUser&&currentUser.role==="staff";
 
@@ -478,7 +477,7 @@ export default function App() {
   );
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
-  if(showStaffView) return <StaffView user={currentUser} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
+  if(showStaffView) return <StaffView user={currentUser} attendance={attendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
   // ── GATE KIOSK INTERCEPT ──
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
@@ -607,7 +606,7 @@ export default function App() {
               );
             }
             const active=screen===item.id;
-            const badge=item.id==="team"&&(gAlerts+pendingLv)>0?(gAlerts+pendingLv):0;
+            const badge=item.id==="team"&&pendingLv>0?pendingLv:0;
             return(
               <button key={item.id} onClick={()=>setScreen(item.id)} style={{
                 display:"flex",alignItems:"center",justifyContent:"space-between",

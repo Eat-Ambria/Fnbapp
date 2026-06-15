@@ -3,32 +3,19 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
-import { STAFF_LIST, GROOMING_CHECKS, yrsOfService } from '../data/staffData.js';
-import { Avatar, Card, Btn, Chip, SectionHeader, SelfieCapture } from './SharedUI.jsx';
+import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
+import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 
-function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout, lang="en"}) {
+function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
   const T2 = s => T(s, lang);
   if(!user || !(user.id||user.staffListId||user.staff_id)) return <div style={{padding:40,textAlign:"center",color:"#888"}}>No user session. Please log in.</div>;
   const [tab,setTab]       = useState("home");
-  const [selfie,setSelfie] = useState(null);
-  const [grooming,setGrooming] = useState({});
-  const [note,setNote]     = useState("");
-  const [attStep,setAttStep] = useState("check");  // check | capture | done
   const [leaveForm,setLeaveForm] = useState({from:"",to:"",reason:""});
 
-  const todayRec = (attendance||[]).find(a=>a.staffId===user.staffListId&&a.date===TODAY);
+  const sid = String(user.staffListId||user.staff_id||user.id||'');
+  const todayRec = safeArr(attendance).find(a=>(String(a.staff_id)===sid||String(a.staffId)===sid)&&a.date===TODAY);
   const myLeaves = (leaves||[]).filter(l=>l.staffName===user.name);
   const staffIdx = STAFF_LIST.findIndex(s=>s.id===user.staffListId);
-  const allOk    = GROOMING_CHECKS.every(c=>grooming[c.id]);
-
-  function submitAtt(status) {
-    setAttendance(p=>[...p.filter(a=>!(a.staffId===user.staffListId&&a.date===TODAY)),
-      {id:Date.now(),staffId:user.staffListId,staffName:user.name,section:user.section,date:TODAY,
-       time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),
-       status,selfie,grooming,groomingFailed:!allOk,note,role:user.role}
-    ]);
-    setAttStep("done");
-  }
 
   function submitLeave() {
     if(!leaveForm.from||!leaveForm.to)return;
@@ -68,11 +55,11 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
           <div>
             <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}, {(user.name||"").split(" ")[0]} 👋</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{background:todayRec?.status==="Present"?C.greenBg:C.redBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${todayRec?.status==="Present"?C.greenBorder:C.redBorder}`}}>
-                <div style={{fontSize:12,fontWeight:600,color:todayRec?.status==="Present"?C.green:C.red,marginBottom:4}}>Today's Attendance</div>
-                <div style={{fontSize:18,fontWeight:700,color:todayRec?.status==="Present"?C.green:C.red}}>{todayRec?todayRec.status:"Not marked"}</div>
-                {todayRec&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>Marked at {todayRec.time}</div>}
-                {!todayRec&&<button onClick={()=>setTab("attendance")} style={{marginTop:8,padding:"5px 12px",borderRadius:7,background:"linear-gradient(135deg,#C4A44A,#8B6914)",color:"#0A0A0F",border:"none",fontSize:11,cursor:"pointer"}}>Mark Now →</button>}
+              <div style={{background:todayRec?C.greenBg:C.redBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${todayRec?C.greenBorder:C.redBorder}`}}>
+                <div style={{fontSize:12,fontWeight:600,color:todayRec?C.green:C.red,marginBottom:4}}>Today's Attendance</div>
+                <div style={{fontSize:18,fontWeight:700,color:todayRec?C.green:C.red}}>{todayRec?"Present":"Not yet marked"}</div>
+                {todayRec&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>IN {todayRec.in_time||todayRec.time||"—"}{todayRec.out_time?" · OUT "+todayRec.out_time:""}</div>}
+                {!todayRec&&<div style={{fontSize:11,color:C.muted,marginTop:6}}>Attendance is marked at the property gate kiosk</div>}
               </div>
               <div style={{background:C.blueBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.blueBorder}`}}>
                 <div style={{fontSize:12,fontWeight:600,color:C.blue,marginBottom:4}}>{T2("Leave Balance")}</div>
@@ -87,57 +74,33 @@ function StaffView({user, attendance, setAttendance, leaves, setLeaves, onLogout
           </div>
         )}
 
-        {/* ── ATTENDANCE ── */}
+        {/* ── ATTENDANCE (read-only — marked at gate kiosk) ── */}
         {tab==="attendance"&&(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>Mark Attendance — {TODAY_LABEL}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>My Attendance — {TODAY_LABEL}</div>
 
-            {todayRec&&attStep==="check"&&(
-              <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:12,padding:"16px",marginBottom:14,textAlign:"center"}}>
-                <div style={{fontSize:32,marginBottom:8}}>✅</div>
-                <div style={{fontSize:15,fontWeight:700,color:C.green}}>Already marked — {todayRec.status}</div>
-                <div style={{fontSize:12,color:C.muted,marginTop:4}}>Checked in at {todayRec.time}</div>
-                {todayRec.selfie&&<img src={todayRec.selfie} alt="" style={{width:80,height:60,objectFit:"cover",borderRadius:8,border:`2px solid ${C.greenBorder}`,marginTop:10}}/>}
-                <div style={{marginTop:12}}>
-                  <button onClick={()=>setAttStep("capture")} style={{padding:"7px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Re-mark Attendance</button>
+            {todayRec?(
+              <Card style={{textAlign:"center",padding:"24px 16px"}}>
+                <div style={{fontSize:48,marginBottom:10}}>{todayRec.out_time?"🏁":"✅"}</div>
+                <div style={{fontSize:18,fontWeight:700,color:C.green,marginBottom:6}}>Present</div>
+                <div style={{display:"flex",justifyContent:"center",gap:20,marginBottom:12}}>
+                  <div style={{background:C.greenBg,borderRadius:10,padding:"10px 18px",border:`1px solid ${C.greenBorder}`}}>
+                    <div style={{fontSize:11,color:C.green,fontWeight:600}}>PUNCH IN</div>
+                    <div style={{fontSize:18,fontWeight:700,color:C.green,marginTop:2}}>{todayRec.in_time||todayRec.time||"—"}</div>
+                  </div>
+                  <div style={{background:todayRec.out_time?C.redBg:C.bg,borderRadius:10,padding:"10px 18px",border:`1px solid ${todayRec.out_time?C.redBorder:C.border}`}}>
+                    <div style={{fontSize:11,color:todayRec.out_time?C.red:C.muted,fontWeight:600}}>PUNCH OUT</div>
+                    <div style={{fontSize:18,fontWeight:700,color:todayRec.out_time?C.red:C.muted,marginTop:2}}>{todayRec.out_time||"—"}</div>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {attStep==="done"&&(
-              <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:12,padding:"24px",textAlign:"center"}}>
-                <div style={{fontSize:40,marginBottom:10}}>✅</div>
-                <div style={{fontSize:16,fontWeight:700,color:C.green}}>{T2("Attendance marked!")}</div>
-                <div style={{fontSize:12,color:C.muted,marginTop:4}}>{TODAY} · {new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
-                {!allOk&&<div style={{marginTop:10,padding:"8px 12px",background:C.amberBg,borderRadius:8,fontSize:12,color:C.amber}}>⚠ Some grooming checks were incomplete — supervisor notified</div>}
-                <button onClick={()=>setAttStep("check")} style={{marginTop:14,padding:"8px 18px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Done</button>
-              </div>
-            )}
-
-            {(attStep==="capture"||(!todayRec&&attStep==="check"))&&(
-              <div>
-                <Card style={{marginBottom:12}}>
-                  <SectionHeader icon="📷" title="Take a Selfie"/>
-                  <SelfieCapture captured={selfie} onCapture={setSelfie} onRetake={()=>setSelfie(null)} lang={lang}/>
-                  {!selfie&&<div style={{fontSize:11,color:C.muted,textAlign:"center",marginTop:8}}>{T2("Required to mark attendance")}</div>}
-                </Card>
-                <Card style={{marginBottom:12}}>
-                  <SectionHeader icon="✓" title="Grooming Self-Check"/>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:10}}>{T2("Confirm your grooming before starting shift:")}</div>
-                  {GROOMING_CHECKS.map(c=>(
-                    <label key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer"}}>
-                      <input type="checkbox" checked={!!grooming[c.id]} onChange={e=>setGrooming(p=>({...p,[c.id]:e.target.checked}))} style={{width:20,height:20,accentColor:C.wine,cursor:"pointer"}}/>
-                      <span style={{fontSize:13,color:C.text}}>{c.label}</span>
-                      {grooming[c.id]&&<span style={{marginLeft:"auto",fontSize:11,color:C.green,fontWeight:500}}>✓</span>}
-                    </label>
-                  ))}
-                  {!allOk&&<div style={{marginTop:8,padding:"10px 14px",background:C.amberBg,borderRadius:7,fontSize:11,color:C.amber}}>{GROOMING_CHECKS.filter(c=>!grooming[c.id]).length} items pending — supervisor will be notified</div>}
-                </Card>
-                <div style={{display:"flex",gap:8}}>
-                  <Btn onClick={()=>{if(!selfie){alert("Please capture selfie first");return;}submitAtt("Present");}} color={C.wine} style={{flex:1,padding:"12px",fontSize:14,fontWeight:600}}>✓ Mark Present</Btn>
-                  <Btn onClick={()=>submitAtt(T2("Late"))} color={C.amberBg} textColor={C.amber} border={`1px solid ${C.amberBorder}`} style={{padding:"12px 16px",fontSize:13}}>Late</Btn>
-                </div>
-              </div>
+                {todayRec.venue&&<div style={{fontSize:12,color:C.muted}}>Venue: {todayRec.venue}</div>}
+              </Card>
+            ):(
+              <Card style={{textAlign:"center",padding:"24px 16px"}}>
+                <div style={{fontSize:48,marginBottom:10}}>⏳</div>
+                <div style={{fontSize:16,fontWeight:700,color:C.muted,marginBottom:6}}>Not yet marked</div>
+                <div style={{fontSize:13,color:C.muted}}>Attendance is recorded at the property gate kiosk when you arrive.</div>
+              </Card>
             )}
           </div>
         )}
