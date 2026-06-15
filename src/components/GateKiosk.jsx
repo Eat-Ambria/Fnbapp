@@ -172,11 +172,12 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   // ── VENUE HEADER ──
   var header = React.createElement('div', {
     style:{textAlign:'center',padding:'16px',marginBottom:20,
-      background:'#1A1714',borderRadius:16,border:'2px solid #D4B44A30'}
+      background:C.surface,borderRadius:16,border:'1px solid '+C.border,
+      boxShadow:'0 2px 8px rgba(0,0,0,.06)'}
   },
     React.createElement('div', {style:{fontSize:22,fontWeight:700,
-      color:'#D4B44A',fontFamily:'var(--font-display)'}}, venueName),
-    React.createElement('div', {style:{fontSize:12,color:'#7A6F62',marginTop:4}},
+      color:C.wine,fontFamily:'var(--font-display)'}}, venueName),
+    React.createElement('div', {style:{fontSize:12,color:C.muted,marginTop:4}},
       'Gate Kiosk · ' + TODAY_LABEL)
   );
 
@@ -185,9 +186,9 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     return React.createElement('div', null,
       header,
       React.createElement('div', {style:{fontSize:18,fontWeight:700,
-        color:'#D4B44A',textAlign:'center',fontFamily:'var(--font-display)',
+        color:C.wine,textAlign:'center',fontFamily:'var(--font-display)',
         marginBottom:6}}, T2('Select Your Department')),
-      React.createElement('div', {style:{fontSize:12,color:'#7A6F62',
+      React.createElement('div', {style:{fontSize:12,color:C.muted,
         textAlign:'center',marginBottom:16}},
         (function(){
           var todayTotal = safeArr(attendance).filter(function(a){return a.date===TODAY && !a.is_vendor;}).length;
@@ -214,14 +215,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 setStep('name');
               }
             },
-            style:{background:'#1A1714',border:'2px solid '+(deptIn>0?'#1A4828':'#2A2520'),
+            style:{background:C.surface,border:'1.5px solid '+(deptIn>0?C.greenBorder:C.border),
               borderRadius:16,padding:'24px 12px',cursor:'pointer',
-              textAlign:'center',minHeight:110}
+              textAlign:'center',minHeight:110,
+              boxShadow:'0 2px 8px rgba(0,0,0,.04)'}
           },
             React.createElement('div',{style:{fontSize:32,marginBottom:6}},d.icon),
             React.createElement('div',{style:{fontSize:14,fontWeight:700,
-              color:'#F5F0E8'}},d.label),
-            React.createElement('div',{style:{fontSize:11,color:deptIn>0?'#3EAA68':'#7A6F62',
+              color:C.text}},d.label),
+            React.createElement('div',{style:{fontSize:11,color:deptIn>0?C.green:C.muted,
               marginTop:4}},d.id==='vendor'?'Entry Form':(deptIn>0?deptIn+' in · ':'')+count+' staff')
           );
         })
@@ -229,8 +231,8 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       React.createElement('div', {style:{position:'fixed',bottom:10,right:10}},
         React.createElement('button', {
           onClick: function() { setCurrentUser(null); },
-          style:{padding:'6px 14px',borderRadius:8,background:'#1A1714',
-            border:'1px solid #2A2520',color:'#4A4238',fontSize:10,
+          style:{padding:'6px 14px',borderRadius:8,background:C.surface,
+            border:'1px solid '+C.border,color:C.muted,fontSize:10,
             cursor:'pointer'}
         }, 'Sign Out')
       )
@@ -250,18 +252,18 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       header,
       React.createElement('button', {
         onClick: function() { setStep('dept'); setSelDept(null); },
-        style:{padding:'10px 18px',borderRadius:10,background:'#1A1714',
-          border:'1px solid #2A2520',color:'#7A6F62',fontSize:13,
+        style:{padding:'10px 18px',borderRadius:10,background:C.surface,
+          border:'1px solid '+C.border,color:C.muted,fontSize:13,
           cursor:'pointer',marginBottom:16,minHeight:44}
       }, '← ' + T2('Back')),
       React.createElement('div', {style:{fontSize:18,fontWeight:700,
-        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:16}},
+        color:C.text,fontFamily:'var(--font-display)',marginBottom:16}},
         selDept.icon + ' ' + selDept.label + ' — ' + T2('Select Your Name')),
       Object.keys(grouped).map(function(sec) {
         return React.createElement('div', {key:sec, style:{marginBottom:16}},
           Object.keys(grouped).length > 1 ?
             React.createElement('div', {style:{fontSize:12,fontWeight:700,
-              color:'#D4B44A',marginBottom:8,textTransform:'uppercase',
+              color:C.wine,marginBottom:8,textTransform:'uppercase',
               letterSpacing:0.8}}, sec) : null,
           React.createElement('div', {style:{display:'grid',
             gridTemplateColumns:'repeat(2,1fr)',gap:8}},
@@ -277,17 +279,17 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 : isIn
                   ? '✅ IN since '+todayAtt.in_time
                   : '⬜ Not yet punched in';
-              var statusColor = (isIn || isComplete) ? '#3EAA68' : '#7A6F62';
+              var statusColor = (isIn || isComplete) ? C.green : C.muted;
               return React.createElement('button', {
                 key: sid,
                 onClick: function() { setSelStaff(s); setStep('selfie'); },
                 style:{padding:'14px 12px',borderRadius:12,
-                  background: (isIn || isComplete) ? '#0A2010' : '#141210',
-                  border:'1.5px solid '+((isIn || isComplete) ? '#1A4828' : '#2A2520'),
+                  background: (isIn || isComplete) ? C.greenBg : C.surface,
+                  border:'1.5px solid '+((isIn || isComplete) ? C.greenBorder : C.border),
                   cursor:'pointer',textAlign:'left',minHeight:56}
               },
                 React.createElement('div',{style:{fontSize:14,fontWeight:700,
-                  color:'#F5F0E8'}},s.name),
+                  color:C.text}},s.name),
                 React.createElement('div',{style:{fontSize:11,
                   color:statusColor,marginTop:2}}, statusText)
               );
@@ -297,16 +299,16 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       }),
       staffList.length === 0 ?
         React.createElement('div', {style:{textAlign:'center',padding:24,
-          color:'#7A6F62',fontSize:13}}, T2('No staff in this department')) : null
+          color:C.muted,fontSize:13}}, T2('No staff in this department')) : null
     );
   }
 
   // ── STEP 2b: VENDOR ENTRY FORM ──
   if (step === 'vendor') {
     var fld = {width:'100%',padding:'12px',borderRadius:10,
-      border:'1px solid #2A2520',fontSize:14,color:'#F5F0E8',
-      background:'#141210',boxSizing:'border-box',minHeight:44};
-    var lbl = {fontSize:11,fontWeight:700,color:'#7A6F62',marginBottom:4,
+      border:'1px solid '+C.border,fontSize:14,color:C.text,
+      background:C.bg,boxSizing:'border-box',minHeight:44};
+    var lbl = {fontSize:11,fontWeight:700,color:C.muted,marginBottom:4,
       textTransform:'uppercase',letterSpacing:0.8};
     var canSubmitIn = vendorForm.name.trim()&&vendorForm.company.trim()&&vendorForm.purpose&&photo;
     var canSubmitOut = vendorForm.name.trim()&&vendorForm.company.trim();
@@ -314,15 +316,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       header,
       React.createElement('button',{
         onClick:function(){setStep('dept');setPhoto(null);},
-        style:{padding:'10px 18px',borderRadius:10,background:'#1A1714',
-          border:'1px solid #2A2520',color:'#7A6F62',fontSize:13,
+        style:{padding:'10px 18px',borderRadius:10,background:C.surface,
+          border:'1px solid '+C.border,color:C.muted,fontSize:13,
           cursor:'pointer',marginBottom:16,minHeight:44}
       },'← Back'),
       React.createElement('div',{style:{fontSize:18,fontWeight:700,
-        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:16}},
+        color:C.text,fontFamily:'var(--font-display)',marginBottom:16}},
         '🏢 Outside Vendor Entry'),
-      React.createElement('div',{style:{background:'#1A1714',borderRadius:14,
-        padding:'18px',border:'1px solid #2A2520'}},
+      React.createElement('div',{style:{background:C.surface,borderRadius:14,
+        padding:'18px',border:'1px solid '+C.border}},
         React.createElement('div',{style:{marginBottom:12}},
           React.createElement('div',{style:lbl},'Visitor Name *'),
           React.createElement('input',{value:vendorForm.name,
@@ -391,15 +393,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 borderRadius:12,objectFit:'cover',border:'2px solid #D4B44A'}}),
               React.createElement('button',{
                 onClick:function(){photoRef.current&&photoRef.current.click();},
-                style:{padding:'8px 16px',borderRadius:10,background:'#1A1714',
-                  border:'1px solid #2A2520',color:'#D4B44A',fontSize:12,cursor:'pointer'}
+                style:{padding:'8px 16px',borderRadius:10,background:C.bg,
+                  border:'1px solid '+C.border,color:C.wine,fontSize:12,cursor:'pointer'}
               },'📸 Retake')
             ) :
             React.createElement('button',{
               onClick:function(){photoRef.current&&photoRef.current.click();},
               style:{padding:'14px 20px',borderRadius:12,width:'100%',
-                background:'linear-gradient(135deg,#D4B44A,#A8891E)',
-                color:'#0A0908',border:'none',fontSize:13,fontWeight:700,
+                background:'linear-gradient(135deg,'+C.wine+',#6D4A25)',
+                color:'#fff',border:'none',fontSize:13,fontWeight:700,
                 cursor:'pointer',minHeight:48,boxSizing:'border-box'}
             },'📸 Take Visitor Photo')
         ),
