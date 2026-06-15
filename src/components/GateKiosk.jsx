@@ -436,11 +436,11 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     var punchedIn3  = todayRec3 && todayRec3.in_time;
     var punchedOut3 = todayRec3 && todayRec3.out_time;
     var punchEl = punchedIn3 && punchedOut3
-      ? React.createElement('div',{style:{padding:20,background:'#0A2010',borderRadius:14,
-          border:'1px solid #1A4828'}},
-          React.createElement('div',{style:{fontSize:16,color:'#3EAA68',fontWeight:700}},
+      ? React.createElement('div',{style:{padding:20,background:C.greenBg,borderRadius:14,
+          border:'1px solid '+C.greenBorder}},
+          React.createElement('div',{style:{fontSize:16,color:C.green,fontWeight:700}},
             '✅ Attendance complete'),
-          React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginTop:4}},
+          React.createElement('div',{style:{fontSize:13,color:C.muted,marginTop:4}},
             'IN: '+todayRec3.in_time+' · OUT: '+todayRec3.out_time)
         )
       : punchedIn3
@@ -465,13 +465,13 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     return React.createElement('div',{style:{textAlign:'center',padding:'30px 20px'}},
       header,
       React.createElement('div',{style:{fontSize:48,marginBottom:8}},'📸'),
-      React.createElement('div',{style:{fontSize:22,fontWeight:700,color:'#F5F0E8',
+      React.createElement('div',{style:{fontSize:22,fontWeight:700,color:C.text,
         fontFamily:'var(--font-display)',marginBottom:4}},selStaff.name),
-      React.createElement('div',{style:{fontSize:13,color:'#7A6F62',marginBottom:20}},
+      React.createElement('div',{style:{fontSize:13,color:C.muted,marginBottom:20}},
         (selStaff.section||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
       photo ? React.createElement('div',{style:{marginBottom:16}},
         React.createElement('img',{src:photo,style:{width:140,height:140,
-          borderRadius:20,objectFit:'cover',border:'3px solid #D4B44A'}}),
+          borderRadius:20,objectFit:'cover',border:'3px solid '+C.wine}}),
         React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6,fontWeight:700}},
           '✅ Selfie captured')
       ) : null,
@@ -483,9 +483,9 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         React.createElement('button',{
           onClick:function(){photoRef.current&&photoRef.current.click();},
           style:{padding:'16px 32px',borderRadius:14,
-            background:photo?'#1A1714':'linear-gradient(135deg,#D4B44A,#A8891E)',
-            color:photo?'#D4B44A':'#0A0908',
-            border:photo?'2px solid #D4B44A':'none',
+            background:photo?C.surface:'linear-gradient(135deg,'+C.wine+',#6D4A25)',
+            color:photo?C.wine:'#fff',
+            border:photo?'2px solid '+C.wine:'none',
             fontSize:15,fontWeight:700,cursor:'pointer',minHeight:54}
         }, photo?'📸 Retake Selfie':'📸 Take Selfie First')
       ),
@@ -496,8 +496,8 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       React.createElement('button',{
         onClick:function(){setStep('name');setSelStaff(null);setPhoto(null);},
         style:{marginTop:20,padding:'10px 24px',borderRadius:10,
-          background:'#1A1714',border:'1px solid #2A2520',
-          color:'#7A6F62',fontSize:12,cursor:'pointer'}
+          background:C.surface,border:'1px solid '+C.border,
+          color:C.muted,fontSize:12,cursor:'pointer'}
       },'← Wrong person? Go back')
     );
   }
@@ -509,20 +509,20 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       React.createElement('div',{style:{fontSize:64,marginBottom:16}},
         success.type==='IN'?'✅':'🚪'),
       React.createElement('div',{style:{fontSize:28,fontWeight:700,
-        color:'#F5F0E8',fontFamily:'var(--font-display)',marginBottom:8}},
+        color:C.text,fontFamily:'var(--font-display)',marginBottom:8}},
         success.name),
       React.createElement('div',{style:{fontSize:20,
-        color:success.type==='IN'?'#3EAA68':'#D4914A',
+        color:success.type==='IN'?C.green:C.amber,
         fontWeight:700,marginBottom:4}},
         (success.type==='IN'?'PUNCHED IN':'PUNCHED OUT')+' at '+success.time),
-      React.createElement('div',{style:{fontSize:16,color:'#7A6F62',
+      React.createElement('div',{style:{fontSize:16,color:C.muted,
         marginTop:24}},
         'Returning in 4 seconds...')
     );
   }
 
   return React.createElement('div',{style:{textAlign:'center',
-    padding:40,color:'#7A6F62'}},'Loading...');
+    padding:40,color:C.muted}},'Loading...');
 }
 
 // ── Unified attendance record schema ──────────────────────────────
