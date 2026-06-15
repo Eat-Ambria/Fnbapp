@@ -117,6 +117,40 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:[...d.assignments,{vehicleId:vid,driver:"",dispatchTime:calcDispatch(ev?.time||""),status:T2("Planning"),manifest:makeManifest(ev||{},vid),loadingList:buildChecklist(ev||{},vid),unloadingList:buildChecklist(ev||{},vid).map(i=>({...i,id:"u-"+i.id,checked:false}))}]}));
   }
 
+  // ── Dispatch status flow: Planning → Loaded → Dispatched → At Venue → Unloaded ──
+  const STATUS_FLOW = ["Planning","Loaded","Dispatched","At Venue","Unloaded"];
+  function advanceStatus(evId,ai){
+    setDispatches(p=>p.map(d=>{
+      if(d.evId!==evId)return d;
+      return {...d,assignments:d.assignments.map((a,i)=>{
+        if(i!==ai)return a;
+        const ci=STATUS_FLOW.indexOf(a.status);
+        if(ci<0||ci>=STATUS_FLOW.length-1)return a;
+        const next=STATUS_FLOW[ci+1];
+        const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+        const upd={...a,status:next};
+        if(next==="Dispatched")upd.dispatchedAt=now;
+        if(next==="At Venue")upd.arrivedAt=now;
+        if(next==="Unloaded")upd.unloadedAt=now;
+        return upd;
+      })};
+    }));
+  }
+  function canAdvance(asgn){
+    if(asgn.status==="Planning"){return asgn.loadingList.length>0&&asgn.loadingList.every(i=>i.checked);}
+    if(asgn.status==="Loaded"){return !!asgn.driver;}
+    if(asgn.status==="Dispatched"){return true;}
+    if(asgn.status==="At Venue"){return asgn.unloadingList.length>0&&asgn.unloadingList.every(i=>i.checked);}
+    return false;
+  }
+  function nextLabel(status){
+    if(status==="Planning")return "📦 Mark Loaded";
+    if(status==="Loaded")return "🚛 Dispatch Now";
+    if(status==="Dispatched")return "📍 Arrived at Venue";
+    if(status==="At Venue")return "✅ All Unloaded";
+    return null;
+  }
+
   const allDates  = [...new Set(safeEvs.map(e=>e.date).filter(Boolean))].sort();
   const dayEvs    = safeEvs.filter(e=>e.date===selDate);
   const selDispatch = dispatches.find(d=>d.evId===selEvId)||null;
@@ -419,10 +453,24 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
                         <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
                       </div>
-                      <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6}}>
+                      <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
                         <span style={{fontSize:11,fontWeight:700,color:sc,padding:"2px 8px",borderRadius:8,background:sc+"15"}}>{asgn.status}</span>
                         <span style={{fontSize:11,color:C.muted}}>{loadDone}/{loadTot} {T2("loaded")}</span>
+                        {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
+                        {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
+                        {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
+                        {nextLabel(asgn.status)&&(
+                          <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
+                            style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
+                              background:canAdvance(asgn)?(asgn.status==="Loaded"?C.green:asgn.status==="At Venue"?C.green:C.amber):(C.border),
+                              color:canAdvance(asgn)?"#fff":C.faint}}>
+                            {nextLabel(asgn.status)}
+                          </button>
+                        )}
+                        {asgn.status==="Unloaded"&&<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>✅ Complete</span>}
                       </div>
+                      {!canAdvance(asgn)&&asgn.status==="Planning"&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Check all loading items to enable "Mark Loaded"</div>}
+                      {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Assign a driver to enable dispatch</div>}
                     </div>
                   );
                 })}
@@ -639,18 +687,38 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     </div>
                     {dispatch.assignments.map((asgn,ai)=>{
                       const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛"};
+                      const sc2=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
                       return(
-                        <div key={ai} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 0",borderBottom:ai<dispatch.assignments.length-1?`1px solid ${C.borderLight}`:"none",flexWrap:"wrap"}}>
-                          <span style={{fontSize:18}}>{v.icon}</span>
-                          <select value={asgn.vehicleId} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}))}
-                            style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}>
-                            {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
-                          </select>
-                          <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
-                            style={{flex:1,minWidth:100,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                          <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
-                          <button onClick={()=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}))}
-                            style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer",minHeight:36}}>✕</button>
+                        <div key={ai} style={{padding:"10px 0",borderBottom:ai<dispatch.assignments.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                            <span style={{fontSize:18}}>{v.icon}</span>
+                            <select value={asgn.vehicleId} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}))}
+                              style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}>
+                              {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
+                            </select>
+                            <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
+                              style={{flex:1,minWidth:100,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
+                            <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
+                            <button onClick={()=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}))}
+                              style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer",minHeight:36}}>✕</button>
+                          </div>
+                          <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:11,fontWeight:700,color:sc2,padding:"2px 8px",borderRadius:8,background:sc2+"15"}}>{asgn.status}</span>
+                            {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
+                            {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
+                            {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
+                            {nextLabel(asgn.status)&&(
+                              <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
+                                style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
+                                  background:canAdvance(asgn)?(asgn.status==="Loaded"?C.green:asgn.status==="At Venue"?C.green:C.amber):(C.border),
+                                  color:canAdvance(asgn)?"#fff":C.faint}}>
+                                {nextLabel(asgn.status)}
+                              </button>
+                            )}
+                            {asgn.status==="Unloaded"&&<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>✅ Complete</span>}
+                          </div>
+                          {!canAdvance(asgn)&&asgn.status==="Planning"&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Check all loading items first</div>}
+                          {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Assign a driver first</div>}
                         </div>
                       );
                     })}
