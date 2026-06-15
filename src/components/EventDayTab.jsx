@@ -507,9 +507,9 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {done ? "✓" : num}
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: done ? C.green : running ? (overdue ? C.red : C.amber) : C.text, wordBreak: "break-word", overflowWrap: "anywhere" }}>{title}</span>
-          {d1Badge && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBorder}`, color: C.green }}>D-1 ✅</span>}
+        <div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: done ? C.green : running ? (overdue ? C.red : C.amber) : C.text }}>{title}</span>
+          {d1Badge && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBorder}`, color: C.green, marginLeft: 6 }}>D-1 ✅</span>}
         </div>
         {desc && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{desc}</div>}
         {ccp && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }}>🔴 CCP: {ccp}</div>}
