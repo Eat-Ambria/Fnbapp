@@ -23,23 +23,35 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   const DEPTS = [
     {id:'kitchen',label:'Kitchen',icon:'👨‍🍳',
       sections:['Indian Curries','Tandoor','Chinese','Chaat','Sweets','Continental','Bakery']},
-    {id:'service',label:'Service',icon:'🍽'},
-    {id:'crockery',label:'Crockery',icon:'🍶'},
-    {id:'beverages',label:'Beverages',icon:'🥤'},
-    {id:'transport',label:'Transport',icon:'🚛'},
-    {id:'odc',label:'ODC',icon:'🏕'},
-    {id:'management',label:'Management',icon:'🔐'},
-    {id:'maintenance',label:'Maintenance',icon:'🔧'},
+    {id:'service',label:'Service',icon:'🍽',sections:['Service']},
+    {id:'crockery',label:'Crockery',icon:'🍶',sections:['Crockery']},
+    {id:'beverages',label:'Beverages',icon:'🥤',sections:['Beverages']},
+    {id:'transport',label:'Transport',icon:'🚛',sections:['Transportation','Transport']},
+    {id:'odc',label:'ODC',icon:'🏕',sections:['ODC']},
+    {id:'management',label:'Management',icon:'🔐',sections:['Management']},
+    {id:'maintenance',label:'Maintenance',icon:'🔧',sections:['Maintenance']},
     {id:'vendor',label:'Outside Vendor',icon:'🏢'},
   ];
 
   function getStaffForDept(dept) {
-    return safeArr(empDb).filter(function(s) {
+    // First try empDb (Supabase staff records)
+    var dbStaff = safeArr(empDb).filter(function(s) {
       if (s.is_active === false) return false;
-      if (s.role === 'kiosk_gate' || s.role === 'admin') return false;
+      if (s.role === 'kiosk_gate' || s.role === 'admin' || s.role === 'head_chef') return false;
+      if (s.role && s.role.startsWith('section_')) return false;
       if (dept.sections) return dept.sections.includes(s.section);
       return s.dept === dept.id;
     });
+    // Merge in STAFF_LIST entries not already in empDb (by name match)
+    var dbNames = new Set(dbStaff.map(function(s){ return (s.name||'').toLowerCase(); }));
+    var listStaff = STAFF_LIST.filter(function(s) {
+      if (dbNames.has((s.name||'').toLowerCase())) return false;
+      if (dept.sections) return dept.sections.includes(s.section);
+      return false;
+    }).map(function(s) {
+      return { staffListId: String(s.id), staff_id: String(s.id), name: s.name, section: s.section, dept: dept.id, role: s.role, is_active: true };
+    });
+    return dbStaff.concat(listStaff);
   }
 
   function handlePunch(type) {
@@ -173,12 +185,24 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     return React.createElement('div', null,
       header,
       React.createElement('div', {style:{fontSize:18,fontWeight:700,
-        color:'#F5F0E8',textAlign:'center',fontFamily:'var(--font-display)',
-        marginBottom:20}}, T2('Select Your Department')),
+        color:'#D4B44A',textAlign:'center',fontFamily:'var(--font-display)',
+        marginBottom:6}}, T2('Select Your Department')),
+      React.createElement('div', {style:{fontSize:12,color:'#7A6F62',
+        textAlign:'center',marginBottom:16}},
+        (function(){
+          var todayTotal = safeArr(attendance).filter(function(a){return a.date===TODAY && !a.is_vendor;}).length;
+          var todayIn = safeArr(attendance).filter(function(a){return a.date===TODAY && !a.is_vendor && a.in_time && !a.out_time;}).length;
+          return todayTotal>0 ? todayIn+' currently in · '+todayTotal+' punched today' : 'No punches yet today';
+        })()
+      ),
       React.createElement('div', {style:{display:'grid',
         gridTemplateColumns:'repeat(3,1fr)',gap:12}},
         DEPTS.map(function(d) {
           var count = getStaffForDept(d).length;
+          var deptIn = safeArr(attendance).filter(function(a){
+            return a.date===TODAY && !a.is_vendor && a.in_time && !a.out_time
+              && d.sections && d.sections.includes(a.section);
+          }).length;
           return React.createElement('button', {
             key: d.id,
             onClick: function() {
@@ -190,15 +214,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 setStep('name');
               }
             },
-            style:{background:'#1A1714',border:'2px solid #2A2520',
+            style:{background:'#1A1714',border:'2px solid '+(deptIn>0?'#1A4828':'#2A2520'),
               borderRadius:16,padding:'24px 12px',cursor:'pointer',
               textAlign:'center',minHeight:110}
           },
             React.createElement('div',{style:{fontSize:32,marginBottom:6}},d.icon),
             React.createElement('div',{style:{fontSize:14,fontWeight:700,
               color:'#F5F0E8'}},d.label),
-            React.createElement('div',{style:{fontSize:11,color:'#7A6F62',
-              marginTop:4}},d.id==='vendor'?'Entry Form':count+' staff')
+            React.createElement('div',{style:{fontSize:11,color:deptIn>0?'#3EAA68':'#7A6F62',
+              marginTop:4}},d.id==='vendor'?'Entry Form':(deptIn>0?deptIn+' in · ':'')+count+' staff')
           );
         })
       ),

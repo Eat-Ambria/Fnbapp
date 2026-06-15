@@ -481,7 +481,7 @@ export default function App() {
   // ── GATE KIOSK INTERCEPT ──
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
-      <div style={{minHeight:'100vh',background:'#F7F5F0',padding:20}}>
+      <div style={{minHeight:'100vh',background:'#0A0908',padding:20}}>
         <GateKiosk empDb={empDb} attendance={attendance}
           setAttendance={setAttendance} currentUser={currentUser}
           setCurrentUser={setCurrentUser} lang={lang}/>
