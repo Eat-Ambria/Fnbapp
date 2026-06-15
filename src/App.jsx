@@ -143,13 +143,18 @@ export default function App() {
     setKitchenTracking_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       Object.keys(next||{}).forEach(evId => {
-        if((next[evId]) !== (prev[evId]||null)) {
-          Object.entries(next[evId]||{}).forEach(([dishKey, data]) => {
-            if(dishKey!==prev[evId]?.[dishKey]) {
-              dbUpsert("kitchen_tracking",{ev_id:evId,dish_key:dishKey,data},"ev_id,dish_key").catch(e=>console.error("kt sync:",e));
-            }
-          });
-        }
+        const prevEv = prev[evId]||{};
+        const nextEv = next[evId]||{};
+        Object.entries(nextEv).forEach(([dishKey, val]) => {
+          if(dishKey.startsWith("__")) return; // skip meta keys
+          const prevVal = prevEv[dishKey];
+          if(val && JSON.stringify(val) !== JSON.stringify(prevVal)) {
+            const safeData = JSON.parse(JSON.stringify(val));
+            dbUpsert("kitchen_tracking",{ev_id:evId,dish_key:dishKey,data:safeData},"ev_id,dish_key")
+              .then(()=>console.log("✅ KT synced:",dishKey))
+              .catch(e=>console.error("❌ KT sync fail:",dishKey,e));
+          }
+        });
       });
       return next;
     });
