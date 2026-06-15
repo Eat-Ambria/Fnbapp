@@ -7,6 +7,20 @@ import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/hel
 import { guessSectionForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
+// ── Strip hardcoded quantities from SOP step text ──
+function cleanStepText(text) {
+  if (!text) return "";
+  return text
+    .replace(/\(\s*[\d.,]+\s*(?:kg|gm?|ml|li?t(?:re|er)?s?|pcs?|pieces?)\s*(?:\/\s*[\d.,]+\s*(?:PAX|pax))?\s*\)/gi, "")
+    .replace(/\b([\d.,]+)\s*(kg|gm?|ml|li?t(?:re|er)?s?)\b/gi, "")
+    .replace(/\/?\s*[\d.,]+\s*PAX/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s*—\s*—\s*/g, " — ")
+    .replace(/^\s*[—,]\s*/, "")
+    .trim();
+}
+
 // ── Timer helpers (never auto-complete, show overrun) ──
 function elapsed(d, si) { return d.starts?.[si] ? Math.floor((Date.now() - d.starts[si]) / 1000) : 0; }
 function stepDone(d, si) {
@@ -353,7 +367,8 @@ function EventDayTab({
                                   const d1Done = isD1Step(d, si);
                                   const gIdx = gi; // global index for lock check
                                   const prevDone = gIdx === 0 ? storeDone : stepDone(d, nonStore[nonStore.indexOf(prePrep[gi - 1]) >= 0 ? prePrep[gi - 1].origIdx : 0].origIdx || 0);
-                                  return <StepRow key={si} num={gIdx + 1} title={step.t + (step.live ? " 🔴" : "")} desc={step.i || ""} ccp={step.ccp}
+                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
+                                  return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={!prevDone && !done && !started && !d1Done}
                                     d1Badge={d1Done}
@@ -375,7 +390,8 @@ function EventDayTab({
                                   const el = elapsed(d, si); const tm = d.stepTm?.[si] || step.tm || 0;
                                   const allPrev = nonStore.slice(0, nonStore.indexOf(item));
                                   const prevDone = allPrev.length === 0 ? storeDone : stepDone(d, allPrev[allPrev.length - 1].origIdx);
-                                  return <StepRow key={si} num={prePrep.length + ci + 1} title={step.t + (step.live ? " 🔴" : "")} desc={step.i || ""} ccp={step.ccp}
+                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
+                                  return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     done={done} running={started && !done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={!prevDone && !done && !started}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
@@ -517,14 +533,16 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
             {wasOver && <span style={{ color: C.red, fontWeight: 600 }}>🔴 +{diffM > 0 ? `${diffM}m ` : ""}{diffS}s over</span>}
           </div>
         )}
-        {done && !hasDoneElapsed && doneTime && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ {doneTime}</div>}
+        {done && !hasDoneElapsed && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ done</div>}
         {!done && !running && !locked && timerSec > 0 && <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>⏱ {Math.floor(timerSec / 60)}m</div>}
       </div>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
         {locked && !done && <div style={{ padding: "6px 10px", borderRadius: 8, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: 12 }}>🔒</div>}
         {!locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>▶ {Math.floor(timerSec / 60)}m</button>}
         {!locked && !done && !running && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: C.gold, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
-        {running && !done && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: overdue ? `linear-gradient(135deg,${C.red},#801818)` : `linear-gradient(135deg,${C.green},#1A5030)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{overdue ? "⚠ Done" : "✓ Done"}</button>}
+        {running && !done && overdue && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.red},#801818)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚠ Done</button>}
+        {running && !done && !overdue && timerSec > 0 && <div style={{ padding: "7px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, fontSize: 11, color: C.amber, fontWeight: 600 }}>⏱ running</div>}
+        {running && !done && !overdue && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.green},#1A5030)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
       </div>
     </div>
   );
