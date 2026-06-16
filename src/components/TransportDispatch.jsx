@@ -285,7 +285,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             var dishData=evKt[pipeKey]||evKt[ev.id+'_'+idx]||evKt['d_'+idx]||null;
             if(!dishData) return;
             if(dishData.readyForDispatch||dishData.dispatchReady){dispatchedDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
-            else if(dishData.completed||dishData.ready){readyDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
+            else if(dishData.completed||dishData.ready||dishData.mesaDone){readyDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
           });
         });
         var totalDishes=relevantEvs.reduce(function(s,e){return s+(Array.isArray(e.menu)?e.menu.length:0);},0);
@@ -356,25 +356,26 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
         function isDishReady(evId, dishName, dishIdx){
           const evKt = kt[evId]||{};
-          // Format 1: KitchenHub writes to "evId|idx" key with .ready flag
           const dId = evId+"|"+dishIdx;
           const d = evKt[dId];
-          if(d?.ready || d?.completed) return true;
-          // Format 2: legacy "d_idx" key
-          if(evKt[`d_${dishIdx}`]?.ready) return true;
-          // Format 3: all steps done (steps[] + done[] arrays)
+          if(d?.ready || d?.completed || d?.mesaDone) return true;
+          if(evKt["d_"+dishIdx]?.ready) return true;
           if(d && Array.isArray(d.steps) && d.steps.length > 0 && Array.isArray(d.done) && d.done.length >= d.steps.length) return true;
           return false;
         }
         function isDishDispatched(evId, dishIdx){
           const evKt = kt[evId]||{};
           const dId = evId+"|"+dishIdx;
-          return !!(evKt[dId]?.readyForDispatch || evKt[dId]?.dispatchReady || evKt[`d_${dishIdx}`]?.dispatchReady);
+          return !!(evKt[dId]?.readyForDispatch || evKt[dId]?.dispatchReady || evKt["d_"+dishIdx]?.dispatchReady);
         }
         function getDishReadyTime(evId, dishIdx){
           const evKt = kt[evId]||{};
           const dId = evId+"|"+dishIdx;
-          return evKt[dId]?.readyAt || evKt[dId]?.completedAt || evKt[`d_${dishIdx}`]?.readyAt || "";
+          const d = evKt[dId];
+          if(d?.readyAt) return d.readyAt;
+          if(d?.completedAt && typeof d.completedAt === "string") return d.completedAt;
+          if(d?.dishCompletedAt) return new Date(d.dishCompletedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+          return evKt["d_"+dishIdx]?.readyAt || "";
         }
         function getDishDispatchTime(evId, dishIdx){
           const evKt = kt[evId]||{};

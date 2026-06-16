@@ -370,7 +370,7 @@ function EventDayTab({
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={!prevDone && !done && !started && !d1Done}
+                                    elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started && !d1Done)}
                                     d1Badge={d1Done}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
@@ -393,7 +393,7 @@ function EventDayTab({
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     done={done} running={started && !done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={!prevDone && !done && !started}
+                                    elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started)}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
                                     doneTime={d.manualAt?.[si] || null}
@@ -544,7 +544,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {!locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>▶ {Math.floor(timerSec / 60)}m</button>}
         {!locked && !done && !running && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: C.gold, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
         {running && !done && overdue && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.red},#801818)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚠ Done</button>}
-        {running && !done && !overdue && timerSec > 0 && <div style={{ padding: "7px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, fontSize: 11, color: C.amber, fontWeight: 600 }}>⏱ running</div>}
+        {running && !done && !overdue && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, fontSize: 11, color: C.amber, fontWeight: 600, cursor: "pointer" }}>✓ {Math.floor((timerSec - elapsedSec) / 60)}m left</button>}
         {running && !done && !overdue && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.green},#1A5030)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
       </div>
     </div>
