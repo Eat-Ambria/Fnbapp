@@ -1328,10 +1328,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   )}
                 </div>
                 {/* Ingredient count + Edit button */}
+                {(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                   <span style={{fontSize:11,color:C.muted}}>
                     {sopRecipe.ingredients?.items?.length>0
                       ?"🧂 "+sopRecipe.ingredients.items.length+" ingredients"
+                      :fallbackIng?"🧂 "+fallbackIng.length+" ingredients (legacy)"
                       :"🧂 No ingredients added"}
                   </span>
                   {currentUser?.role==='admin'&&(
@@ -1341,7 +1343,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   )}
                 </div>
                 {/* Inline ingredient table (read-only) */}
-                {sopRecipe.ingredients?.items?.length>0&&(
+                {sopRecipe.ingredients?.items?.length>0?(
                   <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                     <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`}}>
                       Ingredients — {sopRecipe.ingredients.pax_sizes?.map(p=>p+" pax").join(" / ")}
@@ -1372,8 +1374,38 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       </table>
                     </div>
                   </div>
-                )}
-                {!sopRecipe.ingredients?.items?.length&&<div style={{marginBottom:16}}/>}
+                ):fallbackIng?(
+                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.amberBg,fontSize:11,fontWeight:700,color:C.amber,borderBottom:`1px solid ${C.amberBorder}`}}>
+                      Ingredients (legacy per-serving @ 500 pax)
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
+                          <th style={{padding:"6px 8px",textAlign:"right",color:C.amber,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>500 pax</th>
+                        </tr></thead>
+                        <tbody>
+                          {fallbackIng.filter(ig=>ig.q>0).map((ing,ii)=>{
+                            const raw=ing._newFmt?ing.q:ing.q*500;
+                            const fmt=ing.u==="g"||ing.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):ing.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):ing.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+ing.u;
+                            return(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.n}</div>
+                                {ing.h&&<div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
+                              </td>
+                              <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.u}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:C.amber,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{fmt}</td>
+                            </tr>);
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ):<div style={{marginBottom:16}}/>}
+                </>);})()}
                 {safeArr(sopRecipe.steps).map((step,si)=>(
 
 
