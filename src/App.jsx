@@ -629,12 +629,12 @@ export default function App() {
         </nav>
 
         {/* Supabase connection indicator */}
-        {supabase&&<div style={{padding:"0 16px 8px"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
+        <div style={{padding:"0 16px 8px",visibility:supabase?"visible":"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover||C.bg,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
             <span style={{width:6,height:6,borderRadius:"50%",flexShrink:0,background:supaLive===null?C.muted:supaLive?C.green:C.red,boxShadow:supaLive?`0 0 4px ${C.green}`:"none"}}/>
             <span style={{fontSize:10,fontWeight:600,color:supaLive===null?C.muted:supaLive?C.green:C.red,letterSpacing:.3}}>{supaLive===null?"Connecting…":supaLive?"Live Sync":"Offline"}</span>
           </div>
-        </div>}
+        </div>
         {/* User + lang + logout */}
         <div style={{padding:"16px 16px",borderTop:`1px solid ${C.borderLight}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
