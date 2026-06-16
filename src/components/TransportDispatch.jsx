@@ -693,9 +693,11 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
               return(
                 <div>
-                  {/* DEBUG: show kt keys for this event */}
-                  <div style={{fontSize:10,color:C.amber,background:C.darkCard,padding:8,borderRadius:8,marginBottom:8,wordBreak:"break-all",maxHeight:80,overflowY:"auto"}}>
-                    🔍 kt[{ev.id}] keys: {JSON.stringify(Object.keys(kt[ev.id]||{}))}
+                  {/* DEBUG: show kt keys + first 5 dish indices */}
+                  <div style={{fontSize:10,color:C.amber,background:C.darkCard,padding:8,borderRadius:8,marginBottom:8,wordBreak:"break-all",maxHeight:120,overflowY:"auto"}}>
+                    🔍 evId: {ev.id}<br/>
+                    kt keys: {JSON.stringify(Object.keys(kt[ev.id]||{}))}<br/>
+                    first 5 dishes: {menu.slice(0,5).map(item=>`${item.name}→idx:${item.origIdx}`).join(" | ")}
                   </div>
                   {/* Search box */}
                   <div style={{marginBottom:12}}>
