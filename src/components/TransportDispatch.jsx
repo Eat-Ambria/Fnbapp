@@ -691,6 +691,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
               return(
                 <div>
+                  {/* DEBUG: show kt keys for this event */}
+                  <div style={{fontSize:10,color:C.amber,background:C.darkCard,padding:8,borderRadius:8,marginBottom:8,wordBreak:"break-all",maxHeight:80,overflowY:"auto"}}>
+                    🔍 kt[{ev.id}] keys: {JSON.stringify(Object.keys(kt[ev.id]||{}))}
+                  </div>
                   {/* Search box */}
                   <div style={{marginBottom:12}}>
                     <input value={tdSearch} onChange={e=>setTdSearch(e.target.value)} placeholder={`🔍 ${T2("Search dishes…")}`}
