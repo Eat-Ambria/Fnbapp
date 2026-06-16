@@ -276,26 +276,19 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
       {activeTab==="ready"&&(function(){
         var readyDishes=[];
         var dispatchedDishes=[];
-        safeEvs.forEach(function(ev){
+        var relevantEvs=safeEvs.filter(function(e){return e.date===TODAY||e.date===TOMORROW;});
+        relevantEvs.forEach(function(ev){
           var menuArr=Array.isArray(ev.menu)?ev.menu:[];
           menuArr.forEach(function(dishName,idx){
             var evKt=kt[ev.id]||{};
             var pipeKey=ev.id+'|'+idx;
-            var uscoreKey=ev.id+'_'+idx;
-            var dishData=evKt[pipeKey]||evKt[uscoreKey]||evKt['d_'+idx]||evKt[idx]||evKt[dishName]||null;
-            if(!dishData){
-              Object.keys(evKt).forEach(function(k){
-                if(evKt[k]&&(evKt[k].completed||evKt[k].ready)){
-                  if(k.includes(String(idx))||k.includes(dishName)){dishData=evKt[k];}
-                }
-              });
-            }
+            var dishData=evKt[pipeKey]||evKt[ev.id+'_'+idx]||evKt['d_'+idx]||null;
             if(!dishData) return;
-            if(dishData.readyForDispatch){dispatchedDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
+            if(dishData.readyForDispatch||dishData.dispatchReady){dispatchedDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
             else if(dishData.completed||dishData.ready){readyDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
           });
         });
-        var totalDishes=safeEvs.reduce(function(s,e){return s+(Array.isArray(e.menu)?e.menu.length:0);},0);
+        var totalDishes=relevantEvs.reduce(function(s,e){return s+(Array.isArray(e.menu)?e.menu.length:0);},0);
         return (
           <div>
             <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍳 Dishes Ready for Dispatch</div>
@@ -693,12 +686,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
               return(
                 <div>
-                  {/* DEBUG: show kt keys + first 5 dish indices */}
-                  <div style={{fontSize:10,color:C.amber,background:C.darkCard,padding:8,borderRadius:8,marginBottom:8,wordBreak:"break-all",maxHeight:120,overflowY:"auto"}}>
-                    🔍 evId: {ev.id}<br/>
-                    kt keys: {JSON.stringify(Object.keys(kt[ev.id]||{}))}<br/>
-                    first 5 dishes: {menu.slice(0,5).map(item=>`${item.name}→idx:${item.origIdx}`).join(" | ")}
-                  </div>
                   {/* Search box */}
                   <div style={{marginBottom:12}}>
                     <input value={tdSearch} onChange={e=>setTdSearch(e.target.value)} placeholder={`🔍 ${T2("Search dishes…")}`}
