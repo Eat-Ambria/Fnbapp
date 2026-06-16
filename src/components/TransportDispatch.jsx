@@ -57,7 +57,15 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
   const [dispatches, setDispatches] = useState(initDispatches);
   const [dishLU, setDishLU] = useState({});
-  const [selFnId, setSelFnId] = useState(safeEvs[0]?.id||null);
+  const [selFnId, setSelFnId] = useState(()=>{
+    const td=new Date().toISOString().slice(0,10);
+    const tm=new Date(Date.now()+864e5).toISOString().slice(0,10);
+    const todayEv=safeEvs.find(e=>e.date===td);
+    if(todayEv)return todayEv.id;
+    const tmEv=safeEvs.find(e=>e.date===tm);
+    if(tmEv)return tmEv.id;
+    return safeEvs[0]?.id||null;
+  });
   const [tdSearch, setTdSearch] = useState("");
   const [tdSecOpen, setTdSecOpen] = useState({});
   const [selEvId,    setSelEvId]    = useState(safeEvs[0]?.id||null);
@@ -272,8 +280,9 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           var menuArr=Array.isArray(ev.menu)?ev.menu:[];
           menuArr.forEach(function(dishName,idx){
             var evKt=kt[ev.id]||{};
-            var key=ev.id+'_'+idx;
-            var dishData=evKt[key]||evKt[idx]||evKt[dishName]||null;
+            var pipeKey=ev.id+'|'+idx;
+            var uscoreKey=ev.id+'_'+idx;
+            var dishData=evKt[pipeKey]||evKt[uscoreKey]||evKt['d_'+idx]||evKt[idx]||evKt[dishName]||null;
             if(!dishData){
               Object.keys(evKt).forEach(function(k){
                 if(evKt[k]&&(evKt[k].completed||evKt[k].ready)){
