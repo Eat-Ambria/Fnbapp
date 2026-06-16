@@ -113,6 +113,50 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>{const items=[...f.items];const t2=idx+dir;if(t2<0||t2>=items.length)return f;[items[idx],items[t2]]=[items[t2],items[idx]];return{...f,items};});
     setIngDirty(true);
   }
+  // ── Bridge: resolve ingredients for any dish (new JSONB → old format fallback) ──
+  function getIngrForDish(dishName, targetPax) {
+    const rec = findRecipeForDish(dishName);
+    if (rec?.ingredients?.items?.length > 0 && rec.ingredients.pax_sizes?.length > 0) {
+      const sizes = rec.ingredients.pax_sizes;
+      const items = rec.ingredients.items;
+      return items.map(it => {
+        const qty = interpolatePax(it.qty, sizes, targetPax);
+        return { n: it.name, h: it.hindi || "", q: qty, u: it.unit || "kg", _newFmt: true };
+      });
+    }
+    return RECIPE_INGREDIENTS[dishName] || null;
+  }
+  function interpolatePax(qtyArr, sizes, targetPax) {
+    if (!qtyArr || !sizes || sizes.length === 0) return 0;
+    if (sizes.length === 1) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
+    if (targetPax <= sizes[0]) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
+    if (targetPax >= sizes[sizes.length - 1]) {
+      const last = sizes.length - 1;
+      return (targetPax / sizes[last]) * (qtyArr[last] || 0);
+    }
+    for (let i = 0; i < sizes.length - 1; i++) {
+      if (targetPax >= sizes[i] && targetPax <= sizes[i + 1]) {
+        const ratio = (targetPax - sizes[i]) / (sizes[i + 1] - sizes[i]);
+        return (qtyArr[i] || 0) + ratio * ((qtyArr[i + 1] || 0) - (qtyArr[i] || 0));
+      }
+    }
+    return qtyArr[0] || 0;
+  }
+  function hasIngredients(dishName) {
+    const rec = findRecipeForDish(dishName);
+    if (rec?.ingredients?.items?.length > 0) return true;
+    return !!RECIPE_INGREDIENTS[dishName];
+  }
+  function findRecipeAndCat(dishName) {
+    if (!dishName) return null;
+    for (const cat of safeArr(RECIPE_DB.cats)) {
+      const recipes = safeArr(RECIPE_DB.recipes[cat.id]);
+      const r = recipes.find(rx => rx.n.toLowerCase() === dishName.toLowerCase().trim());
+      if (r) return { recipe: r, catId: cat.id };
+    }
+    return null;
+  }
+
   async function saveIngredients() {
     if(!ingModal)return;
     const payload={pax_sizes:ingForm.pax_sizes,items:ingForm.items.filter(it=>it.name.trim())};
@@ -682,10 +726,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})} style={{padding:"14px 20px",borderRadius:12,width:"100%",background:C.green,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",minHeight:54,marginTop:10}}>⏹ {T2("Done")} — {T2("Items collected")}</button>}
                                     {ssDone&&<div style={{fontSize:14,color:C.green,fontWeight:700,marginTop:8}}>✅ {T2("Store sourcing complete")}</div>}
                                   </div>
-                                  {(()=>{if(ssDone)return null;const ing=RECIPE_INGREDIENTS[dish.name];if(!ing)return null;const pax=dish.totalPax||0;const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return(
+                                  {(()=>{if(ssDone)return null;const pax=dish.totalPax||0;const ing=getIngrForDish(dish.name,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
                                     <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${C.border}`}}>
-                                      <div style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:8}}>🧺 {T2("Items to collect")} — {pax} pax @ {pct}%</div>
-                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q*pax*(pct/100);const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
+                                      <div style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:8}}>🧺 {T2("Items to collect")} — {pax} pax</div>
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                     </div>);})()}
                                   <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
                                   {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
@@ -776,10 +820,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()})} style={{padding:"10px 16px",borderRadius:8,width:"100%",background:`linear-gradient(135deg,${C.green},#147A54)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
                                   {ssDone&&<div style={{fontSize:12,color:C.green,fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
                                 </div>
-                                {(()=>{if(ssDone)return null;const ing=RECIPE_INGREDIENTS[dishName];if(!ing)return null;const pax=dish.totalPax||0;const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return(
+                                {(()=>{if(ssDone)return null;const pax=dish.totalPax||0;const ing=getIngrForDish(dishName,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
-                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 {T2("Items to collect")} — {pax} pax @ {pct}%</div>
-                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q*pax*(pct/100);const qty=i.u==="g"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 {T2("Items to collect")} — {pax} pax</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                   </div>);})()}
                                 {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
                                   <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
@@ -831,12 +875,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const PAX_COLS=[100,200,300,400,500,600,700,800,900,1000,1100];
         const BASE_PAX=1100;
         function isApplicable(pkg,pax){const m=MENU_APPLICABILITY[pkg];return m?m.ranges.some(r=>pax>=r.min&&pax<=r.max):false;}
-        function fmtScaled(q,u,pax,pct){
+        function fmtScaled(q,u,pax,pct,isAbsolute){
           if(!q||q===0) return "—";
-          const raw=q*pax*(( pct||100)/100);
-          if(u==="g") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g";
+          const raw=isAbsolute?q:q*pax*((pct||100)/100);
+          if(u==="g"||u==="gm") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g";
           if(u==="ml") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml";
           if(u==="pcs") return Math.ceil(raw)+" pcs";
+          if(u==="kg") return raw>=0.01?(raw.toFixed(1).replace(/\.0$/,""))+" kg":"—";
+          if(u==="L") return raw>=0.01?(raw.toFixed(1).replace(/\.0$/,""))+" L":"—";
           return Math.round(raw)+" "+u;
         }
 
@@ -850,7 +896,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const mode=scaleMode||"dish";
         const pkgNames=Object.keys(MENU_PACKAGES);
         const selPkg=scalePkg||pkgNames[0];
-        const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]);
+        const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>hasIngredients(d));
         const multiSel=scaleMultiSel||{};
         const selectedDishes=Object.keys(multiSel).filter(d=>multiSel[d]);
         const activeDishes=mode==="bulk"?pkgDishes:selectedDishes;
@@ -878,8 +924,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const diff=(q*BASE_PAX*(pct/100))-(q*BASE_PAX);
           return diff>0.01?C.green:diff<-0.01?C.red:C.faint;
         }
-        // Ingredient table (before/after format)
-        function IngTable({ingr}){
+        // Ingredient table (handles both old per-serving and new absolute formats)
+        const reqPax = linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100));
+        function IngTable({ingr,dishName}){
+          const isNew = ingr.length>0 && ingr[0]._newFmt;
           return(
             <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
               <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
@@ -887,18 +935,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <tr style={{background:C.darkCard}}>
                     <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:130}}>Ingredient</th>
                     <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>Unit</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:"#FF6B35",borderLeft:`1px solid ${C.border}`,minWidth:90}}>Base (SOP)</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Required ({linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100))}pax)</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:64}}>Notes</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Required ({reqPax} pax)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ingr.map((ing,ii)=>{
                     const isAcc=!ing.q||ing.q===0;
-                    const sopFmt=isAcc?"acc. to taste":fmtScaled(ing.q,ing.u,BASE_PAX,100);
-                    const scaledFmt=isAcc?"acc. to taste":fmtScaled(ing.q,ing.u,BASE_PAX,effectivePct);
-                    const diffFmt=isAcc?"—":fmtDiff(ing.q,ing.u,effectivePct);
-                    const dc=isAcc?C.faint:diffColor(ing.q,effectivePct);
+                    const scaledFmt=isAcc?"acc. to taste":isNew?fmtScaled(ing.q,ing.u,0,0,true):fmtScaled(ing.q,ing.u,BASE_PAX,effectivePct);
                     return(
                       <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
                         <td style={{padding:"7px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
@@ -907,9 +950,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {isAcc&&<div style={{fontSize:9,color:C.amber}}>acc. to taste</div>}
                         </td>
                         <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
-                        <td style={{padding:"7px 8px",textAlign:"right",color:"#FF6B35",fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{sopFmt}</td>
-                        <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:dc,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
-                        <td style={{padding:"7px 8px",textAlign:"right",color:isAcc?C.amber:dc,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"Acc to taste":diffFmt}</td>
+                        <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:isAcc?C.faint:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
                       </tr>
                     );
                   })}
@@ -1028,7 +1069,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const q=scaleDishSearch.toLowerCase();
                         const matches=[];
                         pkgNames.forEach(pkg=>{
-                          (MENU_PACKAGES[pkg]||[]).filter(d=>RECIPE_INGREDIENTS[d]&&d.toLowerCase().includes(q)&&!multiSel[d]).forEach(d=>{
+                          (MENU_PACKAGES[pkg]||[]).filter(d=>hasIngredients(d)&&d.toLowerCase().includes(q)&&!multiSel[d]).forEach(d=>{
                             if(!matches.find(m=>m.name===d))matches.push({name:d,pkg,code:MENU_APPLICABILITY[pkg]?.code||""});
                           });
                         });
@@ -1066,7 +1107,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {mode==="bulk"&&(
                   <div style={{marginBottom:4}}>
                     <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setOpenSections({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46}}>
-                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>RECIPE_INGREDIENTS[d]).length} {T2("dishes")}</option>)}
+                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>hasIngredients(d)).length} {T2("dishes")}</option>)}
                     </select>
                   </div>
                 )}
@@ -1086,9 +1127,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     const isOpen=openSections[sec];
                     const aggMap={};
                     dishes.forEach(dish=>{
-                      (RECIPE_INGREDIENTS[dish]||[]).forEach(ing=>{
+                      const ingArr=getIngrForDish(dish,reqPax)||[];
+                      ingArr.forEach(ing=>{
                         const k=ing.n+"|"+(ing.u||"");
-                        if(!aggMap[k])aggMap[k]={n:ing.n,h:ing.h||"",u:ing.u||"",q:0,isAcc:!ing.q||ing.q===0};
+                        if(!aggMap[k])aggMap[k]={n:ing.n,h:ing.h||"",u:ing.u||"",q:0,isAcc:!ing.q||ing.q===0,_newFmt:!!ing._newFmt};
                         if(ing.q)aggMap[k].q+=ing.q;
                         if(!ing.q)aggMap[k].isAcc=true;
                       });
@@ -1121,11 +1163,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 })():(
                   <>
                     {activeDishes.map(dish=>{
-                      const ingr=RECIPE_INGREDIENTS[dish]||[];
+                      const ingr=getIngrForDish(dish,reqPax)||[];
+                      const rc=findRecipeAndCat(dish);
                       return(
                         <div key={dish} style={{marginBottom:18}}>
-                          <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:6,fontFamily:"var(--font-display)"}}>{dish}</div>
-                          <IngTable ingr={ingr}/>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <div style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"var(--font-display)"}}>{dish}</div>
+                            {currentUser?.role==='admin'&&rc&&(
+                              <button onClick={()=>openIngEditor(rc.recipe,rc.catId)} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer",minHeight:24}}>✏️ Edit</button>
+                            )}
+                          </div>
+                          {ingr.length>0?<IngTable ingr={ingr} dishName={dish}/>:<div style={{padding:"12px 14px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,textAlign:"center"}}>{currentUser?.role==='admin'&&rc?"No ingredients — tap ✏️ Edit to add":"No ingredient data available"}</div>}
                         </div>
                       );
                     })}
