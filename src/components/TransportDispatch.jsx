@@ -72,48 +72,12 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const [activeTab,  setActiveTab]  = useState("todayplan");
   const [selDate,    setSelDate]    = useState(safeEvs[0]?.date||"");
   const [expandedFn, setExpandedFn] = useState(null); // for load/unload function expand
-  const [gps,        setGps]        = useState({
-    "DL1LAJ1250":{lat:28.5921,lng:77.0460,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL1LAN1814":{lat:28.5910,lng:77.0465,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL1LAN2125":{lat:28.5900,lng:77.0490,status:"En Route", speed:28,lastUpdate:"Just now"},
-    "DL1LW5357": {lat:28.5895,lng:77.0480,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL9CBD3260":{lat:28.5880,lng:77.0520,status:"At Venue", speed:0, lastUpdate:"Just now"},
-    "DL9CAR4073":{lat:28.5885,lng:77.0510,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL4ERB3958":{lat:28.5870,lng:77.0500,status:"At Base",  speed:0, lastUpdate:"Just now"},
-    "DL4ERB4678":{lat:28.5875,lng:77.0505,status:"At Base",  speed:0, lastUpdate:"Just now"},
-  });
   const [fleetList,   setFleetList]   = useState(VEHICLES.map(v=>({...v})));
   const [showAddVeh,  setShowAddVeh]  = useState(false);
   const [editVehId,   setEditVehId]   = useState(null);
   const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:""});
   const [delVehId,    setDelVehId]    = useState(null);
   const [clSrch,      setClSrch]      = useState("");
-  const mapIframeRef = useRef(null);
-
-  useEffect(()=>{
-    const t=setInterval(()=>{
-      setGps(p=>{
-        const n={};
-        Object.keys(p).forEach(id=>{
-          const v=p[id];
-          n[id]={...v,
-            lat:v.status==="En Route"?v.lat+(Math.random()-.4)*.003:v.lat+(Math.random()-.5)*.0003,
-            lng:v.status==="En Route"?v.lng+(Math.random()-.3)*.003:v.lng+(Math.random()-.5)*.0003,
-            speed:v.status==="En Route"?Math.round(18+Math.random()*20):0,
-            lastUpdate:"Just now",
-          };
-        });
-        return n;
-      });
-    },4000);
-    return()=>clearInterval(t);
-  },[]);
-
-  useEffect(()=>{
-    if(!mapIframeRef.current) return;
-    const veh=VEHICLES.map(v=>{const p=gps[v.id]||{lat:28.592,lng:77.047,status:"At Base",speed:0};return{id:v.id,name:v.name,icon:v.icon,lat:p.lat,lng:p.lng,status:p.status,speed:p.speed};});
-    try{mapIframeRef.current.contentWindow?.postMessage({type:"vehicles",vehicles:veh},"*");}catch(e){}
-  },[gps]);
 
   function updAsgn(evId,ai,field,val){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[field]:val})}));}
   function toggleCheck(evId,ai,key,idx){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[key]:a[key].map((item,j)=>j!==idx?item:{...item,checked:!item.checked})})}));}
@@ -171,11 +135,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   };
   const gp = v => PROP[v]||{code:"EV",c:C.wine,bg:C.wineBg};
 
-  const venues=[{name:"AP",lat:28.5921,lng:77.0460,color:C.gold},{name:"AE",lat:28.5890,lng:77.0495,color:"#854F0B"},{name:"MKT",lat:28.5960,lng:77.0520,color:"#B05A10"},{name:"AR",lat:28.5902,lng:77.0440,color:"#0F6E56"}];
-  const vehForMap=VEHICLES.map(v=>{const p=gps[v.id]||{lat:28.592,lng:77.047,status:"At Base",speed:0};return{id:v.id,name:v.name,icon:v.icon,lat:p.lat,lng:p.lng,status:p.status,speed:p.speed};});
-  const mapHtml=`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"><script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script><style>*{margin:0;padding:0;}html,body,#map{width:100%;height:100%;}</style></head><body><div id="map"></div><script>var map=L.map("map",{center:[28.592,77.047],zoom:15});L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:19}).addTo(map);var venues=${JSON.stringify(venues)};venues.forEach(function(v){L.marker([v.lat,v.lng],{icon:L.divIcon({className:"",html:'<div style="background:'+v.color+';color:#fff;padding:4px 9px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35);border:2px solid #fff">'+v.name+'<\/div>',iconAnchor:[18,14]})}).addTo(map).bindPopup(v.name);});var SC={"En Route":"#1B5EAB",T2("At Venue"):"#2B8A50","At Base":"#888"};var mk={};function render(vl){vl.forEach(function(v){var col=SC[v.status]||"#888";var lbl=v.icon+" "+v.id.slice(-6)+(v.speed>0?" · "+v.speed+"km/h":"");var html='<div style="background:'+col+';color:#fff;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4);border:1.5px solid #fff">'+lbl+'<\/div>';var ic=L.divIcon({className:"",html:html,iconAnchor:[30,12]});if(mk[v.id]){mk[v.id].setLatLng([v.lat,v.lng]);mk[v.id].setIcon(ic);}else{mk[v.id]=L.marker([v.lat,v.lng],{icon:ic}).addTo(map).bindPopup(v.name+"<br>"+v.status);}});}render(${JSON.stringify(vehForMap)});window.addEventListener("message",function(e){if(e.data&&e.data.type==="vehicles")render(e.data.vehicles);});<\/script></body></html>`;
-
-  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"gps",l:`🗺 ${T2("Live Map")}`}];
+  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`}];
 
   return (
     <div>
@@ -821,71 +781,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           </div>
         );
       })()}
-
-      {activeTab==="gps"&&(
-        <div>
-          <Card style={{padding:0,overflow:"hidden"}}>
-            <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:13,fontWeight:600,color:C.text}}>🗺 {T2("Live Fleet Map")} — Dwarka, Delhi</div>
-              <span style={{fontSize:12,color:C.muted}}>{T2("Real-time tracking")}</span>
-            </div>
-            <div style={{position:"relative",width:"100%",height:380,background:"#0E1218",overflow:"hidden"}}>
-              <svg width="100%" height="100%" style={{position:"absolute",inset:0}}>
-                {[0,1,2,3,4,5,6,7,8].map(i=><line key={"h"+i} x1="0" y1={i*47.5} x2="100%" y2={i*47.5} stroke="#1A2030" strokeWidth="1"/>)}
-                {[0,1,2,3,4,5,6,7,8,9,10].map(i=><line key={"v"+i} x1={i*10+"%"} y1="0" x2={i*10+"%"} y2="100%" stroke="#1A2030" strokeWidth="1"/>)}
-                <path d="M 35% 40% L 20% 65%" stroke="#333" strokeWidth="2" strokeDasharray="6 4" fill="none"/>
-                <path d="M 35% 40% L 65% 35%" stroke="#333" strokeWidth="2" strokeDasharray="6 4" fill="none"/>
-                <path d="M 65% 35% L 75% 70%" stroke="#333" strokeWidth="2" strokeDasharray="6 4" fill="none"/>
-                <path d="M 35% 40% L 75% 70%" stroke="#333" strokeWidth="2" strokeDasharray="6 4" fill="none"/>
-              </svg>
-              {[{name:"AP",x:35,y:40,color:"#D06040"},{name:"AE",x:65,y:35,color:"#5B8FD0"},{name:"MKT",x:20,y:65,color:"#2B8A50"},{name:"Restro",x:75,y:70,color:"#8A70C8"}].map(v=>(
-                <div key={v.name} style={{position:"absolute",left:v.x+"%",top:v.y+"%",transform:"translate(-50%,-50%)"}}>
-                  <div style={{width:14,height:14,borderRadius:"50%",background:v.color,border:"3px solid #fff",boxShadow:`0 0 12px ${v.color}80`}}/>
-                  <div style={{position:"absolute",top:18,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:11,fontWeight:700,color:v.color,textShadow:"0 1px 4px #000"}}>{v.name}</div>
-                </div>
-              ))}
-              {VEHICLES.map((v,vi)=>{
-                const g=gps[v.id]||{status:"At Base",speed:0};
-                const sc=g.status==="En Route"?"#D4B44A":g.status==="At Venue"?"#2B8A50":"#555";
-                const px=g.status==="En Route"?(20+vi*8)%80+10:g.status==="At Venue"?([20,65,75,20][vi%4]):35+vi*4;
-                const py=g.status==="En Route"?(30+vi*6)%60+15:g.status==="At Venue"?([65,35,70,65][vi%4]):40+vi*3;
-                return(
-                  <div key={v.id} style={{position:"absolute",left:px+"%",top:py+"%",transform:"translate(-50%,-100%)",transition:"all 1s ease",zIndex:10}}>
-                    <div style={{background:sc,color:"#fff",padding:"4px 8px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap",boxShadow:`0 2px 8px ${sc}60`,border:"1.5px solid #fff",display:"flex",gap:4,alignItems:"center"}}>
-                      <span>{v.icon}</span><span>{v.name.slice(-4)}</span>{g.speed>0&&<span style={{opacity:.8}}>{g.speed}km/h</span>}
-                    </div>
-                    <div style={{width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:`6px solid ${sc}`,margin:"0 auto"}}/>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{display:"flex",gap:12,padding:"10px 16px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-              {[{c:"#D4B44A",l:"En Route"},{c:"#2B8A50",l:"At Venue"},{c:"#555",l:"At Base"}].map(s=>(
-                <div key={s.l} style={{display:"flex",gap:4,alignItems:"center"}}><div style={{width:10,height:10,borderRadius:"50%",background:s.c}}/><span style={{fontSize:11,color:C.muted}}>{T2(s.l)}</span></div>
-              ))}
-              {[{c:"#D06040",l:"AP"},{c:"#5B8FD0",l:"AE"},{c:"#2B8A50",l:"MKT"},{c:"#8A70C8",l:"Restro"}].map(s=>(
-                <div key={s.l} style={{display:"flex",gap:4,alignItems:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:s.c,border:"1.5px solid #fff"}}/><span style={{fontSize:11,color:C.muted}}>{s.l}</span></div>
-              ))}
-            </div>
-          </Card>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:12}}>
-            {VEHICLES.map(v=>{
-              const p2=gps[v.id]||{status:"Unknown",speed:0};
-              const sc2=p2.status==="En Route"?C.gold:p2.status==="At Venue"?C.green:C.muted;
-              return (
-                <div key={v.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px"}}>
-                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                    <span style={{fontSize:18}}>{v.icon}</span>
-                    <div style={{fontSize:11,fontWeight:700,color:C.text}}>{v.name}</div>
-                  </div>
-                  <div style={{fontSize:12,fontWeight:700,color:sc2}}>{p2.status}</div>
-                  {p2.speed>0&&<div style={{fontSize:11,color:C.muted}}>{p2.speed} km/h</div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
 
     </div>

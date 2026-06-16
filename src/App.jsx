@@ -353,7 +353,7 @@ export default function App() {
     const onOffline=()=>{setSupaLive(false);checkQueue();};
     window.addEventListener('online',onOnline);
     window.addEventListener('offline',onOffline);
-    const interval=setInterval(()=>{if(navigator.onLine)ping();checkQueue();},30000);
+    const interval=setInterval(()=>{if(navigator.onLine)ping();checkQueue();},120000);
     return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);clearInterval(interval);};
   },[]);
 
@@ -628,8 +628,9 @@ export default function App() {
           })}
         </nav>
 
-        {/* Supabase connection indicator */}
-        <div style={{padding:"0 16px 8px",visibility:supabase?"visible":"hidden"}}>
+        {/* Sidebar footer — pinned to bottom */}
+        <div style={{flexShrink:0,marginTop:"auto"}}>
+        <div style={{padding:"0 16px 8px",display:supabase?"block":"none"}}>
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover||C.bg,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
             <span style={{width:6,height:6,borderRadius:"50%",flexShrink:0,background:supaLive===null?C.muted:supaLive?C.green:C.red,boxShadow:supaLive?`0 0 4px ${C.green}`:"none"}}/>
             <span style={{fontSize:10,fontWeight:600,color:supaLive===null?C.muted:supaLive?C.green:C.red,letterSpacing:.3}}>{supaLive===null?"Connecting…":supaLive?"Live Sync":"Offline"}</span>
@@ -650,6 +651,7 @@ export default function App() {
             </button>
             <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.muted,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
           </div>
+        </div>
         </div>
       </div>
 
