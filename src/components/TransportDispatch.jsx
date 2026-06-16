@@ -643,9 +643,9 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             {allEvs.length>0&&(()=>{
               const selEv=allEvs.find(e=>e.id===selFnId)||allEvs[0];
               const p=gp(selEv.venue);
-              const menu2=(selEv.menu||[]).filter(d=>guessSectionForDish(d)!=="Beverages");
-              const lc=menu2.filter((_,i)=>dishLU[selEv.id+"_"+i]?.loaded).length;
-              const uc=menu2.filter((_,i)=>dishLU[selEv.id+"_"+i]?.unloaded).length;
+              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(guessSectionForDish(d)!=="Beverages")menu2r.push({name:d,origIdx:oi});});
+              const lc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.loaded).length;
+              const uc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.unloaded).length;
               return(
                 <div style={{marginBottom:14}}>
                   {/* Dropdown */}
@@ -666,7 +666,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     <div style={{display:"flex",gap:14,flexShrink:0}}>
                       <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.amber}}>{lc}</div><div style={{fontSize:10,color:C.amber}}>📦 {T2("Loaded")}</div></div>
                       <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:"#5B8FD0"}}>{uc}</div><div style={{fontSize:10,color:"#5B8FD0"}}>📤 {T2("Unloaded")}</div></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.text}}>{menu2.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("dishes")}</div></div>
+                      <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.text}}>{menu2r.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("dishes")}</div></div>
                     </div>
                   </div>
                 </div>
@@ -678,12 +678,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               const ev=allEvs.find(e=>e.id===selFnId);
               if(!ev) return null;
               const p=gp(ev.venue);
-              const menu=(ev.menu||[]).filter(d=>guessSectionForDish(d)!=="Beverages");
+              const fullMenu=(ev.menu||[]);
+              const menu=[];
+              fullMenu.forEach((n,origIdx)=>{if(guessSectionForDish(n)!=="Beverages")menu.push({name:n,origIdx});});
               const dispatch=dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
 
               // Group by section
               const bySec2={};
-              menu.forEach((n,i)=>{const s=guessSectionForDish(n);if(!bySec2[s])bySec2[s]=[];bySec2[s].push({name:n,idx:i});});
+              menu.forEach((item)=>{const s=guessSectionForDish(item.name);if(!bySec2[s])bySec2[s]=[];bySec2[s].push({name:item.name,idx:item.origIdx});});
 
               // Search filter
               const q=tdSearch.toLowerCase().trim();
