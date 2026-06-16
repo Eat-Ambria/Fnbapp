@@ -73,6 +73,66 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopCat, setSopCat] = useState(null);
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
+
+  // ── Ingredient Matrix Editor ──
+  function openIngEditor(recipe, catId) {
+    const ex = recipe.ingredients;
+    if (ex && ex.pax_sizes && Array.isArray(ex.items)) {
+      setIngForm({pax_sizes:[...ex.pax_sizes], items:ex.items.map(it=>({...it,qty:[...it.qty],nv_qty:it.nv_qty?[...it.nv_qty]:null}))});
+    } else {
+      setIngForm({pax_sizes:[200,500,1000],items:[]});
+    }
+    setIngModal({recipeName:recipe.n, catId});
+    setIngDirty(false);
+  }
+  function ingAddItem() {
+    setIngForm(f=>({...f,items:[...f.items,{name:"",hindi:"",unit:"kg",qty:f.pax_sizes.map(()=>0),nv_qty:null,notes:""}]}));
+    setIngDirty(true);
+  }
+  function ingRemoveItem(idx) {
+    setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)}));
+    setIngDirty(true);
+  }
+  function ingUpdateItem(idx, field, val) {
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],[field]:val};return{...f,items};});
+    setIngDirty(true);
+  }
+  function ingUpdateQty(idx, pi, val) {
+    setIngForm(f=>{const items=[...f.items];const qty=[...items[idx].qty];qty[pi]=parseFloat(val)||0;items[idx]={...items[idx],qty};return{...f,items};});
+    setIngDirty(true);
+  }
+  function ingUpdateNvQty(idx, pi, val) {
+    setIngForm(f=>{const items=[...f.items];const nv=items[idx].nv_qty?[...items[idx].nv_qty]:f.pax_sizes.map(()=>0);nv[pi]=parseFloat(val)||0;items[idx]={...items[idx],nv_qty:nv};return{...f,items};});
+    setIngDirty(true);
+  }
+  function ingToggleNv(idx) {
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],nv_qty:items[idx].nv_qty?null:f.pax_sizes.map(()=>0)};return{...f,items};});
+    setIngDirty(true);
+  }
+  function ingMoveItem(idx, dir) {
+    setIngForm(f=>{const items=[...f.items];const t2=idx+dir;if(t2<0||t2>=items.length)return f;[items[idx],items[t2]]=[items[t2],items[idx]];return{...f,items};});
+    setIngDirty(true);
+  }
+  async function saveIngredients() {
+    if(!ingModal)return;
+    const payload={pax_sizes:ingForm.pax_sizes,items:ingForm.items.filter(it=>it.name.trim())};
+    // Update local RECIPE_DB
+    const catRecipes=safeArr(RECIPE_DB.recipes[ingModal.catId]);
+    const ri=catRecipes.findIndex(r=>r.n===ingModal.recipeName);
+    if(ri>=0) catRecipes[ri].ingredients=payload;
+    // Persist to Supabase
+    try {
+      const mod = await import('../lib/supabase.js');
+      if(mod.supabase){
+        const {error}=await mod.supabase.from('recipes').update({ingredients:payload}).eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId);
+        if(error) console.error('Ingredient save error:',error);
+        else console.log('✅ Ingredients saved for',ingModal.recipeName);
+      }
+    }catch(e){console.error('Ingredient save failed:',e);}
+    setIngDirty(false);
+    if(sopRecipe&&sopRecipe.n===ingModal.recipeName) setSopRecipe(p=>({...p,ingredients:payload}));
+    setIngModal(null);
+  }
   const [scaleDishSearch, setScaleDishSearch] = useState("");
   const [scaleMode, setScaleMode] = useState("dish");
   const [scalePkg, setScalePkg] = useState("");
@@ -80,6 +140,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [scalePercent, setScalePercent] = useState(100); // % multiplier
   const [scaleEventId, setScaleEventId] = useState(null); // null | "manual" | eventId
   const [openSections, setOpenSections] = useState({});
+  const [ingModal, setIngModal] = useState(null);
+  const [ingForm, setIngForm] = useState({pax_sizes:[200,500,1000],items:[]});
+  const [ingDirty, setIngDirty] = useState(false);
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
   const [tick, setTick] = useState(0);
@@ -1216,8 +1279,56 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>
-                <div style={{marginBottom:16}}/>
+                {/* Ingredient count + Edit button */}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{fontSize:11,color:C.muted}}>
+                    {sopRecipe.ingredients?.items?.length>0
+                      ?"🧂 "+sopRecipe.ingredients.items.length+" ingredients"
+                      :"🧂 No ingredients added"}
+                  </span>
+                  {currentUser?.role==='admin'&&(
+                    <button onClick={()=>openIngEditor(sopRecipe,sopCat)} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer",minHeight:28}}>
+                      {sopRecipe.ingredients?.items?.length>0?"✏️ Edit":"+ Add Ingredients"}
+                    </button>
+                  )}
+                </div>
+                {/* Inline ingredient table (read-only) */}
+                {sopRecipe.ingredients?.items?.length>0&&(
+                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`}}>
+                      Ingredients — {sopRecipe.ingredients.pax_sizes?.map(p=>p+" pax").join(" / ")}
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
+                          {sopRecipe.ingredients.pax_sizes?.map((p,pi)=>(
+                            <th key={pi} style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:55}}>{p}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {sopRecipe.ingredients.items.map((ing,ii)=>(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
+                                {ing.hindi&&<div style={{fontSize:9,color:C.faint}}>{ing.hindi}</div>}
+                              </td>
+                              <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.unit}</td>
+                              {ing.qty?.map((q,qi)=>(
+                                <td key={qi} style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{q||"—"}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {!sopRecipe.ingredients?.items?.length&&<div style={{marginBottom:16}}/>}
                 {safeArr(sopRecipe.steps).map((step,si)=>(
+
+
                   <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
                     <div style={{width:32,height:32,borderRadius:8,background:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.gold,flexShrink:0}}>{si+1}</div>
                     <div style={{flex:1}}>
@@ -1237,6 +1348,95 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* ═══ MENU TAB ═══ */}
       {tab==="menus"&&<MenuPackagesView lang={lang}/>}
+
+      {/* ═══ INGREDIENT MATRIX EDITOR MODAL ═══ */}
+      {ingModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 0",overflowY:"auto"}}>
+          <div style={{background:C.surface,borderRadius:16,width:"min(96vw,600px)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
+            {/* Header */}
+            <div style={{position:"sticky",top:0,zIndex:2,background:C.surface,padding:"18px 20px 12px",borderBottom:`1px solid ${C.border}`,borderRadius:"16px 16px 0 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🧂 Ingredient Matrix</div>
+                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{ingModal.recipeName}</div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  {ingDirty&&<button onClick={saveIngredients} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:36}}>💾 Save</button>}
+                  <button onClick={()=>{if(ingDirty&&!confirm("Discard unsaved changes?"))return;setIngModal(null);}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>✕</button>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:11,color:C.muted}}>
+                <span style={{flexShrink:0}}>Batch sizes:</span>
+                {ingForm.pax_sizes.map((p,pi)=>(
+                  <span key={pi} style={{padding:"3px 10px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontWeight:700,fontSize:12}}>{p} pax</span>
+                ))}
+              </div>
+            </div>
+            {/* Ingredient rows */}
+            <div style={{padding:"12px 16px"}}>
+              {ingForm.items.length===0&&(
+                <div style={{textAlign:"center",padding:"30px 20px",color:C.faint,fontSize:13}}>No ingredients yet. Tap "+ Add Ingredient" below.</div>
+              )}
+              {ingForm.items.map((item,idx)=>(
+                <div key={idx} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden"}}>
+                  {/* Row header */}
+                  <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
+                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
+                    <input value={item.hindi||""} onChange={e=>ingUpdateItem(idx,"hindi",e.target.value)} placeholder="हिंदी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
+                    <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
+                      {["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
+                    </select>
+                    <div style={{display:"flex",gap:2}}>
+                      <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:11,color:C.muted}}>↑</button>
+                      <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:11,color:C.muted}}>↓</button>
+                    </div>
+                    <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>✕</button>
+                  </div>
+                  {/* Quantity inputs */}
+                  <div style={{padding:"8px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    {ingForm.pax_sizes.map((p,pi)=>(
+                      <div key={pi} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <span style={{fontSize:9,color:C.faint}}>{p}</span>
+                        <input type="number" step="0.1" value={item.qty[pi]||""} onChange={e=>ingUpdateQty(idx,pi,e.target.value)} style={{width:60,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,textAlign:"center",color:C.text,background:"transparent"}}/>
+                      </div>
+                    ))}
+                    <span style={{fontSize:10,color:C.faint,marginLeft:4}}>{item.unit}</span>
+                    <button onClick={()=>ingToggleNv(idx)} style={{marginLeft:"auto",padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,border:`1px solid ${item.nv_qty?C.amberBorder:C.border}`,background:item.nv_qty?C.amberBg:C.surface,color:item.nv_qty?C.amber:C.faint,cursor:"pointer"}}>
+                      {item.nv_qty?"NV ✓":"+ NV"}
+                    </button>
+                  </div>
+                  {/* NV row */}
+                  {item.nv_qty&&(
+                    <div style={{padding:"6px 12px 10px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderTop:`1px dashed ${C.amberBorder}`,background:C.amberBg+"40"}}>
+                      <span style={{fontSize:10,color:C.amber,fontWeight:600,width:50}}>NV:</span>
+                      {ingForm.pax_sizes.map((p,pi)=>(
+                        <div key={pi} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                          <span style={{fontSize:9,color:C.amber}}>{p}</span>
+                          <input type="number" step="0.1" value={item.nv_qty[pi]||""} onChange={e=>ingUpdateNvQty(idx,pi,e.target.value)} style={{width:60,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:12,textAlign:"center",color:C.amber,background:"transparent"}}/>
+                        </div>
+                      ))}
+                      <span style={{fontSize:10,color:C.amber,marginLeft:4}}>{item.unit}</span>
+                    </div>
+                  )}
+                  {/* Notes */}
+                  <div style={{padding:"4px 12px 8px"}}>
+                    <input value={item.notes||""} onChange={e=>ingUpdateItem(idx,"notes",e.target.value)} placeholder="Notes (optional)" style={{width:"100%",padding:"4px 8px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+              ))}
+              <button onClick={ingAddItem} style={{width:"100%",padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:44}}>+ Add Ingredient</button>
+            </div>
+            {/* Footer */}
+            <div style={{position:"sticky",bottom:0,padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.surface,borderRadius:"0 0 16px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} ingredient{ingForm.items.length!==1?"s":""}{ingDirty?" · unsaved":""}</span>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>Cancel</button>
+                <button onClick={saveIngredients} disabled={!ingDirty} style={{padding:"8px 20px",borderRadius:10,fontSize:12,fontWeight:700,background:ingDirty?C.green:C.faint,color:"#fff",border:"none",cursor:ingDirty?"pointer":"default",opacity:ingDirty?1:.5,minHeight:36}}>💾 Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
