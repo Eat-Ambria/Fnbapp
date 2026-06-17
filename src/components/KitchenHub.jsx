@@ -1336,14 +1336,58 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       :fallbackIng?"🧂 "+fallbackIng.length+" ingredients (legacy)"
                       :"🧂 No ingredients added"}
                   </span>
-                  {currentUser?.role==='admin'&&(
-                    <button onClick={()=>openIngEditor(sopRecipe,sopCat)} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer",minHeight:28}}>
+                  {currentUser?.role==='admin'&&!ingModal&&(
+                    <button onClick={()=>{openIngEditor(sopRecipe,sopCat);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:ingModal?.recipeName===sopRecipe.n?C.green:C.goldBg,border:`1px solid ${ingModal?.recipeName===sopRecipe.n?C.greenBorder:C.goldBorder}`,color:ingModal?.recipeName===sopRecipe.n?"#fff":C.gold,cursor:"pointer",minHeight:28}}>
                       {sopRecipe.ingredients?.items?.length>0?"✏️ Edit":"+ Add Ingredients"}
                     </button>
                   )}
+                  {currentUser?.role==='admin'&&ingModal?.recipeName===sopRecipe.n&&(
+                    <div style={{display:"flex",gap:6}}>
+                      {ingDirty&&<button onClick={saveIngredients} style={{padding:"4px 12px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:28}}>💾 Save</button>}
+                      <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>✕ Cancel</button>
+                    </div>
+                  )}
                 </div>
                 {/* Inline ingredient table (read-only) */}
-                {sopRecipe.ingredients?.items?.length>0?(
+                {(ingModal?.recipeName===sopRecipe.n)?(
+                  <div style={{marginBottom:16,borderRadius:10,border:`2px solid ${C.gold}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>✏️ Editing — {ingForm.pax_sizes?.map(p=>p+" pax").join(" / ")}</span>
+                      <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" · unsaved":""}</span>
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 8px",textAlign:"left",color:C.muted,minWidth:110}}>Name</th>
+                          <th style={{padding:"6px 4px",textAlign:"left",color:C.muted,minWidth:60}}>Hindi</th>
+                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:42}}>Unit</th>
+                          {ingForm.pax_sizes.map((p,pi)=>(
+                            <th key={pi} style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:52}}>{p}</th>
+                          ))}
+                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
+                        </tr></thead>
+                        <tbody>
+                          {ingForm.items.map((item,idx)=>(
+                            <tr key={idx} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 4px"}}><input value={item.hindi||""} onChange={e=>ingUpdateItem(idx,"hindi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+                              {ingForm.pax_sizes.map((p,pi)=>(
+                                <td key={pi} style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.1" value={item.qty[pi]||""} onChange={e=>ingUpdateQty(idx,pi,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              ))}
+                              <td style={{padding:"3px 2px",textAlign:"center"}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <button onClick={ingAddItem} style={{width:"100%",padding:"8px",borderTop:`1px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRadius:"0 0 8px 8px",minHeight:34}}>+ Add Ingredient</button>
+                    {ingDirty&&<div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+                      <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
+                      <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
+                    </div>}
+                  </div>
+                ):sopRecipe.ingredients?.items?.length>0?(
                   <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                     <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`}}>
                       Ingredients — {sopRecipe.ingredients.pax_sizes?.map(p=>p+" pax").join(" / ")}
