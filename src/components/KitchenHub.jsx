@@ -190,6 +190,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [ingDirty, setIngDirty] = useState(false);
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
+  const [d1FnFilter, setD1FnFilter] = useState("combined"); // "combined" | eventId
   const [tick, setTick] = useState(0);
   const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
 
@@ -540,7 +541,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {/* TABS — underline style */}
       <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,marginBottom:20,gap:0}}>
         {TABS_FILTERED.map(t=>(
-          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1"))setD1View("all");return t.v;})} style={{padding:"10px 18px",fontSize:13,fontWeight:tab===t.v?500:400,cursor:"pointer",background:"none",color:tab===t.v?C.gold:C.muted,border:"none",borderBottom:`2px solid ${tab===t.v?C.gold:"transparent"}`,whiteSpace:"nowrap"}}>{t.l}</button>
+          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1")){setD1View("all");setD1FnFilter("combined");}return t.v;})} style={{padding:"10px 18px",fontSize:13,fontWeight:tab===t.v?500:400,cursor:"pointer",background:"none",color:tab===t.v?C.gold:C.muted,border:"none",borderBottom:`2px solid ${tab===t.v?C.gold:"transparent"}`,whiteSpace:"nowrap"}}>{t.l}</button>
         ))}
         {currentUser&&currentUser.role==='admin'&&(
           <button onClick={function(){
@@ -609,10 +610,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // D-1 logic: prep only for TOMORROW's events
         const d1Evs = tomorrowEvs;
         const d1Label = tomorrowLabel;
+        const isCombined = d1FnFilter==="combined";
+        const filteredEvs = isCombined ? d1Evs : d1Evs.filter(e=>e.id===d1FnFilter);
+        const activeEv = !isCombined ? d1Evs.find(e=>e.id===d1FnFilter) : null;
 
-        // Build dishes for tomorrow
+        // Build dishes — filtered by selected function or combined
         const byDishD1={};
-        d1Evs.forEach(ev=>{
+        filteredEvs.forEach(ev=>{
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           menuArr(ev).forEach((name,idx)=>{
@@ -624,9 +628,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
           });
         });
-        // Filter: only keep dishes that have at least one d1 (prep-day) step
-        // If dish has SOP steps with d1:true → show. If no SOP steps → fallback GENERIC_STEPS has d1 → show.
-        // If dish has SOP steps but NONE have d1:true → skip (all steps are event-day only)
         Object.keys(byDishD1).forEach(name=>{
           const sopSteps = getStepsForDish(name);
           if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) delete byDishD1[name];
@@ -636,30 +637,56 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
         const totalD1 = Object.keys(byDishD1).length;
-        const totalD1Pax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
+        const totalD1Pax = filteredEvs.reduce((s,e)=>s+(+e.pax||0),0);
+        const combinedPax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
 
         return(
           <div>
-            {/* ── Context bar ── */}
-            {prepContextParts.length>0&&(
-              <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.border}`,marginBottom:16,fontSize:12,color:C.gold}}>
-                <span style={{fontSize:14}}>📅</span>
-                <span>{prepContextParts.join(" · ")}</span>
+            {/* ── Function selector tabs ── */}
+            {d1Evs.length>1&&(
+              <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1.5px solid ${C.border}`,marginBottom:16}}>
+                <button onClick={()=>setD1FnFilter("combined")}
+                  style={{flex:1,padding:"12px 10px",border:"none",cursor:"pointer",background:isCombined?C.gold:"transparent",textAlign:"center",minHeight:52}}>
+                  <div style={{fontSize:13,fontWeight:isCombined?700:500,color:isCombined?"#fff":C.text}}>🍳 Combined</div>
+                  <div style={{fontSize:11,color:isCombined?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{combinedPax} pax · {d1Evs.length} functions</div>
+                </button>
+                {d1Evs.map(ev=>{
+                  const isSel=d1FnFilter===ev.id;
+                  return(
+                    <button key={ev.id} onClick={()=>setD1FnFilter(ev.id)}
+                      style={{flex:1,padding:"12px 10px",border:"none",borderLeft:`1px solid ${C.border}`,cursor:"pointer",background:isSel?C.gold:"transparent",textAlign:"center",minHeight:52}}>
+                      <div style={{fontSize:13,fontWeight:isSel?700:500,color:isSel?"#fff":C.text}}>{ev.guest||"Function"}</div>
+                      <div style={{fontSize:11,color:isSel?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{ev.pax} pax · {ev.venue||""} · {ev.time||"TBD"}</div>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
             {/* ── Summary card ── */}
             {(()=>{
               const pct=totalD1>0?Math.round(totalD1Done/totalD1*100):0;
+              const headerLabel = isCombined
+                ? `${d1Label} ${T2("prep")} — ${T2("Combined")}`
+                : `${d1Label} — ${activeEv?.guest||"Function"}`;
               return(
-                <div style={{background:C.surface,borderLeft:`3px solid ${C.gold}`,border:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",marginBottom:20}}>
-                  <div style={{fontSize:10,fontWeight:500,color:C.gold,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{d1Label} {T2("prep")}</div>
+                <div style={{background:C.surface,borderLeft:`3px solid ${isCombined?C.gold:C.green}`,border:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",marginBottom:20}}>
+                  <div style={{fontSize:10,fontWeight:500,color:isCombined?C.gold:C.green,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{headerLabel}</div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                    <div style={{fontSize:22,fontWeight:500,color:C.gold,lineHeight:1.1}}>{totalD1Pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
+                    <div style={{fontSize:22,fontWeight:500,color:isCombined?C.gold:C.green,lineHeight:1.1}}>{totalD1Pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
                     <div style={{fontSize:11,color:C.muted}}>{totalD1Done} / {totalD1} {T2("done")}</div>
                   </div>
-                  <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:C.gold,borderRadius:2,transition:"width .3s"}}/></div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>{d1Evs.map(e=>`${e.guest||"Function"} (${e.pax} pax · ${e.time||"TBD"})`).join(" · ")}</div>
+                  <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:isCombined?C.gold:C.green,borderRadius:2,transition:"width .3s"}}/></div>
+                  {isCombined?(
+                    <div style={{fontSize:11,color:C.muted,marginTop:6}}>{d1Evs.map(e=>`${e.guest||"Function"} (${e.pax} pax · ${e.time||"TBD"})`).join(" · ")}</div>
+                  ):(
+                    <div style={{fontSize:11,color:C.muted,marginTop:6}}>{activeEv?.guest} · {activeEv?.venue||""} · {activeEv?.pax} pax · {activeEv?.time||"TBD"}{activeEv?.menu_package?" · "+activeEv.menu_package:""}</div>
+                  )}
+                  {!isCombined&&(
+                    <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber}}>
+                      💡 {T2("Viewing single function. Prep is done collectively — switch to Combined for cooking, use this view for dispatch sign-off.")}
+                    </div>
+                  )}
                 </div>
               );
             })()}

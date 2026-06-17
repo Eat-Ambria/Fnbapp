@@ -105,6 +105,13 @@ function EventDayTab({
     return [];
   }
 
+  // ── Function filter ──
+  const [evFnFilter, setEvFnFilter] = useState("combined"); // "combined" | eventId
+  const isCombined = evFnFilter==="combined";
+  const filteredEvs = isCombined ? todayEvs : todayEvs.filter(e=>e.id===evFnFilter);
+  const activeEv = !isCombined ? todayEvs.find(e=>e.id===evFnFilter) : null;
+  const combinedPax = todayEvs.reduce((s,e)=>s+(+e.pax||0),0);
+
   // ── Expand state ──
   const [openSecs, setOpenSecs] = useState({});
   const [openDishes, setOpenDishes] = useState({});
@@ -125,9 +132,9 @@ function EventDayTab({
     );
   }
 
-  // ── Build dish list ──
+  // ── Build dish list (filtered by selected function) ──
   const byDish = {};
-  todayEvs.forEach(ev => {
+  filteredEvs.forEach(ev => {
     const sp = ev.special || "";
     const isSpecial = /no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
     menuArr(ev).forEach((name, idx) => {
@@ -153,7 +160,7 @@ function EventDayTab({
   }).length;
   const d1PrepDone = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx).mesaDone).length;
   const pendingDishes = totalDishes - readyDishes - inProgressDishes;
-  const totalPax = todayEvs.reduce((s, e) => s + (+e.pax || 0), 0);
+  const totalPax = filteredEvs.reduce((s, e) => s + (+e.pax || 0), 0);
   const allDishesReady = readyDishes === totalDishes && totalDishes > 0;
 
   return (
@@ -165,6 +172,34 @@ function EventDayTab({
           {todayEvs.map(e => `${e.guest} (${e.pax} pax · ${e.time || "TBD"})`).join(" · ")}
         </div>
       </div>
+
+      {/* ── Function selector tabs ── */}
+      {todayEvs.length>1&&(
+        <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1.5px solid ${C.border}`,marginBottom:14}}>
+          <button onClick={()=>setEvFnFilter("combined")}
+            style={{flex:1,padding:"12px 10px",border:"none",cursor:"pointer",background:isCombined?C.gold:"transparent",textAlign:"center",minHeight:52}}>
+            <div style={{fontSize:13,fontWeight:isCombined?700:500,color:isCombined?"#fff":C.text}}>🍳 Combined</div>
+            <div style={{fontSize:11,color:isCombined?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{combinedPax} pax · {todayEvs.length} functions</div>
+          </button>
+          {todayEvs.map(ev=>{
+            const isSel=evFnFilter===ev.id;
+            return(
+              <button key={ev.id} onClick={()=>setEvFnFilter(ev.id)}
+                style={{flex:1,padding:"12px 10px",border:"none",borderLeft:`1px solid ${C.border}`,cursor:"pointer",background:isSel?C.gold:"transparent",textAlign:"center",minHeight:52}}>
+                <div style={{fontSize:13,fontWeight:isSel?700:500,color:isSel?"#fff":C.text}}>{ev.guest||"Function"}</div>
+                <div style={{fontSize:11,color:isSel?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{ev.pax} pax · {ev.venue||""} · {ev.time||"TBD"}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Per-function hint ── */}
+      {!isCombined&&(
+        <div style={{padding:"8px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,marginBottom:12,fontSize:11,color:C.amber}}>
+          💡 Viewing <b>{activeEv?.guest}</b> only — {activeEv?.pax} pax · {activeEv?.venue||""} · {activeEv?.time||"TBD"}. Use this view for dispatch sign-off.
+        </div>
+      )}
 
       {/* ── D-1 prep status banner ── */}
       {d1PrepDone > 0 ? (
@@ -460,7 +495,7 @@ function EventDayTab({
       })}
 
       {/* ── Dispatch per event ── */}
-      {allDishesReady && (
+      {(allDishesReady || !isCombined) && readyDishes>0 && (
         <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: C.surface, border: `1px solid ${C.border}` }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.gold, marginBottom: 10 }}>🚛 {T2("Dispatch by function")}</div>
           {todayEvs.map(ev => {
