@@ -202,4 +202,30 @@ function getDishImageUrl(dishName) {
 }
 
 
-export { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl };
+// ─── HYDRATE FROM SUPABASE ──────────────────────────────────────
+// Called once on boot from App.jsx after loadAllConfig()
+// Merges Supabase recipe_categories + recipes + recipe_ingredients into the in-memory objects
+function hydrateRecipeData(cfg) {
+  // Hydrate categories
+  if (cfg.recipeCategories && cfg.recipeCategories.length) {
+    RECIPE_DB.cats = cfg.recipeCategories.map(c => ({
+      id: c.id, name: c.name, icon: c.icon || '📋', count: 0
+    }));
+  }
+  // Hydrate recipes by category
+  if (cfg.recipes) {
+    Object.keys(cfg.recipes).forEach(catId => {
+      RECIPE_DB.recipes[catId] = cfg.recipes[catId];
+    });
+  }
+  // Update counts
+  RECIPE_DB.cats.forEach(c => {
+    c.count = (RECIPE_DB.recipes[c.id] || []).length;
+  });
+  // Hydrate per-pax ingredients (from legacy recipe_ingredients table, if any)
+  if (cfg.recipeIngredients) {
+    Object.assign(RECIPE_INGREDIENTS, cfg.recipeIngredients);
+  }
+}
+
+export { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
