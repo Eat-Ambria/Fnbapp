@@ -360,8 +360,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const newD1Pax = evList.filter(e=>e.date===DAY_AFTER).reduce((s,e)=>s+(+e.pax||0),0);
 
   // ── Auto-scaling: compute effective scale per event ──
-  // BASE_PAX = 1100 (all SOP recipes calibrated for this)
-  const BASE_PAX = 1100;
+  // BASE_PAX = 400 (all SOP recipes calibrated for this)
+  const BASE_PAX = 400;
   function getEffectiveScale(evId, evPax) {
     // If chef applied an override via Scaling tab, use that
     const override = appliedScales[evId] || appliedScales["manual"];
@@ -511,8 +511,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,color:C.muted}}>⏱</span>
-                      <input type="number" value={step.tm} onChange={e=>sopFormStep(si,"tm",e.target.value)} placeholder="sec" style={{width:70,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
-                      <span style={{fontSize:10,color:C.faint}}>sec</span>
+                      <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:70,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
+                      <span style={{fontSize:10,color:C.faint}}>min</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,color:C.muted}}>CCP</span>
@@ -874,7 +874,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         };
         const PAX_BANDS=[{v:100},{v:200},{v:250},{v:300},{v:400},{v:500},{v:600},{v:700},{v:800},{v:900},{v:1000},{v:1100}];
         const PAX_COLS=[100,200,300,400,500,600,700,800,900,1000,1100];
-        const BASE_PAX=1100;
+        const BASE_PAX=400;
         function isApplicable(pkg,pax){const m=MENU_APPLICABILITY[pkg];return m?m.ranges.some(r=>pax>=r.min&&pax<=r.max):false;}
         function fmtScaled(q,u,pax,pct,isAbsolute){
           if(!q||q===0) return "—";
@@ -966,7 +966,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
             <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,marginBottom:16}}>
-              <span style={{fontWeight:600}}>{T2("Base SOP")}: 1,100 pax</span>
+              <span style={{fontWeight:600}}>{T2("Base SOP")}: 400 pax</span>
               <span style={{color:C.muted}}>— {T2("all recipe quantities are calibrated for this base")}</span>
             </div>
 
@@ -996,7 +996,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
                     <div style={{fontSize:11,color:C.muted}}>Auto-calculated</div>
                     <div style={{fontSize:20,fontWeight:800,color:C.gold}}>{autoPercent}%</div>
-                    <div style={{fontSize:11,color:C.muted}}>({linkedEv.pax} pax ÷ 1100)</div>
+                    <div style={{fontSize:11,color:C.muted}}>({linkedEv.pax} pax ÷ 400)</div>
                     {effectivePct!==autoPercent&&(
                       <div style={{marginLeft:"auto",fontSize:11,color:C.amber,fontWeight:600}}>
                         ⚙️ {T2("Overridden")} → {effectivePct}%
@@ -1488,8 +1488,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                             <div style={{display:"flex",alignItems:"center",gap:3}}>
                               <span style={{fontSize:10,color:C.muted}}>⏱</span>
-                              <input type="number" value={step.tm} onChange={e=>sopFormStep(si,"tm",e.target.value)} placeholder="sec" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                              <span style={{fontSize:9,color:C.faint}}>sec</span>
+                              <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
+                              <span style={{fontSize:9,color:C.faint}}>min</span>
                             </div>
                             <div style={{display:"flex",alignItems:"center",gap:3}}>
                               <span style={{fontSize:10,color:C.muted}}>CCP</span>
