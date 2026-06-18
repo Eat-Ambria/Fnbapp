@@ -229,35 +229,16 @@ function hydrateRecipeData(cfg) {
 }
 
 // ─── DB-AWARE SECTION RESOLVER ──────────────────────────────────
-// Checks RECIPE_DB (Supabase-hydrated) first, falls back to regex guesser.
-// Category IDs → display section names
-const CAT_TO_SECTION = {
-  maincourse: "Indian Curries",
-  chinese: "Chinese",
-  tandoor: "Tandoor",
-  chaat: "Chaat",
-  sweets: "Sweets",
-  beverages: "Beverages",
-  halwai: "Sweets",
-  soup: "Chinese",
-  chaat_master: "Chaat",
-};
-
+// Checks RECIPE_DB (Supabase-hydrated) first, returns the actual category name.
+// Falls back to regex guesser only if dish not found in any recipe category.
 function getSectionForDish(dishName) {
   if (!dishName) return "Indian Curries";
   const n = dishName.toLowerCase().trim();
-  // Check RECIPE_DB categories (Supabase source of truth)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) {
-      return CAT_TO_SECTION[cat.id] || cat.name || "Indian Curries";
-    }
-    // Partial match for fuzzy dish names
-    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) {
-      return CAT_TO_SECTION[cat.id] || cat.name || "Indian Curries";
-    }
+    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.name;
+    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.name;
   }
-  // Not in DB — fall back to regex guesser
   return guessSectionForDish(dishName);
 }
 
