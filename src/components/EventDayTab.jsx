@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/helpers.js';
-import { guessSectionForDish, getSectionForDish, getCatIdForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
+import { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, RECIPE_INGREDIENTS, RECIPE_DB, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -143,14 +143,19 @@ function EventDayTab({
     menuArr(ev).forEach((name, idx) => {
       if (getSectionForDish(name) === "Beverages") return;
       if (allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
-      if (!byDish[name]) byDish[name] = { sec: getSectionForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
+      if (!byDish[name]) byDish[name] = { sec: getSectionForDish(name), catId: getCatIdForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
       byDish[name].totalPax += ev.pax || 0;
       byDish[name].fns.push({ evId: ev.id, g: ev.guest, v: ev.venue, p: ev.pax, idx, special: sp, isSpecial });
       if (isSpecial) byDish[name].specials.push({ guest: ev.guest, pax: ev.pax, instruction: sp });
     });
   });
+  const isSectionUser = currentUser?.role?.startsWith('section_');
   const bySec = {};
-  Object.entries(byDish).forEach(([n, info]) => { if (!bySec[info.sec]) bySec[info.sec] = []; bySec[info.sec].push({ name: n, ...info }); });
+  Object.entries(byDish).forEach(([n, info]) => {
+    const groupKey = isSectionUser ? info.sec : (info.catId || info.sec);
+    if (!bySec[groupKey]) bySec[groupKey] = [];
+    bySec[groupKey].push({ name: n, ...info });
+  });
   const secKeys = Object.keys(bySec).sort();
   const totalDishes = Object.keys(byDish).length;
 
@@ -235,7 +240,11 @@ function EventDayTab({
       {/* ── Section list ── */}
       {secKeys.map(sec => {
         const items = bySec[sec];
-        const m = SECTION_META[sec] || { color: C.muted, icon: "🍽" };
+        const catObj = !isSectionUser && RECIPE_DB.cats.find(c => c.id === sec);
+        const secDisplayName = catObj ? catObj.name : sec;
+        const parentSection = catObj ? catIdToSection(sec) : sec;
+        const m = SECTION_META[parentSection] || SECTION_META[sec] || { color: C.muted, icon: catObj?.icon || "🍽" };
+        const displayIcon = catObj?.icon || m.icon;
         const secReady = items.filter(d => ds(d.fEvId, d.fIdx).ready).length;
         const secPct = Math.round(secReady / items.length * 100);
         const secOpen = isSecOpen(sec);
@@ -252,10 +261,10 @@ function EventDayTab({
               borderBottom: secOpen ? `1px solid ${C.border}` : undefined,
               background: secAllDone ? C.greenBg : C.surface, cursor: "pointer",
             }}>
-              <span style={{ fontSize: 18 }}>{m.icon}</span>
+              <span style={{ fontSize: 18 }}>{displayIcon}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: secAllDone ? C.green : m.color }}>{T2(sec)}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: secAllDone ? C.green : m.color }}>{T2(secDisplayName)}</span>
                   <span style={{ fontSize: 11, color: C.muted }}>{items.length} {T2("dishes")}</span>
                   {secSpecials.length > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: C.redBg, border: `1px solid ${C.redBorder}`, color: C.red, fontWeight: 700 }}>🚫 {secSpecials.length}</span>}
                 </div>

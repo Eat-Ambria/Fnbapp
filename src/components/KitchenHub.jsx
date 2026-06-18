@@ -646,7 +646,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           menuArr(ev).forEach((name,idx)=>{
             if(getSectionForDish(name)==="Beverages") return;
             if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
-            if(!byDishD1[name])byDishD1[name]={sec:getSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+            if(!byDishD1[name])byDishD1[name]={sec:getSectionForDish(name),catId:getCatIdForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishD1[name].totalPax+=ev.pax||0;
             byDishD1[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
             if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
@@ -656,7 +656,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const sopSteps = getStepsForDish(name);
           if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) delete byDishD1[name];
         });
-        const bySecD1={};Object.entries(byDishD1).forEach(([n,info])=>{if(!bySecD1[info.sec])bySecD1[info.sec]=[];bySecD1[info.sec].push({name:n,...info});});
+        // Admin: group by SOP category for granular view; Tablet: group by kitchen section
+        const bySecD1={};
+        Object.entries(byDishD1).forEach(([n,info])=>{
+          const groupKey = isSectionUser ? info.sec : (info.catId || info.sec);
+          if(!bySecD1[groupKey])bySecD1[groupKey]=[];
+          bySecD1[groupKey].push({name:n,...info});
+        });
         const allSecs = Object.keys(bySecD1).sort();
 
         const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
@@ -845,7 +851,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             /* ═══ ADMIN VIEW — compact ═══ */
             allSecs.map(sec=>{
               const secItems = bySecD1[sec]||[];
-              const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+              // For admin: sec is a catId like 'maincourse' — resolve display name and color from parent kitchen section
+              const catObj = !isSectionUser && RECIPE_DB.cats.find(c=>c.id===sec);
+              const secDisplayName = catObj ? catObj.name : sec;
+              const parentSection = catObj ? catIdToSection(sec) : sec;
+              const m2 = SECTION_META[parentSection] || SECTION_META[sec] || {color:C.muted,icon:catObj?.icon||"🍽"};
+              const displayIcon = catObj?.icon || m2.icon;
               const secOpen = isSecOpen("d1sec_"+sec);
               if(secItems.length===0) return null;
               const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx).mesaDone).length;
@@ -855,8 +866,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
                   <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:16}}>{m2.icon}</span>
-                      <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(sec)}</span>
+                      <span style={{fontSize:16}}>{displayIcon}</span>
+                      <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(secDisplayName)}</span>
                       <span style={{fontSize:12,color:C.muted}}>{totalCount} {T2("dishes")}</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
