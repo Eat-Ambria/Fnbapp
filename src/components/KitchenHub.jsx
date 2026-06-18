@@ -1382,16 +1382,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {/* ═══ RECIPE SOPs TAB ═══ */}
       {tab==="sops"&&(()=>{
         // Map section filter to relevant SOP category IDs
-        const SECTION_SOP_MAP = {
-          'Chinese':        ['chinese'],
-          'Tandoor':        ['tandoor'],
-          'Indian Curries':  ['halwai','indian'],
-          'Chaat':          ['chaat','halwai'],
-          'Sweets':         ['sweets'],
-          'Continental':    ['continental'],
-          'Beverages':      ['beverages'],
-        };
-        const allowedCats = sectionFilter ? (SECTION_SOP_MAP[sectionFilter]||null) : null;
+        // Read allowed SOP categories from user's staff record (set in Access Manager)
+        const allowedCats = sectionFilter && currentUser?.sop_categories?.length > 0
+          ? currentUser.sop_categories
+          : null;
         const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
         const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
 

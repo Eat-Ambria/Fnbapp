@@ -230,6 +230,12 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishCategories) {
     DISH_CAT_MAP = cfg.dishCategories;
   }
+  // Hydrate category→kitchen section mapping from recipe_categories.kitchen_section
+  if (cfg.recipeCategories && cfg.recipeCategories.length) {
+    cfg.recipeCategories.forEach(c => {
+      if (c.kitchen_section) CAT_TO_SECTION[c.id] = c.kitchen_section;
+    });
+  }
 }
 
 // ─── DISH CATEGORY MAP (from dish_categories table) ─────────────
@@ -237,26 +243,38 @@ function hydrateRecipeData(cfg) {
 // Separate from recipes table (which holds actual SOPs)
 let DISH_CAT_MAP = {};  // hydrated on boot
 
+// ─── CATEGORY → KITCHEN SECTION MAPPING ─────────────────────────
+// Hydrated from recipe_categories.kitchen_section on boot
+// Maps category_id → kitchen section name (e.g. 'maincourse' → 'Indian Curries')
+let CAT_TO_SECTION = {};
+
+function catIdToSection(catId) {
+  if (CAT_TO_SECTION[catId]) return CAT_TO_SECTION[catId];
+  const cat = RECIPE_DB.cats.find(c => c.id === catId);
+  return cat ? cat.name : null;
+}
+
 // ─── DB-AWARE SECTION RESOLVER ──────────────────────────────────
 // Priority: dish_categories table → recipes table → regex fallback
+// Always returns KITCHEN SECTION names (Indian Curries, Chinese, etc.)
 function getSectionForDish(dishName) {
   if (!dishName) return "Indian Curries";
   const n = dishName.toLowerCase().trim();
   // Priority 1: dish_categories table (explicit classification)
   const catId = DISH_CAT_MAP[dishName] || Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n && DISH_CAT_MAP[k]) && DISH_CAT_MAP[Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n)];
   if (catId) {
-    const cat = RECIPE_DB.cats.find(c => c.id === catId);
-    if (cat) return cat.name;
+    const sec = catIdToSection(catId);
+    if (sec) return sec;
   }
   // Priority 2: recipes table (exact match)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.name;
+    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return catIdToSection(cat.id) || cat.name;
   }
   // Priority 3: recipes table (partial match)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.name;
+    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return catIdToSection(cat.id) || cat.name;
   }
   // Priority 4: regex fallback
   return guessSectionForDish(dishName);

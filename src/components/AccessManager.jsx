@@ -5,6 +5,7 @@ import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
 import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
 import { VENUE_OPTIONS } from '../data/staffData.js';
+import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 
 // ── Shared modal backdrop ──
@@ -49,7 +50,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
 
   // ── State ──
-  const blankForm = {staff_id:"",name:"",role:"section_indian",section:"Indian Curries",dept:"kitchen",pin:"1111",is_active:true,venue:""};
+  const blankForm = {staff_id:"",name:"",role:"section_indian",section:"Indian Curries",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId]   = useState(null);
   const [delId, setDelId]     = useState(null);
@@ -146,19 +147,19 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     setEditId(null); setShowAdd(true);
   }
   function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false,venue:s.venue||""});
+    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false,venue:s.venue||"",sop_categories:Array.isArray(s.sop_categories)?s.sop_categories:[]});
     setEditId(s.staffListId||s.staff_id||s.id); setShowAdd(true);
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     if(editId){
       const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
-      const entry = {...updated, name:form.name, role:form.role, section:form.section, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null};
+      const entry = {...updated, name:form.name, role:form.role, section:form.section, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:form.sop_categories?.length>0?form.sop_categories:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry);
     } else {
       const sid = form.staff_id.toUpperCase();
-      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:form.section,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null};
+      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:form.section,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:form.sop_categories?.length>0?form.sop_categories:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
       if(syncToServer) syncToServer('upsert', newStaff);
     }
@@ -327,6 +328,26 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               {VENUE_OPTIONS.map(v=><option key={v} value={v}>{v}</option>)}
             </select>
           </div>
+
+          {/* SOP Categories (for section tablets) */}
+          {form.role?.startsWith('section_')&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("SOP Categories")} <span style={{fontWeight:400,fontSize:10,color:C.faint}}>({T2("which recipe sections this tablet sees")})</span></div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {safeArr(RECIPE_DB.cats).map(cat=>{
+                  const isOn=(form.sop_categories||[]).includes(cat.id);
+                  return(
+                    <button key={cat.id} type="button" onClick={()=>setForm(p=>{const cur=p.sop_categories||[];return{...p,sop_categories:isOn?cur.filter(c=>c!==cat.id):[...cur,cat.id]};;})}
+                      style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:isOn?700:400,cursor:"pointer",
+                        background:isOn?C.goldBg:"transparent",border:`1.5px solid ${isOn?C.gold:C.border}`,color:isOn?C.gold:C.muted,transition:"all .15s"}}>
+                      {cat.icon||"📋"} {cat.name}{isOn?" ✓":""}
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.sop_categories||[]).length===0&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ {T2("No categories selected — tablet won't see any SOPs or dishes")}</div>}
+            </div>
+          )}
 
           {/* Status toggle */}
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
@@ -513,7 +534,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                   <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.gold+"12",color:C.gold,fontWeight:600}}>{sid}</span>
                   {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,color:C.red}}>Inactive</span>}
                 </div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{roleLabel}{s.section?" · 📍 "+s.section:""}{s.venue?" · 🏠 "+s.venue:""}</div>
+                <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{roleLabel}{s.section?" · 📍 "+s.section:""}{s.venue?" · 🏠 "+s.venue:""}{s.sop_categories?.length?" · 📖 "+s.sop_categories.length+" SOPs":""}</div>
                 {/* PIN — hidden by default */}
                 <div style={{fontSize:11,color:C.faint}}>
                   PIN: <span onClick={()=>setShowPin(pinVisible?null:sid)} style={{cursor:"pointer",fontFamily:"monospace",fontSize:13,fontWeight:600,color:pinVisible?C.gold:C.faint,letterSpacing:pinVisible?3:0}}>
