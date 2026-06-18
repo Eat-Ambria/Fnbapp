@@ -34,12 +34,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const ROLE_OPTIONS = [
     {v:"admin",              l:"👑 Admin — Full Access"},
     {v:"head_chef",          l:"👨‍🍳 Head Chef — Kitchen + Store + Transport"},
-    {v:"section_chinese",    l:"🥢 Chinese Section Tablet"},
-    {v:"section_indian",     l:"🍛 Indian Curries Section Tablet"},
-    {v:"section_tandoor",    l:"🔥 Tandoor Section Tablet"},
-    {v:"section_continental",l:"🍝 Continental Section Tablet"},
-    {v:"section_sweets",     l:"🍮 Sweets Section Tablet"},
-    {v:"section_chaat",      l:"🥗 Chaat Section Tablet"},
+    {v:"section_tablet",     l:"📱 Section Tablet — Pick SOP categories below"},
     {v:"service",            l:"🍽 Service Dept"},
     {v:"crockery",           l:"🍶 Crockery Dept"},
     {v:"beverages",          l:"🥤 Beverages Dept"},
@@ -50,7 +45,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
 
   // ── State ──
-  const blankForm = {staff_id:"",name:"",role:"section_indian",section:"Indian Curries",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
+  const blankForm = {staff_id:"",name:"",role:"section_tablet",section:"",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId]   = useState(null);
   const [delId, setDelId]     = useState(null);
@@ -147,19 +142,25 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     setEditId(null); setShowAdd(true);
   }
   function openEdit(s){
-    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role||"section_indian",section:s.section||"Indian Curries",dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false,venue:s.venue||"",sop_categories:Array.isArray(s.sop_categories)?s.sop_categories:[]});
+    const cats = Array.isArray(s.sop_categories)?s.sop_categories:[];
+    const derivedSection = cats.length>0 ? [...new Set(cats.map(c=>{const rc=RECIPE_DB.cats.find(x=>x.id===c);return rc?.kitchen_section||''}).filter(Boolean))].join(' + ') : (s.section||'');
+    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role==='section_tablet'?'section_tablet':(s.role?.startsWith('section_')?'section_tablet':s.role||"section_tablet"),section:derivedSection,dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false,venue:s.venue||"",sop_categories:cats});
     setEditId(s.staffListId||s.staff_id||s.id); setShowAdd(true);
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     if(editId){
       const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
-      const entry = {...updated, name:form.name, role:form.role, section:form.section, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:form.sop_categories?.length>0?form.sop_categories:null};
+      const cats = form.sop_categories||[];
+      const derivedSection = cats.length>0 ? [...new Set(cats.map(c=>{const rc=RECIPE_DB.cats.find(x=>x.id===c);return rc?.kitchen_section||''}).filter(Boolean))].join(' + ') : form.section;
+      const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry);
     } else {
       const sid = form.staff_id.toUpperCase();
-      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:form.section,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:form.sop_categories?.length>0?form.sop_categories:null};
+      const cats = form.sop_categories||[];
+      const derivedSection = cats.length>0 ? [...new Set(cats.map(c=>{const rc=RECIPE_DB.cats.find(x=>x.id===c);return rc?.kitchen_section||''}).filter(Boolean))].join(' + ') : form.section;
+      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
       if(syncToServer) syncToServer('upsert', newStaff);
     }
@@ -253,8 +254,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               <button onClick={()=>{
                 setAddMode("tablet");
                 setForm(p=>{
-                  var roleMap={"Indian Curries":"section_indian","Chinese":"section_chinese","Tandoor":"section_tandoor","Chaat":"section_chaat","Sweets":"section_sweets","Continental":"section_continental","Bakery":"section_bakery"};
-                  return{...p,staff_id:autoGenerateId(p.section,p.dept),name:p.section+" Tablet",role:roleMap[p.section]||p.role};
+                  return{...p,staff_id:autoGenerateId(p.section,p.dept),name:p.section?p.section+" Tablet":"Section Tablet",role:"section_tablet"};
                 });
               }} style={{flex:1,padding:"12px",border:"none",cursor:"pointer",background:addMode==="tablet"?C.goldBg:"transparent"}}>
                 <div style={{fontSize:13,fontWeight:addMode==="tablet"?600:400,color:addMode==="tablet"?C.gold:C.muted}}>📱 {T2("Dept Tablet")}</div>
@@ -286,21 +286,21 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                 {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
               </select>
             </div>
+            {form.role!=='section_tablet'&&!form.role?.startsWith('section_')&&(
             <div>
               <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Section")}</div>
               <select value={form.section} onChange={e=>{
                 var sec=e.target.value;
-                var roleMap={"Indian Curries":"section_indian","Chinese":"section_chinese","Tandoor":"section_tandoor","Chaat":"section_chaat","Sweets":"section_sweets","Continental":"section_continental","Bakery":"section_bakery"};
                 setForm(p=>({...p,
                   section:sec,
                   name:addMode==="tablet"?sec+" Tablet":p.name,
-                  role:addMode==="tablet"?(roleMap[sec]||p.role):p.role,
                   staff_id:editId?p.staff_id:autoGenerateId(sec,p.dept)
                 }));
               }} style={fld}>
                 {SECTION_OPTIONS.map(s=><option key={s}>{s}</option>)}
               </select>
             </div>
+            )}
             <div>
               <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Department")}</div>
               <select value={form.dept||"kitchen"} onChange={e=>{var d=e.target.value;setForm(p=>({...p,dept:d,staff_id:editId?p.staff_id:autoGenerateId(p.section,d)}));}} style={fld}>
@@ -337,7 +337,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                 {safeArr(RECIPE_DB.cats).map(cat=>{
                   const isOn=(form.sop_categories||[]).includes(cat.id);
                   return(
-                    <button key={cat.id} type="button" onClick={()=>setForm(p=>{const cur=p.sop_categories||[];return{...p,sop_categories:isOn?cur.filter(c=>c!==cat.id):[...cur,cat.id]};;})}
+                    <button key={cat.id} type="button" onClick={()=>setForm(p=>{const cur=p.sop_categories||[];const next=isOn?cur.filter(c=>c!==cat.id):[...cur,cat.id];const sec=next.length>0?[...new Set(next.map(c=>{const rc=RECIPE_DB.cats.find(x=>x.id===c);return rc?.kitchen_section||''}).filter(Boolean))].join(' + '):'';return{...p,sop_categories:next,section:sec,name:p.name||(sec?sec+' Tablet':'')};;})}
                       style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:isOn?700:400,cursor:"pointer",
                         background:isOn?C.goldBg:"transparent",border:`1.5px solid ${isOn?C.gold:C.border}`,color:isOn?C.gold:C.muted,transition:"all .15s"}}>
                       {cat.icon||"📋"} {cat.name}{isOn?" ✓":""}

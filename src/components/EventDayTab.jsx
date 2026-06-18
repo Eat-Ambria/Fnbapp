@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/helpers.js';
-import { guessSectionForDish, getSectionForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
+import { guessSectionForDish, getSectionForDish, getCatIdForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -58,7 +58,7 @@ function StatCard({ value, label, color }) {
 
 function EventDayTab({
   events, kitchenTracking, setKitchenTracking,
-  lang = "en", currentUser = null, sectionFilter = null,
+  lang = "en", currentUser = null, sectionFilter = null, allowedCatIds = null,
   transportQueue = [], setTransportQueue,
   dishSignoff, setDishSignoff,
   openCam, capturePhoto, stopCam, camOn, camRef, capRef, camStreamRef,
@@ -142,7 +142,7 @@ function EventDayTab({
     const isSpecial = /no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
     menuArr(ev).forEach((name, idx) => {
       if (getSectionForDish(name) === "Beverages") return;
-      if (sectionFilter && getSectionForDish(name) !== sectionFilter) return;
+      if (allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
       if (!byDish[name]) byDish[name] = { sec: getSectionForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
       byDish[name].totalPax += ev.pax || 0;
       byDish[name].fns.push({ evId: ev.id, g: ev.guest, v: ev.venue, p: ev.pax, idx, special: sp, isSpecial });

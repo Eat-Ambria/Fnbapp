@@ -4,7 +4,8 @@ import { C, SECTIONS, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { guessSectionForDish, getSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
+import { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
+import { catIdToSection } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -45,18 +46,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // Section tablet filtering
   const isSectionUser = currentUser?.role?.startsWith('section_');
+  // Derive section filter from sop_categories (set in Access Manager)
+  // sop_categories is authoritative — falls back to legacy SECTION_ROLE_MAP for old logins
   const SECTION_ROLE_MAP = {
-    section_indian: 'Indian Curries',
-    section_chinese: 'Chinese',
-    section_tandoor: 'Tandoor',
-    section_chaat: 'Chaat',
-    section_sweets: 'Sweets',
-    section_continental: 'Continental',
-    section_bakery: 'Bakery',
+    section_indian: 'Indian Curries', section_chinese: 'Chinese', section_tandoor: 'Tandoor',
+    section_chaat: 'Chaat', section_sweets: 'Sweets', section_continental: 'Continental', section_bakery: 'Bakery',
   };
+  const userCats = currentUser?.sop_categories;
+  const hasCats = Array.isArray(userCats) && userCats.length > 0;
+  // sectionFilter = kitchen section name (for display + getSectionForDish matching)
+  // allowedCatIds = category IDs (for precise dish filtering)
+  const allowedCatIds = isSectionUser ? (hasCats ? userCats : null) : null;
   const sectionFilter = isSectionUser
-    ? (SECTION_ROLE_MAP[currentUser.role] || currentUser.section || null)
+    ? (hasCats ? (catIdToSection(userCats[0]) || currentUser.section || null) : (SECTION_ROLE_MAP[currentUser.role] || currentUser.section || null))
     : null;
+  const sectionDisplayName = isSectionUser && hasCats
+    ? [...new Set(userCats.map(c => catIdToSection(c)).filter(Boolean))].join(' + ')
+    : sectionFilter;
 
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
@@ -413,12 +419,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           borderRadius:12,padding:'12px 16px',marginBottom:14,
           display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:24}}>
-            {sectionFilter==='Chinese'?'🥢':sectionFilter==='Tandoor'?'🔥':
-             sectionFilter==='Indian Curries'?'🍛':sectionFilter==='Chaat'?'🥗':
-             sectionFilter==='Sweets'?'🍮':sectionFilter==='Continental'?'🍝':'🍽'}
+            {sectionDisplayName?.includes('Chinese')?'🥢':sectionDisplayName?.includes('Tandoor')?'🔥':
+             sectionDisplayName?.includes('Indian')?'🍛':sectionDisplayName?.includes('Chaat')?'🥗':
+             sectionDisplayName?.includes('Sweets')?'🍮':sectionDisplayName?.includes('Continental')?'🍝':'🍽'}
           </span>
           <div>
-            <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{sectionFilter} Section</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{sectionDisplayName} Section</div>
             <div style={{fontSize:11,color:C.muted}}>Showing only your section dishes</div>
           </div>
         </div>
@@ -640,7 +646,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           menuArr(ev).forEach((name,idx)=>{
             if(getSectionForDish(name)==="Beverages") return;
-            if(sectionFilter && getSectionForDish(name) !== sectionFilter) return;
+            if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
             if(!byDishD1[name])byDishD1[name]={sec:getSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishD1[name].totalPax+=ev.pax||0;
             byDishD1[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
@@ -1382,10 +1388,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {/* ═══ RECIPE SOPs TAB ═══ */}
       {tab==="sops"&&(()=>{
         // Map section filter to relevant SOP category IDs
-        // Read allowed SOP categories from user's staff record (set in Access Manager)
-        const allowedCats = sectionFilter && currentUser?.sop_categories?.length > 0
-          ? currentUser.sop_categories
-          : null;
+        const allowedCats = allowedCatIds;
         const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
         const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
 

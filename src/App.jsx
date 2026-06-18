@@ -489,7 +489,7 @@ export default function App() {
     );
   }
   // ── SECTION TABLET INTERCEPT ──
-  if(currentUser && currentUser.role && currentUser.role.startsWith('section_')) {
+  if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
     return (
       <div style={{minHeight:'100vh',background:C.bg}}>
         <div style={{padding:'12px 20px',background:C.surface,

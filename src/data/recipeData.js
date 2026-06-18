@@ -254,6 +254,27 @@ function catIdToSection(catId) {
   return cat ? cat.name : null;
 }
 
+// ─── DISH → CATEGORY ID RESOLVER ────────────────────────────────
+// Returns the recipe category_id for a dish (e.g. 'maincourse', 'chinese')
+function getCatIdForDish(dishName) {
+  if (!dishName) return null;
+  const n = dishName.toLowerCase().trim();
+  // Priority 1: dish_categories table
+  const direct = DISH_CAT_MAP[dishName];
+  if (direct) return direct;
+  const ciKey = Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n);
+  if (ciKey) return DISH_CAT_MAP[ciKey];
+  // Priority 2: recipes table (exact)
+  for (const cat of RECIPE_DB.cats) {
+    if ((RECIPE_DB.recipes[cat.id] || []).some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.id;
+  }
+  // Priority 3: recipes table (partial)
+  for (const cat of RECIPE_DB.cats) {
+    if ((RECIPE_DB.recipes[cat.id] || []).some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
+  }
+  return null;
+}
+
 // ─── DB-AWARE SECTION RESOLVER ──────────────────────────────────
 // Priority: dish_categories table → recipes table → regex fallback
 // Always returns KITCHEN SECTION names (Indian Curries, Chinese, etc.)
@@ -280,4 +301,4 @@ function getSectionForDish(dishName) {
   return guessSectionForDish(dishName);
 }
 
-export { guessSectionForDish, getSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
