@@ -162,10 +162,11 @@ export async function loadAllConfig() {
     checklistsRaw,
     allocRulesRaw,
     vendorCategoriesRaw,
+    dishCategoriesRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
-    loadTable('menu_packages',         [], null),  // raw rows for transform
+    loadTable('menu_packages',         [], null),
     loadTable('vendors',               [], transformVendors),
     loadTable('recipe_categories',     [], transformRecipeCategories),
     loadTable('recipes',               [], null),
@@ -173,7 +174,12 @@ export async function loadAllConfig() {
     loadTable('checklists',            [], null),
     loadTable('staff_allocation_rules',[], null),
     loadTable('vendor_categories',     [], null),
+    loadTable('dish_categories',       [], null),
   ]);
+
+  // Build dish→category lookup from dish_categories table
+  const dishCatMap = {};
+  (dishCategoriesRaw || []).forEach(r => { dishCatMap[r.dish_name] = r.category_id; });
 
   return {
     vehicles,
@@ -187,5 +193,6 @@ export async function loadAllConfig() {
     checklists:         transformChecklists(checklistsRaw),
     allocRules:         transformAllocRules(allocRulesRaw),
     vendorCategories:   transformVendorCategories(vendorCategoriesRaw),
+    dishCategories:     dishCatMap,
   };
 }

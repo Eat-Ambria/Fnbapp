@@ -226,24 +226,39 @@ function hydrateRecipeData(cfg) {
   if (cfg.recipeIngredients) {
     Object.assign(RECIPE_INGREDIENTS, cfg.recipeIngredients);
   }
+  // Hydrate dish→category classification map
+  if (cfg.dishCategories) {
+    DISH_CAT_MAP = cfg.dishCategories;
+  }
 }
 
+// ─── DISH CATEGORY MAP (from dish_categories table) ─────────────
+// Lightweight classification: dish_name → category_id
+// Separate from recipes table (which holds actual SOPs)
+let DISH_CAT_MAP = {};  // hydrated on boot
+
 // ─── DB-AWARE SECTION RESOLVER ──────────────────────────────────
-// Checks RECIPE_DB (Supabase-hydrated) first, returns the actual category name.
-// Falls back to regex guesser only if dish not found in any recipe category.
+// Priority: dish_categories table → recipes table → regex fallback
 function getSectionForDish(dishName) {
   if (!dishName) return "Indian Curries";
   const n = dishName.toLowerCase().trim();
-  // Pass 1: exact match (highest priority)
+  // Priority 1: dish_categories table (explicit classification)
+  const catId = DISH_CAT_MAP[dishName] || Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n && DISH_CAT_MAP[k]) && DISH_CAT_MAP[Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n)];
+  if (catId) {
+    const cat = RECIPE_DB.cats.find(c => c.id === catId);
+    if (cat) return cat.name;
+  }
+  // Priority 2: recipes table (exact match)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
     if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.name;
   }
-  // Pass 2: partial match (only if no exact match found)
+  // Priority 3: recipes table (partial match)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
     if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.name;
   }
+  // Priority 4: regex fallback
   return guessSectionForDish(dishName);
 }
 

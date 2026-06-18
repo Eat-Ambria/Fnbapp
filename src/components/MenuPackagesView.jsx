@@ -79,22 +79,11 @@ function MenuPackagesView({lang="en", currentUser=null}) {
 
     try {
       for(const name of dishNames) {
-        // Check if recipe already exists
-        const {data:existing} = await supabase
-          .from('recipes')
-          .select('id,dish_name,category_id')
-          .ilike('dish_name', name)
-          .limit(1);
-
-        if(existing && existing.length > 0) {
-          // Update category
-          await supabase.from('recipes').update({category_id: catId}).eq('id', existing[0].id);
-        } else {
-          // Insert new minimal recipe
-          await supabase.from('recipes').insert({
-            dish_name: name, category_id: catId, sub:'', steps:'[]', ingredients:'{}'
-          });
-        }
+        // Upsert into dish_categories (classification only — no SOP pollution)
+        await supabase.from('dish_categories').upsert(
+          { dish_name: name, category_id: catId },
+          { onConflict: 'dish_name' }
+        );
       }
       alert(`✅ Moved ${dishNames.length} dish${dishNames.length>1?'es':''} to ${targetSec}`);
       setSelected({});
@@ -104,6 +93,7 @@ function MenuPackagesView({lang="en", currentUser=null}) {
         localStorage.removeItem('ambria_cfg_recipes');
         localStorage.removeItem('ambria_cfg_recipe_categories');
         localStorage.removeItem('ambria_cfg_menu_packages');
+        localStorage.removeItem('ambria_cfg_dish_categories');
       } catch(e){}
       window.location.reload();
     } catch(e) {
