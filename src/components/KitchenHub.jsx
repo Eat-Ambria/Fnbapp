@@ -5,7 +5,6 @@ import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
-import { catIdToSection } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
