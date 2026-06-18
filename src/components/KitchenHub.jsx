@@ -1447,7 +1447,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",gap:6,flexShrink:0}}>
                       {!editingSteps?(
                         <>
-                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
+                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
                           <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
                         </>
                       ):(
@@ -1610,6 +1610,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               D-1
                             </label>
                           </div>
+                          {(step.subs&&step.subs.length>0)&&(
+                            <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:2,marginTop:6,paddingLeft:10}}>
+                              <div style={{fontSize:9,fontWeight:700,color:C.gold,marginBottom:3,textTransform:"uppercase",letterSpacing:.5}}>Sub-steps ({step.subs.length})</div>
+                              {step.subs.map((sb,sbi)=>(
+                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:6,padding:"5px 7px",marginBottom:3}}>
+                                  <div style={{display:"flex",gap:3,alignItems:"center",marginBottom:2}}>
+                                    <span style={{fontSize:9,fontWeight:700,color:C.gold,minWidth:18}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:24}}/>
+                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:18,height:18,borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:9,cursor:"pointer",padding:0}}>✕</button>
+                                  </div>
+                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:10,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:22}}/>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <button onClick={()=>sopAddSub(si)} style={{marginTop:4,padding:"3px 8px",borderRadius:5,background:"transparent",border:`1px dashed ${C.border}`,color:C.gold,fontSize:9,fontWeight:600,cursor:"pointer"}}>+ Sub-step</button>
                         </div>
                         <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>✕</button>
                       </div>
@@ -1622,14 +1638,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 ):(
                   safeArr(sopRecipe.steps).map((step,si)=>(
-                    <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
-                      <div style={{width:32,height:32,borderRadius:8,background:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.gold,flexShrink:0}}>{si+1}</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}</div>
-                        <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
-                        {step.tm&&<span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6}}>⏱ {fmtT(step.tm)}</span>}
-                        {step.ccp&&<span style={{fontSize:12,color:C.red,background:C.redBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6,marginLeft:6}}>🔴 CCP: {step.ccp}</span>}
+                    <div key={si} style={{padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                      <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.gold,flexShrink:0}}>{si+1}</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}{Array.isArray(step.subs)&&step.subs.length>0&&<span style={{fontSize:11,color:C.muted,fontWeight:400,marginLeft:8}}>({step.subs.length} sub-steps)</span>}</div>
+                          <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
+                          {step.tm&&<span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6}}>⏱ {fmtT(step.tm)}</span>}
+                          {step.ccp&&<span style={{fontSize:12,color:C.red,background:C.redBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6,marginLeft:6}}>🔴 CCP: {step.ccp}</span>}
+                        </div>
                       </div>
+                      {Array.isArray(step.subs)&&step.subs.length>0&&(
+                        <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:16,marginTop:8,paddingLeft:12}}>
+                          {step.subs.map((sb,sbi)=>(
+                            <div key={sbi} style={{padding:"6px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                <div>
+                                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{sb.t}</div>
+                                  {sb.i&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sb.i}</div>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
