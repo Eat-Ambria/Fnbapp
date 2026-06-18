@@ -4,7 +4,7 @@ import { C, SECTIONS, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { guessSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
+import { guessSectionForDish, getSectionForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -620,9 +620,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           menuArr(ev).forEach((name,idx)=>{
-            if(guessSectionForDish(name)==="Beverages") return;
-            if(sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
-            if(!byDishD1[name])byDishD1[name]={sec:guessSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
+            if(getSectionForDish(name)==="Beverages") return;
+            if(sectionFilter && getSectionForDish(name) !== sectionFilter) return;
+            if(!byDishD1[name])byDishD1[name]={sec:getSectionForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishD1[name].totalPax+=ev.pax||0;
             byDishD1[name].fns.push({evId:ev.id,g:ev.guest,v:ev.venue,p:ev.pax,idx,special:sp,isSpecial});
             if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
@@ -1146,7 +1146,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   if(pkgDishes.length===0) return <Card style={{padding:"20px",textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>{T2("Select a menu package in Step 2")}</div></Card>;
                   const bySec={};
                   pkgDishes.forEach(d=>{
-                    const sec=guessSectionForDish(d)||"Other";
+                    const sec=getSectionForDish(d)||"Other";
                     if(!bySec[sec])bySec[sec]=[];
                     bySec[sec].push(d);
                   });

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/helpers.js';
-import { guessSectionForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
+import { guessSectionForDish, getSectionForDish, RECIPE_INGREDIENTS, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -138,9 +138,9 @@ function EventDayTab({
     const sp = ev.special || "";
     const isSpecial = /no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
     menuArr(ev).forEach((name, idx) => {
-      if (guessSectionForDish(name) === "Beverages") return;
-      if (sectionFilter && guessSectionForDish(name) !== sectionFilter) return;
-      if (!byDish[name]) byDish[name] = { sec: guessSectionForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
+      if (getSectionForDish(name) === "Beverages") return;
+      if (sectionFilter && getSectionForDish(name) !== sectionFilter) return;
+      if (!byDish[name]) byDish[name] = { sec: getSectionForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
       byDish[name].totalPax += ev.pax || 0;
       byDish[name].fns.push({ evId: ev.id, g: ev.guest, v: ev.venue, p: ev.pax, idx, special: sp, isSpecial });
       if (isSpecial) byDish[name].specials.push({ guest: ev.guest, pax: ev.pax, instruction: sp });
