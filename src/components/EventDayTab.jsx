@@ -603,8 +603,8 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
               <div key={sbi} style={{ display: "flex", gap: 6, padding: "5px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none", alignItems: "center" }}>
                 <div style={{ width: 20, height: 20, borderRadius: 5, background: sbDone ? C.green : C.darkCard, border: `1.5px solid ${sbDone ? C.green : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sbDone ? "#fff" : C.muted, flexShrink: 0 }}>{sbDone ? "✓" : num + String.fromCharCode(97 + sbi)}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: sbDone ? C.green : C.text }}>{sb.t}</div>
-                  {sb.i && <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{sb.i}</div>}
+                  <div style={{ fontSize: 12, fontWeight: 600, color: sbDone ? C.green : C.text, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
+                  {sb.i && <div style={{ fontSize: 11, color: C.muted, marginTop: 2, wordBreak: "break-word", overflowWrap: "anywhere", lineHeight: 1.4 }}>{sb.i}</div>}
                 </div>
                 <div style={{ flexShrink: 0 }}>
                   {sbDone && <span style={{ fontSize: 10, color: C.green }}>✅</span>}

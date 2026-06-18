@@ -807,8 +807,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         {!stS&&!stDone&&!prevD&&<div style={{padding:"12px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:15,color:C.faint,minHeight:48,display:"flex",alignItems:"center"}}>🔒</div>}
                                       </div>
                                       </div>
-                                      {hasSubs&&(stS||prevD||stDone)&&(
-                                        <div style={{borderLeft:`3px solid ${stDone?C.green:C.gold}`,marginLeft:19,marginTop:8,paddingLeft:14}}>
+                                      {hasSubs&&(
+                                        <div style={{borderLeft:`3px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:19,marginTop:8,paddingLeft:14,opacity:(stS||prevD||stDone)?1:0.5}}>
                                           {step.subs.map((sb,sbi)=>{
                                             const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
                                             const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
@@ -933,8 +933,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       {!stS&&!stDone&&!prevD&&currentUser?.role!=='admin'&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,minHeight:32,display:"flex",alignItems:"center"}}>🔒</div>}
                                     </div>
                                     </div>
-                                    {hasSubs&&(stS||prevD||stDone)&&(
-                                      <div style={{borderLeft:`2px solid ${stDone?C.green:C.gold}`,marginLeft:13,marginTop:4,paddingLeft:10}}>
+                                    {hasSubs&&(
+                                      <div style={{borderLeft:`2px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:13,marginTop:4,paddingLeft:10,opacity:(stS||prevD||stDone)?1:0.5}}>
                                         {step.subs.map((sb,sbi)=>{
                                           const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
                                           const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
