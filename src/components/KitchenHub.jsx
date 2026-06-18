@@ -208,20 +208,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setSopModal({mode:"add",catId:catId||""});
   }
   function openSopEdit(recipe,catId){
-    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):[]}))});
+    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});
     setSopModal({mode:"edit",catId:catId||sopCat||"",origName:recipe.n});
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
   function sopRemoveStep(si){setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)}));}
   function sopMoveStep(si,dir){setSopForm(p=>{const s=[...p.steps];const ni=si+dir;if(ni<0||ni>=s.length)return p;[s[si],s[ni]]=[s[ni],s[si]];return{...p,steps:s};});}
-  function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:""}]})}));}
+  function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:"",tm:0}]})}));}
   function sopRemoveSub(si,sbi){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));}
   function sopEditSub(si,sbi,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).map((sb,j)=>j!==sbi?sb:{...sb,[field]:val})})}));}
   function saveSop(){
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
-    const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>({t:s.t,i:s.i,tm:+s.tm||0,ccp:s.ccp||null,d1:!!s.d1,...(s.subs&&s.subs.length>0?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||""}))}:{})}))};
+    const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0}))}:{})};})};
     // Update local RECIPE_DB
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
     if(sopModal.mode==="edit"&&sopModal.origName){
@@ -518,11 +518,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                   <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",resize:"vertical",minHeight:44}}/>
                   <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,color:C.muted}}>⏱</span>
                       <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:70,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
                       <span style={{fontSize:10,color:C.faint}}>min</span>
-                    </div>
+                    </div>}
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
                       <span style={{fontSize:11,color:C.muted}}>CCP</span>
                       <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:130,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
@@ -540,6 +540,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
                             <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
                             <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,minHeight:28}}/>
+                            <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+                              <span style={{fontSize:10,color:C.muted}}>⏱</span>
+                              <input type="number" value={sb.tm||""} onChange={e=>sopEditSub(si,sbi,"tm",e.target.value)} placeholder="0" style={{width:40,padding:"4px 4px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,textAlign:"center",color:C.text,background:C.bg,minHeight:24}}/>
+                              <span style={{fontSize:9,color:C.faint}}>min</span>
+                            </div>
                             <button onClick={()=>sopRemoveSub(si,sbi)} style={{padding:"2px 6px",borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer"}}>✕</button>
                           </div>
                           <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:28}}/>
@@ -1454,7 +1459,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",gap:6,flexShrink:0}}>
                       {!editingSteps?(
                         <>
-                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
+                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
                           <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
                         </>
                       ):(
@@ -1603,18 +1608,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,color:C.text,background:"transparent",boxSizing:"border-box",marginBottom:4,minHeight:32}}/>
                           <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:40,marginBottom:4}}/>
                           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:3}}>
+                            {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:3}}>
                               <span style={{fontSize:10,color:C.muted}}>⏱</span>
                               <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
                               <span style={{fontSize:9,color:C.faint}}>min</span>
-                            </div>
+                            </div>}
                             <div style={{display:"flex",alignItems:"center",gap:3}}>
                               <span style={{fontSize:10,color:C.muted}}>CCP</span>
                               <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:110,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
                             </div>
                             <label style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",fontSize:10,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
                               <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
-                              D-1
+                              D-1   
                             </label>
                           </div>
                           {(step.subs&&step.subs.length>0)&&(
@@ -1625,6 +1630,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <div style={{display:"flex",gap:3,alignItems:"center",marginBottom:2}}>
                                     <span style={{fontSize:9,fontWeight:700,color:C.gold,minWidth:18}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
                                     <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:24}}/>
+                                    <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
+                                      <span style={{fontSize:9,color:C.muted}}>⏱</span>
+                                      <input type="number" value={sb.tm||""} onChange={e=>sopEditSub(si,sbi,"tm",e.target.value)} placeholder="0" style={{width:32,padding:"3px 3px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10,textAlign:"center",color:C.text,background:"transparent",minHeight:20}}/>
+                                      <span style={{fontSize:8,color:C.faint}}>m</span>
+                                    </div>
                                     <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:18,height:18,borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:9,cursor:"pointer",padding:0}}>✕</button>
                                   </div>
                                   <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:10,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:22}}/>
