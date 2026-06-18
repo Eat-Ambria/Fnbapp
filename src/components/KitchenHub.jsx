@@ -767,8 +767,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             {isExp&&!isDone&&(()=>{
                               const d2s=ds(dish.fEvId,dish.fIdx);
                               const allStepsFn = getStepsForDish(dish.name);
-                              const eventOnly = allStepsFn.filter(s=>!s.d1);
-                              const steps = eventOnly.length>0?eventOnly:allStepsFn.length>0?allStepsFn:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600},{t:"Primary prep",i:"Prepare base masala / paste",tm:480}];
+                              const d1Only = allStepsFn.filter(s=>s.d1);
+                              const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
                               const ssStarted=!!d2s.storeStart;const ssDone=!!d2s.storeEnd;
                               const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
                               const ssRem=Math.max(0,1800-ssEl);const ssPct=ssStarted?Math.min(100,Math.round(ssEl/1800*100)):0;
