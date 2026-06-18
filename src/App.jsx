@@ -391,6 +391,8 @@ export default function App() {
       is_active: data.is_active!==false, joining: data.joining||null,
       phone: data.phone||null, custom_screens: data.custom_screens||null,
       permissions: data.permissions||null,
+      venue: data.venue||null,
+      sop_categories: data.sop_categories||null,
     };
     if(action==='upsert') await dbUpsert('staff', record, 'staff_id');
     if(action==='delete') await dbDelete('staff', 'staff_id', record.staff_id);
