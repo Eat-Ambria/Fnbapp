@@ -3,11 +3,20 @@ import React, { useState } from "react";
 import { C, SECTIONS, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish } from '../data/recipeData.js';
+import { getSectionForDish, RECIPE_DB } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 
-const ALL_SECTIONS = ["Beverages","Chaat","Tandoor","Chinese","Sweets","Indian Curries"];
+// Default sections — will be extended by any custom categories from Supabase
+const DEFAULT_SECTIONS = ["Beverages","Chaat","Tandoor","Chinese","Sweets","Indian Curries"];
+
+// Map category_id → display section name
+const CAT_DISPLAY = {
+  beverages:"Beverages", chaat:"Chaat", tandoor:"Tandoor",
+  chinese:"Chinese", sweets:"Sweets", maincourse:"Indian Curries",
+  halwai:"Halwai & Savoury", soup:"Soups", chaat_master:"Chaat Master",
+  continental:"Continental", south_indian:"South Indian",
+};
 
 function MenuPackagesView({lang="en", currentUser=null}) {
   const T2 = s => T(s, lang);
@@ -19,6 +28,14 @@ function MenuPackagesView({lang="en", currentUser=null}) {
   const [selected, setSelected] = useState({}); // {dishName: true}
   const [targetSec, setTargetSec] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState("🍽");
+  const [customCats, setCustomCats] = useState([]);
+
+  // Build ALL_SECTIONS from DB categories + defaults
+  const dbSections = (RECIPE_DB.cats || []).map(c => CAT_DISPLAY[c.id] || c.name);
+  const allSections = [...new Set([...DEFAULT_SECTIONS, ...dbSections, ...customCats])].sort();
 
   function toggleSection(sec){setOpenSections(p=>({...p,[sec]:!p[sec]}));}
 
@@ -32,15 +49,49 @@ function MenuPackagesView({lang="en", currentUser=null}) {
   }
   const selCount = Object.values(selected).filter(Boolean).length;
 
-  // Move selected dishes to target section by inserting/updating them as recipes in Supabase
+  // Reverse map: section display name → category_id
+  function secToCatId(secName) {
+    // Check CAT_DISPLAY reverse
+    for (const [id, name] of Object.entries(CAT_DISPLAY)) {
+      if (name === secName) return id;
+    }
+    // Check DB cats
+    const dbCat = (RECIPE_DB.cats || []).find(c => c.name === secName);
+    if (dbCat) return dbCat.id;
+    // Generate slug from name
+    return secName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+  }
+
+  // Create new category in Supabase
+  async function createCategory() {
+    if (!newCatName.trim()) return;
+    const catId = newCatName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+    setSaving(true);
+    try {
+      // Insert into recipe_categories
+      const { error } = await supabase.from('recipe_categories').insert({
+        id: catId, name: newCatName.trim(), icon: newCatIcon || '🍽',
+        sort_order: (RECIPE_DB.cats || []).length + 1
+      });
+      if (error && error.code !== '23505') throw error; // ignore duplicate
+      // Add to local state
+      CAT_DISPLAY[catId] = newCatName.trim();
+      setCustomCats(prev => [...prev, newCatName.trim()]);
+      setTargetSec(newCatName.trim());
+      setShowNewCat(false);
+      setNewCatName("");
+      setNewCatIcon("🍽");
+    } catch(e) {
+      alert('❌ Error creating category: ' + e.message);
+    }
+    setSaving(false);
+  }
+
+  // Move selected dishes to target section
   async function moveSelected() {
     if(!targetSec || selCount===0) return;
     setSaving(true);
-    const catMap = {
-      "Beverages":"beverages","Chaat":"chaat","Tandoor":"tandoor",
-      "Chinese":"chinese","Sweets":"sweets","Indian Curries":"maincourse"
-    };
-    const catId = catMap[targetSec] || "maincourse";
+    const catId = secToCatId(targetSec);
     const dishNames = Object.keys(selected).filter(k=>selected[k]);
 
     try {
@@ -142,17 +193,39 @@ function MenuPackagesView({lang="en", currentUser=null}) {
 
       {/* ── Bulk Move Bar (sticky) ── */}
       {editMode && (
-        <div style={{position:"sticky",top:0,zIndex:20,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,borderRadius:12,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{fontSize:13,fontWeight:600,color:C.amber}}>{selCount} selected</span>
-          <select value={targetSec} onChange={e=>setTargetSec(e.target.value)}
-            style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,minWidth:140}}>
-            <option value="">Move to…</option>
-            {ALL_SECTIONS.map(s=><option key={s} value={s}>{(SECTION_META[s]||{icon:"🍽"}).icon} {s}</option>)}
-          </select>
-          <button onClick={moveSelected} disabled={!targetSec||selCount===0||saving}
-            style={{padding:"8px 16px",borderRadius:8,background:selCount>0&&targetSec?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:selCount>0&&targetSec?"pointer":"not-allowed",opacity:saving?0.5:1}}>
-            {saving ? "Saving…" : `Move ${selCount} →`}
-          </button>
+        <div style={{position:"sticky",top:0,zIndex:20,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,borderRadius:12,padding:"10px 14px",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:600,color:C.amber}}>{selCount} selected</span>
+            <select value={targetSec} onChange={e=>{
+              if(e.target.value==="__new__"){setShowNewCat(true);setTargetSec("");}
+              else{setTargetSec(e.target.value);setShowNewCat(false);}
+            }}
+              style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,minWidth:140}}>
+              <option value="">Move to…</option>
+              {allSections.map(s=><option key={s} value={s}>{(SECTION_META[s]||{icon:"🍽"}).icon} {s}</option>)}
+              <option value="__new__">＋ New Section…</option>
+            </select>
+            <button onClick={moveSelected} disabled={!targetSec||selCount===0||saving}
+              style={{padding:"8px 16px",borderRadius:8,background:selCount>0&&targetSec?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:selCount>0&&targetSec?"pointer":"not-allowed",opacity:saving?0.5:1}}>
+              {saving ? "Saving…" : `Move ${selCount} →`}
+            </button>
+          </div>
+          {/* New section inline form */}
+          {showNewCat && (
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
+              <input value={newCatIcon} onChange={e=>setNewCatIcon(e.target.value)} placeholder="🍽"
+                style={{width:40,padding:"6px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,textAlign:"center",background:C.surface}} maxLength={2}/>
+              <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Section name e.g. Continental"
+                style={{flex:1,minWidth:160,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}
+                onKeyDown={e=>e.key==='Enter'&&createCategory()}/>
+              <button onClick={createCategory} disabled={!newCatName.trim()||saving}
+                style={{padding:"6px 14px",borderRadius:8,background:newCatName.trim()?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:newCatName.trim()?"pointer":"not-allowed"}}>
+                {saving?"…":"Create"}
+              </button>
+              <button onClick={()=>{setShowNewCat(false);setNewCatName("");}}
+                style={{padding:"6px 10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>Cancel</button>
+            </div>
+          )}
         </div>
       )}
 
