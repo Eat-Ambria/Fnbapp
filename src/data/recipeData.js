@@ -234,9 +234,14 @@ function hydrateRecipeData(cfg) {
 function getSectionForDish(dishName) {
   if (!dishName) return "Indian Curries";
   const n = dishName.toLowerCase().trim();
+  // Pass 1: exact match (highest priority)
   for (const cat of RECIPE_DB.cats) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
     if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.name;
+  }
+  // Pass 2: partial match (only if no exact match found)
+  for (const cat of RECIPE_DB.cats) {
+    const recipes = RECIPE_DB.recipes[cat.id] || [];
     if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.name;
   }
   return guessSectionForDish(dishName);
