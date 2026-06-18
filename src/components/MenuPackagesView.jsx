@@ -7,16 +7,7 @@ import { getSectionForDish, RECIPE_DB } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 
-// Default sections — will be extended by any custom categories from Supabase
-const DEFAULT_SECTIONS = ["Beverages","Chaat","Tandoor","Chinese","Sweets","Indian Curries"];
-
-// Map category_id → display section name
-const CAT_DISPLAY = {
-  beverages:"Beverages", chaat:"Chaat", tandoor:"Tandoor",
-  chinese:"Chinese", sweets:"Sweets", maincourse:"Indian Curries",
-  halwai:"Halwai & Savoury", soup:"Soups", chaat_master:"Chaat Master",
-  continental:"Continental", south_indian:"South Indian",
-};
+// No hardcoded sections — everything comes from RECIPE_DB.cats (Supabase)
 
 function MenuPackagesView({lang="en", currentUser=null}) {
   const T2 = s => T(s, lang);
@@ -33,9 +24,8 @@ function MenuPackagesView({lang="en", currentUser=null}) {
   const [newCatIcon, setNewCatIcon] = useState("🍽");
   const [customCats, setCustomCats] = useState([]);
 
-  // Build ALL_SECTIONS from DB categories + defaults
-  const dbSections = (RECIPE_DB.cats || []).map(c => CAT_DISPLAY[c.id] || c.name);
-  const allSections = [...new Set([...DEFAULT_SECTIONS, ...dbSections, ...customCats])].sort();
+  // Build section list directly from Supabase recipe_categories
+  const allSections = (RECIPE_DB.cats || []).map(c => c.name).sort();
 
   function toggleSection(sec){setOpenSections(p=>({...p,[sec]:!p[sec]}));}
 
@@ -51,14 +41,8 @@ function MenuPackagesView({lang="en", currentUser=null}) {
 
   // Reverse map: section display name → category_id
   function secToCatId(secName) {
-    // Check CAT_DISPLAY reverse
-    for (const [id, name] of Object.entries(CAT_DISPLAY)) {
-      if (name === secName) return id;
-    }
-    // Check DB cats
     const dbCat = (RECIPE_DB.cats || []).find(c => c.name === secName);
     if (dbCat) return dbCat.id;
-    // Generate slug from name
     return secName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
   }
 
@@ -74,8 +58,7 @@ function MenuPackagesView({lang="en", currentUser=null}) {
         sort_order: (RECIPE_DB.cats || []).length + 1
       });
       if (error && error.code !== '23505') throw error; // ignore duplicate
-      // Add to local state
-      CAT_DISPLAY[catId] = newCatName.trim();
+      // Add to local state so it appears in dropdown immediately
       setCustomCats(prev => [...prev, newCatName.trim()]);
       setTargetSec(newCatName.trim());
       setShowNewCat(false);
