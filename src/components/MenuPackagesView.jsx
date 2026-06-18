@@ -99,7 +99,12 @@ function MenuPackagesView({lang="en", currentUser=null}) {
       alert(`✅ Moved ${dishNames.length} dish${dishNames.length>1?'es':''} to ${targetSec}`);
       setSelected({});
       setEditMode(false);
-      // Force page reload to re-hydrate RECIPE_DB
+      // Clear caches and reload to re-hydrate RECIPE_DB
+      try {
+        localStorage.removeItem('ambria_cfg_recipes');
+        localStorage.removeItem('ambria_cfg_recipe_categories');
+        localStorage.removeItem('ambria_cfg_menu_packages');
+      } catch(e){}
       window.location.reload();
     } catch(e) {
       alert('❌ Error: ' + e.message);
