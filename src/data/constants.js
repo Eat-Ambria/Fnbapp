@@ -1,5 +1,6 @@
 // Ambria FnB — Constants & configuration data
-// Extracted from App.jsx
+// App config (colors, sections, nav) stays here.
+// Operational data (vendors, vehicles, cold items) → empty, hydrated from Supabase.
 
 const C = {
   navy:"#1A1816",
@@ -41,34 +42,12 @@ const SECTION_META = {
   "Management":     {color:"#8B5E2F", bg:"#FDF6EE", dot:"#8B5E2F", icon:"👑"},
   "Outdoor Staff":  {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"👷"},
 };
-// ─── OUTSIDE VENDORS ──────────────────────────────────────────────
-let OUTSIDE_VENDORS = [
-  {id:"v1", name:"Ramesh Kumar",  specialty:"Indian Curries", phone:"98100-11111", rating:"4.8", rate:2500, active:true},
-  {id:"v2", name:"Anil Yadav",    specialty:"Tandoor",        phone:"98200-22222", rating:"4.9", rate:2800, active:true},
-  {id:"v3", name:"Suresh Tiwari", specialty:"Beverages",           phone:"98300-33333", rating:"4.5", rate:2200, active:true},
-  {id:"v4", name:"Dinesh Sharma", specialty:"Chinese",        phone:"98400-44444", rating:"4.7", rate:2600, active:true},
-  {id:"v5", name:"Manoj Gupta",   specialty:"Chaat",          phone:"98500-55555", rating:"4.6", rate:2000, active:true},
-  {id:"v6", name:"Priya Caterers",specialty:"Sweets",         phone:"98600-66666", rating:"4.8", rate:3000, active:true},
-];
 
-// ─── VEHICLES ─────────────────────────────────────────────────────
-let VEHICLES = [
-  {id:"DL1LAJ1250", name:"DL1LAJ 1250", icon:"🚛", type:"dry",   note:"Truck open body — main food + equipment runs"},
-  {id:"DL1LAN1814", name:"DL1LAN 1814", icon:"🚛", type:"dry",   note:"Truck open body — secondary load carrier"},
-  {id:"DL1LAN2125", name:"DL1LAN 2125", icon:"❄🚛",type:"cold",  note:"Truck close body AC — dairy, sweets, cold items"},
-  {id:"DL1LW5357",  name:"DL1LW 5357",  icon:"🛺", type:"quick", note:"Chhota Hathi — medium loads, quick runs"},
-  {id:"DL9CBD3260",  name:"DL9CBD 3260", icon:"🚙", type:"quick", note:"Eeco — staff + small items transport"},
-  {id:"DL9CAR4073",  name:"DL9CAR 4073", icon:"🚙", type:"quick", note:"Eeco — staff + small items transport"},
-  {id:"DL4ERB3958",  name:"DL4ERB 3958", icon:"🛺", type:"quick", note:"E-Riksha — local short runs"},
-  {id:"DL4ERB4678",  name:"DL4ERB 4678", icon:"🛺", type:"quick", note:"E-Riksha — local short runs"},
-];
-
-// ─── COLD ITEMS (require fridge truck) ────────────────────────────
-let COLD_ITEMS = [
-  "cream","chhena","paneer","rabri","rasmalai","kulfi","ice cream",
-  "butter","dairy","milk","curd","raita","lassi","mousse","parfait",
-  "cheesecake","tiramisu","gajar halwa","kheer",
-];
+// ─── OPERATIONAL DATA — hydrated from Supabase on boot ──────────
+let OUTSIDE_VENDORS = [];
+let VEHICLES = [];
+let COLD_ITEMS = [];
+let VENDOR_CATEGORIES = [];
 
 const NAV_ADMIN = [
   {id:"dashboard",  label:"Dashboard",           icon:"📊"},
@@ -81,8 +60,6 @@ const NAV_ADMIN = [
   {id:"vendors",    label:"Vendor Directory",      icon:"🤝"},
 ];
 const NAV = NAV_ADMIN;
-
-
 
 const AMBRIA_VENUES = [
   {id:"ap",  code:"AP",  name:"Ambria Pushpanjali", location:"Dwarka, Delhi",
@@ -111,10 +88,6 @@ const AMBRIA_VENUES = [
    sections:["Off-premise events","Client farmhouses","Corporate venues","Banquet halls"],
    highlight:"Gopal leads all ODC events personally"},
 ];
-
-
-let VENDOR_CATEGORIES = ["Outside Chef","Vegetable Supplier","Dairy Supplier","Meat & Poultry","Dry Goods","Ice & Cold Storage","Equipment Rental","Tent & Decor","Flower Vendor","Gas & Fuel","Cleaning & Hygiene","Packaging"];
-
 
 function hydrateConstants(config) {
   if (config.vehicles && config.vehicles.length) VEHICLES = config.vehicles;
