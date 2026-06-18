@@ -101,7 +101,7 @@ function findRecipeForDish(dishName) {
 function getStepsForDish(name) {
   try {
     const r = findRecipeForDish(name);
-    if(r && r.steps && r.steps.length) return r.steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null,d1:!!s.d1}));
+    if(r && r.steps && r.steps.length) return r.steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null,d1:!!s.d1,subs:Array.isArray(s.subs)&&s.subs.length>0?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):null}));
   } catch(e){}
   return GENERIC_STEPS;
 }

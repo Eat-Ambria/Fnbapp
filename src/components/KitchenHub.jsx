@@ -196,24 +196,27 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // ── SOP Add/Edit Modal ──
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
-  const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false});
+  const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
   const [sopForm, setSopForm] = useState({name:"",sub:"",catId:"",steps:[emptySopStep()]});
   function openSopAdd(catId){
     setSopForm({name:"",sub:"",catId:catId||safeArr(RECIPE_DB.cats)[0]?.id||"",steps:[emptySopStep()]});
     setSopModal({mode:"add",catId:catId||""});
   }
   function openSopEdit(recipe,catId){
-    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1}))});
+    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):[]}))});
     setSopModal({mode:"edit",catId:catId||sopCat||"",origName:recipe.n});
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
   function sopRemoveStep(si){setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)}));}
   function sopMoveStep(si,dir){setSopForm(p=>{const s=[...p.steps];const ni=si+dir;if(ni<0||ni>=s.length)return p;[s[si],s[ni]]=[s[ni],s[si]];return{...p,steps:s};});}
+  function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:""}]})}));}
+  function sopRemoveSub(si,sbi){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));}
+  function sopEditSub(si,sbi,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).map((sb,j)=>j!==sbi?sb:{...sb,[field]:val})})}));}
   function saveSop(){
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
-    const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>({t:s.t,i:s.i,tm:+s.tm||0,ccp:s.ccp||null,d1:!!s.d1}))};
+    const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>({t:s.t,i:s.i,tm:+s.tm||0,ccp:s.ccp||null,d1:!!s.d1,...(s.subs&&s.subs.length>0?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||""}))}:{})}))};
     // Update local RECIPE_DB
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
     if(sopModal.mode==="edit"&&sopModal.origName){
@@ -524,6 +527,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       D-1 Prep
                     </label>
                   </div>
+                  {(step.subs&&step.subs.length>0)&&(
+                    <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:10,marginTop:8,paddingLeft:12}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>Sub-steps ({step.subs.length})</div>
+                      {step.subs.map((sb,sbi)=>(
+                        <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"6px 8px",marginBottom:4}}>
+                          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
+                            <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                            <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,minHeight:28}}/>
+                            <button onClick={()=>sopRemoveSub(si,sbi)} style={{padding:"2px 6px",borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer"}}>✕</button>
+                          </div>
+                          <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:28}}/>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"4px 10px",borderRadius:6,background:"transparent",border:`1px dashed ${C.border}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Sub-step</button>
                 </div>
               ))}
             </div>
@@ -760,11 +779,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                     </div>);})()}
                                   <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
-                                  {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
-                                    <div key={si} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                  {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
+                                    const subsDone=hasSubs?step.subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])):false;
+                                    const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=hasSubs?subsDone:!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;
+                                    const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);
+                                    const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
+                                    const prevD=si===0?(!!d2d.storeEnd):(prevStepHasSubs?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi])):!!(d2d.manual&&d2d.manual[pk]));
+                                    return(
+                                    <div key={si} style={{padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                      <div style={{display:"flex",gap:14,alignItems:"center"}}>
                                       <div style={{width:38,height:38,borderRadius:10,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0}}>{stDone?"✓":si+1}</div>
                                       <div style={{flex:1}}>
-                                        <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}</div>
+                                        <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}{hasSubs&&!stDone&&<span style={{fontSize:12,color:C.muted,marginLeft:8}}>({step.subs.filter((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])).length}/{step.subs.length})</span>}</div>
                                         {(()=>{const d2=cleanStepText(step.i||step.desc||"");const t2=cleanStepText(step.t);if(!d2||t2.includes(d2)||d2.includes(t2))return null;return <div style={{fontSize:13,color:C.muted,marginTop:2}}>{d2}</div>;})()}
                                         {step.ccp&&<div style={{fontSize:13,color:C.red,marginTop:3}}>🔴 {cleanStepText(step.ccp)}</div>}
                                         {stS&&!stDone&&step.tm>0&&<div style={{marginTop:6}}><div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:3,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:13,color:C.red,fontWeight:700,marginTop:3}}>⏱ {T2("Overdue")} — {T2("tap Done")}</div>:<div style={{fontSize:13,color:C.amber,marginTop:3}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
@@ -772,11 +798,36 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:13,color:C.faint,marginTop:3}}>⏱ {fmtT(step.tm)}</div>}
                                       </div>
                                       <div style={{flexShrink:0}}>
-                                        {stS&&!stDone&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:el}});}} style={{padding:"12px 18px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓ {T2("Done")}</button>}
-                                        {!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>▶ {Math.floor(step.tm/60)}m</button>}
-                                        {!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:0}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓</button>}
+                                        {!hasSubs&&stS&&!stDone&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:el}});}} style={{padding:"12px 18px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓ {T2("Done")}</button>}
+                                        {!hasSubs&&!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                        {!hasSubs&&!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:0}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓</button>}
+                                        {hasSubs&&!stS&&!stDone&&prevD&&step.tm>0&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                        {hasSubs&&stS&&!stDone&&step.tm>0&&<span style={{fontSize:13,color:C.amber,padding:"8px 12px",background:C.amberBg,borderRadius:10}}>⏱ {Math.floor(stEl/60)}m</span>}
+                                        {hasSubs&&!stS&&!stDone&&prevD&&!step.tm&&<span style={{fontSize:12,color:C.muted}}>↓</span>}
                                         {!stS&&!stDone&&!prevD&&<div style={{padding:"12px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:15,color:C.faint,minHeight:48,display:"flex",alignItems:"center"}}>🔒</div>}
                                       </div>
+                                      </div>
+                                      {hasSubs&&(stS||prevD||stDone)&&(
+                                        <div style={{borderLeft:`3px solid ${stDone?C.green:C.gold}`,marginLeft:19,marginTop:8,paddingLeft:14}}>
+                                          {step.subs.map((sb,sbi)=>{
+                                            const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
+                                            const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
+                                            return(
+                                              <div key={sbi} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                                <div style={{width:30,height:30,borderRadius:8,background:sbDone?C.green:C.darkCard,border:`2px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sbDone?"#fff":C.muted,flexShrink:0}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
+                                                <div style={{flex:1}}>
+                                                  <div style={{fontSize:14,fontWeight:600,color:sbDone?C.green:C.text}}>{cleanStepText(sb.t)}</div>
+                                                  {sb.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{cleanStepText(sb.i)}</div>}
+                                                </div>
+                                                <div style={{flexShrink:0}}>
+                                                  {sbDone&&<span style={{fontSize:13,color:C.green}}>✅</span>}
+                                                  {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"10px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:44}}>✓ {T2("Done")}</button>}
+                                                  {!sbDone&&!sbPrevD&&<div style={{padding:"10px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:14,color:C.faint}}>🔒</div>}
+                                                </div>
+                                              </div>);
+                                          })}
+                                        </div>
+                                      )}
                                     </div>);})}
                                   {(()=>{const elapsed=d2s.dishStartedAt?Math.floor((Date.now()-d2s.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:6}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()});}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                                 </div>);})()}
@@ -853,11 +904,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 {T2("Items to collect")} — {pax} pax</div>
                                     <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                   </div>);})()}
-                                {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);const prevD=si===0?(!!d2d.storeEnd):(!!(d2d.manual&&d2d.manual[pk]));return(
-                                  <div key={si} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
+                                {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
+                                    const subsDone=hasSubs?step.subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])):false;
+                                    const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=hasSubs?subsDone:!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;
+                                    const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);
+                                    const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
+                                    const prevD=si===0?(!!d2d.storeEnd):(prevStepHasSubs?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi])):!!(d2d.manual&&d2d.manual[pk]));
+                                    return(
+                                  <div key={si} style={{padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                                     <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
                                     <div style={{flex:1}}>
-                                      <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}</div>
+                                      <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}{hasSubs&&!stDone&&<span style={{fontSize:10,color:C.muted,marginLeft:6}}>({step.subs.filter((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])).length}/{step.subs.length})</span>}</div>
                                       {(()=>{const d2=cleanStepText(step.i||step.desc||"");const t2=cleanStepText(step.t);if(!d2||t2.includes(d2)||d2.includes(t2))return null;return <div style={{fontSize:11,color:C.muted,marginTop:1}}>{d2}</div>;})()}
                                       {step.ccp&&<div style={{fontSize:10,color:C.red,marginTop:2}}>🔴 {cleanStepText(step.ccp)}</div>}
                                       {stS&&!stDone&&step.tm>0&&<div style={{marginTop:4}}><div style={{height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,stPct2)+"%",background:stOverdue?C.red:C.amber,borderRadius:2,transition:"width 1s"}}/></div>{stOverdue?<div style={{fontSize:10,color:C.red,fontWeight:700,marginTop:2}}>⏱ Overdue — tap Done</div>:<div style={{fontSize:10,color:C.amber,marginTop:2}}>⏱ {Math.floor(stEl/60)}m {stEl%60}s — {Math.floor(stRem/60)}m left</div>}</div>}
@@ -865,12 +923,37 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       {!stS&&!stDone&&step.tm>0&&<div style={{fontSize:10,color:C.faint,marginTop:2}}>⏱ {fmtT(step.tm)}</div>}
                                     </div>
                                     <div style={{flexShrink:0}}>
-                                      {stS&&!stDone&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:el}});}} style={{padding:"6px 10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>✓ Done</button>}
-                                      {!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
-                                      {!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                      {!hasSubs&&stS&&!stDone&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:el}});}} style={{padding:"6px 10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>✓ Done</button>}
+                                      {!hasSubs&&!stS&&!stDone&&step.tm>0&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                      {!hasSubs&&!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
+                                      {hasSubs&&!stS&&!stDone&&prevD&&step.tm>0&&<button onClick={e=>{e.stopPropagation();const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>▶ {Math.floor(step.tm/60)}m</button>}
+                                      {hasSubs&&stS&&!stDone&&step.tm>0&&<span style={{fontSize:10,color:C.amber,padding:"4px 8px",background:C.amberBg,borderRadius:6}}>⏱ {Math.floor(stEl/60)}m</span>}
+                                      {hasSubs&&!stS&&!stDone&&prevD&&!step.tm&&<span style={{fontSize:10,color:C.muted}}>↓</span>}
                                       {!stS&&!stDone&&!prevD&&currentUser?.role==='admin'&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"6px 10px",borderRadius:8,background:C.red,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:32}}>✓ Skip</button>}
                                       {!stS&&!stDone&&!prevD&&currentUser?.role!=='admin'&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,minHeight:32,display:"flex",alignItems:"center"}}>🔒</div>}
                                     </div>
+                                    </div>
+                                    {hasSubs&&(stS||prevD||stDone)&&(
+                                      <div style={{borderLeft:`2px solid ${stDone?C.green:C.gold}`,marginLeft:13,marginTop:4,paddingLeft:10}}>
+                                        {step.subs.map((sb,sbi)=>{
+                                          const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
+                                          const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
+                                          return(
+                                            <div key={sbi} style={{display:"flex",gap:6,padding:"5px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                              <div style={{width:20,height:20,borderRadius:5,background:sbDone?C.green:C.darkCard,border:`1.5px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:sbDone?"#fff":C.muted,flexShrink:0}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
+                                              <div style={{flex:1}}>
+                                                <div style={{fontSize:11,fontWeight:600,color:sbDone?C.green:C.text}}>{cleanStepText(sb.t)}</div>
+                                                {sb.i&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{cleanStepText(sb.i)}</div>}
+                                              </div>
+                                              <div style={{flexShrink:0}}>
+                                                {sbDone&&<span style={{fontSize:10,color:C.green}}>✅</span>}
+                                                {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd);}} style={{padding:"4px 8px",borderRadius:6,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:26}}>✓</button>}
+                                                {!sbDone&&!sbPrevD&&<div style={{padding:"4px 6px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:10,color:C.faint}}>🔒</div>}
+                                              </div>
+                                            </div>);
+                                        })}
+                                      </div>
+                                    )}
                                   </div>);})}
                                 {(()=>{const d2f=ds(dish.fEvId,dish.fIdx);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                               </div>);})()}
