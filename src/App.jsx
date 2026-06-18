@@ -222,7 +222,25 @@ export default function App() {
       //  even if Supabase DB was not re-seeded after adding them)
       const supaIds = new Set(staffData.map(s => s.staff_id || s.staffListId || s.id).filter(Boolean));
       const initOnly = EMPLOYEE_DB_INIT.filter(e => !supaIds.has(e.staff_id) && !supaIds.has(e.staffListId));
-      setEmpDb([...staffData, ...initOnly].map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false})));
+      const mergedStaff = [...staffData, ...initOnly].map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false}));
+      setEmpDb(mergedStaff);
+      // Refresh currentUser with latest DB data (picks up sop_categories, venue, etc.)
+      try {
+        const suRaw2 = localStorage.getItem("ambria_session_user");
+        if(suRaw2) {
+          const cached = JSON.parse(suRaw2);
+          const cid = cached?.id || cached?.staffListId || cached?.staff_id;
+          if(cid) {
+            const fresh = mergedStaff.find(s => (s.staff_id||s.staffListId||s.id) === cid);
+            if(fresh) {
+              const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid};
+              setCurrentUser(refreshed);
+              localStorage.setItem("ambria_session_user", JSON.stringify(refreshed));
+            }
+          }
+        }
+      } catch(e) {}
+
       // Use whatever Supabase returns (empty is fine — LMS sync will populate)
       const finalEvents = eventsData;
       setEvents_raw(finalEvents.map(e=>{
