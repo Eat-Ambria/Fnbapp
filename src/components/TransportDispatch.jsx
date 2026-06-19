@@ -4,6 +4,7 @@ import { C, VEHICLES, COLD_ITEMS, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
+import { dbUpsert, dbDelete } from '../lib/db.js';
 import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
 
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
@@ -75,7 +76,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const [fleetList,   setFleetList]   = useState(VEHICLES.map(v=>({...v})));
   const [showAddVeh,  setShowAddVeh]  = useState(false);
   const [editVehId,   setEditVehId]   = useState(null);
-  const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:""});
+  const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});
   const [delVehId,    setDelVehId]    = useState(null);
   const [clSrch,      setClSrch]      = useState("");
 
@@ -123,6 +124,44 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return null;
   }
 
+  // ── Vehicle location derived from dispatch status ──
+  function getVehicleLocation(vehicleId) {
+    var todayDispatches = dispatches.filter(d => safeEvs.some(e => e.id === d.evId && e.date === TODAY));
+    for (var i = 0; i < todayDispatches.length; i++) {
+      var dd = todayDispatches[i];
+      var ev = safeEvs.find(e => e.id === dd.evId);
+      for (var j = 0; j < (dd.assignments || []).length; j++) {
+        var a = dd.assignments[j];
+        if (a.vehicleId !== vehicleId) continue;
+        var src = (a.loadingList || []).find(l => l.source)?.source || "AP Kitchen";
+        var dest = ev ? (ev.venue || "Venue") : "Venue";
+        var guest = ev ? ev.guest : "";
+        if (a.status === "Planning" || a.status === "Loaded") return { status: a.status, at: src, dest: dest + (guest ? " (" + guest + ")" : ""), driver: a.driver, time: a.status === "Loaded" ? "Loaded" : "", color: a.status === "Loaded" ? C.amber : C.muted };
+        if (a.status === "Dispatched") return { status: "En Route", at: src, dest: dest + (guest ? " (" + guest + ")" : ""), driver: a.driver, time: a.dispatchedAt || "", color: "#1B5EAB" };
+        if (a.status === "At Venue") return { status: "At Venue", at: dest + (guest ? " (" + guest + ")" : ""), dest: null, driver: a.driver, time: a.arrivedAt || "", color: "#2B8A50" };
+        if (a.status === "Unloaded") return { status: "Completed", at: dest, dest: null, driver: a.driver, time: a.unloadedAt || "", color: C.green };
+      }
+    }
+    var veh = fleetList.find(v => v.id === vehicleId);
+    return { status: "At Base", at: veh?.base_location || "AP Kitchen", dest: null, driver: "", time: "", color: "#888" };
+  }
+
+  // ── Fleet CRUD ──
+  var isAdmin = currentUser?.role === "admin";
+  function saveVehicle() {
+    if (!vehForm.name.trim()) return;
+    var vid = editVehId || vehForm.name.replace(/\s+/g, "").toUpperCase();
+    var rec = { id: vid, name: vehForm.name.trim(), icon: vehForm.icon || "🚛", type: vehForm.type || "dry", note: vehForm.note || "", base_location: vehForm.base_location || "AP Kitchen", is_active: true };
+    setFleetList(p => { var exists = p.find(v => v.id === vid); if (exists) return p.map(v => v.id === vid ? { ...v, ...rec } : v); return [...p, rec]; });
+    dbUpsert("vehicles", rec, "id").catch(e => console.error("vehicle save:", e));
+    setShowAddVeh(false); setEditVehId(null); setVehForm({ id: "", name: "", icon: "🚛", type: "dry", note: "", base_location: "AP Kitchen" });
+  }
+  function deleteVehicle(vid) {
+    setFleetList(p => p.filter(v => v.id !== vid));
+    dbDelete("vehicles", "id", vid).catch(e => console.error("vehicle delete:", e));
+    setDelVehId(null);
+  }
+
   const allDates  = [...new Set(safeEvs.map(e=>e.date).filter(Boolean))].sort();
   const dayEvs    = safeEvs.filter(e=>e.date===selDate);
   const selDispatch = dispatches.find(d=>d.evId===selEvId)||null;
@@ -135,7 +174,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   };
   const gp = v => PROP[v]||{code:"EV",c:C.wine,bg:C.wineBg};
 
-  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`}];
+  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"fleet",l:`🚛 ${T2("Fleet")}`}];
 
   return (
     <div>
@@ -410,27 +449,32 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   const loadDone=asgn.loadingList.filter(i=>i.checked).length;
                   const loadTot=asgn.loadingList.length;
                   const sc=asgn.status==="Dispatched"||asgn.status==="At Venue"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
+                  const loc=getVehicleLocation(asgn.vehicleId);
                   return (
                     <div key={ai} style={{background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,marginBottom:6}}>
                       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                         <span style={{fontSize:16}}>{v.icon}</span>
                         <select value={asgn.vehicleId} onChange={e=>{
                           setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}));
-                        }} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}>
+                        }} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36,minWidth:140}}>
                           {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
                         </select>
-                        <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>{
+                        <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
                           setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
-                        }} style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                        <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
+                        }} style={{width:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
+                        <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={{width:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
                         <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
                       </div>
-                      <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
                         <span style={{fontSize:11,fontWeight:700,color:sc,padding:"2px 8px",borderRadius:8,background:sc+"15"}}>{asgn.status}</span>
-                        <span style={{fontSize:11,color:C.muted}}>{loadDone}/{loadTot} {T2("loaded")}</span>
+                        <span style={{fontSize:11,color:C.muted}}>🏠 {loc.at}</span>
+                        {loc.dest&&<><span style={{fontSize:11,color:C.faint}}>→</span><span style={{fontSize:11,color:C.muted}}>📍 {loc.dest}</span></>}
+                        <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>{loadDone}/{loadTot} {T2("loaded")}</span>
                         {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
                         {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
                         {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
+                      </div>
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
                         {nextLabel(asgn.status)&&(
                           <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
                             style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
@@ -663,25 +707,31 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     {dispatch.assignments.map((asgn,ai)=>{
                       const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛"};
                       const sc2=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
+                      const loc2=getVehicleLocation(asgn.vehicleId);
                       return(
-                        <div key={ai} style={{padding:"10px 0",borderBottom:ai<dispatch.assignments.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                        <div key={ai} style={{background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,marginBottom:6}}>
                           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                            <span style={{fontSize:18}}>{v.icon}</span>
+                            <span style={{fontSize:16}}>{v.icon}</span>
                             <select value={asgn.vehicleId} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}))}
-                              style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}>
+                              style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36,minWidth:140}}>
                               {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
                             </select>
-                            <input value={asgn.driver} placeholder={T2("Driver name")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
-                              style={{flex:1,minWidth:100,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                            <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{asgn.dispatchTime}</span>
+                            <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
+                              style={{width:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
+                            <input type="time" value={asgn.dispatchTime} onChange={e=>updAsgn(ev.id,ai,"dispatchTime",e.target.value)}
+                              style={{width:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
                             <button onClick={()=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}))}
-                              style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer",minHeight:36}}>✕</button>
+                              style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
                           </div>
-                          <div style={{display:"flex",gap:10,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
+                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
                             <span style={{fontSize:11,fontWeight:700,color:sc2,padding:"2px 8px",borderRadius:8,background:sc2+"15"}}>{asgn.status}</span>
+                            <span style={{fontSize:11,color:C.muted}}>🏠 {loc2.at}</span>
+                            {loc2.dest&&<><span style={{fontSize:11,color:C.faint}}>→</span><span style={{fontSize:11,color:C.muted}}>📍 {loc2.dest}</span></>}
                             {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
                             {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
                             {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
+                          </div>
+                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
                             {nextLabel(asgn.status)&&(
                               <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
                                 style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
@@ -783,6 +833,94 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           </div>
         );
       })()}
+
+      {/* ── FLEET MANAGEMENT TAB ── */}
+      {activeTab==="fleet"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🚛 {T2("Fleet Management")}</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:2}}>{fleetList.length} {T2("vehicles")}, {fleetList.filter(v=>{var loc=getVehicleLocation(v.id);return loc.status!=="At Base";}).length} {T2("active today")}</div>
+            </div>
+            {isAdmin&&<button onClick={()=>{setVehForm({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});setEditVehId(null);setShowAddVeh(true);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
+            {fleetList.map(veh=>{
+              var loc=getVehicleLocation(veh.id);
+              var borderColor=loc.color||"#888";
+              return(
+                <div key={veh.id} style={{background:C.surface,borderRadius:10,padding:"12px 14px",borderLeft:`3px solid ${borderColor}`,border:`1px solid ${C.border}`,borderLeftWidth:3,borderLeftColor:borderColor}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{fontSize:14,fontWeight:700,color:C.text}}>{veh.icon} {veh.name}</div>
+                    <span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:loc.status==="At Venue"?C.greenBg:loc.status==="En Route"?"#E6F1FB":loc.status==="Loaded"||loc.status==="Planning"?C.amberBg:C.bg,
+                      color:loc.status==="At Venue"?C.green:loc.status==="En Route"?"#185FA5":loc.status==="Loaded"||loc.status==="Planning"?C.amber:C.muted,fontWeight:600}}>{loc.status}</span>
+                  </div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>{veh.type==="cold"?"❄ Refrigerated":veh.type==="quick"?"⚡ Quick delivery":"📦 Dry goods"}{veh.note?" · "+veh.note:""}</div>
+                  <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+                    {loc.driver&&<span style={{fontSize:11,color:C.muted}}>👤 {loc.driver}</span>}
+                    <span style={{fontSize:11,color:C.muted}}>📍 {loc.at}</span>
+                    {loc.dest&&<><span style={{fontSize:11,color:C.faint}}>→</span><span style={{fontSize:11,color:C.muted}}>🎯 {loc.dest}</span></>}
+                    {loc.time&&<span style={{fontSize:11,color:C.muted}}>🕐 {loc.time}</span>}
+                  </div>
+                  {isAdmin&&<div style={{display:"flex",gap:6,marginTop:8}}>
+                    <button onClick={()=>{setVehForm({id:veh.id,name:veh.name,icon:veh.icon||"🚛",type:veh.type||"dry",note:veh.note||"",base_location:veh.base_location||"AP Kitchen"});setEditVehId(veh.id);setShowAddVeh(true);}}
+                      style={{padding:"4px 10px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✏ {T2("Edit")}</button>
+                    <button onClick={()=>{if(confirm(T2("Delete")+' '+veh.name+'?'))deleteVehicle(veh.id);}}
+                      style={{padding:"4px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer"}}>🗑</button>
+                  </div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Add/Edit Vehicle Modal ── */}
+          {showAddVeh&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setShowAddVeh(false)}>
+              <div style={{background:C.surface,borderRadius:14,padding:"20px 24px",width:340,maxWidth:"90vw",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>{editVehId?T2("Edit Vehicle"):T2("Add Vehicle")}</div>
+                  <button onClick={()=>setShowAddVeh(false)} style={{background:"none",border:"none",fontSize:18,color:C.muted,cursor:"pointer"}}>✕</button>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:4,textTransform:"uppercase"}}>{T2("Registration / Name")}</div>
+                  <input value={vehForm.name} onChange={e=>setVehForm(p=>({...p,name:e.target.value}))} placeholder="DL1LAB 1234"
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:4,textTransform:"uppercase"}}>{T2("Type")}</div>
+                    <select value={vehForm.type} onChange={e=>setVehForm(p=>({...p,type:e.target.value}))}
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg}}>
+                      <option value="dry">📦 Dry goods</option>
+                      <option value="cold">❄ Refrigerated</option>
+                      <option value="quick">⚡ Quick delivery</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:4,textTransform:"uppercase"}}>{T2("Base Location")}</div>
+                    <select value={vehForm.base_location} onChange={e=>setVehForm(p=>({...p,base_location:e.target.value}))}
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg}}>
+                      <option value="AP Kitchen">AP Kitchen</option>
+                      <option value="AE Kitchen">AE Kitchen</option>
+                      <option value="Manaktala">Manaktala</option>
+                      <option value="Restro">Restro</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:4,textTransform:"uppercase"}}>{T2("Notes")}</div>
+                  <input value={vehForm.note} onChange={e=>setVehForm(p=>({...p,note:e.target.value}))} placeholder="e.g. 500kg capacity, AC not working"
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                </div>
+                <button onClick={saveVehicle} style={{width:"100%",padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+                  {editVehId?"✏ "+T2("Update Vehicle"):"✅ "+T2("Save Vehicle")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
 
     </div>
