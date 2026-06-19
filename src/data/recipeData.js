@@ -276,4 +276,6 @@ function getSectionForDish(dishName) {
   return cat.name;
 }
 
+window.__RECIPE_DB = RECIPE_DB;
+
 export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
