@@ -1,10 +1,10 @@
 // Ambria FnB — Transport & Dispatch
 import React, { useState, useRef, useEffect } from "react";
-import { C, VEHICLES, COLD_ITEMS, AMBRIA_VENUES, SECTION_META } from '../data/constants.js';
+import { C, VEHICLES, COLD_ITEMS, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
-import { guessSectionForDish } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
 
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
@@ -16,7 +16,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     const v = VEHICLES.find(x=>x.id===vehicleId);
     const menuItems = (ev.menu||[]).map(name=>({
       id:`${name}-menu`.replace(/\s+/g,"-"), name, category:"🍽 Food",
-      source: ["Sweets","Chaat"].includes(guessSectionForDish(name))?"AE Kitchen":"AP Kitchen",
+      source: ["sweets","chaat","chaat_master"].includes(getCatIdForDish(name))?"AE Kitchen":"AP Kitchen",
       cold: COLD_ITEMS.some(ci=>name.toLowerCase().includes(ci.toLowerCase())), checked:false,
     }));
     if(v?.type==="cold") return [...menuItems.filter(i=>i.cold),{id:"dairy-cold",name:"Dairy & cold items",category:"❄ Cold",source:"AE Kitchen",cold:true,checked:false}];
@@ -353,7 +353,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           const p = gp(ev.venue);
           const dispatch = dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
           const bySec={};
-          (ev.menu||[]).forEach((n,i)=>{const s=guessSectionForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
+          (ev.menu||[]).forEach((n,i)=>{const s=getCatIdForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
           const totalDishes = (ev.menu||[]).length;
           const readyDishes = (ev.menu||[]).filter((n,i)=>isDishReady(ev.id,n,i)).length;
           const readyPct = safePct(readyDishes,totalDishes);
@@ -462,12 +462,13 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 </div>
                 <div>
                   {Object.entries(bySec).map(([sec,dishes])=>{
-                    const m=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                    const catObj=RECIPE_DB.cats.find(c=>c.id===sec);
+                    const m={color:catObj?.color||C.muted,icon:catObj?.icon||"🍽"};
                     const secReady=dishes.filter(d=>isDishReady(ev.id,d.name,d.idx)).length;
                     return (
                       <div key={sec} style={{marginBottom:8}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                          <span style={{fontSize:12,fontWeight:700,color:m.color}}>{m.icon} {T2(sec)}</span>
+                          <span style={{fontSize:12,fontWeight:700,color:m.color}}>{m.icon} {T2(catObj?.name||sec)}</span>
                           <span style={{fontSize:12,fontWeight:600,color:secReady===dishes.length?C.green:C.muted}}>{secReady}/{dishes.length}</span>
                         </div>
                         {dishes.map((d,di)=>{
@@ -597,7 +598,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             {allEvs.length>0&&(()=>{
               const selEv=allEvs.find(e=>e.id===selFnId)||allEvs[0];
               const p=gp(selEv.venue);
-              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(guessSectionForDish(d)!=="Beverages")menu2r.push({name:d,origIdx:oi});});
+              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(getCatIdForDish(d)!=="beverages")menu2r.push({name:d,origIdx:oi});});
               const lc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.loaded).length;
               const uc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.unloaded).length;
               return(
@@ -634,12 +635,12 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               const p=gp(ev.venue);
               const fullMenu=(ev.menu||[]);
               const menu=[];
-              fullMenu.forEach((n,origIdx)=>{if(guessSectionForDish(n)!=="Beverages")menu.push({name:n,origIdx});});
+              fullMenu.forEach((n,origIdx)=>{if(getCatIdForDish(n)!=="beverages")menu.push({name:n,origIdx});});
               const dispatch=dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
 
               // Group by section
               const bySec2={};
-              menu.forEach((item)=>{const s=guessSectionForDish(item.name);if(!bySec2[s])bySec2[s]=[];bySec2[s].push({name:item.name,idx:item.origIdx});});
+              menu.forEach((item)=>{const s=getCatIdForDish(item.name);if(!bySec2[s])bySec2[s]=[];bySec2[s].push({name:item.name,idx:item.origIdx});});
 
               // Search filter
               const q=tdSearch.toLowerCase().trim();
@@ -712,7 +713,8 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
                   {secKeys2.map(sec=>{
                     const items=bySec2[sec];
-                    const m=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                    const catObj2=RECIPE_DB.cats.find(c=>c.id===sec);
+                    const m={color:catObj2?.color||C.muted,icon:catObj2?.icon||"🍽"};
                     const filtered=q?items.filter(d=>d.name.toLowerCase().includes(q)):items;
                     if(filtered.length===0) return null;
                     const secLoaded=filtered.filter(d=>dishLU[ev.id+"_"+d.idx]?.loaded).length;
@@ -725,7 +727,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         <div onClick={()=>setTdSecOpen(p=>({...p,[secKey]:!secOpen2}))}
                           style={{padding:"12px 16px",background:m.color+"10",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",borderBottom:secOpen2?`1px solid ${C.border}`:"none"}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:14,fontWeight:700,color:m.color}}>{m.icon} {T2(sec)}</span>
+                            <span style={{fontSize:14,fontWeight:700,color:m.color}}>{m.icon} {T2(catObj2?.name||sec)}</span>
                             <span style={{fontSize:12,color:C.muted}}>{filtered.length} {T2("dishes")}</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:10}}>
