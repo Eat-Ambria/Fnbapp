@@ -20,6 +20,24 @@ const LMS_BASE = "https://gyv.inqcrm.in";
 const PAGE_SIZE = 10; // LMS returns 10 per page
 const MAX_PAGES = 50; // safety cap
 
+// Strip financial fields from LMS raw data before storing
+function stripFinancials(row: any): any {
+  if (!row || typeof row !== "object") return row;
+  const stripped = { ...row };
+  const FINANCIAL_KEYS = [
+    "fisc_total_amt", "fisc_cash_part", "fisc_cheque",
+    "fisc_tax_c_amt", "fisc_tax_d_amt", "fisc_tax_percent_c",
+    "fisc_tax_percent_d", "fisc_tax_amt", "fisc_net_amt",
+    "fisc_advance_cash", "fisc_advance_chq", "fisc_balance",
+    "fisc_factor_0", "fisc_gst_no", "fisc_billing_name",
+    "fisc_billing_address",
+    "chc_total_amt", "chc_net_amt", "chc_balance",
+    "chc_advance_cash", "chc_advance_chq",
+  ];
+  for (const key of FINANCIAL_KEYS) delete stripped[key];
+  return stripped;
+}
+
 // ── Supabase client (uses service role for full access) ──
 function getSupabase() {
   const url = Deno.env.get("SUPABASE_URL")!;
@@ -206,9 +224,8 @@ function transformVenueContract(row: any, masters: any): any[] {
     lms_contract: contractNo,
     lms_source: "venue",
     lms_status: status,
-    lms_balance: balance,
     lms_synced_at: new Date().toISOString(),
-    lms_raw: row,
+    lms_raw: stripFinancials(row),
   });
 
   return events;
@@ -255,9 +272,8 @@ function transformCateringContract(row: any, masters: any): any[] {
     lms_contract: contractNo,
     lms_source: "catering",
     lms_status: null,
-    lms_balance: balance,
     lms_synced_at: new Date().toISOString(),
-    lms_raw: row,
+    lms_raw: stripFinancials(row),
   });
 
   return events;

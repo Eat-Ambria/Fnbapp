@@ -219,7 +219,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                         {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
                       </div>
                       {evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:evReady>=evMenu.length?C.greenBg:C.amberBg,color:evReady>=evMenu.length?"#0F6E56":"#854F0B"}}>{evReady}/{evMenu.length} dishes ready</span></div>}
-                      {ev.lms_balance>0&&<div style={{fontSize:11,color:C.amber,marginTop:3}}>₹{(+ev.lms_balance).toLocaleString('en-IN')} balance pending</div>}
+                      
                       {ev.special&&<div style={{fontSize:12,color:"#D64040",marginTop:3}}>{ev.special}</div>}
                     </div>
                     <div style={{textAlign:"right",flexShrink:0}}>
@@ -299,7 +299,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
                   </div>
                   {isD1&&evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:d1Done>0?C.greenBg:C.amberBg,color:d1Done>0?"#0F6E56":"#854F0B"}}>D-1 prep: {d1Done}/{evMenu.length} done</span></div>}
-                  {ev.lms_balance>0&&<div style={{fontSize:11,color:C.amber,marginTop:3}}>₹{(+ev.lms_balance).toLocaleString('en-IN')} balance</div>}
+                  
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontSize:20,fontWeight:500,color:p.c}}>{ev.pax}</div>
