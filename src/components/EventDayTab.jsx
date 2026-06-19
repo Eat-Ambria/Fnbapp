@@ -69,14 +69,29 @@ function EventDayTab({
   const evList = safeArr(events);
   const todayEvs = evList.filter(e => e.date === TODAY).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 
-  // ── State helpers ──
+  // ── State helpers (combined cooking keys) ──
   function dk(evId, idx) { return evId + "|" + idx; }
-  function ds(evId, idx) { return kt[evId]?.[dk(evId, idx)] || {}; }
-  function setDs(evId, idx, upd) {
+  function ck(dishName) { return "dish|" + dishName; }
+  function ds(evId, idx, dishName) {
+    if (isCombined && dishName) return kt["__combined"]?.[ck(dishName)] || {};
+    return kt[evId]?.[dk(evId, idx)] || {};
+  }
+  function setDs(evId, idx, upd, dishInfo) {
     setKitchenTracking(p => {
       const o = p && typeof p === "object" ? { ...p } : {};
-      const k2 = dk(evId, idx);
-      o[evId] = { ...(o[evId] || {}), [k2]: { ...(o[evId]?.[k2] || {}), ...upd } };
+      if (isCombined && dishInfo?.name) {
+        const cKey = ck(dishInfo.name);
+        o["__combined"] = { ...(o["__combined"] || {}), [cKey]: { ...(o["__combined"]?.[cKey] || {}), ...upd } };
+        if (upd.ready || upd.completed || upd.mesaDone) {
+          (dishInfo.fns || []).forEach(fn => {
+            const k2 = dk(fn.evId, fn.idx);
+            o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: { ...(o[fn.evId]?.[k2] || {}), ...upd } };
+          });
+        }
+      } else {
+        const k2 = dk(evId, idx);
+        o[evId] = { ...(o[evId] || {}), [k2]: { ...(o[evId]?.[k2] || {}), ...upd } };
+      }
       return o;
     });
   }
@@ -87,19 +102,19 @@ function EventDayTab({
       return o;
     });
   }
-  function markManual(evId, idx, si) {
-    const d = ds(evId, idx);
+  function markManual(evId, idx, si, dishInfo) {
+    const d = ds(evId, idx, dishInfo?.name);
     const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
     const el = d.starts?.[si] ? Math.floor((Date.now() - d.starts[si]) / 1000) : 0;
     setDs(evId, idx, {
       manual: { ...(d.manual || {}), [si]: true },
       manualAt: { ...(d.manualAt || {}), [si]: now },
       doneElapsed: { ...(d.doneElapsed || {}), [si]: el },
-    });
+    }, dishInfo);
   }
-  function startStep(evId, idx, si, tm) {
-    const d = ds(evId, idx);
-    setDs(evId, idx, { starts: { ...(d.starts || {}), [si]: Date.now() }, stepTm: { ...(d.stepTm || {}), [si]: tm } });
+  function startStep(evId, idx, si, tm, dishInfo) {
+    const d = ds(evId, idx, dishInfo?.name);
+    setDs(evId, idx, { starts: { ...(d.starts || {}), [si]: Date.now() }, stepTm: { ...(d.stepTm || {}), [si]: tm } }, dishInfo);
   }
   function menuArr(ev) {
     const m = ev.menu;
@@ -160,13 +175,13 @@ function EventDayTab({
   const totalDishes = Object.keys(byDish).length;
 
   // Stats
-  const readyDishes = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx).ready).length;
+  const readyDishes = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx, d.name).ready).length;
   const inProgressDishes = Object.values(byDish).filter(d => {
-    const dd = ds(d.fEvId, d.fIdx);
+    const dd = ds(d.fEvId, d.fIdx, d.name);
     if (dd.ready) return false;
     return dd.storeStart || Object.keys(dd.starts || {}).length > 0;
   }).length;
-  const d1PrepDone = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx).mesaDone).length;
+  const d1PrepDone = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx, d.name).mesaDone).length;
   const pendingDishes = totalDishes - readyDishes - inProgressDishes;
   const totalPax = filteredEvs.reduce((s, e) => s + (+e.pax || 0), 0);
   const allDishesReady = readyDishes === totalDishes && totalDishes > 0;
@@ -245,7 +260,7 @@ function EventDayTab({
         const parentSection = catObj ? catIdToSection(sec) : sec;
         const m = SECTION_META[parentSection] || SECTION_META[sec] || { color: C.muted, icon: catObj?.icon || "🍽" };
         const displayIcon = catObj?.icon || m.icon;
-        const secReady = items.filter(d => ds(d.fEvId, d.fIdx).ready).length;
+        const secReady = items.filter(d => ds(d.fEvId, d.fIdx, d.name).ready).length;
         const secPct = Math.round(secReady / items.length * 100);
         const secOpen = isSecOpen(sec);
         const secAllDone = secReady === items.length;
@@ -290,8 +305,8 @@ function EventDayTab({
             {secOpen && (
               <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 12px 12px", padding: "6px 10px 10px" }}>
                 {items.map((dish, di) => {
-                  const dKey = dk(dish.fEvId, dish.fIdx);
-                  const d = ds(dish.fEvId, dish.fIdx);
+                  const dKey = isCombined ? ck(dish.name) : dk(dish.fEvId, dish.fIdx);
+                  const d = ds(dish.fEvId, dish.fIdx, dish.name);
                   const isReady = !!d.ready;
                   const steps = getFullSteps(dish.name);
                   const nonStore = steps.filter(s => !s.store).map((s, i) => ({ step: s, origIdx: i }));
@@ -333,7 +348,7 @@ function EventDayTab({
                           {!isReady && anyRunning && <span style={{ color: C.amber, fontSize: 8 }}>▶</span>}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dish.name}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dish.name}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
                           <div style={{ fontSize: 11, color: C.muted }}>
                             {dish.totalPax} {T2("pax")} · {doneCount}/{totalSteps} {T2("steps")}
                             {d.mesaDone && <span style={{ color: C.green }}> · D-1 ✅</span>}
@@ -360,8 +375,8 @@ function EventDayTab({
                             desc={T2("Source all ingredients") + " · 30m"}
                             done={storeDone} running={storeStarted && !storeDone} overdue={storeOverdue}
                             elapsedSec={storeEl} timerSec={1800} locked={false}
-                            onStart={() => setDs(dish.fEvId, dish.fIdx, { storeStart: Date.now() })}
-                            onDone={() => setDs(dish.fEvId, dish.fIdx, { storeEnd: Date.now() })}
+                            onStart={() => setDs(dish.fEvId, dish.fIdx, { storeStart: Date.now() }, dish)}
+                            onDone={() => setDs(dish.fEvId, dish.fIdx, { storeEnd: Date.now() }, dish)}
                           />
 
                           {/* Ingredient list (before & during store collection) */}
@@ -417,12 +432,12 @@ function EventDayTab({
                                   const prevDone = gIdx === 0 ? storeDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
-                                    subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd)}
+                                    subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started && !d1Done)}
                                     d1Badge={d1Done}
-                                    onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
-                                    onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
+                                    onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
+                                    onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                   />;
@@ -442,11 +457,11 @@ function EventDayTab({
                                   const prevDone = allPrev.length === 0 ? storeDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
-                                    subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd)}
+                                    subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done} running={started && !done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started)}
-                                    onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm)}
-                                    onDone={() => markManual(dish.fEvId, dish.fIdx, si)}
+                                    onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
+                                    onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                   />;
@@ -485,7 +500,7 @@ function EventDayTab({
                                     }]);
                                   }
                                 }
-                                setDs(dish.fEvId, dish.fIdx, updates);
+                                setDs(dish.fEvId, dish.fIdx, updates, dish);
                               }} style={{ width:"100%", padding: "14px", borderRadius: 12, background: needsTransport?`linear-gradient(135deg,${C.amber},#B07A10)`:C.green, color: needsTransport?"#fff":"#0A0A0F", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                                 {needsTransport?`🚛 ${T2("Ready for Transport")}`:`✅ ${T2("Mark Complete")}`}
                               </button>
