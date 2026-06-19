@@ -4,6 +4,7 @@ import { C, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
+import { MenuEditor } from './MenuEditor.jsx';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
 
