@@ -73,12 +73,7 @@ export default function App() {
   },[]);
 
   // ── Attendance ──
-  const [attendance,setAttendance_raw] = useState(function() {
-    try { var s=localStorage.getItem('ambria_attendance'); return s?JSON.parse(s).map(normalizeAtt):[]; } catch(e){return [];}
-  });
-  useEffect(function() {
-    try { localStorage.setItem('ambria_attendance', JSON.stringify(attendance)); } catch(e){}
-  }, [attendance]);
+  const [attendance,setAttendance_raw] = useState([]);
   const setAttendance = (updater) => {
     setAttendance_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;

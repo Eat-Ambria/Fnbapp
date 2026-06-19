@@ -15,6 +15,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   const [selStaff, setSelStaff] = useState(null);
   const [success, setSuccess] = useState(null);
   const [photo, setPhoto] = useState(null);
+  const [photoBlob, setPhotoBlob] = useState(null);
   const [vendorForm, setVendorForm] = useState({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
   const photoRef = useRef(null);
 
@@ -83,21 +84,26 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       if (exists) return prev.map(function(a){return a.id===recordId?{...a,...newRecord}:a;});
       return [...prev, newRecord];
     });
-    // localStorage
-    try {
-      var allAtt = JSON.parse(localStorage.getItem('ambria_attendance')||'[]');
-      var idx = allAtt.findIndex(function(a){return a.staff_id===sid && a.date===TODAY;});
-      if (idx>=0){allAtt[idx]={...allAtt[idx],...newRecord};}else{allAtt.push(newRecord);}
-      localStorage.setItem('ambria_attendance', JSON.stringify(allAtt));
-    } catch(e){}
-    // Supabase (strip large photo fields to avoid payload limits)
+    
+    // Supabase — upsert record then upload compressed photo
     try {
       if (typeof supabase!=='undefined' && supabase) {
         var dbRec = {id:newRecord.id,staff_id:newRecord.staff_id,staff_name:newRecord.staff_name,
           section:newRecord.section,dept:newRecord.dept,date:newRecord.date,status:newRecord.status,
           in_time:newRecord.in_time,out_time:newRecord.out_time,venue:newRecord.venue};
         supabase.from('attendance').upsert(dbRec,{onConflict:'staff_id,date'})
-          .then(function(){}).catch(function(e){console.error('gate att:',e);});
+          .then(function(){
+            if (photoBlob) {
+              var photoField = type==='IN' ? 'in_photo_url' : 'out_photo_url';
+              uploadPhoto(photoBlob, sid, type.toLowerCase()).then(function(url) {
+                if (url) {
+                  var upd = {}; upd[photoField] = url;
+                  supabase.from('attendance').update(upd).eq('staff_id',sid).eq('date',TODAY)
+                    .then(function(){}).catch(function(e){console.error('photo url save:',e);});
+                }
+              });
+            }
+          }).catch(function(e){console.error('gate att:',e);});
       }
     } catch(e){}
     setSuccess({name:selStaff.name, type:type, time:timeStr});
@@ -108,6 +114,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       setSelStaff(null);
       setSuccess(null);
       setPhoto(null);
+      setPhotoBlob(null);
     }, 4000);
   }
 
@@ -134,11 +141,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       is_vendor: true,
     };
     setAttendance(function(prev){ return [...prev, record]; });
-    try {
-      var allAtt = JSON.parse(localStorage.getItem('ambria_attendance')||'[]');
-      allAtt.push(record);
-      localStorage.setItem('ambria_attendance', JSON.stringify(allAtt));
-    } catch(e){}
+    
     try {
       if (typeof supabase!=='undefined' && supabase) {
         supabase.from('attendance').insert({
@@ -146,7 +149,16 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           section:record.section, dept:'vendor', date:TODAY,
           status:'Vendor', in_time:record.in_time, out_time:record.out_time,
           venue:venueName
-        }).then(function(){}).catch(function(e){console.error(e);});
+        }).then(function(){
+            if (photoBlob) {
+              uploadPhoto(photoBlob, vid, 'vendor').then(function(url) {
+                if (url) {
+                  supabase.from('attendance').update({in_photo_url:url}).eq('id',vid)
+                    .then(function(){}).catch(function(e){console.error('vendor photo save:',e);});
+                }
+              });
+            }
+          }).catch(function(e){console.error(e);});
       }
     } catch(e){}
     setSuccess({name:vendorForm.name+' ('+vendorForm.company+')', type:type, time:timeStr});
@@ -161,12 +173,46 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     }, 4000);
   }
 
+  function compressImage(file, maxDim, quality) {
+    return new Promise(function(resolve) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          var ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        canvas.toBlob(function(blob) { resolve(blob); }, 'image/jpeg', quality);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function uploadPhoto(blob, staffId, punchType) {
+    if (!supabase || !blob) return Promise.resolve(null);
+    var path = TODAY + '/' + staffId + '_' + punchType + '_' + Date.now() + '.jpg';
+    return supabase.storage.from('attendance-photos').upload(path, blob, {
+      contentType: 'image/jpeg', upsert: true
+    }).then(function(res) {
+      if (res.error) { console.error('photo upload:', res.error); return null; }
+      var urlRes = supabase.storage.from('attendance-photos').getPublicUrl(path);
+      return urlRes.data ? urlRes.data.publicUrl : null;
+    }).catch(function(e) { console.error('photo upload:', e); return null; });
+  }
+
   function handlePhoto(e) {
     var file = e.target.files && e.target.files[0];
     if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(ev) { setPhoto(ev.target.result); };
-    reader.readAsDataURL(file);
+    compressImage(file, 480, 0.65).then(function(blob) {
+      var reader = new FileReader();
+      reader.onload = function(ev) { setPhoto(ev.target.result); };
+      reader.readAsDataURL(blob);
+      setPhotoBlob(blob);
+    });
   }
 
   // ── VENUE HEADER ──

@@ -82,12 +82,11 @@ function EventDayTab({
       if (isCombined && dishInfo?.name) {
         const cKey = ck(dishInfo.name);
         o["__combined"] = { ...(o["__combined"] || {}), [cKey]: { ...(o["__combined"]?.[cKey] || {}), ...upd } };
-        if (upd.ready || upd.completed || upd.mesaDone) {
-          (dishInfo.fns || []).forEach(fn => {
-            const k2 = dk(fn.evId, fn.idx);
-            o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: { ...(o[fn.evId]?.[k2] || {}), ...upd } };
-          });
-        }
+        // Always propagate ALL step progress to per-function keys
+        (dishInfo.fns || []).forEach(fn => {
+          const k2 = dk(fn.evId, fn.idx);
+          o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: { ...(o[fn.evId]?.[k2] || {}), ...upd } };
+        });
       } else {
         const k2 = dk(evId, idx);
         o[evId] = { ...(o[evId] || {}), [k2]: { ...(o[evId]?.[k2] || {}), ...upd } };
