@@ -11,6 +11,8 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
   var [customDish, setCustomDish] = useState("");
+  var [openCats, setOpenCats] = useState({});
+  var [openSelCats, setOpenSelCats] = useState({});
 
   // Build flat list of all dishes from RECIPE_DB
   var allDishes = useMemo(function() {
@@ -131,10 +133,15 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             )}
             {Object.entries(availByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
               var catId = entry[0]; var dishes = entry[1];
+              var isOpen = !!openCats[catId] || !!q;
               return (
                 <div key={catId}>
-                  <div style={SECHEAD}>{catIcon(catId)} {catName(catId)} ({dishes.length})</div>
-                  {dishes.map(function(d) {
+                  <div onClick={function() { setOpenCats(function(p) { return { ...p, [catId]: !p[catId] }; }); }}
+                    style={{ ...SECHEAD, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid " + C.borderLight, userSelect: "none" }}>
+                    <span>{catIcon(catId)} {catName(catId)} ({dishes.length})</span>
+                    <span style={{ fontSize: 12, color: C.muted, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
+                  </div>
+                  {isOpen && dishes.map(function(d) {
                     return (
                       <div key={d.name} onClick={function() { addDish(d.name); }}
                         style={{ ...ROW, color: C.muted }}>
@@ -179,10 +186,15 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             )}
             {Object.entries(selByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
               var catId = entry[0]; var names = entry[1];
+              var isOpen2 = openSelCats[catId] !== false;
               return (
                 <div key={catId}>
-                  <div style={{ ...SECHEAD, color: C.green }}>{catIcon(catId)} {catName(catId)} ({names.length})</div>
-                  {names.map(function(name) {
+                  <div onClick={function() { setOpenSelCats(function(p) { return { ...p, [catId]: p[catId] === false ? true : false }; }); }}
+                    style={{ ...SECHEAD, color: C.green, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid " + C.borderLight, userSelect: "none" }}>
+                    <span>{catIcon(catId)} {catName(catId)} ({names.length})</span>
+                    <span style={{ fontSize: 12, color: C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
+                  </div>
+                  {isOpen2 && names.map(function(name) {
                     return (
                       <div key={name} onClick={function() { removeDish(name); }}
                         style={{ ...ROW, color: C.green }}>
