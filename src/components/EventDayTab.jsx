@@ -166,6 +166,7 @@ function EventDayTab({
     });
   });
   const isSectionUser = currentUser?.role?.startsWith('section_');
+  const isTablet = isSectionUser;
   const bySec = {};
   Object.entries(byDish).forEach(([n, info]) => {
     const groupKey = info.catId || 'maincourse';
@@ -191,8 +192,8 @@ function EventDayTab({
     <div>
       {/* ── Header ── */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>🔥 {T2("Event Day")} — {TODAY_LABEL}</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+        <div style={{ fontSize: isTablet?20:16, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>🔥 {T2("Event Day")} — {TODAY_LABEL}</div>
+        <div style={{ fontSize: isTablet?14:12, color: C.muted, marginTop: 2 }}>
           {todayEvs.map(e => `${e.guest} (${e.pax} pax · ${e.time || "TBD"})`).join(" · ")}
         </div>
       </div>
@@ -276,14 +277,14 @@ function EventDayTab({
               borderBottom: secOpen ? `1px solid ${C.border}` : undefined,
               background: secAllDone ? C.greenBg : C.surface, cursor: "pointer",
             }}>
-              <span style={{ fontSize: 18 }}>{displayIcon}</span>
+              <span style={{ fontSize: isTablet?24:18 }}>{displayIcon}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: secAllDone ? C.green : m.color }}>{T2(secDisplayName)}</span>
-                  <span style={{ fontSize: 11, color: C.muted }}>{items.length} {T2("dishes")}</span>
+                  <span style={{ fontSize: isTablet?20:14, fontWeight: 700, color: secAllDone ? C.green : m.color }}>{T2(secDisplayName)}</span>
+                  <span style={{ fontSize: isTablet?14:11, color: C.muted }}>{items.length} {T2("dishes")}</span>
                   {secSpecials.length > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: C.redBg, border: `1px solid ${C.redBorder}`, color: C.red, fontWeight: 700 }}>🚫 {secSpecials.length}</span>}
                 </div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{secReady} {T2("ready")} of {items.length}</div>
+                <div style={{ fontSize: isTablet?14:11, color: C.muted, marginTop: 2 }}>{secReady} {T2("ready")} of {items.length}</div>
                 <ProgressBar pct={secPct} color={secAllDone ? C.green : secReady > 0 ? C.amber : C.border} />
               </div>
               <span style={{ fontSize: 14, fontWeight: 700, color: secAllDone ? C.green : secPct > 0 ? C.amber : C.muted, minWidth: 36, textAlign: "right" }}>{secPct}%</span>
@@ -348,8 +349,8 @@ function EventDayTab({
                           {!isReady && anyRunning && <span style={{ color: C.amber, fontSize: 8 }}>▶</span>}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dish.name}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
-                          <div style={{ fontSize: 11, color: C.muted }}>
+                          <div style={{ fontSize: isTablet?18:13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dish.name}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
+                          <div style={{ fontSize: isTablet?14:11, color: C.muted }}>
                             {dish.totalPax} {T2("pax")} · {doneCount}/{totalSteps} {T2("steps")}
                             {d.mesaDone && <span style={{ color: C.green }}> · D-1 ✅</span>}
                           </div>
@@ -364,7 +365,7 @@ function EventDayTab({
 
                           {/* D-1 mesa badge */}
                           <div style={{ background: d.mesaDone ? C.greenBg : C.amberBg, border: `1px solid ${d.mesaDone ? C.greenBorder : C.amberBorder}`, borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: d.mesaDone ? C.green : C.amber }}>
+                            <span style={{ fontSize: isTablet?14:12, fontWeight: 700, color: d.mesaDone ? C.green : C.amber }}>
                               {d.mesaDone ? `✅ D-1 ${T2("prep done")}` : `⏳ ${T2("No D-1 prep — start from mesa")}`}
                             </span>
                           </div>
@@ -419,7 +420,7 @@ function EventDayTab({
                             return (
                               <div>
                                 {prePrep.length > 0 && (
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.amber, marginTop: 8, marginBottom: 4, padding: "4px 10px", background: C.amberBg + "40", borderRadius: 6, border: `1px solid ${C.amberBorder}30` }}>
+                                  <div style={{ fontSize: isTablet?13:11, fontWeight: 700, color: C.amber, marginTop: 8, marginBottom: 4, padding: isTablet?"6px 12px":"4px 10px", background: C.amberBg + "40", borderRadius: 6, border: `1px solid ${C.amberBorder}30` }}>
                                     🔶 {T2("Pre-prep")} — {prePrep.length} {T2("steps")}
                                   </div>
                                 )}
@@ -446,7 +447,7 @@ function EventDayTab({
                                 })}
 
                                 {cooking.length > 0 && (
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.red, marginTop: 12, marginBottom: 4, padding: "4px 10px", background: C.redBg + "40", borderRadius: 6, border: `1px solid ${C.redBorder}30` }}>
+                                  <div style={{ fontSize: isTablet?13:11, fontWeight: 700, color: C.red, marginTop: 12, marginBottom: 4, padding: isTablet?"6px 12px":"4px 10px", background: C.redBg + "40", borderRadius: 6, border: `1px solid ${C.redBorder}30` }}>
                                     🔴 {T2("Cooking")} — {cooking.length} {T2("steps")}
                                   </div>
                                 )}
