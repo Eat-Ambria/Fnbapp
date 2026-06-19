@@ -21,8 +21,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // ════════════════════════════════════════════════════════════
   var [selEvId, setSelEvId] = useState(null);
 
-  var allEvs = safeArr(events).filter(function(e) { return e.date >= TODAY; }).sort(function(a, b) {
-    if (a.date !== b.date) return a.localeCompare ? a.date.localeCompare(b.date) : 0;
+  var allEvs = safeArr(events).filter(function(e) { return e.date && e.date >= TODAY; }).sort(function(a, b) {
+    if (a.date !== b.date) return (a.date || "").localeCompare(b.date || "");
     return (a.time || "").localeCompare(b.time || "");
   });
   var selEv = allEvs.find(function(e) { return e.id === selEvId; }) || null;
