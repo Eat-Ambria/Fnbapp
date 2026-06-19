@@ -351,7 +351,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         const todayEvs = safeEvs.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const tomorrowEvs = safeEvs.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const laterEvs = safeEvs.filter(e=>e.date>TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-        const allEvs = [...todayEvs,...tomorrowEvs,...laterEvs];
+        const allEvs = [...todayEvs,...tomorrowEvs];
 
         function isDishReady(evId, dishName, dishIdx){
           const evKt = kt[evId]||{};

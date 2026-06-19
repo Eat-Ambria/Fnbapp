@@ -8,7 +8,7 @@ import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIP
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
-import { MenuPackagesView } from './MenuPackagesView.jsx';
+
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
@@ -422,7 +422,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     {v:"d1",      l:T2("Prep day")},
     {v:"scaling", l:T2("Scaling")},
     {v:"sops",    l:T2("SOPs")},
-    {v:"menus",   l:T2("Menu")},
   ];
   const TABS_FILTERED = isSectionUser
     ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
@@ -1739,7 +1738,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       })()}
 
       {/* ═══ MENU TAB ═══ */}
-      {tab==="menus"&&<MenuPackagesView lang={lang}/>}
+      
 
       {/* ═══ INGREDIENT MATRIX EDITOR MODAL ═══ */}
       {ingModal&&tab!=="sops"&&(
