@@ -212,23 +212,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
     const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0}))}:{})};})};
-    // Update local RECIPE_DB
+    // Update local RECIPE_DB — preserve ingredients from old recipe
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
     if(sopModal.mode==="edit"&&sopModal.origName){
       const arr=RECIPE_DB.recipes[sopModal.catId]||[];
       const idx=arr.findIndex(r=>r.n===sopModal.origName);
-      if(idx>=0){arr.splice(idx,1);} // remove from old category
+      let oldIngredients=null;
+      if(idx>=0){oldIngredients=arr[idx].ingredients||null;arr.splice(idx,1);} // remove from old category
+      if(oldIngredients)recObj.ingredients=oldIngredients;
       RECIPE_DB.recipes[f.catId].push(recObj);
     }else{
       RECIPE_DB.recipes[f.catId].push(recObj);
     }
-    // Save to Supabase
+    // Save to Supabase — preserve ingredients column
     import('../lib/supabase.js').then(mod=>{
       const sb=mod.supabase;if(!sb)return;
       if(sopModal.mode==="edit"&&sopModal.origName){
-        sb.from('recipes').delete().eq('dish_name',sopModal.origName).then(()=>{
-          sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:JSON.stringify(recObj.steps)}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated');});
-        });
+        const nameUnchanged=sopModal.origName===recObj.n&&sopModal.catId===f.catId;
+        if(nameUnchanged){
+          // Same name+category → UPDATE in place, ingredients untouched
+          sb.from('recipes').update({sub:recObj.sub,steps:JSON.stringify(recObj.steps)}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
+        }else{
+          // Name or category changed → fetch ingredients, then delete+insert with them
+          sb.from('recipes').select('ingredients').eq('dish_name',sopModal.origName).single().then(({data})=>{
+            sb.from('recipes').delete().eq('dish_name',sopModal.origName).then(()=>{
+              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:JSON.stringify(recObj.steps),ingredients:data?.ingredients||null}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (renamed)');});
+            });
+          });
+        }
       }else{
         sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:JSON.stringify(recObj.steps)}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
       }
