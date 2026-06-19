@@ -543,26 +543,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </label>
                   </div>
                   {(step.subs&&step.subs.length>0)&&(
-                    <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:10,marginTop:8,paddingLeft:12}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>Sub-steps ({step.subs.length})</div>
+                    <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:10,marginTop:8,paddingLeft:12}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
                       {step.subs.map((sb,sbi)=>(
-                        <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"6px 8px",marginBottom:4}}>
-                          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
-                            <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                            <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,minHeight:28}}/>
-                            <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-                              <span style={{fontSize:10,color:C.muted}}>⏱</span>
-                              <input type="number" value={sb.tm||""} onChange={e=>sopEditSub(si,sbi,"tm",e.target.value)} placeholder="0" style={{width:40,padding:"4px 4px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,textAlign:"center",color:C.text,background:C.bg,minHeight:24}}/>
-                              <span style={{fontSize:9,color:C.faint}}>min</span>
-                            </div>
-                            <button onClick={()=>sopRemoveSub(si,sbi)} style={{padding:"2px 6px",borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer"}}>✕</button>
+                        <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:24}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                            <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,minHeight:32}}/>
+                            <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:24,height:24,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",padding:0,flexShrink:0}}>✕</button>
                           </div>
-                          <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:28}}/>
+                          <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:32,marginBottom:4}}/>
+                          <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"5px 10px",border:`1px solid ${C.borderLight}`}}>
+                            <span style={{fontSize:11,color:C.amber,fontWeight:600}}>⏱ Timer</span>
+                            <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:56,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:28}}/>
+                            <span style={{fontSize:11,color:C.faint}}>min</span>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
-                  <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"4px 10px",borderRadius:6,background:"transparent",border:`1px dashed ${C.border}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Sub-step</button>
+                  <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
                 </div>
               ))}
             </div>
@@ -1660,26 +1660,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             </label>
                           </div>
                           {(step.subs&&step.subs.length>0)&&(
-                            <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:2,marginTop:6,paddingLeft:10}}>
-                              <div style={{fontSize:9,fontWeight:700,color:C.gold,marginBottom:3,textTransform:"uppercase",letterSpacing:.5}}>Sub-steps ({step.subs.length})</div>
+                            <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:2,marginTop:8,paddingLeft:12}}>
+                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
                               {step.subs.map((sb,sbi)=>(
-                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:6,padding:"5px 7px",marginBottom:3}}>
-                                  <div style={{display:"flex",gap:3,alignItems:"center",marginBottom:2}}>
-                                    <span style={{fontSize:9,fontWeight:700,color:C.gold,minWidth:18}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:24}}/>
-                                    <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-                                      <span style={{fontSize:9,color:C.muted}}>⏱</span>
-                                      <input type="number" value={sb.tm||""} onChange={e=>sopEditSub(si,sbi,"tm",e.target.value)} placeholder="0" style={{width:32,padding:"3px 3px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10,textAlign:"center",color:C.text,background:"transparent",minHeight:20}}/>
-                                      <span style={{fontSize:8,color:C.faint}}>m</span>
-                                    </div>
-                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:18,height:18,borderRadius:4,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:9,cursor:"pointer",padding:0}}>✕</button>
+                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
+                                    <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent",minHeight:28}}/>
+                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:22,height:22,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",padding:0,flexShrink:0}}>✕</button>
                                   </div>
-                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions" rows={1} style={{width:"100%",padding:"3px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:10,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:22}}/>
+                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:28,marginBottom:4}}/>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${C.borderLight}`}}>
+                                    <span style={{fontSize:10,color:C.amber,fontWeight:600}}>⏱ Timer</span>
+                                    <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:50,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.amberBorder}`,fontSize:12,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:26}}/>
+                                    <span style={{fontSize:10,color:C.faint}}>min</span>
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           )}
-                          <button onClick={()=>sopAddSub(si)} style={{marginTop:4,padding:"3px 8px",borderRadius:5,background:"transparent",border:`1px dashed ${C.border}`,color:C.gold,fontSize:9,fontWeight:600,cursor:"pointer"}}>+ Sub-step</button>
+                          <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
                         </div>
                         <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>✕</button>
                       </div>
