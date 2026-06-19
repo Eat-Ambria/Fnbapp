@@ -518,17 +518,17 @@ export default function App() {
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             {(()=>{
               const cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
-              const firstCat = cats.length > 0 ? RECIPE_DB.cats.find(c=>c.id===cats[0]) : null;
-              const displayName = cats.length > 0
-                ? cats.map(c=>{const cc=RECIPE_DB.cats.find(x=>x.id===c);return cc?cc.name:c;}).join(' + ')
-                : (currentUser.section || 'Kitchen');
+              const catObjs = cats.map(c=>(RECIPE_DB.cats||[]).find(x=>x.id===c)).filter(Boolean);
+              const firstCat = catObjs[0]||null;
+              const catNames = catObjs.length>0?catObjs.map(c=>c.name).join(' + '):'';
               const headerColor = firstCat?.color || C.gold;
+              const title = currentUser.name || catNames || currentUser.section || 'Kitchen';
               return (<>
                 <span style={{fontSize:20}}>{firstCat?.icon || '🍽'}</span>
                 <div>
                   <div style={{fontSize:16,fontWeight:700,color:headerColor,
-                    fontFamily:'var(--font-display)'}}>{displayName}</div>
-                  <div style={{fontSize:11,color:C.muted}}>Kitchen Tablet · {TODAY_LABEL}</div>
+                    fontFamily:'var(--font-display)'}}>{title}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{catNames?catNames+' · ':''}{TODAY_LABEL}</div>
                 </div>
               </>);
             })()}

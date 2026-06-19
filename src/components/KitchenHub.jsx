@@ -612,6 +612,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             lang={lang}
             currentUser={currentUser}
             sectionFilter={sectionFilter}
+            allowedCatIds={allowedCatIds}
             transportQueue={transportQueue}
             setTransportQueue={setTransportQueue}
             dishSignoff={dishSignoff}

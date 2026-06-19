@@ -565,7 +565,8 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
   const doneM = doneElapsed != null ? Math.floor(doneElapsed / 60) : 0;
   const doneS = doneElapsed != null ? doneElapsed % 60 : 0;
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.border}20` }}>
+    <div style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}20` }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
       <div style={{
         width: 26, height: 26, borderRadius: 7, flexShrink: 0, marginTop: 1,
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700,
@@ -617,7 +618,8 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {subs && running && !done && timerSec > 0 && <span style={{ fontSize: 11, color: C.amber, padding: "4px 8px", background: C.amberBg, borderRadius: 6 }}>⏱ {Math.floor(elapsedSec / 60)}m</span>}
         {subs && !locked && !done && !running && !timerSec && <span style={{ fontSize: 10, color: C.muted }}>↓</span>}
       </div>
-      {subs && d2d && setDsFn && (running || !locked || done) && (
+      </div>
+      {subs && d2d && setDsFn && (
         <div style={{ borderLeft: `2.5px solid ${done ? C.green : running ? C.amber : C.gold}`, marginLeft: 13, marginTop: 6, paddingLeft: 12 }}>
           {subs.map((sb, sbi) => {
             const sbk = stepKey + "_sub_" + sbi;
