@@ -1,251 +1,215 @@
-// Ambria FnB — Menu Packages View with Bulk Category Editor
+// Ambria FnB — Menu Builder (standalone screen)
+// Replaces MenuPackagesView — full menu editing for any function
+// Place in: src/components/MenuPackagesView.jsx (same filename, full rewrite)
 import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getCatForDish, RECIPE_DB } from '../data/recipeData.js';
+import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
-import { supabase } from '../lib/supabase.js';
+import { MenuEditor } from './MenuEditor.jsx';
 
-// No hardcoded sections — everything comes from RECIPE_DB.cats (Supabase)
-
-function MenuPackagesView({lang="en", currentUser=null}) {
+function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   const T2 = s => T(s, lang);
-  const isAdmin = currentUser?.role === 'admin';
-  const pkgNames = Object.keys(MENU_PACKAGES);
-  const [selPkg, setSelPkg] = useState(null);
-  const [openSections, setOpenSections] = useState({});
-  const [editMode, setEditMode] = useState(false);
-  const [selected, setSelected] = useState({}); // {dishName: true}
-  const [targetSec, setTargetSec] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [showNewCat, setShowNewCat] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatIcon, setNewCatIcon] = useState("🍽");
-  const [customCats, setCustomCats] = useState([]);
+  const isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
+  const [selEvId, setSelEvId] = useState(null);
+  const [tab, setTab] = useState("events"); // "events" | "packages"
 
-  // Build section list directly from Supabase recipe_categories
-  const allSections = (RECIPE_DB.cats || []).map(c => c.name).sort();
-
-  function toggleSection(sec){setOpenSections(p=>({...p,[sec]:!p[sec]}));}
-
-  // Toggle dish selection
-  function toggleDish(d) { setSelected(p=>({...p,[d]:!p[d]})); }
-  function selectAllInSec(dishes) {
-    const all = dishes.every(d=>selected[d]);
-    const upd = {...selected};
-    dishes.forEach(d => { upd[d] = !all; });
-    setSelected(upd);
-  }
-  const selCount = Object.values(selected).filter(Boolean).length;
-
-  // Reverse map: section display name → category_id
-  function secToCatId(secName) {
-    const dbCat = (RECIPE_DB.cats || []).find(c => c.name === secName);
-    if (dbCat) return dbCat.id;
-    return secName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-  }
-
-  // Create new category in Supabase
-  async function createCategory() {
-    if (!newCatName.trim()) return;
-    const catId = newCatName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-    setSaving(true);
-    try {
-      // Insert into recipe_categories
-      const { error } = await supabase.from('recipe_categories').insert({
-        id: catId, name: newCatName.trim(), icon: newCatIcon || '🍽',
-        sort_order: (RECIPE_DB.cats || []).length + 1
-      });
-      if (error && error.code !== '23505') throw error; // ignore duplicate
-      // Add to local state so it appears in dropdown immediately
-      setCustomCats(prev => [...prev, newCatName.trim()]);
-      setTargetSec(newCatName.trim());
-      setShowNewCat(false);
-      setNewCatName("");
-      setNewCatIcon("🍽");
-    } catch(e) {
-      alert('❌ Error creating category: ' + e.message);
-    }
-    setSaving(false);
-  }
-
-  // Move selected dishes to target section
-  async function moveSelected() {
-    if(!targetSec || selCount===0) return;
-    setSaving(true);
-    const catId = secToCatId(targetSec);
-    const dishNames = Object.keys(selected).filter(k=>selected[k]);
-
-    try {
-      for(const name of dishNames) {
-        // Upsert into dish_categories (classification only — no SOP pollution)
-        await supabase.from('dish_categories').upsert(
-          { dish_name: name, category_id: catId },
-          { onConflict: 'dish_name' }
-        );
-      }
-      alert(`✅ Moved ${dishNames.length} dish${dishNames.length>1?'es':''} to ${targetSec}`);
-      setSelected({});
-      setEditMode(false);
-      // Clear caches and reload to re-hydrate RECIPE_DB
-      try {
-        localStorage.removeItem('ambria_cfg_recipes');
-        localStorage.removeItem('ambria_cfg_recipe_categories');
-        localStorage.removeItem('ambria_cfg_menu_packages');
-        localStorage.removeItem('ambria_cfg_dish_categories');
-      } catch(e){}
-      window.location.reload();
-    } catch(e) {
-      alert('❌ Error: ' + e.message);
-    }
-    setSaving(false);
-  }
-
-  const PKG_META = {
-    "Multi-Cuisine Veg":    {icon:"🌱",c:"#4DAA6A",bg:C.greenBg},
-    "Multi-Cuisine Non-Veg":{icon:"🍗",c:"#D06040",bg:C.redBg},
-    "Magnum Veg":           {icon:"⭐",c:"#D4A843",bg:C.goldBg},
-    "Magnum Non-Veg":       {icon:"🌟",c:"#D06040",bg:C.redBg},
-    "Double Magnum Veg":    {icon:"🏆",c:"#50B0A0",bg:C.tealBg},
-    "Double Magnum Non-Veg":{icon:"🏅",c:"#5B8FD0",bg:C.blueBg},
-    "Luxury Veg":           {icon:"👑",c:"#8A70C8",bg:C.purpleBg},
-    "Luxury Non-Veg":       {icon:"💎",c:"#5B8FD0",bg:C.blueBg},
-  };
-
-  // ── Package list ──
-  if(!selPkg) return (
-    <div>
-      <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>📜 {T2("Menu")}</div>
-      <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{pkgNames.length} {T2("packages")}</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
-        {pkgNames.map(pkg=>{
-          const m=PKG_META[pkg]||{icon:"📋",c:C.gold,bg:C.goldBg};
-          const items=(MENU_PACKAGES[pkg]||[]);
-          return (
-            <button key={pkg} onClick={()=>{setSelPkg(pkg);setEditMode(false);setSelected({});}}
-              style={{background:C.surface,border:`2px solid ${m.c}30`,borderRadius:16,padding:"20px 18px",cursor:"pointer",textAlign:"left",display:"flex",gap:14,alignItems:"center",minHeight:80,transition:"all .15s"}}>
-              <div style={{fontSize:32,flexShrink:0}}>{m.icon}</div>
-              <div>
-                <div style={{fontSize:15,fontWeight:700,color:C.text}}>{pkg}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:3}}>{items.length} {T2("dishes")}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  // ── Build category groups ──
-  const allDishes = MENU_PACKAGES[selPkg] || [];
-  const bySection = {};
-  allDishes.forEach(d => {
-    const cat = getCatForDish(d);
-    const sec = cat.name;
-    if(!bySection[sec]) bySection[sec] = {dishes:[], cat};
-    bySection[sec].dishes.push(d);
+  // Sort events: today first, then tomorrow, then upcoming
+  var allEvs = safeArr(events).filter(function(e) { return e.date >= TODAY; }).sort(function(a, b) {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.time || "").localeCompare(b.time || "");
   });
-  const pm = PKG_META[selPkg]||{icon:"📋",c:C.gold,bg:C.goldBg};
-  const nonBevDishes = allDishes.filter(d => getCatForDish(d).id !== "beverages");
+  var selEv = allEvs.find(function(e) { return e.id === selEvId; }) || null;
+
+  function saveMenu(dishes) {
+    if (!selEv || !setEvents) return;
+    setEvents(function(prev) {
+      return (prev || []).map(function(e) {
+        if (e.id !== selEv.id) return e;
+        return { ...e, menu: dishes, menuPackage: "" };
+      });
+    });
+  }
+
+  function dayLabel(date) {
+    if (date === TODAY) return "Today";
+    if (date === TOMORROW) return "Tomorrow";
+    return date;
+  }
+
+  // Group events by date
+  var byDate = {};
+  allEvs.forEach(function(e) {
+    var d = e.date || "Unknown";
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(e);
+  });
+
+  // Menu stats for an event
+  function menuStats(ev) {
+    var menu = ev.menu || [];
+    if (menu.length === 0 && ev.menuPackage && MENU_PACKAGES[ev.menuPackage]) {
+      menu = MENU_PACKAGES[ev.menuPackage];
+    }
+    var byCat = {};
+    menu.forEach(function(name) {
+      var catId = getCatIdForDish(name) || "other";
+      if (!byCat[catId]) byCat[catId] = 0;
+      byCat[catId]++;
+    });
+    return { total: menu.length, byCat: byCat, menu: menu };
+  }
+
+  var TABS = [
+    { v: "events", l: "📋 " + T2("Build Menu") },
+    { v: "packages", l: "📦 " + T2("Packages") },
+  ];
 
   return (
     <div>
       {/* Header */}
-      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
-        <button onClick={()=>{setSelPkg(null);setEditMode(false);setSelected({});}} style={{padding:"10px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:44}}>← {T2("All Packages")}</button>
-        {isAdmin && !editMode && (
-          <button onClick={()=>setEditMode(true)} style={{padding:"10px 18px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✏️ Edit Categories</button>
-        )}
-        {editMode && (
-          <button onClick={()=>{setEditMode(false);setSelected({});}} style={{padding:"10px 18px",borderRadius:10,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✕ Cancel</button>
-        )}
-      </div>
-
-      <div style={{display:"flex",gap:14,alignItems:"center",marginBottom:editMode?12:20}}>
-        <div style={{fontSize:40}}>{pm.icon}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{selPkg}</div>
-          <div style={{fontSize:13,color:pm.c,marginTop:3}}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(s=>s!=="Beverages").length} {T2("categories")}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>🍽 {T2("Menu")}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{allEvs.length} {T2("upcoming functions")}</div>
         </div>
       </div>
 
-      {/* ── Bulk Move Bar (sticky) ── */}
-      {editMode && (
-        <div style={{position:"sticky",top:0,zIndex:20,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,borderRadius:12,padding:"10px 14px",marginBottom:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,fontWeight:600,color:C.amber}}>{selCount} selected</span>
-            <select value={targetSec} onChange={e=>{
-              if(e.target.value==="__new__"){setShowNewCat(true);setTargetSec("");}
-              else{setTargetSec(e.target.value);setShowNewCat(false);}
-            }}
-              style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,minWidth:140}}>
-              <option value="">Move to…</option>
-              {allSections.map(s=>{const cat=(RECIPE_DB.cats||[]).find(c=>c.name===s);return <option key={s} value={s}>{cat?.icon||"🍽"} {s}</option>;})}
-              <option value="__new__">＋ New Category…</option>
-            </select>
-            <button onClick={moveSelected} disabled={!targetSec||selCount===0||saving}
-              style={{padding:"8px 16px",borderRadius:8,background:selCount>0&&targetSec?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:selCount>0&&targetSec?"pointer":"not-allowed",opacity:saving?0.5:1}}>
-              {saving ? "Saving…" : `Move ${selCount} →`}
-            </button>
-          </div>
-          {/* New section inline form */}
-          {showNewCat && (
-            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
-              <input value={newCatIcon} onChange={e=>setNewCatIcon(e.target.value)} placeholder="🍽"
-                style={{width:40,padding:"6px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,textAlign:"center",background:C.surface}} maxLength={2}/>
-              <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Category name e.g. Continental"
-                style={{flex:1,minWidth:160,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}
-                onKeyDown={e=>e.key==='Enter'&&createCategory()}/>
-              <button onClick={createCategory} disabled={!newCatName.trim()||saving}
-                style={{padding:"6px 14px",borderRadius:8,background:newCatName.trim()?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:newCatName.trim()?"pointer":"not-allowed"}}>
-                {saving?"…":"Create"}
-              </button>
-              <button onClick={()=>{setShowNewCat(false);setNewCatName("");}}
-                style={{padding:"6px 10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>Cancel</button>
-            </div>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: "1px solid " + C.border, paddingBottom: 8, marginTop: 12 }}>
+        {TABS.map(function(t) {
+          return <button key={t.v} onClick={function() { setTab(t.v); }}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", background: tab === t.v ? C.wine : "transparent", color: tab === t.v ? "#fff" : C.muted, border: "1.5px solid " + (tab === t.v ? C.wine : C.border) }}>{t.l}</button>;
+        })}
+      </div>
+
+      {/* ── BUILD MENU TAB ── */}
+      {tab === "events" && !selEv && (
+        <div>
+          {Object.keys(byDate).length === 0 && (
+            <div style={{ textAlign: "center", padding: 40, color: C.muted, fontSize: 13 }}>{T2("No upcoming functions")}</div>
           )}
+          {Object.entries(byDate).map(function(entry) {
+            var date = entry[0]; var evs = entry[1];
+            var isToday = date === TODAY;
+            var isTmrw = date === TOMORROW;
+            return (
+              <div key={date} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? C.green : isTmrw ? C.amber : C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                  {isToday ? "🔴 " : isTmrw ? "🟡 " : "📅 "}{dayLabel(date)}
+                </div>
+                {evs.map(function(ev) {
+                  var stats = menuStats(ev);
+                  var hasMenu = stats.total > 0;
+                  var isLms = !!ev.lms_source;
+                  return (
+                    <button key={ev.id} onClick={function() { setSelEvId(ev.id); }}
+                      style={{ display: "block", width: "100%", textAlign: "left", background: C.surface, border: "1.5px solid " + (hasMenu ? C.greenBorder : C.amberBorder), borderRadius: 12, padding: "14px 18px", marginBottom: 8, cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{ev.guest || "Function"}</span>
+                            {isLms && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, fontWeight: 600 }}>LMS</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
+                            {ev.venue} · {ev.time || "TBD"} · {ev.pax || "?"} pax
+                            {ev.menuPackage ? " · " + ev.menuPackage : ""}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          {hasMenu ? (
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{stats.total}</div>
+                              <div style={{ fontSize: 10, color: C.green }}>dishes</div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: C.amber }}>No menu</div>
+                              <div style={{ fontSize: 10, color: C.amber }}>tap to build</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {hasMenu && (
+                        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                          {Object.entries(stats.byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e2) {
+                            var catId = e2[0]; var count = e2[1];
+                            var cat = RECIPE_DB.cats.find(function(c) { return c.id === catId; });
+                            return <span key={catId} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: C.bg, border: "1px solid " + C.border, color: C.muted }}>
+                              {cat ? cat.icon + " " : ""}{cat ? cat.name : catId} ({count})
+                            </span>;
+                          })}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* ── Category groups ── */}
-      {Object.entries(bySection).filter(([sec])=>sec!=="Beverages").sort(([a],[b])=>a.localeCompare(b)).map(([sec,group])=>{
-        const m2={color:group.cat.color||C.muted,icon:group.cat.icon||"🍽"};
-        const dishes=group.dishes;
-        const isOpen=!!openSections[sec];
-        const allSelected = dishes.every(d=>selected[d]);
-
-        return (
-          <div key={sec} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-            <button onClick={()=>toggleSection(sec)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",background:isOpen?m2.color+"15":C.darkCard,border:"none",cursor:"pointer",textAlign:"left"}}>
-              <span style={{fontSize:13,fontWeight:700,color:m2.color}}>
-                {m2.icon} {T2(sec)} <span style={{fontWeight:400,fontSize:12,color:C.muted}}>({dishes.length} items)</span>
-              </span>
-              <span style={{fontSize:14,color:m2.color,transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▼</span>
-            </button>
-            {isOpen&&(
-              <div style={{padding:"8px 14px 12px"}}>
-                {/* Select all for this section */}
-                {editMode && (
-                  <div onClick={()=>selectAllInSec(dishes)} style={{padding:"6px 0 8px",borderBottom:`1px solid ${C.borderLight}`,fontSize:11,color:C.amber,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{width:18,height:18,borderRadius:4,border:`2px solid ${allSelected?C.green:C.border}`,background:allSelected?C.green:"transparent",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",flexShrink:0}}>{allSelected?"✓":""}</span>
-                    {allSelected ? "Deselect all" : "Select all"} ({dishes.length})
-                  </div>
-                )}
-                {dishes.map((d,i)=>(
-                  <div key={i} onClick={editMode?()=>toggleDish(d):undefined}
-                    style={{padding:"6px 0",borderBottom:i<dishes.length-1?`1px solid ${C.borderLight}`:"none",fontSize:12,color:C.text,display:"flex",alignItems:"center",gap:6,cursor:editMode?"pointer":"default",background:selected[d]?C.amberBg+"80":"transparent",borderRadius:selected[d]?6:0,paddingLeft:selected[d]?6:0,transition:"all .1s"}}>
-                    {editMode && (
-                      <span style={{width:18,height:18,borderRadius:4,border:`2px solid ${selected[d]?C.green:C.border}`,background:selected[d]?C.green:"transparent",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",flexShrink:0}}>{selected[d]?"✓":""}</span>
-                    )}
-                    <span style={{color:m2.color,fontSize:10}}>•</span>{d}
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* ── EDITING AN EVENT'S MENU ── */}
+      {tab === "events" && selEv && (
+        <div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
+            <button onClick={function() { setSelEvId(null); }}
+              style={{ padding: "8px 16px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 36 }}>← {T2("Back")}</button>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{selEv.guest}</div>
+              <div style={{ fontSize: 12, color: C.muted }}>{selEv.venue} · {selEv.date} · {selEv.time || "TBD"} · {selEv.pax || "?"} pax</div>
+            </div>
           </div>
-        );
-      })}
+          <MenuEditor
+            selected={selEv.menu || (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
+            onChange={function(dishes) { saveMenu(dishes); }}
+            lang={lang}
+          />
+        </div>
+      )}
+
+      {/* ── PACKAGES REFERENCE TAB ── */}
+      {tab === "packages" && (
+        <div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{T2("Standard menu packages for reference. Use Build Menu tab to assign menus to functions.")}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 10 }}>
+            {Object.keys(MENU_PACKAGES).map(function(pkg) {
+              var dishes = MENU_PACKAGES[pkg] || [];
+              var byCat = {};
+              dishes.forEach(function(name) {
+                var catId = getCatIdForDish(name) || "other";
+                var cat = RECIPE_DB.cats.find(function(c) { return c.id === catId; });
+                var catName = cat ? cat.name : catId;
+                if (!byCat[catName]) byCat[catName] = [];
+                byCat[catName].push(name);
+              });
+              var isVeg = /veg$/i.test(pkg) && !/non/i.test(pkg);
+              return (
+                <Card key={pkg} style={{ padding: "14px 18px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{isVeg ? "🌱" : "🍗"} {pkg}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{dishes.length} dishes</div>
+                    </div>
+                  </div>
+                  {Object.entries(byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+                    var catName = entry[0]; var items = entry[1];
+                    return (
+                      <div key={catName} style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 3 }}>{catName} ({items.length})</div>
+                        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6 }}>{items.join(", ")}</div>
+                      </div>
+                    );
+                  })}
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
