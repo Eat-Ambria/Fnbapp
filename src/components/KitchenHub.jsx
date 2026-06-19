@@ -835,21 +835,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       </div>
                                       </div>
                                       {hasSubs&&(
-                                        <div style={{borderLeft:`3px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:19,marginTop:8,paddingLeft:14,opacity:(stS||prevD||stDone)?1:0.5}}>
+                                        <div style={{borderLeft:`2.5px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:19,marginTop:10,paddingLeft:16,opacity:(stS||prevD||stDone)?1:0.5}}>
                                           {step.subs.map((sb,sbi)=>{
                                             const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
                                             const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
                                             return(
-                                              <div key={sbi} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                                                <div style={{width:30,height:30,borderRadius:8,background:sbDone?C.green:C.darkCard,border:`2px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sbDone?"#fff":C.muted,flexShrink:0}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
-                                                <div style={{flex:1}}>
-                                                  <div style={{fontSize:14,fontWeight:600,color:sbDone?C.green:C.text}}>{cleanStepText(sb.t)}</div>
-                                                  {sb.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{cleanStepText(sb.i)}</div>}
-                                                </div>
-                                                <div style={{flexShrink:0}}>
-                                                  {sbDone&&<span style={{fontSize:13,color:C.green}}>✅</span>}
-                                                  {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"10px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:44}}>✓ {T2("Done")}</button>}
-                                                  {!sbDone&&!sbPrevD&&<div style={{padding:"10px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:14,color:C.faint}}>🔒</div>}
+                                              <div key={sbi} style={{padding:"10px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                                                  <div style={{width:28,height:28,borderRadius:8,background:sbDone?C.green+"20":C.darkCard,border:`1.5px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:sbDone?C.green:C.muted,flexShrink:0,marginTop:1}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
+                                                  <div style={{flex:1,minWidth:0}}>
+                                                    <div style={{fontSize:13,fontWeight:600,color:sbDone?C.green:C.text,lineHeight:1.5,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(sb.t)}</div>
+                                                    {sb.i&&<div style={{fontSize:12,color:C.muted,marginTop:3,lineHeight:1.4,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(sb.i)}</div>}
+                                                    <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4,flexWrap:"wrap"}}>
+                                                      {sb.tm>0&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.darkCard,color:C.faint,display:"inline-flex",alignItems:"center",gap:4}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</span>}
+                                                      {sbDone&&d2d.manualAt?.[sbk]&&<span style={{fontSize:11,color:C.green}}>✅ {d2d.manualAt[sbk]}</span>}
+                                                    </div>
+                                                  </div>
+                                                  <div style={{flexShrink:0}}>
+                                                    {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>✓ {T2("Done")}</button>}
+                                                    {!sbDone&&!sbPrevD&&<div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint}}>🔒</div>}
+                                                  </div>
                                                 </div>
                                               </div>);
                                           })}
@@ -964,21 +969,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     </div>
                                     </div>
                                     {hasSubs&&(
-                                      <div style={{borderLeft:`2px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:13,marginTop:4,paddingLeft:10,opacity:(stS||prevD||stDone)?1:0.5}}>
+                                      <div style={{borderLeft:`2.5px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:13,marginTop:6,paddingLeft:12,opacity:(stS||prevD||stDone)?1:0.5}}>
                                         {step.subs.map((sb,sbi)=>{
                                           const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
                                           const sbPrevD=sbi===0?(stS||prevD):!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
                                           return(
-                                            <div key={sbi} style={{display:"flex",gap:6,padding:"5px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                                              <div style={{width:20,height:20,borderRadius:5,background:sbDone?C.green:C.darkCard,border:`1.5px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:sbDone?"#fff":C.muted,flexShrink:0}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
-                                              <div style={{flex:1}}>
-                                                <div style={{fontSize:11,fontWeight:600,color:sbDone?C.green:C.text}}>{cleanStepText(sb.t)}</div>
-                                                {sb.i&&<div style={{fontSize:10,color:C.muted,marginTop:1}}>{cleanStepText(sb.i)}</div>}
-                                              </div>
-                                              <div style={{flexShrink:0}}>
-                                                {sbDone&&<span style={{fontSize:10,color:C.green}}>✅</span>}
-                                                {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"4px 8px",borderRadius:6,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:700,cursor:"pointer",minHeight:26}}>✓</button>}
-                                                {!sbDone&&!sbPrevD&&<div style={{padding:"4px 6px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:10,color:C.faint}}>🔒</div>}
+                                            <div key={sbi} style={{padding:"8px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                                                <div style={{width:24,height:24,borderRadius:6,background:sbDone?C.green+"20":C.darkCard,border:`1.5px solid ${sbDone?C.green:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:sbDone?C.green:C.muted,flexShrink:0,marginTop:1}}>{sbDone?"✓":(si+1)+String.fromCharCode(97+sbi)}</div>
+                                                <div style={{flex:1,minWidth:0}}>
+                                                  <div style={{fontSize:12,fontWeight:600,color:sbDone?C.green:C.text,lineHeight:1.5,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(sb.t)}</div>
+                                                  {sb.i&&<div style={{fontSize:11,color:C.muted,marginTop:2,lineHeight:1.4,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(sb.i)}</div>}
+                                                  <div style={{display:"flex",gap:6,alignItems:"center",marginTop:3,flexWrap:"wrap"}}>
+                                                    {sb.tm>0&&<span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:C.darkCard,color:C.faint,display:"inline-flex",alignItems:"center",gap:3}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</span>}
+                                                    {sbDone&&d2d.manualAt?.[sbk]&&<span style={{fontSize:10,color:C.green}}>✅ {d2d.manualAt[sbk]}</span>}
+                                                  </div>
+                                                </div>
+                                                <div style={{flexShrink:0}}>
+                                                  {!sbDone&&sbPrevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>✓ {T2("Done")}</button>}
+                                                  {!sbDone&&!sbPrevD&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint}}>🔒</div>}
+                                                </div>
                                               </div>
                                             </div>);
                                         })}

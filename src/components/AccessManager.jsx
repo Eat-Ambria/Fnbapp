@@ -49,6 +49,9 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [editId, setEditId]   = useState(null);
   const [delId, setDelId]     = useState(null);
   const [search, setSearch]   = useState("");
+  const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterDept, setFilterDept] = useState("all");
   const [form, setForm]       = useState(blankForm);
   const [addMode, setAddMode] = useState("staff");
   const [showPin, setShowPin] = useState(null); // staff_id whose PIN is visible
@@ -193,7 +196,19 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     setCopyFromId(fromId);
   }
   const fld={width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42};
-  const staff = safeArr(empDb).filter(s=>!search || s.name?.toLowerCase().includes(search.toLowerCase()) || (s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase()));
+  const staff = safeArr(empDb).filter(s=>{
+    if(search && !s.name?.toLowerCase().includes(search.toLowerCase()) && !(s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase())) return false;
+    if(filterStatus==="active" && (s.is_active===false||s.active===false)) return false;
+    if(filterStatus==="inactive" && s.is_active!==false&&s.active!==false) return false;
+    if(filterRole==="admin" && s.role!=="admin") return false;
+    if(filterRole==="head_chef" && s.role!=="head_chef") return false;
+    if(filterRole==="tablet" && !s.role?.startsWith("section_")) return false;
+    if(filterRole==="dept" && !["service","crockery","beverages","transport","kiosk_gate"].includes(s.role)) return false;
+    if(filterRole==="staff" && s.role!=="staff") return false;
+    if(filterDept!=="all" && (s.dept||"kitchen")!==filterDept) return false;
+    return true;
+  });
+  const activeFilterCount = (filterRole!=="all"?1:0)+(filterStatus!=="all"?1:0)+(filterDept!=="all"?1:0);
 
   return(
     <div>
@@ -230,7 +245,33 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
 
       {/* ══════ SEARCH ══════ */}
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search by name or ID…")}
-        style={{...fld,marginBottom:14,fontSize:13}}/>
+        style={{...fld,marginBottom:10,fontSize:13}}/>
+
+      {/* ══════ FILTERS ══════ */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        <span style={{fontSize:11,color:C.faint,marginRight:2}}>🔍</span>
+        {[{v:"all",l:T2("All roles")},{v:"admin",l:"👑 Admin"},{v:"head_chef",l:"👨‍🍳 Chef"},{v:"tablet",l:"📱 Tablets"},{v:"dept",l:"🏢 Depts"},{v:"staff",l:"👤 Staff"}].map(f=>(
+          <button key={f.v} onClick={()=>setFilterRole(f.v)} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:filterRole===f.v?600:400,cursor:"pointer",background:filterRole===f.v?C.goldBg:"transparent",border:`1px solid ${filterRole===f.v?C.gold:C.border}`,color:filterRole===f.v?C.gold:C.muted,transition:"all .15s"}}>{f.l}</button>
+        ))}
+        <div style={{width:1,height:18,background:C.border,margin:"0 2px"}}/>
+        {[{v:"all",l:T2("Any status")},{v:"active",l:"✅ Active"},{v:"inactive",l:"🔴 Inactive"}].map(f=>(
+          <button key={f.v} onClick={()=>setFilterStatus(f.v)} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:filterStatus===f.v?600:400,cursor:"pointer",background:filterStatus===f.v?C.greenBg:"transparent",border:`1px solid ${filterStatus===f.v?C.green:C.border}`,color:filterStatus===f.v?C.green:C.muted,transition:"all .15s"}}>{f.l}</button>
+        ))}
+        <div style={{width:1,height:18,background:C.border,margin:"0 2px"}}/>
+        <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,border:`1px solid ${filterDept!=="all"?C.gold:C.border}`,color:filterDept!=="all"?C.gold:C.muted,background:filterDept!=="all"?C.goldBg:"transparent",cursor:"pointer"}}>
+          <option value="all">{T2("All depts")}</option>
+          <option value="kitchen">Kitchen</option>
+          <option value="service">Service</option>
+          <option value="crockery">Crockery</option>
+          <option value="beverages">Beverages</option>
+          <option value="transport">Transport</option>
+          <option value="management">Management</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="odc">ODC</option>
+        </select>
+        {activeFilterCount>0&&<button onClick={()=>{setFilterRole("all");setFilterStatus("all");setFilterDept("all");}} style={{padding:"4px 10px",borderRadius:20,fontSize:10,cursor:"pointer",background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>✕ {T2("Clear")} ({activeFilterCount})</button>}
+        <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{staff.length} {T2("shown")}</span>
+      </div>
 
       {/* ══════ ADD / EDIT STAFF MODAL ══════ */}
       <Modal open={showAdd} onClose={()=>{setShowAdd(false);setEditId(null);}}>

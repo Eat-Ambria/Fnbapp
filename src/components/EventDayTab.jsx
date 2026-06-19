@@ -618,22 +618,27 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {subs && !locked && !done && !running && !timerSec && <span style={{ fontSize: 10, color: C.muted }}>↓</span>}
       </div>
       {subs && d2d && setDsFn && (running || !locked || done) && (
-        <div style={{ borderLeft: `2px solid ${done ? C.green : C.gold}`, marginLeft: 13, marginTop: 6, paddingLeft: 10 }}>
+        <div style={{ borderLeft: `2.5px solid ${done ? C.green : running ? C.amber : C.gold}`, marginLeft: 13, marginTop: 6, paddingLeft: 12 }}>
           {subs.map((sb, sbi) => {
             const sbk = stepKey + "_sub_" + sbi;
             const sbDone = !!(d2d.manual && d2d.manual[sbk]);
             const sbPrevD = sbi === 0 ? (running || !locked) : !!(d2d.manual && d2d.manual[stepKey + "_sub_" + (sbi - 1)]);
             return (
-              <div key={sbi} style={{ display: "flex", gap: 6, padding: "5px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none", alignItems: "center" }}>
-                <div style={{ width: 20, height: 20, borderRadius: 5, background: sbDone ? C.green : C.darkCard, border: `1.5px solid ${sbDone ? C.green : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sbDone ? "#fff" : C.muted, flexShrink: 0 }}>{sbDone ? "✓" : num + String.fromCharCode(97 + sbi)}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: sbDone ? C.green : C.text, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
-                  {sb.i && <div style={{ fontSize: 11, color: C.muted, marginTop: 2, wordBreak: "break-word", overflowWrap: "anywhere", lineHeight: 1.4 }}>{sb.i}</div>}
-                </div>
-                <div style={{ flexShrink: 0 }}>
-                  {sbDone && <span style={{ fontSize: 10, color: C.green }}>✅</span>}
-                  {!sbDone && sbPrevD && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: "4px 10px", borderRadius: 6, background: C.gold, color: "#fff", border: "none", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>✓</button>}
-                  {!sbDone && !sbPrevD && <div style={{ padding: "4px 6px", borderRadius: 6, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: 10, color: C.faint }}>🔒</div>}
+              <div key={sbi} style={{ padding: "8px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 6, background: sbDone ? C.green + "20" : C.darkCard, border: `1.5px solid ${sbDone ? C.green : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: sbDone ? C.green : C.muted, flexShrink: 0, marginTop: 1 }}>{sbDone ? "✓" : num + String.fromCharCode(97 + sbi)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: sbDone ? C.green : C.text, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
+                    {sb.i && <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.i}</div>}
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+                      {sb.tm > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 5, background: C.darkCard, color: C.faint, display: "inline-flex", alignItems: "center", gap: 3 }}>⏱ {sb.tm >= 60 ? Math.floor(sb.tm / 60) + "m" : sb.tm + "s"}</span>}
+                      {sbDone && d2d.manualAt?.[sbk] && <span style={{ fontSize: 10, color: C.green }}>✅ {d2d.manualAt[sbk]}</span>}
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    {!sbDone && sbPrevD && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: "6px 12px", borderRadius: 8, background: C.gold, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", minHeight: 32 }}>✓ Done</button>}
+                    {!sbDone && !sbPrevD && <div style={{ padding: "6px 8px", borderRadius: 8, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: 11, color: C.faint }}>🔒</div>}
+                  </div>
                 </div>
               </div>
             );
