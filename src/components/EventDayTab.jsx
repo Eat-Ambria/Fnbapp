@@ -579,11 +579,12 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
       <div style={{ flex: 1 }}>
         <div>
           <span style={{ fontSize: 13, fontWeight: 700, color: done ? C.green : running ? (overdue ? C.red : C.amber) : C.text }}>{title}</span>
+          {subs && !done && d2d && <span style={{fontSize:11,color:C.muted,marginLeft:6}}>({subs.filter((_,sbi)=>!!(d2d.manual&&d2d.manual[stepKey+"_sub_"+sbi])).length}/{subs.length})</span>}
           {d1Badge && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: C.greenBg, border: `1px solid ${C.greenBorder}`, color: C.green, marginLeft: 6 }}>D-1 ✅</span>}
         </div>
         {desc && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{desc}</div>}
         {ccp && <div style={{ fontSize: 11, color: C.red, marginTop: 3 }}>🔴 CCP: {ccp}</div>}
-        {running && timerSec > 0 && (
+        {!subs && running && timerSec > 0 && (
           <div style={{ marginTop: 6 }}>
             <ProgressBar pct={Math.min(100, Math.round(elapsedSec / timerSec * 100))} color={overdue ? C.red : C.amber} h={3} />
             <div style={{ fontSize: 12, fontWeight: 700, marginTop: 3, color: overdue ? C.red : C.amber }}>
@@ -596,49 +597,57 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
           </div>
         )}
         {/* Done: show time taken + under/over */}
-        {done && hasDoneElapsed && (
+        {!subs && done && hasDoneElapsed && (
           <div style={{ fontSize: 11, marginTop: 3, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ color: C.green }}>✅ {doneM}m{doneS > 0 ? ` ${doneS}s` : ""} done</span>
             {wasUnder && diffSec > 0 && <span style={{ color: C.green, fontWeight: 600 }}>🟢 {diffM > 0 ? `${diffM}m ` : ""}{diffS}s under</span>}
             {wasOver && <span style={{ color: C.red, fontWeight: 600 }}>🔴 +{diffM > 0 ? `${diffM}m ` : ""}{diffS}s over</span>}
           </div>
         )}
-        {done && !hasDoneElapsed && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ done</div>}
-        {!done && !running && !locked && timerSec > 0 && <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>⏱ {Math.floor(timerSec / 60)}m</div>}
+        {!subs && done && !hasDoneElapsed && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ done</div>}
+        {subs && done && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ all sub-steps done</div>}
+        {!subs && !done && !running && !locked && timerSec > 0 && <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>⏱ {Math.floor(timerSec / 60)}m</div>}
       </div>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
         {!subs && locked && !done && <div style={{ padding: "6px 10px", borderRadius: 8, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: 12 }}>🔒</div>}
         {!subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>▶ {Math.floor(timerSec / 60)}m</button>}
         {!subs && !locked && !done && !running && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: C.gold, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
-        {!subs && running && !done && overdue && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.red},#801818)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚠ Done</button>}
-        {!subs && running && !done && !overdue && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, fontSize: 11, color: C.amber, fontWeight: 600, cursor: "pointer" }}>✓ {Math.floor((timerSec - elapsedSec) / 60)}m left</button>}
-        {!subs && running && !done && !overdue && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.green},#1A5030)`, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓ Done</button>}
+        {!subs && running && !done && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: "7px 14px", borderRadius: 10, background: overdue ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{overdue ? "⚠" : "✓"} Done</button>}
         {subs && locked && !done && <div style={{ padding: "6px 10px", borderRadius: 8, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: 12 }}>🔒</div>}
-        {subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} style={{ padding: "7px 14px", borderRadius: 10, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>▶ {Math.floor(timerSec / 60)}m</button>}
-        {subs && running && !done && timerSec > 0 && <span style={{ fontSize: 11, color: C.amber, padding: "4px 8px", background: C.amberBg, borderRadius: 6 }}>⏱ {Math.floor(elapsedSec / 60)}m</span>}
-        {subs && !locked && !done && !running && !timerSec && <span style={{ fontSize: 10, color: C.muted }}>↓</span>}
+        {subs && !locked && !done && <span style={{ fontSize: 10, color: C.muted }}>↓</span>}
       </div>
       </div>
       {subs && d2d && setDsFn && (
-        <div style={{ borderLeft: `2.5px solid ${done ? C.green : running ? C.amber : C.gold}`, marginLeft: 13, marginTop: 6, paddingLeft: 12 }}>
+        <div style={{ borderLeft: `2.5px solid ${done ? C.green : C.gold}`, marginLeft: 13, marginTop: 6, paddingLeft: 12 }}>
           {subs.map((sb, sbi) => {
             const sbk = stepKey + "_sub_" + sbi;
             const sbDone = !!(d2d.manual && d2d.manual[sbk]);
-            const sbPrevD = sbi === 0 ? (running || !locked) : !!(d2d.manual && d2d.manual[stepKey + "_sub_" + (sbi - 1)]);
+            const sbPrevD = sbi === 0 ? !locked : !!(d2d.manual && d2d.manual[stepKey + "_sub_" + (sbi - 1)]);
+            const sbStarted = !!(d2d.starts && d2d.starts[sbk]);
+            const sbEl = sbStarted ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0;
+            const sbOver = sbStarted && sb.tm > 0 && sbEl >= sb.tm && !sbDone;
+            const sbRem = sb.tm > 0 ? Math.max(0, sb.tm - sbEl) : 0;
+            const sbPct = sb.tm > 0 ? Math.min(100, Math.round(sbEl / sb.tm * 100)) : 0;
+            const sbHasDoneEl = sbDone && d2d.doneElapsed?.[sbk] != null && d2d.doneElapsed[sbk] > 0 && sb.tm > 0;
+            const sbDE = d2d.doneElapsed?.[sbk] || 0;
+            const sbWasOver = sbHasDoneEl && sbDE > sb.tm;
+            const sbDiffSec = sbHasDoneEl ? Math.abs(sbDE - sb.tm) : 0;
             return (
               <div key={sbi} style={{ padding: "8px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none" }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 6, background: sbDone ? C.green + "20" : C.darkCard, border: `1.5px solid ${sbDone ? C.green : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: sbDone ? C.green : C.muted, flexShrink: 0, marginTop: 1 }}>{sbDone ? "✓" : num + String.fromCharCode(97 + sbi)}</div>
+                  <div style={{ width: 24, height: 24, borderRadius: 6, background: sbDone ? C.green + "20" : sbStarted ? (sbOver ? C.red+"20" : C.amber+"20") : C.darkCard, border: `1.5px solid ${sbDone ? C.green : sbStarted ? (sbOver ? C.red : C.amber) : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: sbDone ? C.green : sbStarted ? (sbOver ? C.red : C.amber) : C.muted, flexShrink: 0, marginTop: 1 }}>{sbDone ? "✓" : num + String.fromCharCode(97 + sbi)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: sbDone ? C.green : C.text, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: sbDone ? C.green : sbStarted ? (sbOver ? C.red : C.amber) : C.text, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
                     {sb.i && <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.i}</div>}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-                      {sb.tm > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 5, background: C.darkCard, color: C.faint, display: "inline-flex", alignItems: "center", gap: 3 }}>⏱ {sb.tm >= 60 ? Math.floor(sb.tm / 60) + "m" : sb.tm + "s"}</span>}
-                      {sbDone && d2d.manualAt?.[sbk] && <span style={{ fontSize: 10, color: C.green }}>✅ {d2d.manualAt[sbk]}</span>}
-                    </div>
+                    {sbStarted && !sbDone && sb.tm > 0 && <div style={{marginTop:4}}><ProgressBar pct={sbPct} color={sbOver ? C.red : C.amber} h={3}/><div style={{fontSize:10,fontWeight:700,marginTop:2,color:sbOver?C.red:C.amber}}>⏱ {Math.floor(sbEl/60)}m {sbEl%60}s{sbOver?<span style={{color:C.red}}> +{Math.floor((sbEl-sb.tm)/60)}m {(sbEl-sb.tm)%60}s over</span>:<span> — {Math.floor(sbRem/60)}m left</span>}</div></div>}
+                    {sbDone && sbHasDoneEl && <div style={{fontSize:10,marginTop:2,color:sbWasOver?C.red:C.green}}>✅ {Math.floor(sbDE/60)}m{sbDE%60>0?` ${sbDE%60}s`:""}{sbWasOver?<span style={{fontWeight:600}}> 🔴 +{Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s over</span>:<span style={{fontWeight:600}}> 🟢 {Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s under</span>}</div>}
+                    {sbDone && !sbHasDoneEl && d2d.manualAt?.[sbk] && <div style={{fontSize:10,color:C.green,marginTop:2}}>✅ {d2d.manualAt[sbk]}</div>}
+                    {!sbDone && !sbStarted && sb.tm > 0 && <div style={{fontSize:10,color:C.faint,marginTop:2}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</div>}
                   </div>
                   <div style={{ flexShrink: 0 }}>
-                    {!sbDone && sbPrevD && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: "6px 12px", borderRadius: 8, background: C.gold, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", minHeight: 32 }}>✓ Done</button>}
+                    {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: "6px 12px", borderRadius: 8, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", minHeight: 32 }}>▶ {Math.floor(sb.tm/60)}m</button>}
+                    {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: "6px 12px", borderRadius: 8, background: C.gold, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", minHeight: 32 }}>✓ Done</button>}
+                    {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: "6px 12px", borderRadius: 8, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", minHeight: 32 }}>{sbOver ? "⚠" : "✓"} Done</button>}
                     {!sbDone && !sbPrevD && <div style={{ padding: "6px 8px", borderRadius: 8, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: 11, color: C.faint }}>🔒</div>}
                   </div>
                 </div>
