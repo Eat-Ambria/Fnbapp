@@ -1,10 +1,10 @@
 // Ambria FnB — Kitchen Hub (Overview, Prep Tracking, Prep Plan, Recipe SOPs)
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTIONS, SECTION_META } from '../data/constants.js';
+import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -43,25 +43,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       .trim();
   }
 
-  // Section tablet filtering
+  // Section tablet filtering — always uses sop_categories (set in Access Manager)
   const isSectionUser = currentUser?.role?.startsWith('section_');
-  // Derive section filter from sop_categories (set in Access Manager)
-  // sop_categories is authoritative — falls back to legacy SECTION_ROLE_MAP for old logins
-  const SECTION_ROLE_MAP = {
-    section_indian: 'Indian Curries', section_chinese: 'Chinese', section_tandoor: 'Tandoor',
-    section_chaat: 'Chaat', section_sweets: 'Sweets', section_continental: 'Continental', section_bakery: 'Bakery',
-  };
   const userCats = currentUser?.sop_categories;
   const hasCats = Array.isArray(userCats) && userCats.length > 0;
-  // sectionFilter = kitchen section name (for display + getSectionForDish matching)
-  // allowedCatIds = category IDs (for precise dish filtering)
   const allowedCatIds = isSectionUser ? (hasCats ? userCats : null) : null;
-  const sectionFilter = isSectionUser
-    ? (hasCats ? (catIdToSection(userCats[0]) || currentUser.section || null) : (SECTION_ROLE_MAP[currentUser.role] || currentUser.section || null))
-    : null;
+  const sectionFilter = isSectionUser ? (hasCats ? userCats[0] : null) : null;
   const sectionDisplayName = isSectionUser && hasCats
-    ? [...new Set(userCats.map(c => catIdToSection(c)).filter(Boolean))].join(' + ')
-    : sectionFilter;
+    ? [...new Set(userCats.map(c => { const cat = RECIPE_DB.cats.find(cc=>cc.id===c); return cat ? cat.name : c; }).filter(Boolean))].join(' + ')
+    : null;
 
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
@@ -433,21 +423,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     <div style={{position:"relative"}}>
 
       {/* Section tablet banner */}
-      {sectionFilter && (
-        <div style={{background:C.goldBg,border:'1px solid '+C.goldBorder,
-          borderRadius:12,padding:'12px 16px',marginBottom:14,
-          display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:24}}>
-            {sectionDisplayName?.includes('Chinese')?'🥢':sectionDisplayName?.includes('Tandoor')?'🔥':
-             sectionDisplayName?.includes('Indian')?'🍛':sectionDisplayName?.includes('Chaat')?'🥗':
-             sectionDisplayName?.includes('Sweets')?'🍮':sectionDisplayName?.includes('Continental')?'🍝':'🍽'}
-          </span>
-          <div>
-            <div style={{fontSize:14,fontWeight:700,color:C.gold}}>{sectionDisplayName} Section</div>
-            <div style={{fontSize:11,color:C.muted}}>Showing only your section dishes</div>
+      {sectionFilter && hasCats && (()=>{
+        const bannerCat = RECIPE_DB.cats.find(c=>c.id===userCats[0]);
+        const bannerColor = bannerCat?.color || C.gold;
+        return (
+          <div style={{background:bannerColor+'15',border:'1px solid '+bannerColor+'40',
+            borderRadius:12,padding:'12px 16px',marginBottom:14,
+            display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:24}}>{bannerCat?.icon||'🍽'}</span>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:bannerColor}}>{sectionDisplayName}</div>
+              <div style={{fontSize:11,color:C.muted}}>Showing only your assigned categories</div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Chef Photo Modal ── */}
       {readyModal&&(
@@ -681,10 +671,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const sopSteps = getStepsForDish(name);
           if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) delete byDishD1[name];
         });
-        // Admin: group by SOP category for granular view; Tablet: group by kitchen section
+        // Always group by SOP category
         const bySecD1={};
         Object.entries(byDishD1).forEach(([n,info])=>{
-          const groupKey = isSectionUser ? info.sec : (info.catId || info.sec);
+          const groupKey = info.catId || 'maincourse';
           if(!bySecD1[groupKey])bySecD1[groupKey]=[];
           bySecD1[groupKey].push({name:n,...info});
         });
@@ -753,7 +743,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               ? <div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:18,color:C.muted}}>🍳 {T2("No dishes to prep")}</div></div>
               : allSecs.map(sec=>{
                 const secItems = bySecD1[sec]||[];
-                const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                const catObj2 = RECIPE_DB.cats.find(c=>c.id===sec);
+                const m2 = {color:catObj2?.color||C.muted,icon:catObj2?.icon||"🍽"};
                 const secOpen = isSecOpen("d1sec_"+sec);
                 if(secItems.length===0) return null;
                 const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
@@ -764,7 +755,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"18px 22px",cursor:"pointer",borderBottom:secOpen?`1.5px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:70}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div style={{width:46,height:46,borderRadius:12,background:m2.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{m2.icon}</div>
-                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}</div></div>
+                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(catObj2?.name||sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}</div></div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div style={{padding:"6px 14px",borderRadius:10,background:m2.color+"18",fontSize:16,fontWeight:700,color:m2.color}}>{doneCount} / {totalCount}</div>
@@ -876,12 +867,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             /* ═══ ADMIN VIEW — compact ═══ */
             allSecs.map(sec=>{
               const secItems = bySecD1[sec]||[];
-              // For admin: sec is a catId like 'maincourse' — resolve display name and color from parent kitchen section
-              const catObj = !isSectionUser && RECIPE_DB.cats.find(c=>c.id===sec);
+              const catObj = RECIPE_DB.cats.find(c=>c.id===sec);
               const secDisplayName = catObj ? catObj.name : sec;
-              const parentSection = catObj ? catIdToSection(sec) : sec;
-              const m2 = SECTION_META[parentSection] || SECTION_META[sec] || {color:C.muted,icon:catObj?.icon||"🍽"};
-              const displayIcon = catObj?.icon || m2.icon;
+              const m2 = {color:catObj?.color||C.muted,icon:catObj?.icon||"🍽"};
+              const displayIcon = catObj?.icon || "🍽";
               const secOpen = isSecOpen("d1sec_"+sec);
               if(secItems.length===0) return null;
               const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
@@ -1270,12 +1259,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   if(pkgDishes.length===0) return <Card style={{padding:"20px",textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>{T2("Select a menu package in Step 2")}</div></Card>;
                   const bySec={};
                   pkgDishes.forEach(d=>{
-                    const sec=getSectionForDish(d)||"Other";
-                    if(!bySec[sec])bySec[sec]=[];
-                    bySec[sec].push(d);
+                    const cat=getCatForDish(d);
+                    const sec=cat.id;
+                    if(!bySec[sec])bySec[sec]={dishes:[],cat};
+                    bySec[sec].dishes.push(d);
                   });
-                  return Object.entries(bySec).map(([sec,dishes])=>{
-                    const smeta=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+                  return Object.entries(bySec).map(([sec,group])=>{
+                    const dishes=group.dishes;
+                    const smeta={color:group.cat.color||C.muted,icon:group.cat.icon||"🍽"};
                     const isOpen=openSections[sec];
                     const aggMap={};
                     dishes.forEach(dish=>{
@@ -1295,7 +1286,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <div style={{display:"flex",gap:8,alignItems:"center"}}>
                             <span style={{fontSize:18}}>{smeta.icon}</span>
                             <div>
-                              <div style={{fontSize:13,fontWeight:700,color:isOpen?smeta.color:C.text}}>{sec}</div>
+                              <div style={{fontSize:13,fontWeight:700,color:isOpen?smeta.color:C.text}}>{group.cat.name||sec}</div>
                               <div style={{fontSize:10,color:C.muted}}>{dishes.length} {T2("dishes")} · {aggIngr.length} {T2("ingredients")}</div>
                             </div>
                           </div>

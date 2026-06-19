@@ -9,7 +9,7 @@ import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 import { C, hydrateConstants } from './data/constants.js';
 import { MENU_PACKAGES, hydrateMenuPackages } from './data/menuPackages.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
-import { hydrateRecipeData } from './data/recipeData.js';
+import { hydrateRecipeData, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
 import { canAccessScreen } from './data/permissions.js';
 import { loadAllConfig } from './lib/dbConfig.js';
@@ -516,16 +516,22 @@ export default function App() {
           borderBottom:`1px solid ${C.border}`,display:'flex',
           justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:20}}>
-              {currentUser.section==='Chinese'?'🥢':currentUser.section==='Tandoor'?'🔥':
-               currentUser.section==='Indian Curries'?'🍛':currentUser.section==='Chaat'?'🥗':
-               currentUser.section==='Sweets'?'🍮':currentUser.section==='Continental'?'🍝':'🍽'}
-            </span>
-            <div>
-              <div style={{fontSize:16,fontWeight:700,color:C.gold,
-                fontFamily:'var(--font-display)'}}>{currentUser.section} Section</div>
-              <div style={{fontSize:11,color:C.muted}}>Kitchen Tablet · {TODAY_LABEL}</div>
-            </div>
+            {(()=>{
+              const cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
+              const firstCat = cats.length > 0 ? RECIPE_DB.cats.find(c=>c.id===cats[0]) : null;
+              const displayName = cats.length > 0
+                ? cats.map(c=>{const cc=RECIPE_DB.cats.find(x=>x.id===c);return cc?cc.name:c;}).join(' + ')
+                : (currentUser.section || 'Kitchen');
+              const headerColor = firstCat?.color || C.gold;
+              return (<>
+                <span style={{fontSize:20}}>{firstCat?.icon || '🍽'}</span>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:headerColor,
+                    fontFamily:'var(--font-display)'}}>{displayName}</div>
+                  <div style={{fontSize:11,color:C.muted}}>Kitchen Tablet · {TODAY_LABEL}</div>
+                </div>
+              </>);
+            })()}
           </div>
           <button onClick={function(){setCurrentUser(null);}}
             style={{padding:'8px 16px',borderRadius:10,background:C.surface,

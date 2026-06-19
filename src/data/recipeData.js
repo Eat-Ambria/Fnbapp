@@ -209,7 +209,7 @@ function hydrateRecipeData(cfg) {
   // Hydrate categories
   if (cfg.recipeCategories && cfg.recipeCategories.length) {
     RECIPE_DB.cats = cfg.recipeCategories.map(c => ({
-      id: c.id, name: c.name, icon: c.icon || '📋', count: 0
+      id: c.id, name: c.name, icon: c.icon || '📋', color: c.color || '#8E8678', count: 0
     }));
   }
   // Hydrate recipes by category
@@ -230,75 +230,50 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishCategories) {
     DISH_CAT_MAP = cfg.dishCategories;
   }
-  // Hydrate category→kitchen section mapping from recipe_categories.kitchen_section
-  if (cfg.recipeCategories && cfg.recipeCategories.length) {
-    cfg.recipeCategories.forEach(c => {
-      if (c.kitchen_section) CAT_TO_SECTION[c.id] = c.kitchen_section;
-    });
-  }
+  
 }
 
-// ─── DISH CATEGORY MAP (from dish_categories table) ─────────────
-// Lightweight classification: dish_name → category_id
-// Separate from recipes table (which holds actual SOPs)
+// ─── DISH → CATEGORY RESOLVER ───────────────────────────────────
+// Single source of truth: always returns SOP category, never kitchen sections.
+// Priority: dish_categories table → recipes table → regex guess → fallback
 let DISH_CAT_MAP = {};  // hydrated on boot
 
-// ─── CATEGORY → KITCHEN SECTION MAPPING ─────────────────────────
-// Hydrated from recipe_categories.kitchen_section on boot
-// Maps category_id → kitchen section name (e.g. 'maincourse' → 'Indian Curries')
-let CAT_TO_SECTION = {};
+function getCatIdForDish(dishName) {
+  if (!dishName) return null;
+  const n = dishName.toLowerCase().trim();
+  const explicit = DISH_CAT_MAP[dishName] || Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n) && DISH_CAT_MAP[Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n)];
+  if (explicit) return explicit;
+  for (const cat of RECIPE_DB.cats) {
+    const recipes = RECIPE_DB.recipes[cat.id] || [];
+    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.id;
+  }
+  for (const cat of RECIPE_DB.cats) {
+    const recipes = RECIPE_DB.recipes[cat.id] || [];
+    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
+  }
+  const guessedSection = guessSectionForDish(dishName);
+  const SECTION_TO_CAT = {
+    'Indian Curries':'maincourse','Tandoor':'tandoor','Chinese':'chinese',
+    'Chaat':'chaat','Sweets':'sweets','Continental':'continental','Beverages':'beverages',
+  };
+  return SECTION_TO_CAT[guessedSection] || 'maincourse';
+}
 
+function getCatForDish(dishName) {
+  const catId = getCatIdForDish(dishName);
+  return RECIPE_DB.cats.find(c => c.id === catId) || { id: catId || 'maincourse', name: catId || 'Other', icon: '🍽', color: '#8E8678' };
+}
+
+// ─── LEGACY COMPAT ──────────────────────────────────────────────
+// Thin wrappers — now return category names instead of kitchen section names.
 function catIdToSection(catId) {
-  if (CAT_TO_SECTION[catId]) return CAT_TO_SECTION[catId];
   const cat = RECIPE_DB.cats.find(c => c.id === catId);
   return cat ? cat.name : null;
 }
 
-// ─── DISH → CATEGORY ID RESOLVER ────────────────────────────────
-// Returns the recipe category_id for a dish (e.g. 'maincourse', 'chinese')
-function getCatIdForDish(dishName) {
-  if (!dishName) return null;
-  const n = dishName.toLowerCase().trim();
-  // Priority 1: dish_categories table
-  const direct = DISH_CAT_MAP[dishName];
-  if (direct) return direct;
-  const ciKey = Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n);
-  if (ciKey) return DISH_CAT_MAP[ciKey];
-  // Priority 2: recipes table (exact)
-  for (const cat of RECIPE_DB.cats) {
-    if ((RECIPE_DB.recipes[cat.id] || []).some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.id;
-  }
-  // Priority 3: recipes table (partial)
-  for (const cat of RECIPE_DB.cats) {
-    if ((RECIPE_DB.recipes[cat.id] || []).some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
-  }
-  return null;
-}
-
-// ─── DB-AWARE SECTION RESOLVER ──────────────────────────────────
-// Priority: dish_categories table → recipes table → regex fallback
-// Always returns KITCHEN SECTION names (Indian Curries, Chinese, etc.)
 function getSectionForDish(dishName) {
-  if (!dishName) return "Indian Curries";
-  const n = dishName.toLowerCase().trim();
-  // Priority 1: dish_categories table (explicit classification)
-  const catId = DISH_CAT_MAP[dishName] || Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n && DISH_CAT_MAP[k]) && DISH_CAT_MAP[Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n)];
-  if (catId) {
-    const sec = catIdToSection(catId);
-    if (sec) return sec;
-  }
-  // Priority 2: recipes table (exact match)
-  for (const cat of RECIPE_DB.cats) {
-    const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return catIdToSection(cat.id) || cat.name;
-  }
-  // Priority 3: recipes table (partial match)
-  for (const cat of RECIPE_DB.cats) {
-    const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return catIdToSection(cat.id) || cat.name;
-  }
-  // Priority 4: regex fallback
-  return guessSectionForDish(dishName);
+  const cat = getCatForDish(dishName);
+  return cat.name;
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };

@@ -1,10 +1,10 @@
 // Ambria FnB — Event Day Tab (redesigned)
 // Place in: src/components/EventDayTab.jsx
 import React, { useState } from "react";
-import { C, SECTION_META } from '../data/constants.js';
+import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/helpers.js';
-import { guessSectionForDish, getSectionForDish, getCatIdForDish, catIdToSection, RECIPE_INGREDIENTS, RECIPE_DB, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
+import { getCatIdForDish, getCatForDish, RECIPE_INGREDIENTS, RECIPE_DB, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -156,9 +156,10 @@ function EventDayTab({
     const sp = ev.special || "";
     const isSpecial = /no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
     menuArr(ev).forEach((name, idx) => {
-      if (getSectionForDish(name) === "Beverages") return;
-      if (allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
-      if (!byDish[name]) byDish[name] = { sec: getSectionForDish(name), catId: getCatIdForDish(name), totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
+      const dishCatId = getCatIdForDish(name);
+      if (dishCatId === "beverages") return;
+      if (allowedCatIds && !allowedCatIds.includes(dishCatId)) return;
+      if (!byDish[name]) byDish[name] = { catId: dishCatId, totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
       byDish[name].totalPax += ev.pax || 0;
       byDish[name].fns.push({ evId: ev.id, g: ev.guest, v: ev.venue, p: ev.pax, idx, special: sp, isSpecial });
       if (isSpecial) byDish[name].specials.push({ guest: ev.guest, pax: ev.pax, instruction: sp });
@@ -167,7 +168,7 @@ function EventDayTab({
   const isSectionUser = currentUser?.role?.startsWith('section_');
   const bySec = {};
   Object.entries(byDish).forEach(([n, info]) => {
-    const groupKey = isSectionUser ? info.sec : (info.catId || info.sec);
+    const groupKey = info.catId || 'maincourse';
     if (!bySec[groupKey]) bySec[groupKey] = [];
     bySec[groupKey].push({ name: n, ...info });
   });
@@ -252,14 +253,13 @@ function EventDayTab({
         <StatCard value={totalPax.toLocaleString()} label={T2("Pax")} />
       </div>
 
-      {/* ── Section list ── */}
+      {/* ── Category list ── */}
       {secKeys.map(sec => {
         const items = bySec[sec];
-        const catObj = !isSectionUser && RECIPE_DB.cats.find(c => c.id === sec);
+        const catObj = RECIPE_DB.cats.find(c => c.id === sec);
         const secDisplayName = catObj ? catObj.name : sec;
-        const parentSection = catObj ? catIdToSection(sec) : sec;
-        const m = SECTION_META[parentSection] || SECTION_META[sec] || { color: C.muted, icon: catObj?.icon || "🍽" };
-        const displayIcon = catObj?.icon || m.icon;
+        const m = { color: catObj?.color || C.muted, icon: catObj?.icon || "🍽" };
+        const displayIcon = catObj?.icon || "🍽";
         const secReady = items.filter(d => ds(d.fEvId, d.fIdx, d.name).ready).length;
         const secPct = Math.round(secReady / items.length * 100);
         const secOpen = isSecOpen(sec);

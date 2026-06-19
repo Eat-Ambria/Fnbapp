@@ -1,9 +1,9 @@
 // Ambria FnB — Menu Packages View with Bulk Category Editor
 import React, { useState } from "react";
-import { C, SECTIONS, SECTION_META } from '../data/constants.js';
+import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, RECIPE_DB } from '../data/recipeData.js';
+import { getCatForDish, RECIPE_DB } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 
@@ -137,16 +137,17 @@ function MenuPackagesView({lang="en", currentUser=null}) {
     </div>
   );
 
-  // ── Build section groups ──
+  // ── Build category groups ──
   const allDishes = MENU_PACKAGES[selPkg] || [];
   const bySection = {};
   allDishes.forEach(d => {
-    const sec = getSectionForDish(d);
-    if(!bySection[sec]) bySection[sec] = [];
-    bySection[sec].push(d);
+    const cat = getCatForDish(d);
+    const sec = cat.name;
+    if(!bySection[sec]) bySection[sec] = {dishes:[], cat};
+    bySection[sec].dishes.push(d);
   });
   const pm = PKG_META[selPkg]||{icon:"📋",c:C.gold,bg:C.goldBg};
-  const nonBevDishes = allDishes.filter(d => getSectionForDish(d) !== "Beverages");
+  const nonBevDishes = allDishes.filter(d => getCatForDish(d).id !== "beverages");
 
   return (
     <div>
@@ -165,7 +166,7 @@ function MenuPackagesView({lang="en", currentUser=null}) {
         <div style={{fontSize:40}}>{pm.icon}</div>
         <div>
           <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{selPkg}</div>
-          <div style={{fontSize:13,color:pm.c,marginTop:3}}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(s=>s!=="Beverages").length} {T2("sections")}</div>
+          <div style={{fontSize:13,color:pm.c,marginTop:3}}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(s=>s!=="Beverages").length} {T2("categories")}</div>
         </div>
       </div>
 
@@ -180,8 +181,8 @@ function MenuPackagesView({lang="en", currentUser=null}) {
             }}
               style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,minWidth:140}}>
               <option value="">Move to…</option>
-              {allSections.map(s=><option key={s} value={s}>{(SECTION_META[s]||{icon:"🍽"}).icon} {s}</option>)}
-              <option value="__new__">＋ New Section…</option>
+              {allSections.map(s=>{const cat=(RECIPE_DB.cats||[]).find(c=>c.name===s);return <option key={s} value={s}>{cat?.icon||"🍽"} {s}</option>;})}
+              <option value="__new__">＋ New Category…</option>
             </select>
             <button onClick={moveSelected} disabled={!targetSec||selCount===0||saving}
               style={{padding:"8px 16px",borderRadius:8,background:selCount>0&&targetSec?C.green:C.faint,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:selCount>0&&targetSec?"pointer":"not-allowed",opacity:saving?0.5:1}}>
@@ -193,7 +194,7 @@ function MenuPackagesView({lang="en", currentUser=null}) {
             <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
               <input value={newCatIcon} onChange={e=>setNewCatIcon(e.target.value)} placeholder="🍽"
                 style={{width:40,padding:"6px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,textAlign:"center",background:C.surface}} maxLength={2}/>
-              <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Section name e.g. Continental"
+              <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="Category name e.g. Continental"
                 style={{flex:1,minWidth:160,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}
                 onKeyDown={e=>e.key==='Enter'&&createCategory()}/>
               <button onClick={createCategory} disabled={!newCatName.trim()||saving}
@@ -207,9 +208,10 @@ function MenuPackagesView({lang="en", currentUser=null}) {
         </div>
       )}
 
-      {/* ── Section groups ── */}
-      {Object.entries(bySection).filter(([sec])=>sec!=="Beverages").sort(([a],[b])=>a.localeCompare(b)).map(([sec,dishes])=>{
-        const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+      {/* ── Category groups ── */}
+      {Object.entries(bySection).filter(([sec])=>sec!=="Beverages").sort(([a],[b])=>a.localeCompare(b)).map(([sec,group])=>{
+        const m2={color:group.cat.color||C.muted,icon:group.cat.icon||"🍽"};
+        const dishes=group.dishes;
         const isOpen=!!openSections[sec];
         const allSelected = dishes.every(d=>selected[d]);
 
