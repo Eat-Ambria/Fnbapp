@@ -7,7 +7,6 @@ import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers
 import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
-import { supabase } from '../lib/supabase.js';
 import { hasPermission } from '../data/permissions.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 
