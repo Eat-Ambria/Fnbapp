@@ -8,57 +8,38 @@ import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card, Avatar, Chip } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { logActivity } from './ActivityLog.jsx';
+import { dbUpsert, dbDelete } from '../lib/db.js';
 
-// ── Default checklist items per phase ──
-const DEFAULT_ITEMS = {
-  site:[
-    {id:"s1",label:"Power supply confirmed at venue"},
-    {id:"s2",label:"Water availability checked"},
-    {id:"s3",label:"Parking space for vehicles"},
-    {id:"s4",label:"Kitchen area dimensions measured"},
-    {id:"s5",label:"Generator placement identified"},
-    {id:"s6",label:"Fire safety exits verified"},
-    {id:"s7",label:"Gas cylinder storage area marked"},
-    {id:"s8",label:"Client walkthrough completed"},
-  ],
-  equipment:[
-    {id:"e1",label:"Gas cylinders loaded & counted"},
-    {id:"e2",label:"Tandoor packed & secured"},
-    {id:"e3",label:"Cooking utensils counted against checklist"},
-    {id:"e4",label:"Crockery crates sealed & labelled"},
-    {id:"e5",label:"Tables & chairs count verified"},
-    {id:"e6",label:"Serving station setup items packed"},
-    {id:"e7",label:"Chafing dishes & fuel cans"},
-    {id:"e8",label:"Cleaning supplies & dustbins"},
-  ],
-  dispatch:[
-    {id:"d1",label:"D-1 prep items loaded in fridge truck"},
-    {id:"d2",label:"Cold chain items temperature verified"},
-    {id:"d3",label:"Transport vehicle assigned & fuelled"},
-    {id:"d4",label:"Driver briefed on route & timing"},
-    {id:"d5",label:"Equipment manifest signed by Gopal"},
-    {id:"d6",label:"Crockery count cross-checked with manifest"},
-    {id:"d7",label:"Live dishes timing plan shared with kitchen"},
-  ],
-  onsite:[
-    {id:"o1",label:"Kitchen setup complete at venue"},
-    {id:"o2",label:"Gas connections tested — no leaks"},
-    {id:"o3",label:"Water supply connected & running"},
-    {id:"o4",label:"First dish timing confirmed with client"},
-    {id:"o5",label:"Service line layout approved by client"},
-    {id:"o6",label:"Staff positions assigned"},
-    {id:"o7",label:"Backup items accessible (extra plates, cutlery)"},
-  ],
-  teardown:[
-    {id:"t1",label:"All equipment counted back against manifest"},
-    {id:"t2",label:"Leftover food handled per SOP"},
-    {id:"t3",label:"Crockery crates sealed for return"},
-    {id:"t4",label:"Generator returned / rental closed"},
-    {id:"t5",label:"Venue cleaned — no items left behind"},
-    {id:"t6",label:"Client sign-off / feedback collected"},
-    {id:"t7",label:"Transport loaded & dispatched back to base"},
-  ],
+// ── Hardcoded fallback (used only if DB has no odc_ checklist rows) ──
+const FALLBACK_ITEMS = {
+  site:[{id:"s1",label:"Power supply confirmed at venue"},{id:"s2",label:"Water availability checked"},{id:"s3",label:"Parking space for vehicles"},{id:"s4",label:"Kitchen area dimensions measured"},{id:"s5",label:"Generator placement identified"},{id:"s6",label:"Fire safety exits verified"},{id:"s7",label:"Gas cylinder storage area marked"},{id:"s8",label:"Client walkthrough completed"}],
+  equipment:[{id:"e1",label:"Gas cylinders loaded & counted"},{id:"e2",label:"Tandoor packed & secured"},{id:"e3",label:"Cooking utensils counted against checklist"},{id:"e4",label:"Crockery crates sealed & labelled"},{id:"e5",label:"Tables & chairs count verified"},{id:"e6",label:"Serving station setup items packed"},{id:"e7",label:"Chafing dishes & fuel cans"},{id:"e8",label:"Cleaning supplies & dustbins"}],
+  dispatch:[{id:"d1",label:"D-1 prep items loaded in fridge truck"},{id:"d2",label:"Cold chain items temperature verified"},{id:"d3",label:"Transport vehicle assigned & fuelled"},{id:"d4",label:"Driver briefed on route & timing"},{id:"d5",label:"Equipment manifest signed by Gopal"},{id:"d6",label:"Crockery count cross-checked with manifest"},{id:"d7",label:"Live dishes timing plan shared with kitchen"}],
+  onsite:[{id:"o1",label:"Kitchen setup complete at venue"},{id:"o2",label:"Gas connections tested — no leaks"},{id:"o3",label:"Water supply connected & running"},{id:"o4",label:"First dish timing confirmed with client"},{id:"o5",label:"Service line layout approved by client"},{id:"o6",label:"Staff positions assigned"},{id:"o7",label:"Backup items accessible (extra plates, cutlery)"}],
+  teardown:[{id:"t1",label:"All equipment counted back against manifest"},{id:"t2",label:"Leftover food handled per SOP"},{id:"t3",label:"Crockery crates sealed for return"},{id:"t4",label:"Generator returned / rental closed"},{id:"t5",label:"Venue cleaned — no items left behind"},{id:"t6",label:"Client sign-off / feedback collected"},{id:"t7",label:"Transport loaded & dispatched back to base"}],
 };
+
+// Resolve checklist template: DB checklists (from prop) → fallback
+async function saveEditPhase() {
+    if (!editingPhase) return;
+    const dbType = "odc_" + editingPhase;
+    if (supabase) {
+      await supabase.from("checklists").delete().eq("type", dbType);
+      const rows = editItems.map(it => ({
+        type: dbType,
+        item_key: it.id,
+        label_en: it.label,
+        sort_order: it.sort_order,
+        is_active: true,
+      }));
+      if (rows.length > 0) {
+        await supabase.from("checklists").insert(rows);
+      }
+    }
+    setTemplate(prev => ({ ...prev, [editingPhase]: editItems.map(it => ({ id: it.id, label: it.label })) }));
+    logActivity('odc', 'Updated ODC checklist: ' + PHASE_META[editingPhase].label + ' (' + editItems.length + ' items)', 'odc_checklist_edit', { phase: editingPhase }, currentUser?.id);
+    closeEdit();
+  }
 
 const PHASE_META = {
   site:      {label:"Site Recce",  icon:"📍", color:C.green},
@@ -69,9 +50,18 @@ const PHASE_META = {
 };
 const PHASES = Object.keys(PHASE_META);
 
-function ODCModule({ events=[], lang="en", currentUser=null }) {
+function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null }) {
   const T2 = s => T(s, lang);
   const isAdmin = currentUser?.role === 'admin';
+
+  // ── Checklist template (from DB or fallback) ──
+  const [template, setTemplate] = useState(() => resolveTemplate(checklistsCfg));
+  useEffect(() => { setTemplate(resolveTemplate(checklistsCfg)); }, [checklistsCfg]);
+
+  // ── Admin editing state ──
+  const [editingPhase, setEditingPhase] = useState(null); // null = not editing, "site" etc
+  const [editItems, setEditItems] = useState([]);
+  const [newItemLabel, setNewItemLabel] = useState("");
 
   // Filter to ODC events only, upcoming + recent
   const odcEvs = safeArr(events)
@@ -127,7 +117,7 @@ function ODCModule({ events=[], lang="en", currentUser=null }) {
   // ── Get items for current event+phase (merge defaults with saved state) ──
   function getItems(evId, ph) {
     const saved = checklists[evId]?.[ph]?.items || [];
-    const defaults = DEFAULT_ITEMS[ph] || [];
+    const defaults = template[ph] || [];
     // Merge: use saved state for items that exist, add any new defaults
     const savedMap = {};
     saved.forEach(s => { savedMap[s.id] = s; });
@@ -198,6 +188,56 @@ function ODCModule({ events=[], lang="en", currentUser=null }) {
       done += items.filter(i => i.checked).length;
     });
     return total > 0 ? Math.round(done / total * 100) : 0;
+  }
+
+  // ── Admin checklist template editing ──
+  function openEditPhase(ph) {
+    setEditingPhase(ph);
+    setEditItems((template[ph] || []).map((it, i) => ({ ...it, sort_order: i + 1 })));
+    setNewItemLabel("");
+  }
+  function closeEdit() { setEditingPhase(null); setEditItems([]); setNewItemLabel(""); }
+  function addEditItem() {
+    const label = newItemLabel.trim();
+    if (!label) return;
+    const prefix = editingPhase.charAt(0);
+    const nextNum = editItems.length + 1;
+    const id = "odc-" + prefix + nextNum + "-" + Date.now();
+    setEditItems(prev => [...prev, { id, label, sort_order: prev.length + 1 }]);
+    setNewItemLabel("");
+  }
+  function removeEditItem(id) { setEditItems(prev => prev.filter(it => it.id !== id).map((it, i) => ({ ...it, sort_order: i + 1 }))); }
+  function moveEditItem(idx, dir) {
+    setEditItems(prev => {
+      const arr = [...prev];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= arr.length) return arr;
+      [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+      return arr.map((it, i) => ({ ...it, sort_order: i + 1 }));
+    });
+  }
+  async function saveEditPhase() {
+    if (!editingPhase) return;
+    const dbType = "odc_" + editingPhase;
+    // Delete old rows for this type
+    if (supabase) {
+      await supabase.from("checklists").delete().eq("type", dbType);
+      // Insert new rows
+      const rows = editItems.map(it => ({
+        id: it.id.startsWith("odc-") ? it.id : "odc-" + it.id,
+        type: dbType,
+        name: it.label,
+        sort_order: it.sort_order,
+        is_active: true,
+      }));
+      if (rows.length > 0) {
+        await supabase.from("checklists").upsert(rows, { onConflict: "id" });
+      }
+    }
+    // Update local template
+    setTemplate(prev => ({ ...prev, [editingPhase]: editItems.map(it => ({ id: it.id.startsWith("odc-") ? it.id : "odc-" + it.id, label: it.label })) }));
+    logActivity('odc', 'Updated ODC checklist: ' + PHASE_META[editingPhase].label + ' (' + editItems.length + ' items)', 'odc_checklist_edit', { phase: editingPhase }, currentUser?.id);
+    closeEdit();
   }
 
   const daysDiff = (d) => Math.round((new Date(d+"T00:00") - new Date(TODAY+"T00:00")) / 864e5);
@@ -363,7 +403,10 @@ function ODCModule({ events=[], lang="en", currentUser=null }) {
             <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Loading checklist…</div>
           ) : (
             <div>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>{curPhaseMeta.icon} {curPhaseMeta.label} — {doneCount}/{items.length}</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span>{curPhaseMeta.icon} {curPhaseMeta.label} — {doneCount}/{items.length}</span>
+                {isAdmin && !editingPhase && <button onClick={() => openEditPhase(phase)} style={{fontSize:10,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.muted,cursor:"pointer",fontWeight:600}}>✏ Edit items</button>}
+              </div>
               {items.map(item => {
                 const done = !!item.checked;
                 return (
@@ -380,6 +423,38 @@ function ODCModule({ events=[], lang="en", currentUser=null }) {
                   </label>
                 );
               })}
+            </div>
+          )}
+
+          {/* ── Admin edit panel ── */}
+          {editingPhase === phase && isAdmin && (
+            <div style={{margin:"12px 0",padding:"14px 16px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <span style={{fontSize:13,fontWeight:700,color:C.amber}}>✏ Editing: {PHASE_META[editingPhase].label} checklist</span>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={closeEdit} style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer"}}>Cancel</button>
+                  <button onClick={saveEditPhase} style={{fontSize:11,padding:"5px 14px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
+                </div>
+              </div>
+              {editItems.map((it, idx) => (
+                <div key={it.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:12,color:C.faint,width:20,textAlign:"center",flexShrink:0}}>{idx+1}</span>
+                  <span style={{fontSize:12,color:C.text,flex:1}}>{it.label}</span>
+                  <button onClick={() => moveEditItem(idx,-1)} disabled={idx===0} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===0?C.faint:C.muted,cursor:idx===0?"not-allowed":"pointer"}}>▲</button>
+                  <button onClick={() => moveEditItem(idx,1)} disabled={idx===editItems.length-1} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===editItems.length-1?C.faint:C.muted,cursor:idx===editItems.length-1?"not-allowed":"pointer"}}>▼</button>
+                  <button onClick={() => removeEditItem(it.id)} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,cursor:"pointer"}}>✕</button>
+                </div>
+              ))}
+              <div style={{display:"flex",gap:6,marginTop:8}}>
+                <input value={newItemLabel} onChange={e => setNewItemLabel(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") addEditItem(); }}
+                  placeholder="New checklist item…"
+                  style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                <button onClick={addEditItem} disabled={!newItemLabel.trim()}
+                  style={{padding:"7px 14px",borderRadius:6,border:"none",fontSize:11,fontWeight:600,
+                    background:newItemLabel.trim()?C.amber:C.border,color:newItemLabel.trim()?"#fff":C.faint,
+                    cursor:newItemLabel.trim()?"pointer":"not-allowed"}}>+ Add</button>
+              </div>
             </div>
           )}
 
