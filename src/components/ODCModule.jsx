@@ -397,57 +397,55 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
           ) : (
             <div>
               <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span>{curPhaseMeta.icon} {curPhaseMeta.label} — {doneCount}/{items.length}</span>
-                {isAdmin && !editingPhase && <button onClick={() => openEditPhase(phase)} style={{fontSize:10,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.muted,cursor:"pointer",fontWeight:600}}>✏ Edit items</button>}
+                <span>{curPhaseMeta.icon} {curPhaseMeta.label} — {editingPhase === phase ? "Editing" : doneCount+"/"+items.length}</span>
+                {isAdmin && editingPhase !== phase && <button onClick={() => openEditPhase(phase)} style={{fontSize:10,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.muted,cursor:"pointer",fontWeight:600}}>✏ Edit items</button>}
+                {isAdmin && editingPhase === phase && (
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={closeEdit} style={{fontSize:10,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer"}}>Cancel</button>
+                    <button onClick={saveEditPhase} style={{fontSize:10,padding:"3px 10px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
+                  </div>
+                )}
               </div>
-              {items.map(item => {
-                const done = !!item.checked;
-                return (
-                  <label key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",minHeight:44}}>
-                    <input type="checkbox" checked={done} onChange={() => toggleItem(selEvId, phase, item.id)}
-                      style={{width:22,height:22,accentColor:curPhaseMeta.color,cursor:"pointer",flexShrink:0}}/>
-                    <div style={{flex:1}}>
-                      <span style={{fontSize:13,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{item.label}</span>
-                      {done && item.checkedBy && (
-                        <div style={{fontSize:10,color:C.faint,marginTop:1}}>✓ {item.checkedBy}{item.checkedAt ? " · " + item.checkedAt : ""}</div>
-                      )}
+              {editingPhase === phase ? (
+                <div>
+                  {editItems.map((it, idx) => (
+                    <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`,minHeight:44}}>
+                      <span style={{fontSize:12,color:C.faint,width:22,textAlign:"center",flexShrink:0}}>{idx+1}</span>
+                      <span style={{fontSize:13,color:C.text,flex:1}}>{it.label}</span>
+                      <button onClick={() => moveEditItem(idx,-1)} disabled={idx===0} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===0?C.faint:C.muted,cursor:idx===0?"not-allowed":"pointer"}}>▲</button>
+                      <button onClick={() => moveEditItem(idx,1)} disabled={idx===editItems.length-1} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===editItems.length-1?C.faint:C.muted,cursor:idx===editItems.length-1?"not-allowed":"pointer"}}>▼</button>
+                      <button onClick={() => removeEditItem(it.id)} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,cursor:"pointer"}}>✕</button>
                     </div>
-                    {done && <Chip label="✓" color={C.green} bg={C.greenBg} size={10}/>}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ── Admin edit panel ── */}
-          {editingPhase === phase && isAdmin && (
-            <div style={{margin:"12px 0",padding:"14px 16px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <span style={{fontSize:13,fontWeight:700,color:C.amber}}>✏ Editing: {PHASE_META[editingPhase].label} checklist</span>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={closeEdit} style={{fontSize:11,padding:"5px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer"}}>Cancel</button>
-                  <button onClick={saveEditPhase} style={{fontSize:11,padding:"5px 14px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
+                  ))}
+                  <div style={{display:"flex",gap:6,marginTop:8,padding:"6px 0"}}>
+                    <input value={newItemLabel} onChange={e => setNewItemLabel(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addEditItem(); }}
+                      placeholder="New checklist item…"
+                      style={{flex:1,padding:"8px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                    <button onClick={addEditItem} disabled={!newItemLabel.trim()}
+                      style={{padding:"8px 14px",borderRadius:6,border:"none",fontSize:11,fontWeight:600,
+                        background:newItemLabel.trim()?C.amber:C.border,color:newItemLabel.trim()?"#fff":C.faint,
+                        cursor:newItemLabel.trim()?"pointer":"not-allowed"}}>+ Add</button>
+                  </div>
                 </div>
-              </div>
-              {editItems.map((it, idx) => (
-                <div key={it.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <span style={{fontSize:12,color:C.faint,width:20,textAlign:"center",flexShrink:0}}>{idx+1}</span>
-                  <span style={{fontSize:12,color:C.text,flex:1}}>{it.label}</span>
-                  <button onClick={() => moveEditItem(idx,-1)} disabled={idx===0} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===0?C.faint:C.muted,cursor:idx===0?"not-allowed":"pointer"}}>▲</button>
-                  <button onClick={() => moveEditItem(idx,1)} disabled={idx===editItems.length-1} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===editItems.length-1?C.faint:C.muted,cursor:idx===editItems.length-1?"not-allowed":"pointer"}}>▼</button>
-                  <button onClick={() => removeEditItem(it.id)} style={{fontSize:10,padding:"2px 6px",borderRadius:4,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,cursor:"pointer"}}>✕</button>
-                </div>
-              ))}
-              <div style={{display:"flex",gap:6,marginTop:8}}>
-                <input value={newItemLabel} onChange={e => setNewItemLabel(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") addEditItem(); }}
-                  placeholder="New checklist item…"
-                  style={{flex:1,padding:"7px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-                <button onClick={addEditItem} disabled={!newItemLabel.trim()}
-                  style={{padding:"7px 14px",borderRadius:6,border:"none",fontSize:11,fontWeight:600,
-                    background:newItemLabel.trim()?C.amber:C.border,color:newItemLabel.trim()?"#fff":C.faint,
-                    cursor:newItemLabel.trim()?"pointer":"not-allowed"}}>+ Add</button>
-              </div>
+              ) : (
+                items.map(item => {
+                  const done = !!item.checked;
+                  return (
+                    <label key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",minHeight:44}}>
+                      <input type="checkbox" checked={done} onChange={() => toggleItem(selEvId, phase, item.id)}
+                        style={{width:22,height:22,accentColor:curPhaseMeta.color,cursor:"pointer",flexShrink:0}}/>
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:13,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{item.label}</span>
+                        {done && item.checkedBy && (
+                          <div style={{fontSize:10,color:C.faint,marginTop:1}}>✓ {item.checkedBy}{item.checkedAt ? " · " + item.checkedAt : ""}</div>
+                        )}
+                      </div>
+                      {done && <Chip label="✓" color={C.green} bg={C.greenBg} size={10}/>}
+                    </label>
+                  );
+                })
+              )}
             </div>
           )}
 
