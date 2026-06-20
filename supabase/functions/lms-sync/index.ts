@@ -244,7 +244,11 @@ function transformCateringContract(row: any, masters: any): any[] {
   const funcDate = row.chcd_date || "";
   if (!funcDate) return [];
 
-  const venueName = row.chcd_venue2 || row.chc_location || "Outdoor Catering";
+  const isOutdoor = (row.chcd_lead_type || "").toUpperCase() === "O";
+  const odcLocation = row.chcd_venue2 || row.chc_location || "";
+  const odcAddress = row.chcd_address2 || "";
+  const odcContactPhone = row.chc_contact_no || "";
+  const odcTransportCost = parseFloat(row.chcd_transport_cost) || 0;
   const funcName = row.functionname || masters.functions[row.chcd_function] || "Function";
   const menuName = resolveMenuName(row.chcd_menu, row.menuname || "", masters.menus);
   const pax = parseInt(row.chcd_pax) || 0;
@@ -252,13 +256,17 @@ function transformCateringContract(row: any, masters: any): any[] {
   const session = row.chcd_session || "";
   const catering = row.chcd_catering || "";
 
+  // ODC events always get venue = "Outdoor Catering (ODC)"
+  // In-house catering contracts use normalizeVenue to match the venue name
+  const venue = isOutdoor ? "Outdoor Catering (ODC)" : normalizeVenue(odcLocation || "Unknown Venue");
+
   const eventId = `LMS-C-${contractNo}-${funcDate}`;
   const isNonVeg = /non.?veg/i.test(catering) || /non.?veg/i.test(menuName);
 
   events.push({
     id: eventId,
     guest: guestName,
-    venue: normalizeVenue(venueName),
+    venue: venue,
     date: funcDate,
     time: time || (session === "Lunch" ? "12:00" : session === "Sundowner" ? "16:00" : "19:00"),
     type: funcName,
@@ -274,6 +282,16 @@ function transformCateringContract(row: any, masters: any): any[] {
     lms_status: null,
     lms_synced_at: new Date().toISOString(),
     lms_raw: stripFinancials(row),
+    // ODC-specific fields (null for in-house catering)
+    ...(isOutdoor ? {
+      odc_location: odcLocation || null,
+      odc_address: odcAddress || null,
+      odc_contact_phone: odcContactPhone || null,
+      odc_transport_cost: odcTransportCost || null,
+      odc_lead: "Gopal",
+      site_recce: "Not done",
+      odc_menu_confirmed: false,
+    } : {}),
   });
 
   return events;

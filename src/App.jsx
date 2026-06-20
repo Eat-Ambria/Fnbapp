@@ -123,7 +123,7 @@ export default function App() {
           // For LMS events, don't write the resolved dish array back — keep menu:[] in DB
           const isLms = !!(ev.lms_source);
           const menuToStore = isLms ? [] : (ev.menu||[]);
-          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,special:ev.special||null,extras:ev.extras||[]},"id").catch(e=>console.error("ev sync:",e));
+          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null},"id").catch(e=>console.error("ev sync:",e));
         }
       });
       prevMap.forEach((_,id) => {
@@ -252,7 +252,7 @@ export default function App() {
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu = MENU_PACKAGES[pkg];
         let extras = e.extras;
         if (!Array.isArray(extras)) extras = [];
-        return {...e, menuPackage:pkg, menu, extras};
+        return {...e, menuPackage:pkg, menu, extras, odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false};
       }));
       const todayAtt = attData.filter(a=>a.date===TODAY);
       setAttendance_raw(todayAtt.map(normalizeAtt));
@@ -323,7 +323,7 @@ export default function App() {
         if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
         const pkg=matchMenuPackage(payload.new.menu_package||"");
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
-        ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[]};
+        ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[],odc_location:payload.new.odc_location||null,odc_address:payload.new.odc_address||null,odc_contact_phone:payload.new.odc_contact_phone||null,odc_transport_cost:payload.new.odc_transport_cost||null,odc_lead:payload.new.odc_lead||null,site_recce:payload.new.site_recce||null,odc_menu_confirmed:payload.new.odc_menu_confirmed??false};
       }
       if(payload.eventType==='INSERT'&&ev) setEvents_raw(p=>[...p,ev]);
       if(payload.eventType==='UPDATE'&&ev) setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e));
