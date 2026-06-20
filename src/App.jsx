@@ -487,9 +487,9 @@ export default function App() {
 
   // Loading
   if(!appReady) return (
-    <div style={{minHeight:"100vh",background:"#F7F5F0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
       <div style={{fontSize:32,marginBottom:4}}>🔥</div>
-      <div style={{color:"#8B5E2F",fontSize:14,fontFamily:"var(--font-display)"}}>Loading Ambria FnB Operations…</div>
+      <div style={{color:C.gold,fontSize:14,fontFamily:"var(--font-display)"}}>Loading Ambria FnB Operations…</div>
     </div>
   );
   // Login
@@ -498,7 +498,7 @@ export default function App() {
   // ── GATE KIOSK INTERCEPT ──
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
-      <div style={{minHeight:'100vh',background:'#F7F5F0',padding:20}}>
+      <div style={{minHeight:'100vh',background:C.bg,padding:20}}>
         <GateKiosk empDb={empDb} attendance={attendance}
           setAttendance={setAttendance} currentUser={currentUser}
           setCurrentUser={setCurrentUser} lang={lang}/>
@@ -586,7 +586,7 @@ export default function App() {
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
       case "dept_odc":       return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="odc"/>;
-      default: return <div style={{padding:40,textAlign:"center",color:"#888"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:C.red,color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
+      default: return <div style={{padding:40,textAlign:"center",color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:C.red,color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
     }
   }
 
@@ -594,14 +594,14 @@ export default function App() {
     <div style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:C.bg,overflow:"hidden",flexDirection:"column"}}>
       {/* ── PWA update banner ── */}
       {updateReady&&(
-        <div style={{flexShrink:0,background:"#2B8A50",color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:"0 2px 8px rgba(0,0,0,0.3)",zIndex:9999}}>
+        <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
           <span>🔄 New version available</span>
           <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
         </div>
       )}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
-      <div style={{width:260,background:"#FFFFFF",borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
+      <div style={{width:260,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
 
         {/* Dept badge + branding */}
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
@@ -682,7 +682,7 @@ export default function App() {
 
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{background:"#FFFFFF",borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
           <div>
             <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>

@@ -30,9 +30,9 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
     {v:"Other",                icon:"📦"},
   ];
   const DEPT_LABELS = {kitchen:"Kitchen",service:"Service",crockery:"Crockery",beverages:"Beverages",transport:"Transport",odc:"ODC",management:"Management"};
-  const PRI = [{v:"Low",c:C.green},{v:"Medium",c:C.amber},{v:"High",c:C.red},{v:"Urgent",c:"#E05030"}];
+  const PRI = [{v:"Low",c:C.green},{v:"Medium",c:C.amber},{v:"High",c:C.red},{v:"Urgent",c:C.red}];
   const STATUS_FLOW = ["Open","In Progress","Pending Approval","Resolved","Closed"];
-  const STATUS_COLORS = {"Open":C.red,"In Progress":C.amber,"Pending Approval":"#8A70C8","Resolved":C.green,"Closed":C.faint};
+  const STATUS_COLORS = {"Open":C.red,"In Progress":C.amber,"Pending Approval":C.purple,"Resolved":C.green,"Closed":C.faint};
   const VENUES_R = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Ambria Restro","All Properties"];
 
   const TICKETS_INIT = [
@@ -124,14 +124,14 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.4}}>🔧 {T2("Repair & Maintenance")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Shared pool — all departments")}</div>
         </div>
-        {hasPermission(currentUser,"repair.create")&&<button onClick={()=>setShowNew(!showNew)} style={{padding:"11px 18px",borderRadius:12,background:showNew?C.surface:`linear-gradient(135deg,${C.gold},#A8891E)`,color:showNew?C.muted:"#0A0908",border:showNew?`1px solid ${C.border}`:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+        {hasPermission(currentUser,"repair.create")&&<button onClick={()=>setShowNew(!showNew)} style={{padding:"11px 18px",borderRadius:12,background:showNew?C.surface:`linear-gradient(135deg,${C.gold},${C.wineMid})`,color:showNew?C.muted:C.bg,border:showNew?`1px solid ${C.border}`:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
           {showNew?"✕ Cancel":"+ "+T2("New Request")}
         </button>}
       </div>
 
       {/* ── Stats tiles ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-        {[{l:T2("Open"),v:openCt,c:C.red,bg:C.redBg},{l:T2("In Progress"),v:ipCt,c:C.amber,bg:C.amberBg},{l:T2("High/Urgent"),v:urgCt,c:"#E05030",bg:C.redBg},{l:T2("Resolved"),v:resolCt,c:C.green,bg:C.greenBg}].map(s=>(
+        {[{l:T2("Open"),v:openCt,c:C.red,bg:C.redBg},{l:T2("In Progress"),v:ipCt,c:C.amber,bg:C.amberBg},{l:T2("High/Urgent"),v:urgCt,c:C.red,bg:C.redBg},{l:T2("Resolved"),v:resolCt,c:C.green,bg:C.greenBg}].map(s=>(
           <div key={s.l} onClick={()=>setFilterStatus(s.l===T2("Open")?"Open":s.l===T2("In Progress")?"In Progress":s.l===T2("High/Urgent")?"All":s.l===T2("Resolved")?"Resolved":"All")}
             style={{background:s.bg,borderRadius:12,padding:"12px 10px",textAlign:"center",border:`1px solid ${s.c}20`,cursor:"pointer"}}>
             <div style={{fontSize:22,fontWeight:800,color:s.c,lineHeight:1}}>{s.v}</div>
@@ -179,7 +179,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <button onClick={addTicket} disabled={!newT.title.trim()} style={{padding:"12px 24px",borderRadius:12,background:newT.title.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:newT.title.trim()?"#0A0908":C.faint,border:"none",fontSize:13,fontWeight:700,cursor:newT.title.trim()?"pointer":"not-allowed",minHeight:44}}>
+            <button onClick={addTicket} disabled={!newT.title.trim()} style={{padding:"12px 24px",borderRadius:12,background:newT.title.trim()?`linear-gradient(135deg,${C.gold},${C.wineMid})`:C.border,color:newT.title.trim()?C.bg:C.faint,border:"none",fontSize:13,fontWeight:700,cursor:newT.title.trim()?"pointer":"not-allowed",minHeight:44}}>
               ✓ {T2("Submit Request")}
             </button>
             <div style={{fontSize:11,color:C.faint}}>{T2("Ticket will be visible to all departments")}</div>
@@ -317,7 +317,7 @@ function RepairMaintenance({lang="en", currentUser=null, currentDept="kitchen"})
                 <div style={{padding:"10px 16px",display:"flex",gap:8}}>
                   <input value={updMsg} onChange={e=>setUpdMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addUpdate(tk.id)} placeholder={T2("Add update, comment or action taken…")}
                     style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:40}}/>
-                  <button onClick={()=>addUpdate(tk.id)} disabled={!updMsg.trim()} style={{padding:"10px 16px",borderRadius:10,background:updMsg.trim()?`linear-gradient(135deg,${C.gold},#A8891E)`:"#333",color:updMsg.trim()?"#0A0908":C.faint,border:"none",fontSize:12,fontWeight:700,cursor:updMsg.trim()?"pointer":"not-allowed",minHeight:40}}>
+                  <button onClick={()=>addUpdate(tk.id)} disabled={!updMsg.trim()} style={{padding:"10px 16px",borderRadius:10,background:updMsg.trim()?`linear-gradient(135deg,${C.gold},${C.wineMid})`:C.border,color:updMsg.trim()?C.bg:C.faint,border:"none",fontSize:12,fontWeight:700,cursor:updMsg.trim()?"pointer":"not-allowed",minHeight:40}}>
                     {T2("Post")}
                   </button>
                 </div>
