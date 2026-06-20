@@ -250,7 +250,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             </div>
           </div>
           <MenuEditor
-            selected={selEv.menu || (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
+            selected={selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
             onChange={function(dishes) { saveMenu(dishes); }}
             lang={lang}
           />
