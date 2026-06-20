@@ -69,7 +69,10 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const [closureEv, setClosureEv] = useState(null);
   const [closureRemark, setClosureRemark] = useState("");
   const [closureRating, setClosureRating] = useState("");
-  const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:""});
+  const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});
+  const [showMenuEditor, setShowMenuEditor] = useState(false);
+  const [menuEditorDishes, setMenuEditorDishes] = useState([]);
+  const isODC = form.venue === "Outdoor Catering (ODC)";
 
   // Computed
   const filtered = venFil==="All"?safeEvs:safeEvs.filter(e=>e.venue===venFil);
@@ -101,14 +104,20 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
 
   // Helpers
   function genId(){const ns=safeEvs.map(e=>+(e.id||"").replace(/\D/g,"")).filter(Boolean);return `FP-${new Date().getFullYear()}-${String(Math.max(0,...ns)+1).padStart(3,"0")}`;}
-  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:""});setEditId(null);setShowForm(true);}
-  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||""});setEditId(ev.id);setShowForm(true);}
+  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
+  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done"});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
   function saveForm(){
     if(!form.guest||!form.date||!form.pax)return;
-    const mi=form.menuPackage&&MENU_PACKAGES[form.menuPackage]?MENU_PACKAGES[form.menuPackage]:(form.menu||"").split(",").map(s=>s.trim()).filter(Boolean);
-    const d={...form,pax:+form.pax,veg:+form.veg||0,nonveg:+form.nonveg||0,menu:mi};
+    const formIsODC = form.venue==="Outdoor Catering (ODC)";
+    // For ODC with MenuEditor open, use menuEditorDishes; otherwise standard logic
+    const mi = formIsODC && showMenuEditor && menuEditorDishes.length > 0
+      ? menuEditorDishes
+      : (form.menuPackage && MENU_PACKAGES[form.menuPackage] ? MENU_PACKAGES[form.menuPackage] : (form.menu||"").split(",").map(s=>s.trim()).filter(Boolean));
+    const d = {...form, pax:+form.pax, veg:+form.veg||0, nonveg:+form.nonveg||0, menu:mi,
+      ...(formIsODC ? {odc_location:form.odc_location, odc_address:form.odc_address, odc_contact_phone:form.odc_contact_phone, odc_lead:form.odc_lead, site_recce:form.site_recce, odc_menu_confirmed:mi.length>0} : {})
+    };
     if(editId){setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);}else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
-    setShowForm(false);setEditId(null);setSel(form.date);
+    setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setEditId(null);setSel(form.date);
   }
   function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);setOpenEv(null);}
 
@@ -150,10 +159,10 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       {/* ── Add/Edit modal ── */}
       {showForm&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{background:"#fff",borderRadius:14,width:"100%",maxWidth:520,maxHeight:"88vh",overflow:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.12)"}}>
+          <div style={{background:"#fff",borderRadius:14,width:"100%",maxWidth:showMenuEditor?900:520,maxHeight:"88vh",overflow:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.12)",transition:"max-width .2s"}}>
             <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff",zIndex:1}}>
-              <span style={{fontSize:15,fontWeight:500,color:C.text}}>{editId?"Edit function":"New function"}</span>
-              <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.muted}}>×</button>
+              <span style={{fontSize:15,fontWeight:500,color:C.text}}>{editId?"Edit function":"New function"}{isODC&&<span style={{marginLeft:8,fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:6,background:C.purpleBg,color:C.purple,border:`1px solid ${C.purpleBorder}`}}>🏕 ODC</span>}</span>
+              <button onClick={()=>{setShowForm(false);setShowMenuEditor(false);setEditId(null);}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.muted}}>×</button>
             </div>
             <div style={{padding:"14px 18px"}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:10}}>
@@ -165,17 +174,70 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                   </div>
                 ))}
                 {form.menuPackage&&form.menuPackage!=="(Custom)"&&<div style={{gridColumn:"1/-1",background:C.amberBg,borderRadius:8,padding:"6px 10px",fontSize:12,color:C.amber}}>{(MENU_PACKAGES[form.menuPackage]||[]).length} dishes — {form.menuPackage}</div>}
-                {(!form.menuPackage||form.menuPackage==="(Custom)")&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Custom menu</div><textarea value={form.menu} onChange={e=>setForm(p=>({...p,menu:e.target.value}))} placeholder="Dal Makhni, Paneer Tikka…" style={{...fld,height:44,resize:"none"}}/></div>}
+                {(!form.menuPackage||form.menuPackage==="(Custom)")&&!showMenuEditor&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Custom menu</div><textarea value={form.menu} onChange={e=>setForm(p=>({...p,menu:e.target.value}))} placeholder="Dal Makhni, Paneer Tikka…" style={{...fld,height:44,resize:"none"}}/></div>}
                 <div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Special instructions</div><input value={form.special} onChange={e=>setForm(p=>({...p,special:e.target.value}))} placeholder="Jain, no onion-garlic…" style={fld}/></div>
               </div>
+
+              {/* ── ODC-specific fields ── */}
+              {isODC&&(
+                <div style={{marginBottom:12,padding:"12px 14px",borderRadius:10,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.purple,marginBottom:8}}>🏕 ODC details</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                    <div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Client location *</div><input value={form.odc_location} onChange={e=>setForm(p=>({...p,odc_location:e.target.value}))} placeholder="e.g. GNH Convention Centre" style={fld}/></div>
+                    <div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Client address</div><input value={form.odc_address} onChange={e=>setForm(p=>({...p,odc_address:e.target.value}))} placeholder="Sector 48, Gurgaon" style={fld}/></div>
+                    <div><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Client contact phone</div><input value={form.odc_contact_phone} onChange={e=>setForm(p=>({...p,odc_contact_phone:e.target.value}))} placeholder="98XXXXXXXX" style={fld}/></div>
+                    <div><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>ODC lead</div><select value={form.odc_lead} onChange={e=>setForm(p=>({...p,odc_lead:e.target.value}))} style={fld}><option>Gopal</option><option>Yatender</option><option>Other</option></select></div>
+                    <div><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Site recce</div><select value={form.site_recce} onChange={e=>setForm(p=>({...p,site_recce:e.target.value}))} style={fld}><option>Not done</option><option>Scheduled</option><option>Done</option></select></div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── ODC Menu Editor toggle ── */}
+              {isODC&&(
+                <div style={{marginBottom:12}}>
+                  <button onClick={()=>{if(!showMenuEditor){const existing=form.menuPackage&&MENU_PACKAGES[form.menuPackage]?[...MENU_PACKAGES[form.menuPackage]]:menuEditorDishes.length>0?menuEditorDishes:(form.menu||"").split(",").map(s=>s.trim()).filter(Boolean);setMenuEditorDishes(existing);setShowMenuEditor(true);}else{setShowMenuEditor(false);}}} style={{padding:"8px 16px",borderRadius:8,background:showMenuEditor?C.surface:C.purple,color:showMenuEditor?C.purple:"#fff",border:`1px solid ${showMenuEditor?C.purpleBorder:"transparent"}`,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                    {showMenuEditor?"▲ Close menu editor":"🍽 Open menu editor — confirm dishes for ODC"}
+                  </button>
+                  {showMenuEditor&&<div style={{marginTop:2,fontSize:11,color:menuEditorDishes.length>0?C.green:C.red,fontWeight:600}}>{menuEditorDishes.length>0?`✓ ${menuEditorDishes.length} dishes selected`:"⚠ No dishes — menu must be confirmed before kitchen can prep"}</div>}
+                </div>
+              )}
+              {showMenuEditor&&(
+                <div style={{marginBottom:14}}>
+                  <MenuEditor selected={menuEditorDishes} onChange={setMenuEditorDishes} lang={lang}/>
+                </div>
+              )}
+
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                <button onClick={()=>{setShowForm(false);setEditId(null);}} style={{padding:"8px 18px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                <button onClick={()=>{setShowForm(false);setShowMenuEditor(false);setEditId(null);}} style={{padding:"8px 18px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>
                 <button onClick={saveForm} disabled={!form.guest||!form.date||!form.pax} style={{padding:"8px 18px",borderRadius:8,background:C.text,color:"#fff",border:"none",fontSize:13,fontWeight:500,cursor:"pointer",opacity:(!form.guest||!form.date||!form.pax)?.5:1}}>{editId?"Save changes":"Add function"}</button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* ══ ODC UNCONFIRMED ALERT ══ */}
+      {(()=>{
+        const odcUnconfirmed = safeEvs.filter(ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed&&ev.date>=todayStr);
+        if(odcUnconfirmed.length===0) return null;
+        return(
+          <div style={{marginBottom:16}}>
+            {odcUnconfirmed.map(ev=>{
+              const dd=daysDiff(ev.date);
+              const urgency=dd<=2;
+              return(
+                <div key={ev.id} style={{background:urgency?C.redBg:C.purpleBg,border:`1.5px solid ${urgency?C.redBorder:C.purpleBorder}`,borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:urgency?C.red:C.purple}}>🏕 ODC menu not confirmed — {ev.guest}</div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>{ev.odc_location||"Location TBD"} · {ev.date} · {ev.pax} pax · {ev.menuPackage||"Custom menu"}{dd<=1?" · "+daysLabel(dd)+"!":""}</div>
+                  </div>
+                  <button onClick={()=>openEdit(ev)} style={{padding:"8px 16px",borderRadius:8,background:urgency?C.red:C.purple,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Confirm menu</button>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ══ STAT CARDS ══ */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
