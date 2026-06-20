@@ -121,9 +121,12 @@ export default function App() {
       const nextMap = new Map(safeArr(next).map(e=>[e.id, e]));
       nextMap.forEach((ev, id) => {
         if(!prevMap.has(id) || prevMap.get(id) !== ev) {
-          // For LMS events, don't write the resolved dish array back — keep menu:[] in DB
+          // For LMS events: only keep menu:[] if it was auto-resolved from package (no manual edit).
+          // If admin has customized the menu (menuPackage cleared or menu differs from package), persist it.
           const isLms = !!(ev.lms_source);
-          const menuToStore = isLms ? [] : (ev.menu||[]);
+          const pkgDishes = ev.menuPackage && MENU_PACKAGES[ev.menuPackage] ? MENU_PACKAGES[ev.menuPackage] : null;
+          const isAutoResolved = isLms && pkgDishes && Array.isArray(ev.menu) && ev.menu.length === pkgDishes.length && ev.menu.every(function(d,i){ return d === pkgDishes[i]; });
+          const menuToStore = isAutoResolved ? [] : (ev.menu||[]);
           dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null},"id").catch(e=>console.error("ev sync:",e));
         }
       });
