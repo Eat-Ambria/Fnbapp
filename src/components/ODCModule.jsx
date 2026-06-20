@@ -19,28 +19,6 @@ const FALLBACK_ITEMS = {
   teardown:[{id:"t1",label:"All equipment counted back against manifest"},{id:"t2",label:"Leftover food handled per SOP"},{id:"t3",label:"Crockery crates sealed for return"},{id:"t4",label:"Generator returned / rental closed"},{id:"t5",label:"Venue cleaned — no items left behind"},{id:"t6",label:"Client sign-off / feedback collected"},{id:"t7",label:"Transport loaded & dispatched back to base"}],
 };
 
-// Resolve checklist template: DB checklists (from prop) → fallback
-async function saveEditPhase() {
-    if (!editingPhase) return;
-    const dbType = "odc_" + editingPhase;
-    if (supabase) {
-      await supabase.from("checklists").delete().eq("type", dbType);
-      const rows = editItems.map(it => ({
-        type: dbType,
-        item_key: it.id,
-        label_en: it.label,
-        sort_order: it.sort_order,
-        is_active: true,
-      }));
-      if (rows.length > 0) {
-        await supabase.from("checklists").insert(rows);
-      }
-    }
-    setTemplate(prev => ({ ...prev, [editingPhase]: editItems.map(it => ({ id: it.id, label: it.label })) }));
-    logActivity('odc', 'Updated ODC checklist: ' + PHASE_META[editingPhase].label + ' (' + editItems.length + ' items)', 'odc_checklist_edit', { phase: editingPhase }, currentUser?.id);
-    closeEdit();
-  }
-
 const PHASE_META = {
   site:      {label:"Site Recce",  icon:"📍", color:C.green},
   equipment: {label:"Equipment",   icon:"🔧", color:C.amber},
@@ -49,6 +27,21 @@ const PHASE_META = {
   teardown:  {label:"Teardown",    icon:"🧹", color:C.muted},
 };
 const PHASES = Object.keys(PHASE_META);
+
+// Resolve checklist template: DB checklists (from prop) → fallback
+function resolveTemplate(checklistsCfg) {
+  const tpl = {};
+  PHASES.forEach(ph => {
+    const dbKey = "odc_" + ph;
+    const rows = (checklistsCfg && checklistsCfg[dbKey]) || [];
+    if (rows.length > 0) {
+      tpl[ph] = rows.map(r => ({ id: r.item_key, label: r.label_en }));
+    } else {
+      tpl[ph] = FALLBACK_ITEMS[ph] || [];
+    }
+  });
+  return tpl;
+}
 
 function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null }) {
   const T2 = s => T(s, lang);
