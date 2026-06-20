@@ -148,6 +148,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [scaleMultiSel, setScaleMultiSel] = useState({});
   const [scalePercent, setScalePercent] = useState(100); // % multiplier
   const [scaleEventId, setScaleEventId] = useState(null); // null | "manual" | eventId
+  const [showNV, setShowNV] = useState(false);
   const [openSections, setOpenSections] = useState({});
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({pax_sizes:[200,500,1000],items:[]});
@@ -1075,8 +1076,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
         // Ingredient table (handles both old per-serving and new absolute formats)
         const reqPax = linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100));
+        const hasAnyNV = (arr) => arr.some(i=>i.nv!==null&&i.nv!==undefined);
         function IngTable({ingr,dishName}){
           const isNew = ingr.length>0 && ingr[0]._newFmt;
+          const showNVCol = showNV && hasAnyNV(ingr);
           return(
             <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
               <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
@@ -1084,13 +1087,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <tr style={{background:C.darkCard}}>
                     <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:130}}>Ingredient</th>
                     <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>Unit</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Required ({reqPax} pax)</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Veg ({reqPax} pax)</th>
+                    {showNVCol&&<th style={{padding:"8px 8px",textAlign:"right",color:C.red,borderLeft:`1px solid ${C.border}`,minWidth:90}}>NV ({reqPax} pax)</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {ingr.map((ing,ii)=>{
                     const isAcc=!ing.q||ing.q===0;
                     const scaledFmt=isAcc?"acc. to taste":isNew?fmtScaled(ing.q,ing.u,0,0,true):fmtScaled(ing.q,ing.u,BASE_PAX,effectivePct);
+                    const nvFmt=showNVCol&&ing.nv!=null?(isAcc?"—":isNew?fmtScaled(ing.nv,ing.u,0,0,true):fmtScaled(ing.nv,ing.u,BASE_PAX,effectivePct)):"";
                     return(
                       <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
                         <td style={{padding:"7px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
@@ -1100,6 +1105,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </td>
                         <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
                         <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:isAcc?C.faint:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
+                        {showNVCol&&<td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:ing.nv!=null?C.red:C.faint,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{nvFmt||"—"}</td>}
                       </tr>
                     );
                   })}
@@ -1111,8 +1117,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
+              </div>
+              <button onClick={()=>setShowNV(p=>!p)}
+                style={{padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0,minHeight:32,
+                  background:showNV?C.redBg:"transparent",color:showNV?C.red:C.muted,border:`1px solid ${showNV?C.red:C.border}`}}>
+                {showNV?"🟥 NV ON":"⬜ NV"}
+              </button>
+            </div>
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,marginBottom:16}}>
               <span style={{fontWeight:600}}>{T2("Base SOP")}: 400 pax</span>
               <span style={{color:C.muted}}>— {T2("all recipe quantities are calibrated for this base")}</span>

@@ -335,7 +335,8 @@ function getIngrForDish(dishName, targetPax) {
     const items = rec.ingredients.items;
     return items.map(it => {
       const qty = interpolatePax(it.qty, sizes, targetPax);
-      return { n: it.name, h: it.hindi || "", q: qty, u: it.unit || "kg", _newFmt: true };
+      const nvQty = it.nv_qty ? interpolatePax(it.nv_qty, sizes, targetPax) : null;
+      return { n: it.name, h: it.hindi || "", q: qty, nv: nvQty, u: it.unit || "kg", _newFmt: true };
     });
   }
   return RECIPE_INGREDIENTS[dishName] || null;

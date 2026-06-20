@@ -8,6 +8,7 @@ import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
 import { canAccessScreen } from '../data/permissions.js';
 import { dbUpsert } from '../lib/db.js';
+import { supabase } from '../lib/supabase.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { KioskAttendance } from './KioskAttendance.jsx';
 import { guessSectionForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
@@ -19,7 +20,7 @@ function calcDispatch(time){
   return `${String(dH<0?dH+24:dH).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 
-function DeptView({attendance, setAttendance, events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, leaves, setLeaves, empDb, setEmpDb}) {
+function DeptView({attendance, setAttendance, events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, leaves, setLeaves, empDb, setEmpDb, allocRules={}, setAllocRules}) {
   const T2 = s => T(s, lang);
   const [selDept, setSelDept] = useState(forceDept||null);
   const [deptTab, setDeptTab] = useState(null); // null = auto-pick first tab
@@ -333,8 +334,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
       {/* ══════ SERVICE: Staff Allocation ══════ */}
       {selDept==="service"&&activeTab==="staffing"&&(()=>{
-        // Staff allocation reference table
-        const ALLOC_BASE = {
+        // Staff allocation — prefer Supabase rules, fall back to hardcoded
+        const ALLOC_FALLBACK = {
           "Magnum Veg":        {ref:[{pax:100,staff:17},{pax:200,staff:26}],per100:6,per50:3},
           "Magnum Non-Veg":    {ref:[{pax:100,staff:18},{pax:200,staff:28}],per100:6,per50:3},
           "Double Magnum Veg": {ref:[{pax:100,staff:20},{pax:200,staff:29}],per100:6,per50:3},
@@ -344,6 +345,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           "Luxury Veg":        {ref:[{pax:300,staff:46},{pax:400,staff:53},{pax:500,staff:60}],per100:7,per50:4},
           "Luxury Non-Veg":    {ref:[{pax:300,staff:47},{pax:400,staff:54},{pax:500,staff:61}],per100:7,per50:4},
         };
+        const ALLOC_BASE = (allocRules && Object.keys(allocRules).length > 0) ? allocRules : ALLOC_FALLBACK;
         function calcStaff(pkg,pax){
           const ab=ALLOC_BASE[pkg];if(!ab)return{staff:null,note:T2("No allocation data for this menu")};
           const refs=ab.ref.sort((a,b)=>a.pax-b.pax);
@@ -423,6 +425,90 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                 </div>
               </Card>
             )}
+
+            {/* ── Admin: Edit Allocation Rules ── */}
+            {(currentUser?.role==='admin')&&(()=>{
+              const [editRule,setEditRule_]=React.useState(null);
+              const [ruleForm,setRuleForm_]=React.useState({per100:6,per50:3,ref:[]});
+              const [ruleSaving,setRuleSaving_]=React.useState(false);
+              function openRule(pkg){
+                const r=ALLOC_BASE[pkg]||{per100:6,per50:3,ref:[]};
+                setRuleForm_({per100:r.per100||6,per50:r.per50||3,ref:(r.ref||[]).map(x=>({...x}))});
+                setEditRule_(pkg);
+              }
+              function addRefRow(){setRuleForm_(f=>({...f,ref:[...f.ref,{pax:0,staff:0}]}));}
+              function removeRefRow(i){setRuleForm_(f=>({...f,ref:f.ref.filter((_,j)=>j!==i)}));}
+              function updateRef(i,k,v){setRuleForm_(f=>{const ref=[...f.ref];ref[i]={...ref[i],[k]:+v||0};return{...f,ref};});}
+              async function saveRule(){
+                if(!editRule||!supabase)return;
+                setRuleSaving_(true);
+                try{
+                  const {error}=await supabase.from('staff_allocation_rules').upsert({
+                    menu_package:editRule,per_100:ruleForm.per100,per_50:ruleForm.per50,
+                    ref_data:ruleForm.ref
+                  },{onConflict:'menu_package'});
+                  if(error)throw error;
+                  if(setAllocRules)setAllocRules(p=>({...p,[editRule]:{ref:ruleForm.ref,per100:ruleForm.per100,per50:ruleForm.per50}}));
+                  setEditRule_(null);
+                }catch(e){alert('Save failed: '+e.message);}
+                setRuleSaving_(false);
+              }
+              return(
+                <div style={{marginTop:20}}>
+                  <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:8}}>⚙️ {T2("Allocation Rules")} <span style={{fontSize:11,fontWeight:400,color:C.muted}}>(admin)</span></div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                    {Object.keys(ALLOC_BASE).map(pkg=>{
+                      const r=ALLOC_BASE[pkg];
+                      return(
+                        <button key={pkg} onClick={()=>openRule(pkg)}
+                          style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer",textAlign:"left"}}>
+                          <div style={{fontSize:12,fontWeight:600,color:C.text}}>{pkg}</div>
+                          <div style={{fontSize:10,color:C.muted,marginTop:2}}>+{r.per100}/100pax · +{r.per50}/50pax · {(r.ref||[]).length} ref pts</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {editRule&&(
+                    <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                      <div style={{background:C.surface,borderRadius:16,padding:"20px",maxWidth:420,width:"100%",border:`2px solid ${C.goldBorder}`,boxShadow:"0 16px 48px rgba(0,0,0,.3)"}}>
+                        <div style={{fontSize:16,fontWeight:700,color:C.gold,marginBottom:12}}>{editRule}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                          <div>
+                            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Staff per +100 pax</div>
+                            <input type="number" value={ruleForm.per100} onChange={e=>setRuleForm_(f=>({...f,per100:+e.target.value||0}))}
+                              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Staff per +50 pax</div>
+                            <input type="number" value={ruleForm.per50} onChange={e=>setRuleForm_(f=>({...f,per50:+e.target.value||0}))}
+                              style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                          </div>
+                        </div>
+                        <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:6}}>Reference Points</div>
+                        {ruleForm.ref.map((r,i)=>(
+                          <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+                            <input type="number" value={r.pax} onChange={e=>updateRef(i,'pax',e.target.value)} placeholder="Pax"
+                              style={{flex:1,padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg}}/>
+                            <input type="number" value={r.staff} onChange={e=>updateRef(i,'staff',e.target.value)} placeholder="Staff"
+                              style={{flex:1,padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg}}/>
+                            <button onClick={()=>removeRefRow(i)} style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,fontSize:11,cursor:"pointer"}}>✕</button>
+                          </div>
+                        ))}
+                        <button onClick={addRefRow} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg,color:C.muted,fontSize:11,cursor:"pointer",marginBottom:12}}>+ Add Reference Point</button>
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={saveRule} disabled={ruleSaving}
+                            style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",opacity:ruleSaving?.5:1}}>
+                            {ruleSaving?"Saving…":"💾 Save"}
+                          </button>
+                          <button onClick={()=>setEditRule_(null)}
+                            style={{padding:"12px 16px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
