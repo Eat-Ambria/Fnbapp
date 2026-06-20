@@ -560,6 +560,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         </div>
       )}
 
+      {/* ── ODC MENU NOT CONFIRMED WARNING ── */}
+      {(()=>{
+        const odcUnconfirmed = [...todayEvs,...tomorrowEvs].filter(ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed);
+        if(odcUnconfirmed.length===0) return null;
+        return odcUnconfirmed.map(ev=>(
+          <div key={"odc-warn-"+ev.id} style={{marginBottom:10,padding:"10px 14px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:18,flexShrink:0}}>🏕</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.amber}}>ODC menu not confirmed — {ev.guest}</div>
+              <div style={{fontSize:11,color:C.muted}}>{ev.odc_location||ev.venue} · {ev.date} · {ev.pax} pax — {T2("Dish list may be inaccurate. Ask admin to confirm menu in Dashboard before prepping.")}</div>
+            </div>
+          </div>
+        ));
+      })()}
+
       {/* TABS — underline style */}
       <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,marginBottom:20,gap:0}}>
         {TABS_FILTERED.map(t=>(
@@ -681,11 +696,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </button>
                 {d1Evs.map(ev=>{
                   const isSel=d1FnFilter===ev.id;
+                  const odcWarn=ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed;
                   return(
                     <button key={ev.id} onClick={()=>setD1FnFilter(ev.id)}
-                      style={{flex:1,padding:"12px 10px",border:"none",borderLeft:`1px solid ${C.border}`,cursor:"pointer",background:isSel?C.gold:"transparent",textAlign:"center",minHeight:52}}>
-                      <div style={{fontSize:13,fontWeight:isSel?700:500,color:isSel?"#fff":C.text}}>{ev.guest||"Function"}</div>
-                      <div style={{fontSize:11,color:isSel?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{ev.pax} pax · {ev.venue||""} · {ev.time||"TBD"}</div>
+                      style={{flex:1,padding:"12px 10px",border:"none",borderLeft:`1px solid ${C.border}`,cursor:"pointer",background:isSel?C.gold:odcWarn?C.amberBg:"transparent",textAlign:"center",minHeight:52}}>
+                      <div style={{fontSize:13,fontWeight:isSel?700:500,color:isSel?"#fff":C.text}}>{ev.guest||"Function"}{odcWarn&&<span style={{marginLeft:4,fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:4,background:isSel?"rgba(255,255,255,.3)":C.amber,color:isSel?"#fff":"#fff"}}>⚠ menu</span>}</div>
+                      <div style={{fontSize:11,color:isSel?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{ev.pax} pax · {ev.odc_location||ev.venue||""} · {ev.time||"TBD"}</div>
                     </button>
                   );
                 })}

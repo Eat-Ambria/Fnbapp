@@ -194,6 +194,25 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         </div>
       </div>
 
+      {/* ── ODC MENU NOT CONFIRMED WARNING ── */}
+      {(()=>{
+        const odcUnconfirmed = safeEvs.filter(ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed&&(ev.date===TODAY||ev.date===TOMORROW));
+        if(odcUnconfirmed.length===0) return null;
+        return(
+          <div style={{marginBottom:12}}>
+            {odcUnconfirmed.map(ev=>(
+              <div key={"odc-t-"+ev.id} style={{marginBottom:6,padding:"10px 14px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:16,flexShrink:0}}>🏕</span>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:C.amber}}>ODC menu not confirmed — {ev.guest}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{ev.odc_location||"Location TBD"} · {ev.date} · {ev.pax} pax — Dispatch manifest may be inaccurate</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* ── KITCHEN DISPATCH NOTIFICATIONS ── */}
       {(()=>{
         const notifications = safeEvs.filter(ev => ev.date===TODAY).map(ev => {
@@ -410,7 +429,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                       <span style={{fontSize:12,fontWeight:700,padding:"2px 10px",borderRadius:20,background:p.c,color:"#fff"}}>{p.code}</span>
                       <span style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{ev.guest}</span>
                     </div>
-                    <div style={{fontSize:11,color:C.muted}}>{ev.venue} · {ev.type}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{ev.venue==="Outdoor Catering (ODC)"&&ev.odc_location?<span><span style={{fontWeight:600,color:C.purple}}>🏕 {ev.odc_location}</span>{ev.odc_address?" · "+ev.odc_address:""}</span>:ev.venue} · {ev.type}</div>
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:18,fontWeight:700,color:p.c}}>{ev.time}</div>
