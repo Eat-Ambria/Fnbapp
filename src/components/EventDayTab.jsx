@@ -558,7 +558,7 @@ function EventDayTab({
   );
 }
 
-// ── StepRow (shared with D1PrepTab) ──
+// ── StepRow ──
 function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, doneTime, doneElapsed, subs, stepKey, d2d, setDsFn, large }) {
   const remaining = timerSec - elapsedSec;
   const SZ = large ? { badge:36, badgeR:10, badgeFt:14, title:16, desc:13, ccp:13, timer:14, done:13, hint:13, btn:"10px 18px", btnR:12, btnFt:14, btnH:48, sub:28, subR:8, subFt:11, subTitle:14, subDesc:12, subTimer:12, subHint:12, subBtn:"8px 16px", subBtnR:10, subBtnFt:13, subBtnH:42, border:2.5, pad:"14px 0" } : { badge:26, badgeR:7, badgeFt:11, title:13, desc:11, ccp:11, timer:12, done:11, hint:11, btn:"7px 14px", btnR:10, btnFt:12, btnH:32, sub:24, subR:6, subFt:10, subTitle:12, subDesc:11, subTimer:10, subHint:10, subBtn:"6px 12px", subBtnR:8, subBtnFt:11, subBtnH:32, border:2.5, pad:"10px 0" };

@@ -87,14 +87,40 @@ const RECIPE_DB = {
   },
 };
 
+// ─── DISH NAME NORMALIZATION ─────────────────────────────────────
+// Strips Hindi in parens, trailing tags (Live/Gravy/Station/Counter),
+// normalizes dashes/slashes/ampersands to spaces, collapses whitespace.
+function normDish(name) {
+  if (!name) return "";
+  return name
+    .replace(/\s*\(.*?\)\s*/g, " ")        // remove parenthetical: (Agra Style), (दाल मखनी), (Chef's Special)
+    .replace(/\s*[\/–—]\s*/g, " ")          // slashes & dashes → space
+    .replace(/\s*&\s*/g, " ")               // ampersand → space
+    .replace(/\b(live|gravy|station|counter|assorted|chef.?s?\s+special)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .toLowerCase().trim();
+}
+
 function findRecipeForDish(dishName) {
   if(!dishName || typeof RECIPE_DB === "undefined") return null;
   try {
     const all = RECIPE_DB.cats.flatMap(cat => (RECIPE_DB.recipes[cat.id]||[]).map(r=>({...r,cat})));
     const n   = dishName.toLowerCase().trim();
-    return all.find(r=>r.n.toLowerCase()===n)
-        || all.find(r=>n.includes(r.n.toLowerCase())||r.n.toLowerCase().includes(n))
-        || null;
+    // Tier 1: exact match
+    const exact = all.find(r=>r.n.toLowerCase()===n);
+    if (exact) return exact;
+    // Tier 2: substring match
+    const sub = all.find(r=>n.includes(r.n.toLowerCase())||r.n.toLowerCase().includes(n));
+    if (sub) return sub;
+    // Tier 3: normalized match (strips Hindi, slashes, suffixes)
+    const nn = normDish(dishName);
+    if (nn) {
+      const normMatch = all.find(r => normDish(r.n) === nn);
+      if (normMatch) return normMatch;
+      const normSub = all.find(r => nn.includes(normDish(r.n)) || normDish(r.n).includes(nn));
+      if (normSub) return normSub;
+    }
+    return null;
   } catch(e) { return null; }
 }
 
@@ -251,6 +277,14 @@ function getCatIdForDish(dishName) {
     const recipes = RECIPE_DB.recipes[cat.id] || [];
     if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
   }
+  // Tier 3: normalized match
+  const nn = normDish(dishName);
+  if (nn) {
+    for (const cat of RECIPE_DB.cats) {
+      const recipes = RECIPE_DB.recipes[cat.id] || [];
+      if (recipes.some(r => r.n && (normDish(r.n) === nn || nn.includes(normDish(r.n)) || normDish(r.n).includes(nn)))) return cat.id;
+    }
+  }
   const guessedSection = guessSectionForDish(dishName);
   const SECTION_TO_CAT = {
     'Indian Curries':'maincourse','Tandoor':'tandoor','Chinese':'chinese',
@@ -313,4 +347,4 @@ function hasIngredients(dishName) {
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, getIngrForDish, interpolatePax, hasIngredients };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish };
