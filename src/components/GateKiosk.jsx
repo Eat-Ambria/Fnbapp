@@ -7,6 +7,7 @@ import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
 import { Avatar, SelfieCapture } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
+import { logActivity } from './ActivityLog.jsx';
 
 function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang}) {
   const T2 = s => T(s, lang || 'en');
@@ -106,6 +107,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           }).catch(function(e){console.error('gate att:',e);});
       }
     } catch(e){}
+    logActivity('attendance', selStaff.name+' punched '+type, 'punch_'+type.toLowerCase(), {staff_id:sid, venue:venueName, section:selStaff.section||''});
     setSuccess({name:selStaff.name, type:type, time:timeStr});
     setStep('success');
     setTimeout(function(){
@@ -161,6 +163,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           }).catch(function(e){console.error(e);});
       }
     } catch(e){}
+    logActivity('vendor', 'Vendor: '+vendorForm.name.trim()+' ('+vendorForm.company.trim()+') '+type, 'vendor_punch_'+type.toLowerCase(), {vendor:vendorForm.name.trim(), company:vendorForm.company.trim(), purpose:vendorForm.purpose, venue:venueName});
     setSuccess({name:vendorForm.name+' ('+vendorForm.company+')', type:type, time:timeStr});
     setStep('success');
     setTimeout(function(){

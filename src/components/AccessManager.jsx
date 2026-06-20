@@ -7,6 +7,7 @@ import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, can
 import { VENUE_OPTIONS } from '../data/staffData.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
+import { logActivity } from './ActivityLog.jsx';
 
 // ── Shared modal backdrop ──
 function Modal({open, onClose, wide, children}) {
@@ -157,6 +158,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry);
+      logActivity('system', 'Staff updated: '+form.name+' ('+editId+')', 'staff_edit', {staff_id:editId, name:form.name, role:form.role}, currentUser?.id);
     } else {
       const sid = form.staff_id.toUpperCase();
       const cats = form.sop_categories||[];
@@ -164,12 +166,15 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
       if(syncToServer) syncToServer('upsert', newStaff);
+      logActivity('system', 'Staff added: '+form.name+' ('+sid+')', 'staff_add', {staff_id:sid, name:form.name, role:form.role, dept:form.dept}, currentUser?.id);
     }
     setShowAdd(false); setEditId(null);
   }
   function deleteStaff(id){
+    const target = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===id);
     setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==id));
     if(syncToServer) syncToServer('delete', {staff_id:id, staffListId:id});
+    logActivity('system', 'Staff deleted: '+(target?.name||id)+' ('+id+')', 'staff_delete', {staff_id:id, name:target?.name||''}, currentUser?.id);
     setDelId(null);
   }
   function toggleActive(id){

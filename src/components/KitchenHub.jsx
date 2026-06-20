@@ -8,6 +8,7 @@ import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIP
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
+import { logActivity } from './ActivityLog.jsx';
 
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
@@ -212,6 +213,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
       }
     }).catch(e=>console.error('SOP supabase err:',e));
+    logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
     setSopModal(null);setSopRecipe(recObj);
   }
   function deleteSop(recipe,catId){
@@ -224,6 +226,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       const sb=mod.supabase;if(!sb)return;
       sb.from('recipes').delete().eq('dish_name',recipe.n).then(r=>{if(r.error)console.error('SOP delete err:',r.error);else console.log('✅ SOP deleted');});
     }).catch(e=>console.error('SOP delete err:',e));
+    logActivity('kitchen', 'SOP deleted: '+recipe.n, 'sop_delete', {dish:recipe.n, catId:cid}, currentUser?.id);
     setSopRecipe(null);
   }
 
@@ -458,6 +461,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const {evId,idx}=readyModal;
                 const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
                 setDs(evId,idx,{ready:true,readyAt:now,readyPhoto:readyPhoto||null,selfie:readyPhoto||null,signature:readySig||null,completedBy:currentUser?.name||"Chef",completedAt:now},readyModal);
+                logActivity('kitchen', 'Dish ready: '+readyModal.dishName, 'dish_complete', {evId:evId, dish:readyModal.dishName, chef:currentUser?.name||'Chef'}, currentUser?.id);
                 stopReadyCam();setReadyModal(null);setReadyPhoto(null);setReadySig(null);sigClear();
               }} style={{flex:1,padding:"14px",borderRadius:12,background:readyPhoto?`linear-gradient(135deg,${C.green},#147A54)`:`${C.border}`,color:readyPhoto?"#fff":C.faint,border:"none",fontSize:14,fontWeight:700,cursor:readyPhoto?"pointer":"not-allowed",minHeight:50,fontFamily:"var(--font-display)",letterSpacing:.5}}>
                 ✅ {T2("Confirm Ready")}

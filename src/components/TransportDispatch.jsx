@@ -6,6 +6,7 @@ import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../u
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbUpsert, dbDelete } from '../lib/db.js';
 import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { logActivity } from './ActivityLog.jsx';
 
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
@@ -105,6 +106,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         if(next==="Dispatched")upd.dispatchedAt=now;
         if(next==="At Venue")upd.arrivedAt=now;
         if(next==="Unloaded")upd.unloadedAt=now;
+        logActivity('dispatch', 'Transport '+next+': '+(a.vehicle||'vehicle')+' for event '+evId, 'dispatch_'+next.toLowerCase().replace(/ /g,'_'), {evId:evId, vehicle:a.vehicle||'', driver:a.driver||'', from:next, to:next}, currentUser?.id);
         return upd;
       })};
     }));

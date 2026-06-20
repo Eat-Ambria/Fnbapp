@@ -7,6 +7,7 @@ import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
 import { MenuEditor } from './MenuEditor.jsx';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
+import { logActivity } from './ActivityLog.jsx';
 
 function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
@@ -106,10 +107,10 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
     if(!form.guest||!form.date||!form.pax)return;
     const mi=form.menuPackage&&MENU_PACKAGES[form.menuPackage]?MENU_PACKAGES[form.menuPackage]:(form.menu||"").split(",").map(s=>s.trim()).filter(Boolean);
     const d={...form,pax:+form.pax,veg:+form.veg||0,nonveg:+form.nonveg||0,menu:mi};
-    if(editId){setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));}else{setEvents(p=>[...(p||[]),{id:genId(),...d,extras:[]}]);}
+    if(editId){setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);}else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
     setShowForm(false);setEditId(null);setSel(form.date);
   }
-  function delEv(id){setEvents(p=>(p||[]).filter(e=>e.id!==id));setDeleteId(null);setOpenEv(null);}
+  function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);setOpenEv(null);}
 
   const fld={width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"};
   const daysDiff = (d) => Math.round((new Date(d+"T00:00")-new Date(TODAY+"T00:00"))/(864e5));

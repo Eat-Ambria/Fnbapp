@@ -655,6 +655,7 @@ export default function App() {
           <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover||C.bg,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
             <span style={{width:6,height:6,borderRadius:"50%",flexShrink:0,background:supaLive===null?C.muted:supaLive?C.green:C.red,boxShadow:supaLive?`0 0 4px ${C.green}`:"none"}}/>
             <span style={{fontSize:10,fontWeight:600,color:supaLive===null?C.muted:supaLive?C.green:C.red,letterSpacing:.3}}>{supaLive===null?"Connecting…":supaLive?"Live Sync":"Offline"}</span>
+            {offlineQueueCount>0&&<span style={{marginLeft:2,padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700,background:C.amber+"30",color:C.amber,border:`1px solid ${C.amber}50`,letterSpacing:.3}}>{offlineQueueCount} queued</span>}
           </div>
         </div>
         {/* User + lang + logout */}
