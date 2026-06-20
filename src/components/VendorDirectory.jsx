@@ -1,6 +1,7 @@
 // Ambria FnB — Vendor Directory
 import React, { useState } from "react";
-import { C, VENDOR_CATEGORIES, SECTIONS } from '../data/constants.js';
+import { C, VENDOR_CATEGORIES } from '../data/constants.js';
+import { RECIPE_DB } from '../data/recipeData.js';
 import { T } from '../data/translations.js';
 import { Card, Btn, Chip, Avatar, STag } from './SharedUI.jsx';
 import { TODAY } from '../utils/helpers.js';
@@ -28,7 +29,7 @@ function VendorDirectory({lang="en"}) {
   function nextId(){ const nums=vendors.map(v=>+(v.id.replace("VD",""))).filter(Boolean); return "VD"+String(Math.max(0,...nums)+1).padStart(3,"0"); }
   function addVendor(){ if(!form.name||!form.phone) return; setVendors(p=>[...p,{...form,id:nextId(),date:TODAY,active:true}]); setForm({name:"",cat:"Outside Chef",section:"—",phone:"",email:"",address:"",rating:5,notes:"",addedBy:"Yatender"}); setShowAdd(false); }
 
-  const SECTION_OPTS = ["—",...SECTIONS];
+  const SECTION_OPTS = ["—",...(RECIPE_DB.cats||[]).map(c=>c.name)];
   const fld = {width:"100%",padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"};
 
   return (

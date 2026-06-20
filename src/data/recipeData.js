@@ -276,6 +276,41 @@ function getSectionForDish(dishName) {
   return cat.name;
 }
 
-window.__RECIPE_DB = RECIPE_DB;
+// ─── INGREDIENT HELPERS (shared across KitchenHub, EventDayTab, StoreModule) ──
+function interpolatePax(qtyArr, sizes, targetPax) {
+  if (!qtyArr || !sizes || sizes.length === 0) return 0;
+  if (sizes.length === 1) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
+  if (targetPax <= sizes[0]) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
+  if (targetPax >= sizes[sizes.length - 1]) {
+    const last = sizes.length - 1;
+    return (targetPax / sizes[last]) * (qtyArr[last] || 0);
+  }
+  for (let i = 0; i < sizes.length - 1; i++) {
+    if (targetPax >= sizes[i] && targetPax <= sizes[i + 1]) {
+      const ratio = (targetPax - sizes[i]) / (sizes[i + 1] - sizes[i]);
+      return (qtyArr[i] || 0) + ratio * ((qtyArr[i + 1] || 0) - (qtyArr[i] || 0));
+    }
+  }
+  return qtyArr[0] || 0;
+}
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData };
+function getIngrForDish(dishName, targetPax) {
+  const rec = findRecipeForDish(dishName);
+  if (rec?.ingredients?.items?.length > 0 && rec.ingredients.pax_sizes?.length > 0) {
+    const sizes = rec.ingredients.pax_sizes;
+    const items = rec.ingredients.items;
+    return items.map(it => {
+      const qty = interpolatePax(it.qty, sizes, targetPax);
+      return { n: it.name, h: it.hindi || "", q: qty, u: it.unit || "kg", _newFmt: true };
+    });
+  }
+  return RECIPE_INGREDIENTS[dishName] || null;
+}
+
+function hasIngredients(dishName) {
+  const rec = findRecipeForDish(dishName);
+  if (rec?.ingredients?.items?.length > 0) return true;
+  return !!RECIPE_INGREDIENTS[dishName];
+}
+
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, getIngrForDish, interpolatePax, hasIngredients };

@@ -1,19 +1,21 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
+import { RECIPE_DB } from '../data/recipeData.js';
 
 function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
   const [tab,setTab]             = useState("attendance");
   const T2 = s => T(s, lang);
 
   // Department-to-section mapping for filtering
-  const DEPT_SECTIONS_MAP = {kitchen:["Indian Curries","Tandoor","Chinese","Chaat","Sweets"],service:["Service"],crockery:["Crockery"],beverages:["Beverages"],transport:["Transportation"],odc:["ODC"]};
+  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages').map(c=>c.name);
+  const DEPT_SECTIONS_MAP = {kitchen:KITCHEN_SECTIONS,service:["Service"],crockery:["Crockery"],beverages:["Beverages"],transport:["Transportation"],odc:["ODC"]};
   const deptSections = activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null;
 
   const [secFilter,setSecFilter] = useState("All");
@@ -601,7 +603,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     <div style={{display:"grid",gridTemplateColumns:"1fr 110px 1fr",background:C.bg,padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
                       {["Section","Qty",T2("Notes")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
                     </div>
-                    {SECTIONS.map(sec=>{
+                    {KITCHEN_SECTIONS.map(sec=>{
                       const m   = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
                       const qty = bookingForm.staffReqs?.[sec]?.qty||0;
                       const note= bookingForm.staffReqs?.[sec]?.note||"";
@@ -780,7 +782,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                                     <input value={st.name||""} onChange={e=>setVendorOrders(p=>p.map(o=>o.id!==order.id?o:{...o,confirmedStaff:o.confirmedStaff.map((s2,i)=>i!==si?s2:{...s2,name:e.target.value})}))} placeholder="Chef name" style={{flex:1,padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg}}/>
                                     <select value={st.section||""} onChange={e=>setVendorOrders(p=>p.map(o=>o.id!==order.id?o:{...o,confirmedStaff:o.confirmedStaff.map((s2,i)=>i!==si?s2:{...s2,section:e.target.value})}))} style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg}}>
                                       <option value="">Section</option>
-                                      {SECTIONS.map(s=><option key={s}>{s}</option>)}
+                                      {KITCHEN_SECTIONS.map(s=><option key={s}>{s}</option>)}
                                     </select>
                                     <button onClick={()=>setVendorOrders(p=>p.map(o=>o.id!==order.id?o:{...o,confirmedStaff:o.confirmedStaff.filter((_,i)=>i!==si)}))} style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:8,color:C.red,fontSize:11,padding:"4px 7px",cursor:"pointer"}}>×</button>
                                   </div>
@@ -797,7 +799,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                                     <span style={{fontSize:10,fontWeight:700,color:C.amber,textTransform:"uppercase"}}>Section</span>
                                     <span style={{fontSize:10,fontWeight:700,color:C.amber,textTransform:"uppercase",textAlign:"center"}}>Vendor Can Send</span>
                                   </div>
-                                  {SECTIONS.map(sec=>{
+                                  {KITCHEN_SECTIONS.map(sec=>{
                                     const orig = order.staffReqs?.[sec]?.qty||0;
                                     const edited = (order.editedReqs?.[sec]?.qty !== undefined) ? order.editedReqs[sec].qty : orig;
                                     const m = SECTION_META[sec]||{color:C.muted,icon:"🍽"};

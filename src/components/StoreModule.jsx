@@ -1,13 +1,13 @@
 // Ambria FnB — Store & Inventory
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTIONS, SECTION_META } from '../data/constants.js';
+import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safeNum, TOMORROW } from '../utils/helpers.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
-import { guessSectionForDish, RECIPE_INGREDIENTS } from '../data/recipeData.js';
+import { getCatForDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
 
 function StoreModule({events, lang="en", currentUser=null}) {
@@ -1252,17 +1252,21 @@ function StoreModule({events, lang="en", currentUser=null}) {
         filtEvs.forEach(ev=>{
           const pax = +ev.pax||0;
           safeArr(ev.menu).forEach(dishName=>{
-            const sec = guessSectionForDish(dishName);
-            if(sec==="Beverages") return;
-            const ingr = RECIPE_INGREDIENTS[dishName];
-            if(!ingr) return;
-            if(!sectionBags[sec]) sectionBags[sec] = {items:{},events:[],totalPax:0};
+            const cat = getCatForDish(dishName);
+            if(cat.id==="beverages") return;
+            const sec = cat.name;
+            const secMeta = {color:cat.color||C.muted, icon:cat.icon||"🍽"};
+            const ingr = getIngrForDish(dishName, pax);
+            if(!ingr || ingr.length===0) return;
+            const isNew = ingr[0]?._newFmt;
+            if(!sectionBags[sec]) sectionBags[sec] = {items:{},events:[],totalPax:0,meta:secMeta};
             if(!sectionBags[sec].events.find(e=>e.id===ev.id)) sectionBags[sec].events.push(ev);
             sectionBags[sec].totalPax += pax;
+            if(!sectionBags[sec].meta) sectionBags[sec].meta = secMeta;
             ingr.forEach(ing=>{
               const key = ing.n;
               if(!sectionBags[sec].items[key]) sectionBags[sec].items[key] = {name:ing.n,hindi:ing.h||"",unit:ing.u,totalQty:0,dishes:[]};
-              const qty = ing.q * pax;
+              const qty = isNew ? ing.q : ing.q * pax;
               sectionBags[sec].items[key].totalQty += qty;
               sectionBags[sec].items[key].dishes.push({dish:dishName,pax,qty});
             });
@@ -1315,7 +1319,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {/* Section-wise bags */}
             {secKeys.map(sec=>{
               const bag = sectionBags[sec];
-              const m2 = SECTION_META[sec]||{color:C.muted,icon:"🍽"};
+              const m2 = bag.meta||{color:C.muted,icon:"🍽"};
               const ingList = Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
               const secIssued = ingList.filter(ing=>issuedItems[sec+"_"+ing.name]).length;
               const allDone = secIssued===ingList.length;

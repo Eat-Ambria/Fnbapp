@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr } from '../utils/helpers.js';
-import { getCatIdForDish, getCatForDish, RECIPE_INGREDIENTS, RECIPE_DB, getFullSteps, getStepsForDish, fmtT } from '../data/recipeData.js';
+import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -382,25 +382,28 @@ function EventDayTab({
 
                           {/* Ingredient list (before & during store collection) */}
                           {!storeDone && (() => {
-                            const ing = RECIPE_INGREDIENTS[dish.name];
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             const pax = evObj ? +evObj.pax : 0;
+                            if (pax <= 0) return null;
+                            const ing = getIngrForDish(dish.name, pax);
+                            if (!ing || ing.length === 0) return null;
+                            const isNew = ing[0]?._newFmt;
                             const eff = effectiveScales[dish.fEvId];
-                            const pct = eff?.percent || (pax > 0 ? Math.round(pax / 1100 * 100) : 100);
                             const isOverridden = eff?.isOverride || false;
-                            if (!ing || pax <= 0) return null;
                             return (
                               <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.border}` }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 5 }}>
-                                  🧺 {T2("Items to collect")} — {pax} pax @ {pct}%
-                                  {isOverridden
-                                    ? <span style={{ fontSize: 10, color: C.amber, marginLeft: 6 }}>⚙️ {T2("override")}</span>
-                                    : <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>{T2("auto-scaled")}</span>
+                                  🧺 {T2("Items to collect")} — {pax} pax
+                                  {isNew
+                                    ? <span style={{ fontSize: 10, color: C.green, marginLeft: 6 }}>📊 {T2("scaled from DB")}</span>
+                                    : isOverridden
+                                      ? <span style={{ fontSize: 10, color: C.amber, marginLeft: 6 }}>⚙️ {T2("override")}</span>
+                                      : <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>{T2("auto-scaled")}</span>
                                   }
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
                                   {ing.filter(i => i.q > 0).map((i, ii) => {
-                                    const raw = i.q * pax * (pct / 100);
+                                    const raw = isNew ? i.q : i.q * pax;
                                     const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
                                       i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
                                         i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;

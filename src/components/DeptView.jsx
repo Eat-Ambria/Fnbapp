@@ -1,6 +1,6 @@
 // Ambria FnB — Department View / Selector
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTIONS, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
@@ -8,6 +8,7 @@ import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
 import { canAccessScreen } from '../data/permissions.js';
 import { dbUpsert } from '../lib/db.js';
+import { RECIPE_DB } from '../data/recipeData.js';
 import { KioskAttendance } from './KioskAttendance.jsx';
 import { guessSectionForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
 
@@ -41,11 +42,14 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const todayEvs = safeArr(events).filter(e=>e.date===TODAY);
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
 
+  // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
+  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages').map(c=>c.name);
+
   // 6 Departments
   const DEPTS = [
     {id:"kitchen",name:"Kitchen",icon:"👨‍🍳",color:"#D4A843",bg:"#1E1A10",
       desc:"Food preparation across all sections",descHi:"सभी विभागों में भोजन तैयारी",
-      sections:SECTIONS, staffFilter:s=>SECTIONS.includes(s.section)},
+      sections:KITCHEN_SECTIONS, staffFilter:s=>KITCHEN_SECTIONS.includes(s.section)},
     {id:"service",name:"Service",icon:"🍽️",color:"#5B8FD0",bg:"#EEF4FD",
       desc:"Guest service, table setup, event coordination",descHi:"अतिथि सेवा, टेबल सेटअप, इवेंट समन्वय",
       sections:["Service"], staffFilter:s=>s.section==="Service"},
@@ -181,7 +185,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const dept = DEPTS.find(d=>d.id===selDept)||DEPTS[0];
 
   // Kitchen section staff
-  const kitchenStaff = STAFF_LIST.filter(s=>SECTIONS.includes(s.section));
+  const kitchenStaff = STAFF_LIST.filter(s=>KITCHEN_SECTIONS.includes(s.section));
   const bevStaff = STAFF_LIST.filter(s=>s.section==="Beverages");
   const odcEvs = todayEvs.filter(e=>(e.venue||"").includes("ODC"));
   const tomorrowOdc = tomorrowEvs.filter(e=>(e.venue||"").includes("ODC"));

@@ -4,7 +4,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, interpolatePax, hasIngredients } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -110,39 +110,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngDirty(true);
   }
   // ── Bridge: resolve ingredients for any dish (new JSONB → old format fallback) ──
-  function getIngrForDish(dishName, targetPax) {
-    const rec = findRecipeForDish(dishName);
-    if (rec?.ingredients?.items?.length > 0 && rec.ingredients.pax_sizes?.length > 0) {
-      const sizes = rec.ingredients.pax_sizes;
-      const items = rec.ingredients.items;
-      return items.map(it => {
-        const qty = interpolatePax(it.qty, sizes, targetPax);
-        return { n: it.name, h: it.hindi || "", q: qty, u: it.unit || "kg", _newFmt: true };
-      });
-    }
-    return RECIPE_INGREDIENTS[dishName] || null;
-  }
-  function interpolatePax(qtyArr, sizes, targetPax) {
-    if (!qtyArr || !sizes || sizes.length === 0) return 0;
-    if (sizes.length === 1) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
-    if (targetPax <= sizes[0]) return (targetPax / sizes[0]) * (qtyArr[0] || 0);
-    if (targetPax >= sizes[sizes.length - 1]) {
-      const last = sizes.length - 1;
-      return (targetPax / sizes[last]) * (qtyArr[last] || 0);
-    }
-    for (let i = 0; i < sizes.length - 1; i++) {
-      if (targetPax >= sizes[i] && targetPax <= sizes[i + 1]) {
-        const ratio = (targetPax - sizes[i]) / (sizes[i + 1] - sizes[i]);
-        return (qtyArr[i] || 0) + ratio * ((qtyArr[i + 1] || 0) - (qtyArr[i] || 0));
-      }
-    }
-    return qtyArr[0] || 0;
-  }
-  function hasIngredients(dishName) {
-    const rec = findRecipeForDish(dishName);
-    if (rec?.ingredients?.items?.length > 0) return true;
-    return !!RECIPE_INGREDIENTS[dishName];
-  }
+  
   function findRecipeAndCat(dishName) {
     if (!dishName) return null;
     for (const cat of safeArr(RECIPE_DB.cats)) {
@@ -231,17 +199,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const nameUnchanged=sopModal.origName===recObj.n&&sopModal.catId===f.catId;
         if(nameUnchanged){
           // Same name+category → UPDATE in place, ingredients untouched
-          sb.from('recipes').update({sub:recObj.sub,steps:JSON.stringify(recObj.steps)}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
+          sb.from('recipes').update({sub:recObj.sub,steps:recObj.steps}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
         }else{
           // Name or category changed → fetch ingredients, then delete+insert with them
           sb.from('recipes').select('ingredients').eq('dish_name',sopModal.origName).single().then(({data})=>{
             sb.from('recipes').delete().eq('dish_name',sopModal.origName).then(()=>{
-              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:JSON.stringify(recObj.steps),ingredients:data?.ingredients||null}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (renamed)');});
+              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,ingredients:data?.ingredients||null}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (renamed)');});
             });
           });
         }
       }else{
-        sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:JSON.stringify(recObj.steps)}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
+        sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
       }
     }).catch(e=>console.error('SOP supabase err:',e));
     setSopModal(null);setSopRecipe(recObj);
