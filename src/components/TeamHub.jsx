@@ -1,11 +1,13 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
+import { supabase } from '../lib/supabase.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
+import { supabase } from '../lib/supabase.js';
 import { hasPermission } from '../data/permissions.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 
@@ -31,6 +33,16 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [newStaffForm,setNewStaffForm] = useState({name:"",section:"Beverages",role:"staff"});
   const [dirSearch,setDirSearch] = useState("");
   const [dirFilter,setDirFilter] = useState("All");
+  const [histDate,setHistDate]   = useState("");
+  const [histData,setHistData]   = useState(null);
+  const [histLoading,setHistLoading] = useState(false);
+  function fetchHistory(date){
+    if(!date||!supabase){setHistData(null);return;}
+    setHistLoading(true);
+    supabase.from('attendance').select('*').eq('date',date).order('in_time',{ascending:true})
+      .then(function(res){setHistData(res.data||[]);setHistLoading(false);})
+      .catch(function(){setHistData([]);setHistLoading(false);});
+  }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);
   const [selEmp,setSelEmp]       = useState(null);
@@ -307,11 +319,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                   {staffAtt.length} staff · {vendorAtt.length} vendor{vendorAtt.length!==1?'s':''} today
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
-                  <div style={{background:'#0A2010',borderRadius:10,padding:'10px',textAlign:'center',border:'1px solid #1A4828'}}>
+                  <div style={{background:C.greenBg,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.greenBorder}`}}>
                     <div style={{fontSize:20,fontWeight:700,color:C.green}}>{currentlyIn}</div>
                     <div style={{fontSize:10,color:C.green}}>Currently IN</div>
                   </div>
-                  <div style={{background:'#200810',borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.redBorder}`}}>
+                  <div style={{background:C.redBg,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.redBorder}`}}>
                     <div style={{fontSize:20,fontWeight:700,color:C.red}}>{punchedOut}</div>
                     <div style={{fontSize:10,color:C.red}}>Punched OUT</div>
                   </div>
@@ -362,19 +374,19 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                       var timeColor = a.in_time ? C.green : C.red;
                       return (
                         <div key={a.id||a.staff_id+i} style={{display:'flex',gap:12,alignItems:'flex-start',
-                          padding:'10px 14px',marginBottom:6,background:'#141018',
-                          borderRadius:10,border:'1px solid #2A1F30'}}>
+                          padding:'10px 14px',marginBottom:6,background:C.purpleBg,
+                          borderRadius:10,border:`1px solid ${C.purpleBorder}`}}>
                           <div style={{flexShrink:0}}>
                             {a.photo
-                              ? <img src={a.photo} style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:'2px solid #9060C8'}}/>
-                              : <div style={{width:36,height:36,borderRadius:'50%',background:'#2A1F30',
+                              ? <img src={a.photo} style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:`2px solid ${C.purple}`}}/>
+                              : <div style={{width:36,height:36,borderRadius:'50%',background:C.purpleBg,
                                   display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏢</div>}
                           </div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:13,fontWeight:700,color:C.text}}>
                               {a.staff_name||'Unknown'}
                             </div>
-                            <div style={{fontSize:11,color:'#9060C8',fontWeight:600}}>
+                            <div style={{fontSize:11,color:C.purple,fontWeight:600}}>
                               {a.vendor_company||''}
                               {a.vendor_purpose?' · '+a.vendor_purpose:''}
                             </div>
@@ -400,6 +412,59 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               </div>
             );
           })()}
+
+          {/* ── ATTENDANCE HISTORY ── */}
+          {(currentUser?.role==='admin'||currentUser?.role==='head_chef')&&(
+            <div style={{marginTop:20}}>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:'var(--font-display)',marginBottom:8}}>📅 Attendance History</div>
+              <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}>
+                <input type="date" value={histDate} max={TODAY} onChange={function(e){setHistDate(e.target.value);fetchHistory(e.target.value);}}
+                  style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/>
+                {histDate&&<button onClick={function(){setHistDate('');setHistData(null);}}
+                  style={{padding:'6px 14px',borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,fontSize:11,cursor:'pointer'}}>Clear</button>}
+              </div>
+              {histLoading&&<div style={{padding:16,textAlign:'center',color:C.muted,fontSize:12}}>Loading…</div>}
+              {histData&&!histLoading&&(
+                histData.length===0
+                  ?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12,background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>No attendance records for {histDate}</div>
+                  :<div>
+                    <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{histData.filter(function(a){return !a.is_vendor&&a.dept!=='vendor';}).length} staff · {histData.filter(function(a){return a.is_vendor||a.dept==='vendor';}).length} vendors on {histDate}</div>
+                    {histData.filter(function(a){return !a.is_vendor&&a.dept!=='vendor';}).map(function(a,i){
+                      return(
+                        <div key={a.id||i} style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',marginBottom:4,background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>
+                          <Avatar name={a.staff_name||'?'} size={32} index={i}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{a.staff_name||a.staff_id}</div>
+                            <div style={{fontSize:11,color:C.muted}}>{a.section||''}{a.venue?' · '+a.venue:''}</div>
+                          </div>
+                          <div style={{textAlign:'right',flexShrink:0}}>
+                            <div style={{fontSize:12,color:C.green,fontWeight:700}}>IN: {a.in_time||'—'}</div>
+                            {a.out_time?<div style={{fontSize:12,color:C.red,fontWeight:700}}>OUT: {a.out_time}</div>:<div style={{fontSize:11,color:C.amber}}>No OUT</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {histData.filter(function(a){return a.is_vendor||a.dept==='vendor';}).length>0&&(
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:11,fontWeight:700,color:C.purple,textTransform:'uppercase',marginBottom:6}}>🏢 Vendors ({histData.filter(function(a){return a.is_vendor||a.dept==='vendor';}).length})</div>
+                        {histData.filter(function(a){return a.is_vendor||a.dept==='vendor';}).map(function(a,i){
+                          return(
+                            <div key={a.id||'v'+i} style={{display:'flex',gap:12,alignItems:'center',padding:'8px 14px',marginBottom:4,background:C.purpleBg,borderRadius:10,border:`1px solid ${C.purpleBorder}`}}>
+                              <div style={{width:32,height:32,borderRadius:'50%',background:C.purpleBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🏢</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:13,fontWeight:600,color:C.text}}>{a.staff_name||'Unknown'}</div>
+                                <div style={{fontSize:11,color:C.purple}}>{a.vendor_company||''}{a.vendor_purpose?' · '+a.vendor_purpose:''}</div>
+                              </div>
+                              <div style={{fontSize:12,color:a.in_time?C.green:C.red,fontWeight:700}}>{a.in_time?'IN: '+a.in_time:''}{a.out_time?' · OUT: '+a.out_time:''}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

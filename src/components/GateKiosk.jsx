@@ -439,7 +439,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           photo ?
             React.createElement('div',{style:{display:'flex',gap:12,alignItems:'center'}},
               React.createElement('img',{src:photo,style:{width:80,height:80,
-                borderRadius:12,objectFit:'cover',border:'2px solid #D4B44A'}}),
+                borderRadius:12,objectFit:'cover',border:'2px solid '+C.gold}}),
               React.createElement('button',{
                 onClick:function(){photoRef.current&&photoRef.current.click();},
                 style:{padding:'8px 16px',borderRadius:10,background:C.bg,
@@ -460,7 +460,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             disabled:!canSubmitIn,
             style:{flex:1,padding:'16px',borderRadius:12,fontSize:16,fontWeight:700,
               cursor:canSubmitIn?'pointer':'not-allowed',minHeight:56,
-              background:canSubmitIn?'linear-gradient(135deg,#3EAA68,#1A5030)':'#333',
+              background:canSubmitIn?'linear-gradient(135deg,'+C.green+',#147A54)':C.border,
               color:canSubmitIn?'#fff':'#666',border:'none'}
           },'✅ VENDOR IN'),
           React.createElement('button',{
@@ -468,7 +468,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             disabled:!canSubmitOut,
             style:{flex:1,padding:'16px',borderRadius:12,fontSize:16,fontWeight:700,
               cursor:canSubmitOut?'pointer':'not-allowed',minHeight:56,
-              background:canSubmitOut?'linear-gradient(135deg,#D04040,#8A1010)':'#333',
+              background:canSubmitOut?'linear-gradient(135deg,'+C.red+',#8A1010)':C.border,
               color:canSubmitOut?'#fff':'#666',border:'none'}
           },'🚪 VENDOR OUT')
         )
@@ -494,13 +494,13 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         )
       : punchedIn3
         ? React.createElement('div',null,
-            React.createElement('div',{style:{fontSize:13,color:'#3EAA68',marginBottom:10,fontWeight:700}},
+            React.createElement('div',{style:{fontSize:13,color:C.green,marginBottom:10,fontWeight:700}},
               '✅ Punched IN at '+todayRec3.in_time),
             React.createElement('button',{
               onClick:function(){handlePunch('OUT');},
               style:{padding:'18px 50px',borderRadius:14,fontSize:18,fontWeight:700,
                 cursor:'pointer',minHeight:64,width:'100%',maxWidth:320,
-                background:'linear-gradient(135deg,#D04040,#8A1010)',
+                background:'linear-gradient(135deg,'+C.red+',#8A1010)',
                 color:'#fff',border:'none'}
             },'🚪 PUNCH OUT')
           )
@@ -521,7 +521,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       photo ? React.createElement('div',{style:{marginBottom:16}},
         React.createElement('img',{src:photo,style:{width:140,height:140,
           borderRadius:20,objectFit:'cover',border:'3px solid '+C.wine}}),
-        React.createElement('div',{style:{fontSize:11,color:'#3EAA68',marginTop:6,fontWeight:700}},
+        React.createElement('div',{style:{fontSize:11,color:C.green,marginTop:6,fontWeight:700}},
           '✅ Selfie captured')
       ) : null,
       React.createElement('div',{style:{marginBottom:20}},
@@ -540,7 +540,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       ),
       photo
         ? React.createElement('div',{style:{marginTop:8}}, punchEl)
-        : React.createElement('div',{style:{fontSize:12,color:'#D4914A',marginTop:8}},
+        : React.createElement('div',{style:{fontSize:12,color:C.amber,marginTop:8}},
             '⚠️ Take selfie first to enable punch button'),
       React.createElement('button',{
         onClick:function(){setStep('name');setSelStaff(null);setPhoto(null);},

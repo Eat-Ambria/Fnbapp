@@ -295,51 +295,51 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍳 Dishes Ready for Dispatch</div>
             <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Live feed from Kitchen Hub — dishes marked ready by chefs</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:16}}>
-              <div style={{background:'#28150840',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #4A281040'}}>
-                <div style={{fontSize:24,fontWeight:800,color:'#D4914A'}}>{readyDishes.length}</div>
-                <div style={{fontSize:10,color:'#D4914A',fontWeight:600}}>Ready to Load</div>
+              <div style={{background:C.amberBg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.amberBorder}`}}>
+                <div style={{fontSize:24,fontWeight:800,color:C.amber}}>{readyDishes.length}</div>
+                <div style={{fontSize:10,color:C.amber,fontWeight:600}}>Ready to Load</div>
               </div>
-              <div style={{background:'#0A201040',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #1A482840'}}>
-                <div style={{fontSize:24,fontWeight:800,color:'#3EAA68'}}>{dispatchedDishes.length}</div>
-                <div style={{fontSize:10,color:'#3EAA68',fontWeight:600}}>Dispatch Marked</div>
+              <div style={{background:C.greenBg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.greenBorder}`}}>
+                <div style={{fontSize:24,fontWeight:800,color:C.green}}>{dispatchedDishes.length}</div>
+                <div style={{fontSize:10,color:C.green,fontWeight:600}}>Dispatch Marked</div>
               </div>
-              <div style={{background:'#1A171440',borderRadius:10,padding:12,textAlign:'center',border:'1px solid #2A252040'}}>
-                <div style={{fontSize:24,fontWeight:800,color:'#7A6F62'}}>{Math.max(0,totalDishes-readyDishes.length-dispatchedDishes.length)}</div>
-                <div style={{fontSize:10,color:'#7A6F62',fontWeight:600}}>Still Cooking</div>
+              <div style={{background:C.bg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:24,fontWeight:800,color:C.muted}}>{Math.max(0,totalDishes-readyDishes.length-dispatchedDishes.length)}</div>
+                <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Still Cooking</div>
               </div>
             </div>
             {readyDishes.length>0&&(
               <div style={{marginBottom:20}}>
-                <div style={{fontSize:13,fontWeight:700,color:'#D4914A',marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>⏳ Ready — Waiting for Transport</div>
+                <div style={{fontSize:13,fontWeight:700,color:C.amber,marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>⏳ Ready — Waiting for Transport</div>
                 {readyDishes.map(function(d,i){return(
-                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:'#28150820',borderRadius:10,border:'1px solid #4A281040'}}>
-                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:'2px solid #D4B44A'}}/>:<div style={{width:44,height:44,borderRadius:10,background:'#2A2520',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🍽</div>}
+                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:C.amberBg,borderRadius:10,border:`1px solid ${C.amberBorder}`}}>
+                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:`2px solid ${C.gold}`}}/>:<div style={{width:44,height:44,borderRadius:10,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🍽</div>}
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:'#F5F0E8'}}>{d.name}</div>
-                      <div style={{fontSize:11,color:'#7A6F62'}}>{d.ev.venue+' · '+d.ev.pax+' pax · By '+(d.data.completedBy||'Chef')+' at '+(d.data.completedAt||'')}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{d.name}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{d.ev.venue+' · '+d.ev.pax+' pax · By '+(d.data.completedBy||'Chef')+' at '+(d.data.completedAt||'')}</div>
                     </div>
-                    <div style={{padding:'6px 12px',borderRadius:8,background:'#D4914A20',border:'1px solid #D4914A40',fontSize:11,color:'#D4914A',fontWeight:700}}>Ready</div>
+                    <div style={{padding:'6px 12px',borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,fontWeight:700}}>Ready</div>
                   </div>
                 );})}
               </div>
             )}
             {dispatchedDishes.length>0&&(
               <div style={{marginBottom:20}}>
-                <div style={{fontSize:13,fontWeight:700,color:'#3EAA68',marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>🚛 Dispatch Marked</div>
+                <div style={{fontSize:13,fontWeight:700,color:C.green,marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>🚛 Dispatch Marked</div>
                 {dispatchedDishes.map(function(d,i){return(
-                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:'#0A201040',borderRadius:10,border:'1px solid #1A482840'}}>
-                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:'2px solid #3EAA68'}}/>:<div style={{width:44,height:44,borderRadius:10,background:'#0A2010',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>✅</div>}
+                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:C.greenBg,borderRadius:10,border:`1px solid ${C.greenBorder}`}}>
+                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:`2px solid ${C.green}`}}/>:<div style={{width:44,height:44,borderRadius:10,background:C.greenBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>✅</div>}
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:'#F5F0E8'}}>{d.name}</div>
-                      <div style={{fontSize:11,color:'#7A6F62'}}>{d.ev.venue+' · By '+(d.data.dispatchMarkedBy||'Chef')+' at '+(d.data.dispatchMarkedAt||'')}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{d.name}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{d.ev.venue+' · By '+(d.data.dispatchMarkedBy||'Chef')+' at '+(d.data.dispatchMarkedAt||'')}</div>
                     </div>
-                    <div style={{padding:'6px 12px',borderRadius:8,background:'#3EAA6820',border:'1px solid #3EAA6840',fontSize:11,color:'#3EAA68',fontWeight:700}}>🚛 Dispatched</div>
+                    <div style={{padding:'6px 12px',borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:11,color:C.green,fontWeight:700}}>🚛 Dispatched</div>
                   </div>
                 );})}
               </div>
             )}
             {readyDishes.length===0&&dispatchedDishes.length===0&&(
-              <div style={{textAlign:'center',padding:'40px 20px',color:'#7A6F62'}}>
+              <div style={{textAlign:'center',padding:'40px 20px',color:C.muted}}>
                 <div style={{fontSize:36,marginBottom:8}}>🍳</div>
                 <div style={{fontSize:14}}>No dishes ready for dispatch yet</div>
                 <div style={{fontSize:12,marginTop:4}}>Dishes will appear here when chefs mark them as ready in Kitchen Hub</div>
