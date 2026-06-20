@@ -55,6 +55,7 @@ export default function App() {
   const [lang,setLang]               = useState("en");
   const [repairs,setRepairs]         = useState([]);
   const [allocRules,setAllocRules]   = useState({});
+  const [dbChecklists,setDbChecklists] = useState({});
   const T2 = s => T(s, lang);
 
   // ── PWA auto-update ──
@@ -206,6 +207,7 @@ export default function App() {
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
+        if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
 
       const [staffData, eventsData, attData, lvData, repairData, ktData, tqData] = await Promise.all([
