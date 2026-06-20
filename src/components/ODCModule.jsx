@@ -411,7 +411,8 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
                   {editItems.map((it, idx) => (
                     <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${C.borderLight}`,minHeight:44}}>
                       <span style={{fontSize:12,color:C.faint,width:22,textAlign:"center",flexShrink:0}}>{idx+1}</span>
-                      <span style={{fontSize:13,color:C.text,flex:1}}>{it.label}</span>
+                      <input value={it.label} onChange={e => { const v=e.target.value; setEditItems(prev => prev.map((x,i) => i===idx ? {...x, label:v} : x)); }}
+                        style={{fontSize:13,color:C.text,flex:1,border:"none",borderBottom:`1px dashed ${C.border}`,background:"transparent",padding:"2px 0",outline:"none",fontFamily:"inherit"}}/>
                       <button onClick={() => moveEditItem(idx,-1)} disabled={idx===0} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===0?C.faint:C.muted,cursor:idx===0?"not-allowed":"pointer"}}>▲</button>
                       <button onClick={() => moveEditItem(idx,1)} disabled={idx===editItems.length-1} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,background:C.surface,color:idx===editItems.length-1?C.faint:C.muted,cursor:idx===editItems.length-1?"not-allowed":"pointer"}}>▼</button>
                       <button onClick={() => removeEditItem(it.id)} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,cursor:"pointer"}}>✕</button>
