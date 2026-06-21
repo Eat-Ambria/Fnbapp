@@ -693,9 +693,7 @@ export default function App() {
             <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
           </div>
-          <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:12,padding:"10px 16px",cursor:"pointer",fontWeight:600,minHeight:42,letterSpacing:.3}}>
-            {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
-          </button>
+          
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"28px 32px",scrollBehavior:"smooth"}}>
           <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
