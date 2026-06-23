@@ -317,7 +317,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const ms = !search.trim() || i.name.toLowerCase().includes(search.toLowerCase()) || (i.h || "").includes(search) || (i.inventoryId || "").toLowerCase().includes(search.toLowerCase()) || (i.brand || "").toLowerCase().includes(search.toLowerCase());
     const mv = venueFil === "All" || (i.venues || []).some(v => v.venueName === venueFil);
     const mst = stockFil === "all" ? true
-      : stockFil === "instock" ? i.available > 0
+      : stockFil === "instock" ? (i.available > 0 && (i.reorderQty <= 0 || i.available > i.reorderQty))
       : stockFil === "low" ? (i.available > 0 && i.reorderQty > 0 && i.available <= i.reorderQty)
       : stockFil === "out" ? i.available <= 0
       : true;
