@@ -20,11 +20,11 @@ const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 
 /* Venue → color mapping for stock bars */
 const VENUE_COLORS = {
-  AP: { bar: "#BA7517", text: "#854F0B", label: "AP" },
-  AE: { bar: "#378ADD", text: "#185FA5", label: "AE" },
-  AM: { bar: "#7F77DD", text: "#3C3489", label: "AM" },
+  AP: { bar: "#BA7517", bg: "#FAEEDA", text: "#854F0B", label: "AP" },
+  AE: { bar: "#378ADD", bg: "#E6F1FB", text: "#0C447C", label: "AE" },
+  AM: { bar: "#7F77DD", bg: "#EEEDFE", text: "#3C3489", label: "AM" },
 };
-function venueColor(code) { return VENUE_COLORS[code] || { bar: "#8E8678", text: "#5F5E5A", label: code || "?" }; }
+function venueColor(code) { return VENUE_COLORS[code] || { bar: "#8E8678", bg: "#F1EFE8", text: "#5F5E5A", label: code || "?" }; }
 
 /* Category → dot color (stable per catCode) */
 const CAT_DOT_COLORS = {
@@ -514,7 +514,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   const low = item.available > 0 && hasReorder && item.available <= item.reorderQty;
                   const out = item.available <= 0;
                   const sc = out ? C.red : low ? C.amber : C.green;
-                  const maxVQ = Math.max(...(item.venues||[]).map(v=>v.qty),1);
                   return (
                     <tr key={item.id} style={{borderBottom:`1px solid ${C.borderLight}`,background:out?C.redBg+"60":"transparent"}}>
                       {/* Item */}
@@ -534,27 +533,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           {item.cat}
                         </span>
                       </td>
-                      {/* Venue stock bars */}
+                      {/* Venue stock chips */}
                       <td style={{padding:"10px 14px",verticalAlign:"top"}}>
-                        {item.venues.length > 0 ? <>
-                          <div style={{display:"flex",gap:2,alignItems:"flex-end",height:20}}>
+                        {item.venues.length > 0 ? (
+                          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                             {item.venues.map(v=>{
                               const vc = venueColor(v.venueCode);
-                              const h = Math.max(20, Math.round((v.qty/maxVQ)*100));
-                              return <div key={v.venueId} title={`${vc.label}: ${v.qty}`}
-                                style={{flex:v.qty,background:vc.bar,borderRadius:2,minWidth:4,height:h+"%",opacity:.8}}/>;
+                              return <span key={v.venueId} style={{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:vc.bg,color:vc.text}}>{vc.label} {v.qty}</span>;
                             })}
                           </div>
-                          <div style={{display:"flex",gap:6,marginTop:3}}>
-                            {item.venues.map(v=>{
-                              const vc = venueColor(v.venueCode);
-                              return <span key={v.venueId} style={{fontSize:10,color:vc.text}}>{vc.label} {v.qty}</span>;
-                            })}
-                          </div>
-                        </> : (
-                          <div style={{height:20,display:"flex",alignItems:"flex-end"}}>
-                            <div style={{flex:1,border:`1px dashed ${C.borderLight}`,borderRadius:2,height:"100%",opacity:.4}}/>
-                          </div>
+                        ) : (
+                          <span style={{fontSize:11,color:C.faint}}>—</span>
                         )}
                       </td>
                       {/* Total */}
