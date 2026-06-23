@@ -34,9 +34,7 @@ function transformOpsItem(it) {
     qty: +(it.qty || 0),
     blocked: 0,
     available: +(it.qty || 0),
-    ratePaise: it.rate_paise || 0,
-    reorderQty: +(it.reorder_qty || 0),
-    minOrderQty: +(it.min_order_qty || 0),
+    reorderQty: +(it.season_reorder_qty || it.off_season_reorder_qty || 0),
     imgPath: it.image_path || "",
     desc: it.description || "",
     venues: (it.cs_venue_allocations || []).map(va => ({
@@ -52,7 +50,7 @@ function transformOpsItem(it) {
 /* Fetch all approved catering store items with joins */
 async function fetchOpsCateringItems() {
   if (!opsSupabase) return [];
-  const SELECT = "id,inventory_id,name,name_hindi,qty,unit,brand,pack_size_qty,pack_size_unit,category_id,rate_paise,min_order_qty,reorder_qty,image_path,description,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
+  const SELECT = "id,inventory_id,name,name_hindi,qty,unit,brand,pack_size_qty,pack_size_unit,category_id,season_reorder_qty,off_season_reorder_qty,image_path,description,status,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
   let all = [], from = 0, PAGE = 1000;
   while (true) {
     const { data, error } = await opsSupabase
