@@ -99,4 +99,9 @@ function hydrateConstants(config) {
   if (config.vendorCategories && config.vendorCategories.length) VENDOR_CATEGORIES = config.vendorCategories;
 }
 
-export { C, AVATAR_COLORS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants };
+/* ── Ambria Ops Inventory (separate Supabase project for decor/catering inventory) ── */
+const OPS_SUPABASE_URL = import.meta.env.VITE_OPS_SUPABASE_URL || "";
+const OPS_SUPABASE_KEY = import.meta.env.VITE_OPS_SUPABASE_ANON_KEY || "";
+const OPS_IMG_BASE = OPS_SUPABASE_URL ? OPS_SUPABASE_URL + "/storage/v1/object/public/images/" : "";
+
+export { C, AVATAR_COLORS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE };
