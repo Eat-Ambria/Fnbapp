@@ -95,6 +95,7 @@ function transformRecipes(rows) {
       sub: r.sub || '',
       steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
       ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),
+      yield: r.yield && typeof r.yield === 'string' ? JSON.parse(r.yield) : (r.yield || null),
     });
   });
   return byCat;

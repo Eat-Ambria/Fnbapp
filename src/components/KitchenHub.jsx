@@ -159,6 +159,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [tick, setTick] = useState(0);
   const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
 
+  // ── Yield editing ──
+  const YIELD_UNITS = ["kg","gm","ltr","ml","piece","chafing dish"];
+  const [editingYield, setEditingYield] = useState(false);
+  const [yieldForm, setYieldForm] = useState([]);
+
   // ── SOP Add/Edit Modal ──
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
   const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
@@ -1521,6 +1526,67 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>
+                {/* ── Yield table ── */}
+                {(()=>{
+                  const PAX_SIZES = sopRecipe.ingredients?.pax_sizes || [200,500,1000];
+                  const yData = sopRecipe.yield || [];
+                  const hasYield = yData.length > 0;
+                  if (editingYield) {
+                    return (
+                      <div style={{margin:"10px 0",padding:"12px 14px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <span style={{fontSize:12,fontWeight:700,color:C.amber}}>📦 Yield per pax</span>
+                          <div style={{display:"flex",gap:6}}>
+                            <button onClick={()=>setEditingYield(false)} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer"}}>Cancel</button>
+                            <button onClick={()=>{
+                              const cleaned = yieldForm.filter(y => y.qty > 0);
+                              import('../lib/supabase.js').then(mod => {
+                                const sb = mod.supabase; if (!sb) return;
+                                sb.from('recipes').update({ yield: cleaned }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
+                                  if (r.error) console.error('Yield save err:', r.error);
+                                  else { setSopRecipe(p => ({...p, yield: cleaned})); console.log('✅ Yield saved'); }
+                                });
+                              });
+                              setEditingYield(false);
+                            }} style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
+                          </div>
+                        </div>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead><tr style={{borderBottom:`1.5px solid ${C.border}`}}>
+                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Pax</th>
+                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Quantity</th>
+                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Unit</th>
+                          </tr></thead>
+                          <tbody>{yieldForm.map((y,i) => (
+                            <tr key={y.pax} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+                              <td style={{padding:"6px 8px",fontWeight:600,color:C.text}}>{y.pax}</td>
+                              <td style={{padding:"4px 8px"}}><input type="number" value={y.qty||""} onChange={e=>setYieldForm(p=>p.map((r,j)=>j===i?{...r,qty:parseFloat(e.target.value)||0}:r))} style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/></td>
+                              <td style={{padding:"4px 8px"}}><select value={y.unit||"kg"} onChange={e=>setYieldForm(p=>p.map((r,j)=>j===i?{...r,unit:e.target.value}:r))} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
+                                {YIELD_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
+                              </select></td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 0"}}>
+                      {hasYield ? (
+                        <span style={{fontSize:11,color:C.muted}}>📦 Yield: {yData.map(y => y.pax+"pax → "+y.qty+" "+y.unit).join(" · ")}</span>
+                      ) : (
+                        <span style={{fontSize:11,color:C.faint}}>📦 No yield data</span>
+                      )}
+                      {currentUser?.role==='admin' && !editingSteps && (
+                        <button onClick={()=>{
+                          const PAX = sopRecipe.ingredients?.pax_sizes || [200,500,1000];
+                          setYieldForm(PAX.map(p => {const existing = yData.find(y=>y.pax===p); return existing ? {...existing} : {pax:p,qty:0,unit:"kg"};}));
+                          setEditingYield(true);
+                        }} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer"}}>{hasYield?"✏️ Edit":"+ Add"}</button>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Ingredient count + Edit button */}
                 {(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
