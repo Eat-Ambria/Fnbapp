@@ -18,6 +18,22 @@ const opsSupabase = (OPS_SUPABASE_URL && OPS_SUPABASE_KEY)
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 
+/* Venue → color mapping for stock bars */
+const VENUE_COLORS = {
+  AP: { bar: "#BA7517", text: "#854F0B", label: "AP" },
+  AE: { bar: "#378ADD", text: "#185FA5", label: "AE" },
+  AM: { bar: "#7F77DD", text: "#3C3489", label: "AM" },
+};
+function venueColor(code) { return VENUE_COLORS[code] || { bar: "#8E8678", text: "#5F5E5A", label: code || "?" }; }
+
+/* Category → dot color (stable per catCode) */
+const CAT_DOT_COLORS = {
+  GRO: "#BA7517", BEV: "#378ADD", SPI: "#D85A30", BAK: "#7F77DD",
+  DAI: "#1D9E75", DRY: "#8E8678", FRV: "#1D9E75", FRF: "#D4537E",
+  EXO: "#D85A30", PMF: "#D64040", IMP: "#BA7517",
+};
+function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#8E8678"; }
+
 /* Transform raw Ops row into the shape our UI needs */
 function transformOpsItem(it) {
   return {
@@ -355,7 +371,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <div>
               <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
               <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={fld}>
-                {CATEGORIES.map(ct=><option key={ct}>{ct}</option>)}
+                {itemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
             {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Per Pax",k:"perPax",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
@@ -413,99 +429,170 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
           )}
 
-          {/* Search + filters row */}
           {items.length > 0 && <>
-          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:180,position:"relative"}}>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search items…")}
-                style={{width:"100%",padding:"12px 16px 12px 40px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:44}}/>
-              <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:15,color:C.muted,pointerEvents:"none"}}>🔍</span>
+          {/* Search */}
+          <div style={{marginBottom:12}}>
+            <div style={{position:"relative"}}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search items, SKU, brand…")}
+                style={{width:"100%",padding:"10px 16px 10px 38px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+              <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.muted,pointerEvents:"none"}}>🔍</span>
             </div>
-            <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={{padding:"10px 12px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:44,appearance:"auto"}}>
-              <option value="All">{T2("All Categories")} ({items.length})</option>
-              {itemCategories.map(ct=><option key={ct} value={ct}>{ct} ({items.filter(i=>i.cat===ct).length})</option>)}
-            </select>
-            {itemVenues.length > 1 && (
-              <select value={venueFil} onChange={e=>setVenueFil(e.target.value)} style={{padding:"10px 12px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:44,appearance:"auto"}}>
-                <option value="All">{T2("All Venues")}</option>
-                {itemVenues.map(v=><option key={v} value={v}>{v}</option>)}
-              </select>
-            )}
           </div>
 
-          {/* Quick stats — clickable to filter */}
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
+          {/* Stock status pills */}
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Stock:</span>
             {[
-              {k:"all",  l:T2("Total"),       v:filteredItems.length, c:C.text, bg:C.surface},
-              {k:"instock",l:T2("In Stock"),   v:filteredItems.filter(i=>i.available>0 && (i.reorderQty<=0 || i.available>i.reorderQty)).length, c:C.green, bg:C.greenBg},
-              {k:"low",  l:T2("Low Stock"),    v:filteredItems.filter(i=>i.available>0 && i.reorderQty>0 && i.available<=i.reorderQty).length, c:C.amber, bg:C.amberBg},
-              {k:"out",  l:T2("Out of Stock"), v:filteredItems.filter(i=>i.available<=0).length, c:C.red, bg:C.redBg},
+              {k:"all",   l:T2("All"),          v:items.length, c:C.text},
+              {k:"instock",l:T2("In stock"),     v:items.filter(i=>i.available>0 && (i.reorderQty<=0 || i.available>i.reorderQty)).length, c:C.green},
+              {k:"low",   l:T2("Low"),           v:items.filter(i=>i.available>0 && i.reorderQty>0 && i.available<=i.reorderQty).length, c:C.amber},
+              {k:"out",   l:T2("Out"),           v:items.filter(i=>i.available<=0).length, c:C.red},
             ].map(s=>(
-              <div key={s.k} onClick={()=>setStockFil(f=>f===s.k?"all":s.k)}
-                style={{flex:1,background:stockFil===s.k?s.c+"15":s.bg,borderRadius:10,padding:"8px 12px",textAlign:"center",cursor:"pointer",
-                  border:`1.5px solid ${stockFil===s.k?s.c:s.c+"20"}`,transition:"all .15s"}}>
-                <div style={{fontSize:16,fontWeight:700,color:s.c}}>{s.v}</div>
-                <div style={{fontSize:10,color:C.muted}}>{s.l}</div>
-              </div>
+              <button key={s.k} onClick={()=>setStockFil(f=>f===s.k?"all":s.k)}
+                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:stockFil===s.k?600:400,cursor:"pointer",
+                  background:stockFil===s.k?s.c+"15":"transparent",color:stockFil===s.k?s.c:C.muted,
+                  border:stockFil===s.k?`1.5px solid ${s.c}`:`1px solid ${C.border}`,transition:"all .15s"}}>
+                {s.k!=="all"&&<span style={{width:7,height:7,borderRadius:"50%",background:s.c}}/>}
+                {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
+              </button>
             ))}
           </div>
 
-          {/* Items list */}
-          <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            {filteredItems.map((item,idx)=>{
-              const hasReorder = item.reorderQty > 0;
-              const low = item.available > 0 && hasReorder && item.available <= item.reorderQty;
-              const out = item.available <= 0;
-              const sc = out ? C.red : low ? C.amber : C.green;
+          {/* Category pills */}
+          <div style={{display:"flex",gap:5,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Category:</span>
+            <button onClick={()=>setCatFil("All")}
+              style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil==="All"?600:400,cursor:"pointer",
+                background:catFil==="All"?C.surface:"transparent",color:catFil==="All"?C.text:C.muted,
+                border:catFil==="All"?`1.5px solid ${C.border}`:`1px solid ${C.borderLight}`}}>
+              All
+            </button>
+            {itemCategories.map(ct=>{
+              const code = items.find(i=>i.cat===ct)?.catCode||"";
+              const dot = catDotColor(code);
               return (
-                <div key={item.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:idx%2===0?C.surface:C.darkCard,borderRadius:12,border:`1px solid ${C.border}`,minHeight:52}}>
-                  {/* Status dot */}
-                  <div style={{width:8,height:8,borderRadius:"50%",background:sc,flexShrink:0,boxShadow:`0 0 6px ${sc}50`}}/>
-
-                  {/* Name + meta */}
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:500,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                      {item.name}
-                      {item.h && <span style={{fontSize:11,color:C.muted,marginLeft:6}}>({item.h})</span>}
-                    </div>
-                    <div style={{fontSize:11,color:C.faint,marginTop:1}}>
-                      {item.cat}
-                      {item.brand ? " · "+item.brand : ""}
-                      {item.packSize ? " · "+item.packSize : ""}
-                      {item.inventoryId ? <span style={{marginLeft:6,fontSize:10,color:C.muted,background:C.bg,padding:"1px 5px",borderRadius:4}}>{item.inventoryId}</span> : ""}
-                    </div>
-                    {/* Venue allocation chips */}
-                    {item.venues.length > 0 && (
-                      <div style={{display:"flex",gap:4,marginTop:4,flexWrap:"wrap"}}>
-                        {item.venues.map(v=>(
-                          <span key={v.venueId} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:C.bg,border:`1px solid ${C.borderLight}`,color:C.muted}}>
-                            {v.venueCode || v.venueName}: {v.qty}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Total qty + available */}
-                  <div style={{minWidth:80,textAlign:"right",flexShrink:0,padding:"6px 10px",borderRadius:8,background:sc+"10",border:`1px solid ${sc}20`}}>
-                    <div style={{fontSize:15,fontWeight:700,color:sc}}>{item.available}</div>
-                    <div style={{fontSize:10,color:C.muted}}>{item.unit}</div>
-                    {item.blocked > 0 && <div style={{fontSize:9,color:C.amber,marginTop:1}}>({item.blocked} blocked)</div>}
-                  </div>
-
-                  {/* Status badge */}
-                  <div style={{flexShrink:0,minWidth:44,textAlign:"center"}}>
-                    <span style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:8,background:out?C.redBg:low?C.amberBg:C.greenBg,color:sc,border:`1px solid ${sc}20`}}>
-                      {out ? T2("Out") : low ? T2("Low") : T2("OK")}
-                    </span>
-                  </div>
-                </div>
+                <button key={ct} onClick={()=>setCatFil(f=>f===ct?"All":ct)}
+                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil===ct?600:400,cursor:"pointer",
+                    background:catFil===ct?dot+"15":"transparent",color:catFil===ct?dot:C.muted,
+                    border:catFil===ct?`1.5px solid ${dot}`:`1px solid ${C.borderLight}`}}>
+                  <span style={{width:6,height:6,borderRadius:"50%",background:dot}}/>
+                  {ct}
+                </button>
               );
             })}
-            {filteredItems.length===0 && !loading && <div style={{textAlign:"center",padding:40,background:C.surface,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No items found.")}</div>}
+            {itemVenues.length > 1 && <>
+              <span style={{width:1,height:16,background:C.borderLight,margin:"0 4px"}}/>
+              <span style={{fontSize:11,color:C.muted,marginRight:2}}>Venue:</span>
+              <select value={venueFil} onChange={e=>setVenueFil(e.target.value)}
+                style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,appearance:"auto"}}>
+                <option value="All">All</option>
+                {itemVenues.map(v=><option key={v} value={v}>{v}</option>)}
+              </select>
+            </>}
           </div>
 
-          <div style={{marginTop:12,fontSize:11,color:C.faint,textAlign:"center"}}>{filteredItems.length} {T2("items")}{lastSync && " · Last sync "+lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</div>
+          {/* ── Table ── */}
+          <div style={{border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",fontSize:13}}>
+              <colgroup>
+                <col style={{width:"36%"}}/>
+                <col style={{width:"13%"}}/>
+                <col style={{width:"27%"}}/>
+                <col style={{width:"10%"}}/>
+                <col style={{width:"14%"}}/>
+              </colgroup>
+              <thead>
+                <tr style={{background:C.bg}}>
+                  {[{l:"Item",a:"left"},{l:"Category",a:"left"},{l:"Venue stock",a:"left"},{l:"Total",a:"right"},{l:"Status",a:"center"}].map(h=>(
+                    <th key={h.l} style={{textAlign:h.a,padding:"9px 14px",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,borderBottom:`1px solid ${C.border}`}}>{T2(h.l)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredItems.map((item,idx)=>{
+                  const hasReorder = item.reorderQty > 0;
+                  const low = item.available > 0 && hasReorder && item.available <= item.reorderQty;
+                  const out = item.available <= 0;
+                  const sc = out ? C.red : low ? C.amber : C.green;
+                  const maxVQ = Math.max(...(item.venues||[]).map(v=>v.qty),1);
+                  return (
+                    <tr key={item.id} style={{borderBottom:`1px solid ${C.borderLight}`,background:out?C.redBg+"60":"transparent"}}>
+                      {/* Item */}
+                      <td style={{padding:"10px 14px",verticalAlign:"top"}}>
+                        <div style={{fontSize:13,fontWeight:500,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
+                        {item.h&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{item.h}</div>}
+                        <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                          {item.brand?item.brand:""}
+                          {item.packSize?(item.brand?" · ":"")+item.packSize:""}
+                          {item.inventoryId&&<span style={{marginLeft:4,fontFamily:"monospace",fontSize:10,color:C.muted,background:C.bg,padding:"1px 5px",borderRadius:4}}>{item.inventoryId}</span>}
+                        </div>
+                      </td>
+                      {/* Category */}
+                      <td style={{padding:"10px 14px",verticalAlign:"top"}}>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:C.muted}}>
+                          <span style={{width:6,height:6,borderRadius:"50%",background:catDotColor(item.catCode),flexShrink:0}}/>
+                          {item.cat}
+                        </span>
+                      </td>
+                      {/* Venue stock bars */}
+                      <td style={{padding:"10px 14px",verticalAlign:"top"}}>
+                        {item.venues.length > 0 ? <>
+                          <div style={{display:"flex",gap:2,alignItems:"flex-end",height:20}}>
+                            {item.venues.map(v=>{
+                              const vc = venueColor(v.venueCode);
+                              const h = Math.max(20, Math.round((v.qty/maxVQ)*100));
+                              return <div key={v.venueId} title={`${vc.label}: ${v.qty}`}
+                                style={{flex:v.qty,background:vc.bar,borderRadius:2,minWidth:4,height:h+"%",opacity:.8}}/>;
+                            })}
+                          </div>
+                          <div style={{display:"flex",gap:6,marginTop:3}}>
+                            {item.venues.map(v=>{
+                              const vc = venueColor(v.venueCode);
+                              return <span key={v.venueId} style={{fontSize:10,color:vc.text}}>{vc.label} {v.qty}</span>;
+                            })}
+                          </div>
+                        </> : (
+                          <div style={{height:20,display:"flex",alignItems:"flex-end"}}>
+                            <div style={{flex:1,border:`1px dashed ${C.borderLight}`,borderRadius:2,height:"100%",opacity:.4}}/>
+                          </div>
+                        )}
+                      </td>
+                      {/* Total */}
+                      <td style={{padding:"10px 14px",textAlign:"right",verticalAlign:"top"}}>
+                        <div style={{fontSize:15,fontWeight:500,color:sc}}>{item.available}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{item.unit}</div>
+                      </td>
+                      {/* Status */}
+                      <td style={{padding:"10px 14px",textAlign:"center",verticalAlign:"top"}}>
+                        <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:500,
+                          background:out?C.redBg:low?C.amberBg:C.greenBg,color:sc}}>
+                          {out?T2("Out"):low?T2("Low"):T2("OK")}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredItems.length===0 && !loading && (
+              <div style={{textAlign:"center",padding:40,color:C.muted,fontSize:13}}>{T2("No items found.")}</div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,padding:"0 4px",fontSize:11,color:C.faint}}>
+            <span>{filteredItems.length} {T2("items")}</span>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <div style={{display:"flex",gap:6}}>
+                {Object.entries(VENUE_COLORS).map(([code,vc])=>(
+                  <span key={code} style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:10,color:C.muted}}>
+                    <span style={{width:8,height:8,borderRadius:2,background:vc.bar}}/> {vc.label}
+                  </span>
+                ))}
+              </div>
+              {lastSync && <span>🔄 Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>}
+            </div>
+          </div>
           </>}
         </div>
       )}
