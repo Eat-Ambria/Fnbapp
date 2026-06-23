@@ -59,7 +59,7 @@ function transformOpsItem(it) {
       venueCode: va.venues?.code || "",
       venueName: va.venues?.name || "",
     })).filter(v => v.qty > 0),
-    source: "ops",
+    source: "store",
   };
 }
 
@@ -84,6 +84,59 @@ async function fetchOpsCateringItems() {
   return all.map(transformOpsItem);
 }
 
+/* Transform raw Ops inventory_items row (equipment/crockery) into UI shape */
+function transformOpsEquipment(it) {
+  return {
+    _opsId: it.id,
+    id: "eq-" + it.id,
+    inventoryId: it.inventory_id || "",
+    name: it.name || "",
+    h: it.name_hindi || "",
+    cat: it.categories?.name || "Uncategorized",
+    catCode: it.categories?.code || "",
+    unit: it.unit || "Pieces",
+    brand: "",
+    packSize: "",
+    qty: +(it.qty || 0),
+    blocked: +(it.blocked || 0),
+    available: Math.max(0, +(it.qty || 0) - +(it.blocked || 0)),
+    reorderQty: +(it.reorder_qty || 0),
+    imgPath: it.image_path || "",
+    desc: it.description || "",
+    venues: (it.venue_allocations || []).map(va => ({
+      qty: +(va.qty || 0),
+      venueId: va.venue_id,
+      venueCode: va.venues?.code || "",
+      venueName: va.venues?.name || "",
+    })).filter(v => v.qty > 0),
+    source: "equipment",
+    assetType: it.type || "",
+    isAsset: it.is_asset || "no",
+  };
+}
+
+/* Fetch approved Catering equipment from inventory_items */
+async function fetchOpsEquipmentItems() {
+  if (!opsSupabase) return [];
+  const SELECT = "id,inventory_id,name,name_hindi,qty,blocked,unit,category_id,type,is_asset,reorder_qty,image_path,description,status,categories(name,code),venue_allocations(qty,venue_id,venues(code,name))";
+  let all = [], from = 0, PAGE = 1000;
+  while (true) {
+    const { data, error } = await opsSupabase
+      .from("inventory_items")
+      .select(SELECT)
+      .eq("department", "Catering")
+      .eq("status", "approved")
+      .order("name", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) { console.error("Ops equipment fetch error:", error); break; }
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all.map(transformOpsEquipment);
+}
+
 function StoreModule({events, lang="en", currentUser=null}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = (Array.isArray(events)?events:[]).filter(e=>e&&e.date);
@@ -97,6 +150,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [catFil,   setCatFil]   = useState("All");
   const [venueFil, setVenueFil] = useState("All");
   const [stockFil, setStockFil] = useState("all");
+  const [sourceFil, setSourceFil] = useState("all"); // "all" | "store" | "equipment"
   const [search,   setSearch]   = useState("");
   const [showAdd,  setShowAdd]  = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -122,6 +176,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
   useEffect(() => {
     let sub = null;
+    let sub2 = null;
 
     async function loadOps() {
       setLoading(true); setLoadError("");
@@ -130,9 +185,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const c = localStorage.getItem(OPS_CACHE_KEY);
         if (c) { const p = JSON.parse(c); if (p.data?.length) setItems(p.data); }
       } catch(e){}
-      // 2. Fetch fresh from Ops
+      // 2. Fetch fresh from Ops (store consumables + equipment)
       try {
-        const fresh = await fetchOpsCateringItems();
+        const [storeItems, equipItems] = await Promise.all([
+          fetchOpsCateringItems(),
+          fetchOpsEquipmentItems(),
+        ]);
+        const fresh = [...storeItems, ...equipItems];
         setItems(fresh);
         setLastSync(new Date());
         try { localStorage.setItem(OPS_CACHE_KEY, JSON.stringify({ data: fresh, _ts: Date.now() })); } catch(e){}
@@ -172,9 +231,37 @@ function StoreModule({events, lang="en", currentUser=null}) {
           }
         })
         .subscribe();
+
+      // Also subscribe to inventory_items changes (equipment)
+      sub2 = opsSupabase
+        .channel("inv-items-rt")
+        .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items", filter: "department=eq.Catering" }, (payload) => {
+          if (payload.eventType === "DELETE") {
+            setItems(prev => prev.filter(i => !(i.source === "equipment" && i._opsId === payload.old.id)));
+          } else {
+            opsSupabase
+              .from("inventory_items")
+              .select("id,inventory_id,name,name_hindi,qty,blocked,unit,category_id,type,is_asset,reorder_qty,image_path,description,status,categories(name,code),venue_allocations(qty,venue_id,venues(code,name))")
+              .eq("id", payload.new.id)
+              .single()
+              .then(({ data }) => {
+                if (!data || data.department !== "Catering") return;
+                const item = transformOpsEquipment(data);
+                setItems(prev => {
+                  const idx = prev.findIndex(i => i.source === "equipment" && i._opsId === data.id);
+                  if (idx >= 0) { const next = [...prev]; next[idx] = item; return next; }
+                  return [...prev, item];
+                });
+              });
+          }
+        })
+        .subscribe();
     }
 
-    return () => { if (sub) opsSupabase.removeChannel(sub); };
+    return () => {
+      if (sub) opsSupabase.removeChannel(sub);
+      if (sub2) opsSupabase.removeChannel(sub2);
+    };
   }, []);
 
   /* ── Derived: unique categories & venues from live data ── */
@@ -321,8 +408,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
       : stockFil === "low" ? (i.available > 0 && i.reorderQty > 0 && i.available <= i.reorderQty)
       : stockFil === "out" ? i.available <= 0
       : true;
-    return mc && ms && mv && mst;
-  }), [items, catFil, search, venueFil, stockFil]);
+    const msrc = sourceFil === "all" ? true : i.source === sourceFil;
+    return mc && ms && mv && mst && msrc;
+  }), [items, catFil, search, venueFil, stockFil, sourceFil]);
 
   return (
     <div>
@@ -437,6 +525,23 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 style={{width:"100%",padding:"10px 16px 10px 38px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
               <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.muted,pointerEvents:"none"}}>🔍</span>
             </div>
+          </div>
+
+          {/* Source toggle */}
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Type:</span>
+            {[
+              {k:"all",   l:"All",        v:items.length},
+              {k:"store", l:"Consumables", v:items.filter(i=>i.source==="store").length},
+              {k:"equipment", l:"Equipment", v:items.filter(i=>i.source==="equipment").length},
+            ].map(s=>(
+              <button key={s.k} onClick={()=>setSourceFil(f=>f===s.k?"all":s.k)}
+                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:sourceFil===s.k?600:400,cursor:"pointer",
+                  background:sourceFil===s.k?C.wine+"15":"transparent",color:sourceFil===s.k?C.wine:C.muted,
+                  border:sourceFil===s.k?`1.5px solid ${C.wine}`:`1px solid ${C.border}`,transition:"all .15s"}}>
+                {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
+              </button>
+            ))}
           </div>
 
           {/* Stock status pills */}
