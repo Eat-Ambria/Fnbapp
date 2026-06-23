@@ -32,8 +32,8 @@ function transformOpsItem(it) {
     brand: it.brand || "",
     packSize: it.pack_size_qty ? (it.pack_size_qty + " " + (it.pack_size_unit || "")) : "",
     qty: +(it.qty || 0),
-    blocked: +(it.blocked || 0),
-    available: +(it.qty || 0) - +(it.blocked || 0),
+    blocked: 0,
+    available: +(it.qty || 0),
     ratePaise: it.rate_paise || 0,
     reorderQty: +(it.reorder_qty || 0),
     minOrderQty: +(it.min_order_qty || 0),
@@ -52,7 +52,7 @@ function transformOpsItem(it) {
 /* Fetch all approved catering store items with joins */
 async function fetchOpsCateringItems() {
   if (!opsSupabase) return [];
-  const SELECT = "id,inventory_id,name,name_hindi,qty,blocked,unit,brand,pack_size_qty,pack_size_unit,category_id,rate_paise,min_order_qty,reorder_qty,image_path,description,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
+  const SELECT = "id,inventory_id,name,name_hindi,qty,unit,brand,pack_size_qty,pack_size_unit,category_id,rate_paise,min_order_qty,reorder_qty,image_path,description,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
   let all = [], from = 0, PAGE = 1000;
   while (true) {
     const { data, error } = await opsSupabase
