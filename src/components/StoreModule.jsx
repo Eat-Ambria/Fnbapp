@@ -176,6 +176,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
+  const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_item_name, ops_item_unit, unit_conversion}}
+  const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
+  const [mapSearch, setMapSearch] = useState("");
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -276,9 +279,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
     async function loadIssueState() {
       setIssueLoading(true);
       try {
-        const [aRes, iRes] = await Promise.all([
+        const [aRes, iRes, mRes] = await Promise.all([
           supabase.from('store_issue_assignments').select('*'),
           supabase.from('store_issues').select('*'),
+          supabase.from('ingredient_item_map').select('*'),
         ]);
         if (aRes.data) {
           const map = {};
@@ -289,6 +293,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const map = {};
           iRes.data.forEach(r => { map[r.event_id + "::" + r.section_name + "::" + r.ingredient_name] = r; });
           setIssueRecords(map);
+        }
+        if (mRes.data) {
+          const map = {};
+          mRes.data.forEach(r => { map[r.ingredient_name] = r; });
+          setIngredientMap(map);
         }
       } catch (e) { console.error("Issue state load failed:", e); }
       setIssueLoading(false);
@@ -312,7 +321,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
         setIssueRecords(prev => ({ ...prev, [r.event_id + "::" + r.section_name + "::" + r.ingredient_name]: r }));
       }
     }).subscribe();
-    subs = [ch1, ch2];
+    const ch3 = supabase.channel('iim-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_item_map' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setIngredientMap(prev => { const n = { ...prev }; delete n[p.old.ingredient_name]; return n; });
+      } else {
+        const r = p.new;
+        setIngredientMap(prev => ({ ...prev, [r.ingredient_name]: r }));
+      }
+    }).subscribe();
+    subs = [ch1, ch2, ch3];
 
     return () => { subs.forEach(ch => supabase.removeChannel(ch)); };
   }, []);
@@ -380,6 +397,40 @@ function StoreModule({events, lang="en", currentUser=null}) {
       { onConflict: 'event_id,section_name' }
     );
     if (error) console.error("Assignment save failed:", error);
+  }
+
+  /* ── Ingredient → Store item mapping helpers ── */
+  function getStockForIngredient(ingName) {
+    const mapping = ingredientMap[ingName];
+    if (!mapping) return null;
+    const storeItem = items.find(i => i._opsId === mapping.ops_item_id);
+    if (!storeItem) return null;
+    const conversion = mapping.unit_conversion || 1;
+    return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion };
+  }
+
+  async function saveIngredientMapping(ingName, ingHindi, opsItem) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const rec = {
+      ingredient_name: ingName,
+      ingredient_hindi: ingHindi || null,
+      ops_item_id: opsItem._opsId,
+      ops_item_name: opsItem.name,
+      ops_item_unit: opsItem.unit,
+      unit_conversion: 1,
+      mapped_by: staffId,
+    };
+    setIngredientMap(prev => ({ ...prev, [ingName]: rec }));
+    setMapModalIng(null);
+    setMapSearch("");
+    const { error } = await supabase.from('ingredient_item_map').upsert(rec, { onConflict: 'ingredient_name' });
+    if (error) console.error("Mapping save failed:", error);
+  }
+
+  async function removeIngredientMapping(ingName) {
+    setIngredientMap(prev => { const n = { ...prev }; delete n[ingName]; return n; });
+    const { error } = await supabase.from('ingredient_item_map').delete().eq('ingredient_name', ingName);
+    if (error) console.error("Mapping delete failed:", error);
   }
 
   /* build per-event section bags — used by both views */
@@ -1012,10 +1063,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
         /* shared ingredient row renderer */
         function IngRow({ing, evId, sec, idx, total}){
           const done = isIssued(evId,sec,ing.name);
+          const stock = getStockForIngredient(ing.name);
+          const isMapped = !!ingredientMap[ing.name];
           return(
             <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
               <div>
                 <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
+                {isMapped&&stock&&<div style={{fontSize:10,color:stock.available>=ing.totalQty?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>
+                  {T2("Stock")}: {stock.available} {stock.unit}{stock.available<ing.totalQty?" — "+T2("short")+" "+(Math.ceil(ing.totalQty-stock.available))+" "+ing.unit:""}
+                </div>}
+                {!isMapped&&<div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>}
               </div>
               <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
               <div onClick={()=>toggleIssueItem(evId,sec,ing,done)}
@@ -1170,10 +1227,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
                         <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                               <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
                               <span style={{fontSize:13,fontWeight:700,color:m.color}}>{T2(sec)}</span>
                               <span style={{fontSize:11,color:C.muted}}>{list.length} {T2("items")}</span>
+                              {(()=>{
+                                const codes=[...new Set(bag.events.map(ev=>issueAssignments[ev.id+"::"+sec]).filter(Boolean))];
+                                if(codes.length>0) return codes.map(c=>{const vs=venueStyle(c);return <span key={c} style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:vs.bg,color:vs.color,fontWeight:600}}>{c}</span>;});
+                                return <span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.amberBg,color:"#854F0B",fontWeight:600}}>⚠ {T2("assign")}</span>;
+                              })()}
                               {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
                             </div>
                             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
@@ -1195,6 +1257,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                 <div>
                                   <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
                                   <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
+                                  {(()=>{
+                                    const stock=getStockForIngredient(ing.name);
+                                    const isMapped=!!ingredientMap[ing.name];
+                                    if(isMapped&&stock) return <div style={{fontSize:10,color:stock.available>=ing.totalQty?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{stock.available<ing.totalQty?" — "+T2("short")+" "+Math.ceil(ing.totalQty-stock.available)+" "+ing.unit:""}</div>;
+                                    if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
+                                    return null;
+                                  })()}
                                 </div>
                                 <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:allEvIssued?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
                                 <div onClick={async()=>{
@@ -1223,6 +1292,49 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 </div>
               );
             })()}
+
+            {/* ── Ingredient mapping modal ── */}
+            {mapModalIng&&(
+              <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+                onClick={()=>{setMapModalIng(null);setMapSearch("");}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                  <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Link to Store Item")}</div>
+                    <div style={{fontSize:12,color:C.muted}}>
+                      {mapModalIng.name}{mapModalIng.hindi?` (${mapModalIng.hindi})`:""} · {T2("recipe unit")}: {mapModalIng.unit}
+                    </div>
+                    <input value={mapSearch} onChange={e=>setMapSearch(e.target.value)} placeholder={T2("Search store items...")}
+                      autoFocus style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,marginTop:10,boxSizing:"border-box"}}/>
+                  </div>
+                  <div style={{overflow:"auto",flex:1,padding:"8px 0"}}>
+                    {items.filter(i=>i.source==="ops"||i.source==="store").filter(i=>{
+                      if(!mapSearch) return true;
+                      const s=mapSearch.toLowerCase();
+                      return (i.name||"").toLowerCase().includes(s)||(i.h||"").includes(s)||(i.cat||"").toLowerCase().includes(s);
+                    }).slice(0,50).map(si=>(
+                      <div key={si.id} onClick={()=>saveIngredientMapping(mapModalIng.name,mapModalIng.hindi,si)}
+                        style={{padding:"10px 18px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                        onMouseOver={e=>e.currentTarget.style.background=C.bg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:600,color:C.text}}>{si.name}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{si.cat} · {si.unit}{si.h?" · "+si.h:""}</div>
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontSize:12,fontWeight:600,color:si.available>0?C.green:C.red}}>{si.available}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{si.unit}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {items.filter(i=>(i.source==="ops"||i.source==="store")&&(!mapSearch||(i.name||"").toLowerCase().includes(mapSearch.toLowerCase())||(i.h||"").includes(mapSearch)||(i.cat||"").toLowerCase().includes(mapSearch.toLowerCase()))).length===0&&(
+                      <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("No matching store items found")}</div>
+                    )}
+                  </div>
+                  <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
+                    <button onClick={()=>{setMapModalIng(null);setMapSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
