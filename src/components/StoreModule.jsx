@@ -556,6 +556,44 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
 
   /* build per-event section bags — used by both views */
+  function normalizeToBaseUnit(qty, unit) {
+    const u = (unit||"").toLowerCase().replace(/\s/g,"");
+    if ((u==="g"||u==="gm"||u==="gms") && qty>=1000) return { qty: qty/1000, unit: "kg" };
+    if ((u==="g"||u==="gm"||u==="gms")) return { qty, unit: "g" };
+    if (u==="ml" && qty>=1000) return { qty: qty/1000, unit: "L" };
+    if (u==="ml") return { qty, unit: "ml" };
+    return { qty, unit: unit||"pcs" };
+  }
+  function toGrams(qty, unit) {
+    const u = (unit||"").toLowerCase().replace(/\s/g,"");
+    if (u==="kg") return qty * 1000;
+    if (u==="g"||u==="gm"||u==="gms") return qty;
+    return null;
+  }
+  function toMl(qty, unit) {
+    const u = (unit||"").toLowerCase().replace(/\s/g,"");
+    if (u==="l"||u==="ltr") return qty * 1000;
+    if (u==="ml") return qty;
+    return null;
+  }
+  function addQtyWithUnitNorm(existing, addQty, addUnit) {
+    const eG = toGrams(existing.totalQty, existing.unit);
+    const aG = toGrams(addQty, addUnit);
+    if (eG !== null && aG !== null) {
+      const totalG = eG + aG;
+      if (totalG >= 1000) return { totalQty: totalG / 1000, unit: "kg" };
+      return { totalQty: totalG, unit: "g" };
+    }
+    const eM = toMl(existing.totalQty, existing.unit);
+    const aM = toMl(addQty, addUnit);
+    if (eM !== null && aM !== null) {
+      const totalM = eM + aM;
+      if (totalM >= 1000) return { totalQty: totalM / 1000, unit: "L" };
+      return { totalQty: totalM, unit: "ml" };
+    }
+    return { totalQty: existing.totalQty + addQty, unit: existing.unit };
+  }
+
   function buildEventBags(evList) {
     const evBags = {};
     evList.forEach(ev => {
@@ -572,10 +610,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
         if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };
         ingr.forEach(ing => {
           const k = ing.n;
-          if (!evBags[ev.id].sections[sec].items[k]) evBags[ev.id].sections[sec].items[k] = { name: ing.n, hindi: ing.h || "", unit: ing.u, totalQty: 0 };
-          const addedQty = isNew ? ing.q : ing.q * pax;
-          evBags[ev.id].sections[sec].items[k].totalQty += addedQty;
-          if(ing.n.toLowerCase().includes("basmati")) console.log(`🍚 ${dishName} → ${ing.n}: +${addedQty} ${ing.u} (isNew=${isNew}, raw q=${ing.q}, pax=${pax}) → total=${evBags[ev.id].sections[sec].items[k].totalQty}`);
+          const rawQty = isNew ? ing.q : ing.q * pax;
+          if (!evBags[ev.id].sections[sec].items[k]) {
+            const norm = normalizeToBaseUnit(rawQty, ing.u);
+            evBags[ev.id].sections[sec].items[k] = { name: ing.n, hindi: ing.h || "", unit: norm.unit, totalQty: norm.qty };
+          } else {
+            const merged = addQtyWithUnitNorm(evBags[ev.id].sections[sec].items[k], rawQty, ing.u);
+            evBags[ev.id].sections[sec].items[k].totalQty = merged.totalQty;
+            evBags[ev.id].sections[sec].items[k].unit = merged.unit;
+          }
         });
       });
     });
