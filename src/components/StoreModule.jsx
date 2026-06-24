@@ -179,6 +179,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_item_name, ops_item_unit, unit_conversion}}
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
   const [mapSearch, setMapSearch] = useState("");
+  const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
+  const [mapTabSearch, setMapTabSearch] = useState("");
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -397,6 +399,80 @@ function StoreModule({events, lang="en", currentUser=null}) {
       { onConflict: 'event_id,section_name' }
     );
     if (error) console.error("Assignment save failed:", error);
+  }
+
+  /* ── Extract all unique ingredient names from recipe DB ── */
+  const allRecipeIngredients = useMemo(() => {
+    const seen = {};
+    for (const catId of Object.keys(RECIPE_DB.recipes || {})) {
+      for (const recipe of (RECIPE_DB.recipes[catId] || [])) {
+        if (recipe.ingredients?.items?.length > 0) {
+          recipe.ingredients.items.forEach(it => {
+            const n = it.name;
+            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || "", unit: it.unit || "", dishes: [] };
+            seen[n].dishes.push(recipe.n);
+          });
+        }
+      }
+    }
+    return Object.values(seen).sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
+  /* ── Fuzzy match: find best Ops store item for an ingredient name ── */
+  function fuzzyMatchStoreItem(ingName) {
+    if (!ingName || items.length === 0) return null;
+    const consumables = items.filter(i => i.source === "ops" || i.source === "store");
+    if (consumables.length === 0) return null;
+
+    // Normalize: strip Hindi, brackets, slashes, lowercase
+    function norm(s) {
+      return (s || "").replace(/[\u0900-\u097F]+/g, "").replace(/\([^)]*\)/g, "").replace(/[/–—·]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    }
+    const ingNorm = norm(ingName);
+    if (!ingNorm) return null;
+
+    // Extract the core English word(s) — first meaningful token(s)
+    const ingTokens = ingNorm.split(" ").filter(t => t.length > 1 && !["for","the","and","with","fine","large","small","fresh","boiled","fried","chopped","grated","crushed","whole","dried","raw","mix","mixed","powder","paste","null"].includes(t));
+
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for (const si of consumables) {
+      const siNorm = norm(si.name);
+      const siHNorm = norm(si.h || "");
+
+      // Exact match
+      if (siNorm === ingNorm || siHNorm === ingNorm) return { item: si, score: 100, reason: "exact" };
+
+      // Contains full ingredient name
+      if (siNorm.includes(ingNorm) || ingNorm.includes(siNorm)) {
+        const score = 90;
+        if (score > bestScore) { bestScore = score; bestMatch = { item: si, score, reason: "contains" }; }
+        continue;
+      }
+
+      // Token overlap scoring
+      const siTokens = siNorm.split(" ").filter(t => t.length > 1);
+      let matched = 0;
+      for (const it of ingTokens) {
+        if (siTokens.some(st => st.includes(it) || it.includes(st))) matched++;
+      }
+      if (matched > 0 && ingTokens.length > 0) {
+        const score = Math.round((matched / ingTokens.length) * 80);
+        if (score > bestScore) { bestScore = score; bestMatch = { item: si, score, reason: "tokens(" + matched + "/" + ingTokens.length + ")" }; }
+      }
+
+      // Also check Hindi name match
+      if (siHNorm && ingName) {
+        const ingHindi = (ingName || "").replace(/[a-zA-Z0-9\s()/.–—,]/g, "").trim();
+        if (ingHindi && siHNorm.includes(ingHindi)) {
+          const score = 75;
+          if (score > bestScore) { bestScore = score; bestMatch = { item: si, score, reason: "hindi" }; }
+        }
+      }
+    }
+
+    return bestScore >= 40 ? bestMatch : null;
   }
 
   /* ── Ingredient → Store item mapping helpers ── */
@@ -693,7 +769,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},{v:"requirements",l:T2("📋 Event Requirements")}].map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},{v:"requirements",l:T2("📋 Event Requirements")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -1418,6 +1494,129 @@ function StoreModule({events, lang="en", currentUser=null}) {
           )}
         </div>
       )}
+
+      {/* ── INGREDIENT MAP (admin) ── */}
+      {tab==="ingmap"&&(()=>{
+        const total = allRecipeIngredients.length;
+        const mappedCount = allRecipeIngredients.filter(i => ingredientMap[i.name]).length;
+        const unmappedCount = total - mappedCount;
+
+        // Filter + search
+        let filtered = allRecipeIngredients;
+        if (mapTabFilter === "mapped") filtered = filtered.filter(i => ingredientMap[i.name]);
+        if (mapTabFilter === "unmapped") filtered = filtered.filter(i => !ingredientMap[i.name]);
+        if (mapTabSearch) {
+          const s = mapTabSearch.toLowerCase();
+          filtered = filtered.filter(i => i.name.toLowerCase().includes(s) || (i.hindi||"").includes(s));
+        }
+
+        return (
+          <div>
+            {/* Header */}
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🔗 {T2("Ingredient Map")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Link recipe ingredients to store inventory items for stock tracking")}</div>
+
+            {/* Progress bar */}
+            <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`,marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:13,fontWeight:600,color:C.text}}>{mappedCount} / {total} {T2("linked")}</span>
+                <span style={{fontSize:12,color:unmappedCount>0?C.amber:C.green,fontWeight:600}}>{unmappedCount>0?unmappedCount+" "+T2("remaining"):"✓ "+T2("All linked")}</span>
+              </div>
+              <div style={{height:6,borderRadius:3,background:C.borderLight,overflow:"hidden"}}>
+                <div style={{height:6,borderRadius:3,background:total>0&&mappedCount===total?C.green:C.gold,width:(total>0?Math.round(mappedCount/total*100):0)+"%",transition:"width .3s"}}/>
+              </div>
+            </div>
+
+            {/* Filter pills + search */}
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+              {[{v:"all",l:T2("All")+" ("+total+")"},{v:"unmapped",l:"⚠ "+T2("Unmapped")+" ("+unmappedCount+")"},{v:"mapped",l:"✓ "+T2("Mapped")+" ("+mappedCount+")"}].map(f=>(
+                <button key={f.v} onClick={()=>setMapTabFilter(f.v)} style={{padding:"7px 14px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32,
+                  background:mapTabFilter===f.v?C.gold:C.bg,color:mapTabFilter===f.v?C.goldBg:C.muted,border:`1px solid ${mapTabFilter===f.v?C.gold:C.border}`}}>{f.l}</button>
+              ))}
+            </div>
+            <input value={mapTabSearch} onChange={e=>setMapTabSearch(e.target.value)} placeholder={T2("Search ingredients...")}
+              style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}/>
+
+            {/* Auto-link all suggestions button */}
+            {mapTabFilter==="unmapped"&&unmappedCount>0&&(()=>{
+              const suggestions = filtered.filter(i=>!ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
+              if(suggestions.length===0) return null;
+              return(
+                <button onClick={async()=>{
+                  for(const s of suggestions){
+                    await saveIngredientMapping(s.ing.name, s.ing.hindi, s.match.item);
+                  }
+                }} style={{width:"100%",padding:"12px",borderRadius:10,background:C.gold,color:C.goldBg,border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginBottom:14,minHeight:40}}>
+                  ✨ {T2("Auto-link")} {suggestions.length} {T2("suggested matches")}
+                </button>
+              );
+            })()}
+
+            {/* Ingredient list */}
+            {filtered.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No ingredients match your filter.")}</div>}
+
+            {filtered.map(ing=>{
+              const mapping = ingredientMap[ing.name];
+              const isMapped = !!mapping;
+              const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
+
+              return(
+                <Card key={ing.name} style={{marginBottom:8,padding:"12px 16px",border:isMapped?`1px solid ${C.greenBorder}`:`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ing.name}</div>
+                      {ing.hindi&&<div style={{fontSize:11,color:C.muted}}>{ing.hindi}</div>}
+                      <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                        {T2("Used in")} {ing.dishes.length} {T2("recipes")} · {T2("unit")}: {ing.unit}
+                      </div>
+
+                      {/* Mapped — show linked item */}
+                      {isMapped&&(
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+                          <div style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.greenBg,color:C.green,fontWeight:600}}>
+                            ✓ {mapping.ops_item_name} ({mapping.ops_item_unit})
+                          </div>
+                          <button onClick={()=>removeIngredientMapping(ing.name)}
+                            style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.redBg,color:C.red,border:"none",cursor:"pointer",fontWeight:600}}>✕</button>
+                        </div>
+                      )}
+
+                      {/* Unmapped with suggestion */}
+                      {!isMapped&&suggestion&&(
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:10,color:C.muted}}>💡 {T2("Suggested")}:</span>
+                          <button onClick={()=>saveIngredientMapping(ing.name, ing.hindi, suggestion.item)}
+                            style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
+                            {suggestion.item.name} ({suggestion.score}%)
+                          </button>
+                          <button onClick={()=>setMapModalIng({name:ing.name,hindi:ing.hindi,unit:ing.unit})}
+                            style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.bg,color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer"}}>{T2("Other")}</button>
+                        </div>
+                      )}
+
+                      {/* Unmapped, no suggestion */}
+                      {!isMapped&&!suggestion&&(
+                        <div style={{marginTop:8}}>
+                          <button onClick={()=>setMapModalIng({name:ing.name,hindi:ing.hindi,unit:ing.unit})}
+                            style={{fontSize:11,padding:"4px 12px",borderRadius:8,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
+                            🔗 {T2("Link to store item")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right side — status indicator */}
+                    <div style={{flexShrink:0,width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
+                      background:isMapped?C.greenBg:C.amberBg}}>
+                      <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        );
+      })()}
 
     </div>
   );
