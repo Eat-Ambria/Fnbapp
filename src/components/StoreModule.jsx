@@ -170,7 +170,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [scanReason, setScanReason] = useState("Purchase");
   const [scanLookup, setScanLookup] = useState(null); // {name,brand,image,energy,weight,source}
   const [issueDate, setIssueDate] = useState("all");
-  const [issuedItems, setIssuedItems] = useState({});
+  const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
+  const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
+  const [issueExpSec, setIssueExpSec] = useState(null); // expanded section key "evId::secName"
+  const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
+  const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
+  const [issueLoading, setIssueLoading] = useState(false);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -263,6 +268,144 @@ function StoreModule({events, lang="en", currentUser=null}) {
       if (sub2) opsSupabase.removeChannel(sub2);
     };
   }, []);
+
+  /* ── Load Smart Issue state from FnB Supabase ── */
+  useEffect(() => {
+    if (!supabase) return;
+    let subs = [];
+    async function loadIssueState() {
+      setIssueLoading(true);
+      try {
+        const [aRes, iRes] = await Promise.all([
+          supabase.from('store_issue_assignments').select('*'),
+          supabase.from('store_issues').select('*'),
+        ]);
+        if (aRes.data) {
+          const map = {};
+          aRes.data.forEach(r => { map[r.event_id + "::" + r.section_name] = r.venue_code; });
+          setIssueAssignments(map);
+        }
+        if (iRes.data) {
+          const map = {};
+          iRes.data.forEach(r => { map[r.event_id + "::" + r.section_name + "::" + r.ingredient_name] = r; });
+          setIssueRecords(map);
+        }
+      } catch (e) { console.error("Issue state load failed:", e); }
+      setIssueLoading(false);
+    }
+    loadIssueState();
+
+    // Realtime subscriptions
+    const ch1 = supabase.channel('sia-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_issue_assignments' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setIssueAssignments(prev => { const n = { ...prev }; delete n[p.old.event_id + "::" + p.old.section_name]; return n; });
+      } else {
+        const r = p.new;
+        setIssueAssignments(prev => ({ ...prev, [r.event_id + "::" + r.section_name]: r.venue_code }));
+      }
+    }).subscribe();
+    const ch2 = supabase.channel('si-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_issues' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setIssueRecords(prev => { const n = { ...prev }; delete n[p.old.event_id + "::" + p.old.section_name + "::" + p.old.ingredient_name]; return n; });
+      } else {
+        const r = p.new;
+        setIssueRecords(prev => ({ ...prev, [r.event_id + "::" + r.section_name + "::" + r.ingredient_name]: r }));
+      }
+    }).subscribe();
+    subs = [ch1, ch2];
+
+    return () => { subs.forEach(ch => supabase.removeChannel(ch)); };
+  }, []);
+
+  /* ── Smart Issue helpers ── */
+  const VENUE_CODES = ["AP", "AE", "AM", "AR"];
+
+  function fmtIssueQty(q, u) {
+    if (u === "g" && q >= 1000) return (q / 1000).toFixed(1) + " kg";
+    if (u === "ml" && q >= 1000) return (q / 1000).toFixed(1) + " L";
+    return Math.round(q) + " " + u;
+  }
+
+  async function toggleIssueItem(eventId, sec, ing, currentlyIssued) {
+    const key = eventId + "::" + sec + "::" + ing.name;
+    const now = new Date().toISOString();
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const rec = {
+      event_id: eventId,
+      section_name: sec,
+      ingredient_name: ing.name,
+      ingredient_hindi: ing.hindi || null,
+      unit: ing.unit,
+      qty_required: ing.totalQty,
+      qty_issued: currentlyIssued ? 0 : ing.totalQty,
+      issued: !currentlyIssued,
+      issued_by: currentlyIssued ? null : staffId,
+      issued_at: currentlyIssued ? null : now,
+    };
+    // Optimistic update
+    setIssueRecords(prev => ({ ...prev, [key]: { ...prev[key], ...rec } }));
+    // Persist
+    const { error } = await supabase.from('store_issues').upsert(rec, { onConflict: 'event_id,section_name,ingredient_name' });
+    if (error) console.error("Issue toggle failed:", error);
+  }
+
+  async function issueAllForSection(eventId, sec, ingList) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const now = new Date().toISOString();
+    const rows = ingList.map(ing => ({
+      event_id: eventId,
+      section_name: sec,
+      ingredient_name: ing.name,
+      ingredient_hindi: ing.hindi || null,
+      unit: ing.unit,
+      qty_required: ing.totalQty,
+      qty_issued: ing.totalQty,
+      issued: true,
+      issued_by: staffId,
+      issued_at: now,
+    }));
+    // Optimistic
+    const upd = {};
+    rows.forEach(r => { upd[r.event_id + "::" + r.section_name + "::" + r.ingredient_name] = r; });
+    setIssueRecords(prev => ({ ...prev, ...upd }));
+    const { error } = await supabase.from('store_issues').upsert(rows, { onConflict: 'event_id,section_name,ingredient_name' });
+    if (error) console.error("Issue all failed:", error);
+  }
+
+  async function setVenueAssignment(eventId, sec, venueCode) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    setIssueAssignments(prev => ({ ...prev, [eventId + "::" + sec]: venueCode }));
+    const { error } = await supabase.from('store_issue_assignments').upsert(
+      { event_id: eventId, section_name: sec, venue_code: venueCode, assigned_by: staffId },
+      { onConflict: 'event_id,section_name' }
+    );
+    if (error) console.error("Assignment save failed:", error);
+  }
+
+  /* build per-event section bags — used by both views */
+  function buildEventBags(evList) {
+    const evBags = {};
+    evList.forEach(ev => {
+      const pax = +ev.pax || 0;
+      if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
+      safeArr(ev.menu).forEach(dishName => {
+        const cat = getCatForDish(dishName);
+        if (cat.id === "beverages") return;
+        const sec = cat.name;
+        const meta = { color: cat.color || C.muted, icon: cat.icon || "🍽" };
+        const ingr = getIngrForDish(dishName, pax);
+        if (!ingr || ingr.length === 0) return;
+        const isNew = ingr[0]?._newFmt;
+        if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };
+        ingr.forEach(ing => {
+          const k = ing.n;
+          if (!evBags[ev.id].sections[sec].items[k]) evBags[ev.id].sections[sec].items[k] = { name: ing.n, hindi: ing.h || "", unit: ing.u, totalQty: 0 };
+          evBags[ev.id].sections[sec].items[k].totalQty += isNew ? ing.q : ing.q * pax;
+        });
+      });
+    });
+    return evBags;
+  }
 
   /* ── Derived: unique categories & venues from live data ── */
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
@@ -831,148 +974,255 @@ function StoreModule({events, lang="en", currentUser=null}) {
         </div>
       )}
 
-      {/* ── SMART ISSUE — auto-calculate dept-wise ingredient bags ── */}
+      {/* ── SMART ISSUE — event-first with collective toggle ── */}
       {tab==="issue"&&(()=>{
         const issueEvs = safeEvs.filter(e=>e.date===TODAY||e.date===TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
         const filtEvs = issueDate==="all"?issueEvs:issueEvs.filter(e=>e.date===issueDate);
+        const evBags = buildEventBags(filtEvs);
 
-        // Calculate all ingredients needed, grouped by kitchen section
-        const sectionBags = {};
-        filtEvs.forEach(ev=>{
-          const pax = +ev.pax||0;
-          safeArr(ev.menu).forEach(dishName=>{
-            const cat = getCatForDish(dishName);
-            if(cat.id==="beverages") return;
-            const sec = cat.name;
-            const secMeta = {color:cat.color||C.muted, icon:cat.icon||"🍽"};
-            const ingr = getIngrForDish(dishName, pax);
-            if(!ingr || ingr.length===0) return;
-            const isNew = ingr[0]?._newFmt;
-            if(!sectionBags[sec]) sectionBags[sec] = {items:{},events:[],totalPax:0,meta:secMeta};
-            if(!sectionBags[sec].events.find(e=>e.id===ev.id)) sectionBags[sec].events.push(ev);
-            sectionBags[sec].totalPax += pax;
-            if(!sectionBags[sec].meta) sectionBags[sec].meta = secMeta;
-            ingr.forEach(ing=>{
-              const key = ing.n;
-              if(!sectionBags[sec].items[key]) sectionBags[sec].items[key] = {name:ing.n,hindi:ing.h||"",unit:ing.u,totalQty:0,dishes:[]};
-              const qty = isNew ? ing.q : ing.q * pax;
-              sectionBags[sec].items[key].totalQty += qty;
-              sectionBags[sec].items[key].dishes.push({dish:dishName,pax,qty});
+        /* helpers for counting */
+        function secIngList(secObj) { return Object.values(secObj.items).sort((a,b)=>b.totalQty-a.totalQty); }
+        function isIssued(evId, sec, ingName) { const r=issueRecords[evId+"::"+sec+"::"+ingName]; return r&&r.issued; }
+        function secIssuedCount(evId, sec, list) { return list.filter(ing=>isIssued(evId,sec,ing.name)).length; }
+
+        /* collective bags — merge across events */
+        const collBags = {};
+        Object.values(evBags).forEach(({ev, sections})=>{
+          Object.entries(sections).forEach(([sec, secObj])=>{
+            if(!collBags[sec]) collBags[sec]={items:{},events:[],meta:secObj.meta};
+            if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
+            Object.values(secObj.items).forEach(ing=>{
+              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[]};
+              collBags[sec].items[ing.name].totalQty+=ing.totalQty;
+              collBags[sec].items[ing.name].evBreak.push({evId:ev.id,evName:ev.guest,qty:ing.totalQty});
             });
           });
         });
-
-        function fmtQty(q, u){
-          if(u==="g"&&q>=1000) return (q/1000).toFixed(1)+" kg";
-          if(u==="ml"&&q>=1000) return (q/1000).toFixed(1)+" L";
-          return Math.round(q)+" "+u;
+        function collIssuedCount(sec, list) {
+          return list.filter(ing=>{
+            const bag=collBags[sec];
+            return bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
+          }).length;
         }
 
-        const secKeys = Object.keys(sectionBags).sort();
-        const totalIngredients = secKeys.reduce((s,k)=>s+Object.keys(sectionBags[k].items).length,0);
-        const totalIssued = Object.values(issuedItems).filter(Boolean).length;
+        /* venue color helper */
+        const vcMap={"AP":{bg:C.goldBg,color:C.gold},"AE":{bg:C.amberBg,color:"#854F0B"},"AM":{bg:"#EEF4FD",color:"#185FA5"},"AR":{bg:C.greenBg,color:"#0F6E56"}};
+        function venueStyle(code){return vcMap[code]||{bg:C.bg,color:C.muted};}
+
+        /* shared ingredient row renderer */
+        function IngRow({ing, evId, sec, idx, total}){
+          const done = isIssued(evId,sec,ing.name);
+          return(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
+              </div>
+              <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
+              <div onClick={()=>toggleIssueItem(evId,sec,ing,done)}
+                style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
+                {done&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
+              </div>
+            </div>
+          );
+        }
+
+        /* venue assignment dropdown */
+        function VenueTag({evId, sec}){
+          const code=issueAssignments[evId+"::"+sec];
+          if(!code) return(
+            <select value="" onChange={e=>{if(e.target.value)setVenueAssignment(evId,sec,e.target.value);}}
+              style={{fontSize:10,padding:"2px 6px",borderRadius:10,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
+              <option value="" disabled>⚠ assign</option>
+              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          );
+          const vs=venueStyle(code);
+          return(
+            <select value={code} onChange={e=>setVenueAssignment(evId,sec,e.target.value)}
+              style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:vs.bg,color:vs.color,border:"1px solid transparent",cursor:"pointer",fontWeight:600}}>
+              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          );
+        }
+
+        const todayCount = issueEvs.filter(e=>e.date===TODAY).length;
+        const tmrwCount = issueEvs.filter(e=>e.date===TOMORROW).length;
 
         return(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧮 {T2("Smart Issue")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Auto-calculated ingredient bags per kitchen section based on event menus and pax")}</div>
+            {/* Header + mode toggle */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Smart Issue")}</div>
+              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
+                <button onClick={()=>setIssueMode("event")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="event"?C.gold:"transparent",color:issueMode==="event"?C.goldBg:C.muted}}>📅 {T2("By Event")}</button>
+                <button onClick={()=>setIssueMode("collective")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="collective"?C.gold:"transparent",color:issueMode==="collective"?C.goldBg:C.muted}}>📦 {T2("Collective")}</button>
+              </div>
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{issueMode==="event"?T2("Issue ingredients per event"):T2("Merged quantities across events")}</div>
 
             {/* Date filter */}
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
-              {[{v:"all",l:T2("All")},{v:TODAY,l:T2("Today")},{v:TOMORROW,l:T2("Tomorrow")}].map(d=>(
-                <button key={d.v} onClick={()=>setIssueDate(d.v)} style={{padding:"8px 16px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36,
-                  background:issueDate===d.v?C.gold+"20":"transparent",color:issueDate===d.v?C.gold:C.muted,border:`1px solid ${issueDate===d.v?C.gold:C.border}`}}>{d.l}</button>
+            <div style={{display:"flex",gap:6,marginBottom:14}}>
+              {[{v:"all",l:T2("All")},{v:TODAY,l:T2("Today")+" ("+todayCount+")"},{v:TOMORROW,l:T2("Tomorrow")+" ("+tmrwCount+")"}].map(d=>(
+                <button key={d.v} onClick={()=>setIssueDate(d.v)} style={{padding:"7px 14px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36,
+                  background:issueDate===d.v?C.gold:C.bg,color:issueDate===d.v?C.goldBg:C.muted,border:`1px solid ${issueDate===d.v?C.gold:C.border}`}}>{d.l}</button>
               ))}
-              <div style={{flex:1}}/>
-              <div style={{fontSize:12,color:C.green,fontWeight:700,padding:"8px 14px",borderRadius:10,background:C.greenBg}}>{totalIssued}/{totalIngredients} {T2("issued")}</div>
             </div>
 
-            {/* Summary */}
-            <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:C.gold}}>{filtEvs.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("Events")}</div>
-              </div>
-              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{filtEvs.reduce((s,e)=>s+(+e.pax||0),0)}</div><div style={{fontSize:10,color:C.muted}}>{T2("Total Pax")}</div>
-              </div>
-              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{secKeys.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("Sections")}</div>
-              </div>
-              <div style={{flex:1,minWidth:80,background:C.surface,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:C.text}}>{totalIngredients}</div><div style={{fontSize:10,color:C.muted}}>{T2("Items")}</div>
-              </div>
-            </div>
+            {issueLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading issue state…")}</div>}
 
-            {secKeys.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events with recipe data. Add recipes with ingredients to enable Smart Issue.")}</div>}
+            {filtEvs.length===0&&!issueLoading&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events with recipe data for this period.")}</div>}
 
-            {/* Section-wise bags */}
-            {secKeys.map(sec=>{
-              const bag = sectionBags[sec];
-              const m2 = bag.meta||{color:C.muted,icon:"🍽"};
-              const ingList = Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
-              const secIssued = ingList.filter(ing=>issuedItems[sec+"_"+ing.name]).length;
-              const allDone = secIssued===ingList.length;
+            {/* ── EVENT VIEW ── */}
+            {issueMode==="event"&&Object.entries(evBags).map(([evId,{ev,sections}])=>{
+              const secEntries=Object.entries(sections).sort((a,b)=>a[0].localeCompare(b[0]));
+              const totalSec=secEntries.length;
+              const doneSec=secEntries.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
+              const isExpanded=issueExpEv===evId;
+              const evVs=venueStyle((ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||"");
+              const evCode=(ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||ev.venue||"";
+              const pct=totalSec>0?Math.round(doneSec/totalSec*100):0;
 
               return(
-                <Card key={sec} style={{marginBottom:12,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
-                  {/* Section header */}
-                  <div style={{padding:"14px 16px",background:m2.color+"10",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{fontSize:16,fontWeight:700,color:m2.color}}>{m2.icon} {T2(sec)}</span>
-                        {allDone&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.green,color:"#0A0A0F",fontWeight:700}}>✅ {T2("All Issued")}</span>}
+                <Card key={evId} style={{marginBottom:10,padding:0,overflow:"hidden",border:doneSec===totalSec&&totalSec>0?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
+                  {/* Event header */}
+                  <div onClick={()=>setIssueExpEv(isExpanded?null:evId)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,fontWeight:700,color:C.text}}>{ev.guest}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        <span>{ev.pax} pax</span>
+                        <span style={{color:C.borderLight}}>|</span>
+                        <span>{ev.time||"TBD"}</span>
+                        {evCode&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:evVs.bg,color:evVs.color,fontWeight:600}}>{evCode}</span>}
                       </div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{bag.events.map(e=>e.guest+"("+e.pax+")").join(" + ")} = {bag.totalPax} pax</div>
                     </div>
-                    <div style={{textAlign:"center"}}>
-                      <div style={{fontSize:16,fontWeight:700,color:allDone?C.green:C.amber}}>{secIssued}/{ingList.length}</div>
-                      <div style={{fontSize:10,color:C.muted}}>{T2("issued")}</div>
+                    <div style={{textAlign:"center",flexShrink:0,marginLeft:12}}>
+                      <div style={{fontSize:15,fontWeight:700,color:doneSec===totalSec&&totalSec>0?C.green:C.amber}}>{doneSec}<span style={{fontSize:11,color:C.muted,fontWeight:400}}> / {totalSec}</span></div>
+                      <div style={{fontSize:10,color:C.muted}}>{T2("sections")}</div>
+                      <div style={{height:3,borderRadius:2,background:C.borderLight,marginTop:4,width:48}}>
+                        <div style={{height:3,borderRadius:2,background:doneSec===totalSec&&totalSec>0?C.green:C.amber,width:pct+"%",transition:"width .3s"}}/>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Ingredient list */}
-                  <div style={{padding:"8px 12px"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"32px 1fr 100px 32px",gap:4,padding:"6px 4px",borderBottom:`1px solid ${C.border}`,marginBottom:4}}>
-                      <span/>
-                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{T2("Item")}</span>
-                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",textAlign:"right"}}>{T2("Qty")}</span>
-                      <span style={{fontSize:10,fontWeight:700,color:C.muted,textAlign:"center"}}>✓</span>
-                    </div>
-                    {ingList.map((ing,ii)=>{
-                      const key=sec+"_"+ing.name;
-                      const done=!!issuedItems[key];
-                      const storeItem=items.find(i=>i.name.toLowerCase().includes(ing.name.split(" ")[0].toLowerCase())||(i.h||"").includes(ing.hindi));
-                      const hasStock=storeItem&&storeItem.inStock>0;
-                      return(
-                        <div key={ii} style={{display:"grid",gridTemplateColumns:"32px 1fr 100px 32px",gap:4,padding:"8px 4px",borderBottom:ii<ingList.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center",background:done?C.greenBg+"40":"transparent"}}>
-                          <div style={{fontSize:12,color:C.muted,textAlign:"center"}}>{ii+1}</div>
-                          <div>
-                            <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name} {ing.hindi?<span style={{fontSize:10,color:C.muted}}>({ing.hindi})</span>:""}</div>
-                            {storeItem&&<div style={{fontSize:10,color:hasStock?C.green:C.red}}>{T2("In Stock")}: {storeItem.inStock} {storeItem.unit}</div>}
-                            {!storeItem&&<div style={{fontSize:10,color:C.amber}}>⚠ {T2("Not in inventory")}</div>}
+                  {/* Sections inside event */}
+                  {isExpanded&&secEntries.map(([sec,secObj])=>{
+                    const m=secObj.meta;
+                    const list=secIngList(secObj);
+                    const cnt=secIssuedCount(evId,sec,list);
+                    const allDone=cnt===list.length&&list.length>0;
+                    const secKey=evId+"::"+sec;
+                    const secExpanded=issueExpSec===secKey;
+
+                    return(
+                      <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
+                        {/* Section header */}
+                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                            <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
+                            <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
+                            <VenueTag evId={evId} sec={sec}/>
+                            {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
                           </div>
-                          <div style={{textAlign:"right",fontSize:13,fontWeight:700,color:done?C.green:C.text}}>{fmtQty(ing.totalQty,ing.unit)}</div>
-                          <div onClick={()=>setIssuedItems(p=>({...p,[key]:!done}))}
-                            style={{width:28,height:28,borderRadius:6,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
-                            {done&&<span style={{color:"#0A0A0F",fontSize:12,fontWeight:700}}>✓</span>}
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
+                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
 
-                  {/* Issue all button */}
-                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                    <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
-                      <button onClick={()=>{const up={};ingList.forEach(ing=>{up[sec+"_"+ing.name]=true;});setIssuedItems(p=>({...p,...up}));}}
-                        style={{width:"100%",padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${m2.color},${m2.color}80)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                        ✅ {T2("Issue All")} — {sec} ({ingList.length} {T2("items")})
-                      </button>
-                    </div>
-                  )}
+                        {/* Ingredient rows */}
+                        {secExpanded&&<div style={{padding:"0 16px"}}>
+                          {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
+                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
+                            <div style={{padding:"6px 0 10px"}}>
+                              <button onClick={()=>issueAllForSection(evId,sec,list)}
+                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
+                              </button>
+                            </div>
+                          )}
+                        </div>}
+                      </div>
+                    );
+                  })}
                 </Card>
               );
             })}
+
+            {/* ── COLLECTIVE VIEW ── */}
+            {issueMode==="collective"&&(()=>{
+              const collKeys=Object.keys(collBags).sort();
+              if(collKeys.length===0) return null;
+              return(
+                <div>
+                  <div style={{padding:"10px 14px",background:C.goldBg,borderRadius:10,border:`1px solid ${C.goldBorder}`,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:C.gold}}>ℹ {T2("Quantities merged across events. Issue marks apply to all contributing events.")}</span>
+                  </div>
+                  {collKeys.map(sec=>{
+                    const bag=collBags[sec];
+                    const m=bag.meta;
+                    const list=Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
+                    const cnt=collIssuedCount(sec,list);
+                    const allDone=cnt===list.length&&list.length>0;
+                    const secKey="coll::"+sec;
+                    const secExpanded=issueExpSec===secKey;
+
+                    return(
+                      <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
+                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
+                              <span style={{fontSize:13,fontWeight:700,color:m.color}}>{T2(sec)}</span>
+                              <span style={{fontSize:11,color:C.muted}}>{list.length} {T2("items")}</span>
+                              {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
+                            </div>
+                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
+                              {bag.events.map(e=><span key={e.id} style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.bg,color:C.muted,border:`1px solid ${C.borderLight}`}}>{e.guest} ({e.pax}p)</span>)}
+                            </div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
+                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
+                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
+                          </div>
+                        </div>
+
+                        {secExpanded&&<div style={{padding:"0 16px",borderTop:`1px solid ${C.borderLight}`}}>
+                          {list.map((ing,ii)=>{
+                            /* In collective, issue across all events at once */
+                            const allEvIssued=bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
+                            return(
+                              <div key={ing.name} style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:ii<list.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
+                                <div>
+                                  <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
+                                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
+                                </div>
+                                <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:allEvIssued?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
+                                <div onClick={async()=>{
+                                  for(const ev of bag.events){
+                                    await toggleIssueItem(ev.id,sec,{name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:ing.evBreak.find(b=>b.evId===ev.id)?.qty||ing.totalQty},allEvIssued);
+                                  }
+                                }}
+                                  style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${allEvIssued?C.green:C.border}`,background:allEvIssued?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
+                                  {allEvIssued&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
+                            <div style={{padding:"6px 0 10px"}}>
+                              <button onClick={async()=>{for(const ev of bag.events){await issueAllForSection(ev.id,sec,Object.values(bag.items).map(i=>({...i,totalQty:i.evBreak.find(b=>b.evId===ev.id)?.qty||i.totalQty})));}}}
+                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
+                              </button>
+                            </div>
+                          )}
+                        </div>}
+                      </Card>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
