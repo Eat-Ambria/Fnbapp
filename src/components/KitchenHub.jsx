@@ -818,9 +818,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
                                     const prevD=si===0?(!!d2d.storeEnd):(prevStepHasSubs?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi])):!!(d2d.manual&&d2d.manual[pk]));
                                     return(
-                                    <div key={si} style={{padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                    <div key={si} style={{padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp&&!stDone?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-12,paddingLeft:12,borderRadius:6}:{})}}>
                                       <div style={{display:"flex",gap:14,alignItems:"center"}}>
-                                      <div style={{width:38,height:38,borderRadius:10,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0}}>{stDone?"✓":si+1}</div>
+                                      <div style={{width:38,height:38,borderRadius:10,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):step.ccp?C.red:C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):step.ccp?C.red:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:stDone||stS?"#fff":step.ccp?"#fff":C.muted,flexShrink:0}}>{stDone?"✓":si+1}</div>
                                       <div style={{flex:1}}>
                                         <div style={{fontSize:16,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}{hasSubs&&!stDone&&<span style={{fontSize:12,color:C.muted,marginLeft:8}}>({step.subs.filter((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])).length}/{step.subs.length})</span>}</div>
                                         {(()=>{const d2=cleanStepText(step.i||step.desc||"");const t2=cleanStepText(step.t);if(!d2||t2.includes(d2)||d2.includes(t2))return null;return <div style={{fontSize:13,color:C.muted,marginTop:2}}>{d2}</div>;})()}
@@ -959,9 +959,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
                                     const prevD=si===0?(!!d2d.storeEnd):(prevStepHasSubs?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi])):!!(d2d.manual&&d2d.manual[pk]));
                                     return(
-                                  <div key={si} style={{padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                  <div key={si} style={{padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp&&!stDone?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-8,paddingLeft:8,borderRadius:4}:{})}}>
                                     <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                                    <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#fff":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
+                                    <div style={{width:26,height:26,borderRadius:7,background:stDone?C.green:stS?(stOverdue?C.red:C.amber):step.ccp?C.red:C.darkCard,border:`2px solid ${stDone?C.green:stS?(stOverdue?C.red:C.amber):step.ccp?C.red:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:stDone||stS?"#fff":step.ccp?"#fff":C.muted,flexShrink:0,marginTop:2}}>{stDone?"✓":si+1}</div>
                                     <div style={{flex:1}}>
                                       <div style={{fontSize:12,fontWeight:600,color:stDone?C.green:stS?C.amber:C.text,wordBreak:"break-word",overflowWrap:"anywhere"}}>{cleanStepText(step.t)}{hasSubs&&!stDone&&<span style={{fontSize:10,color:C.muted,marginLeft:6}}>({step.subs.filter((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])).length}/{step.subs.length})</span>}</div>
                                       {(()=>{const d2=cleanStepText(step.i||step.desc||"");const t2=cleanStepText(step.t);if(!d2||t2.includes(d2)||d2.includes(t2))return null;return <div style={{fontSize:11,color:C.muted,marginTop:1}}>{d2}</div>;})()}
@@ -1771,9 +1771,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 ):(
                   safeArr(sopRecipe.steps).map((step,si)=>(
-                    <div key={si} style={{padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                    <div key={si} style={{padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-12,paddingLeft:12,borderRadius:6}:{})}}>
                       <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
-                        <div style={{width:32,height:32,borderRadius:8,background:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.gold,flexShrink:0}}>{si+1}</div>
+                        <div style={{width:32,height:32,borderRadius:8,background:step.ccp?C.red:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:step.ccp?"#fff":C.gold,flexShrink:0}}>{si+1}</div>
                         <div style={{flex:1}}>
                           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}{Array.isArray(step.subs)&&step.subs.length>0&&<span style={{fontSize:11,color:C.muted,fontWeight:400,marginLeft:8}}>({step.subs.length} sub-steps)</span>}</div>
                           <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
@@ -1799,6 +1799,30 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   ))
                 )}
+                {/* ═══ CCP Summary Table ═══ */}
+                {(()=>{const ccpSteps=safeArr(sopRecipe.steps).map((s,i)=>({...s,_si:i})).filter(s=>s.ccp);if(!ccpSteps.length)return null;return(
+                  <div style={{marginTop:16,padding:"14px 16px",background:C.redBg,borderRadius:12,border:`1px solid ${C.redBorder}`}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>🔴 Critical Control Points ({ccpSteps.length})</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.redBorder}`}}>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red,width:40}}>Step</th>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red}}>Process</th>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red}}>CCP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ccpSteps.map(s=>(
+                          <tr key={s._si} style={{borderBottom:`1px solid ${C.redBorder}22`}}>
+                            <td style={{padding:"6px 8px",fontWeight:700,color:C.text}}>{s._si+1}</td>
+                            <td style={{padding:"6px 8px",color:C.text,lineHeight:1.4}}>{cleanStepText(s.t)}</td>
+                            <td style={{padding:"6px 8px",color:C.red,fontWeight:600,lineHeight:1.4}}>{s.ccp}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );})()}
               </Card>
             </div>
           )}
