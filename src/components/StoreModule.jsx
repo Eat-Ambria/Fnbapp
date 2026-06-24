@@ -573,7 +573,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
         ingr.forEach(ing => {
           const k = ing.n;
           if (!evBags[ev.id].sections[sec].items[k]) evBags[ev.id].sections[sec].items[k] = { name: ing.n, hindi: ing.h || "", unit: ing.u, totalQty: 0 };
-          evBags[ev.id].sections[sec].items[k].totalQty += isNew ? ing.q : ing.q * pax;
+          const addedQty = isNew ? ing.q : ing.q * pax;
+          evBags[ev.id].sections[sec].items[k].totalQty += addedQty;
+          if(ing.n.toLowerCase().includes("basmati")) console.log(`🍚 ${dishName} → ${ing.n}: +${addedQty} ${ing.u} (isNew=${isNew}, raw q=${ing.q}, pax=${pax}) → total=${evBags[ev.id].sections[sec].items[k].totalQty}`);
         });
       });
     });
