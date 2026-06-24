@@ -1030,7 +1030,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         function VenueTag({evId, sec}){
           const code=issueAssignments[evId+"::"+sec];
           if(!code) return(
-            <select value="" onChange={e=>{if(e.target.value)setVenueAssignment(evId,sec,e.target.value);}}
+            <select value="" onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.value)setVenueAssignment(evId,sec,e.target.value);}}
               style={{fontSize:10,padding:"2px 6px",borderRadius:10,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
               <option value="" disabled>⚠ assign</option>
               {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
@@ -1038,7 +1038,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           );
           const vs=venueStyle(code);
           return(
-            <select value={code} onChange={e=>setVenueAssignment(evId,sec,e.target.value)}
+            <select value={code} onClick={e=>e.stopPropagation()} onChange={e=>setVenueAssignment(evId,sec,e.target.value)}
               style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:vs.bg,color:vs.color,border:"1px solid transparent",cursor:"pointer",fontWeight:600}}>
               {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
             </select>
