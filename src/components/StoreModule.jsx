@@ -182,6 +182,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
   const [mapTabSearch, setMapTabSearch] = useState("");
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
+  const [purchaseOrders, setPurchaseOrders] = useState([]); // from store_purchase_orders + store_po_items
+  const [poLoading, setPoLoading] = useState(false);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -307,6 +309,18 @@ function StoreModule({events, lang="en", currentUser=null}) {
     }
     loadIssueState();
 
+    // Load POs
+    async function loadPOs() {
+      try {
+        const {data:pos} = await supabase.from('store_purchase_orders').select('*').order('created_at',{ascending:false});
+        const {data:poItems} = await supabase.from('store_po_items').select('*');
+        if(pos&&poItems){
+          setPurchaseOrders(pos.map(po=>({...po,items:(poItems||[]).filter(i=>i.po_id===po.id)})));
+        }
+      } catch(e){ console.error("PO load failed:",e); }
+    }
+    loadPOs();
+
     // Realtime subscriptions
     const ch1 = supabase.channel('sia-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_issue_assignments' }, (p) => {
       if (p.eventType === 'DELETE') {
@@ -332,7 +346,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
         setIngredientMap(prev => ({ ...prev, [r.ingredient_name]: r }));
       }
     }).subscribe();
-    subs = [ch1, ch2, ch3];
+    const ch4 = supabase.channel('spo-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_purchase_orders' }, () => {
+      supabase.from('store_purchase_orders').select('*').order('created_at',{ascending:false}).then(({data:pos})=>{
+        supabase.from('store_po_items').select('*').then(({data:poItems})=>{
+          if(pos&&poItems) setPurchaseOrders(pos.map(po=>({...po,items:(poItems||[]).filter(i=>i.po_id===po.id)})));
+        });
+      });
+    }).subscribe();
+    subs = [ch1, ch2, ch3, ch4];
 
     return () => { subs.forEach(ch => supabase.removeChannel(ch)); };
   }, []);
@@ -484,6 +505,30 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (!storeItem) return null;
     const conversion = mapping.unit_conversion || 1;
     return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion };
+  }
+
+  async function generatePO(shortages, filtEvs) {
+    if(!shortages.length) return;
+    setPoLoading(true);
+    try {
+      const poNum = "PO-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Date.now().toString(36).slice(-4).toUpperCase();
+      const staffId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.name || "system";
+      const {data:poRow, error:poErr} = await supabase.from('store_purchase_orders').insert({
+        po_number: poNum, status: 'draft', created_by: staffId,
+        notes: filtEvs.map(e=>e.guest+" ("+e.date+")").join(", ")
+      }).select().single();
+      if(poErr||!poRow){ console.error("PO create err:",poErr); setPoLoading(false); return; }
+      const lineItems = shortages.map(s=>({
+        po_id: poRow.id, ingredient_name: s.name, ops_item_id: s.opsItemId||null,
+        ops_item_name: s.opsItemName||null, qty_required: s.required,
+        qty_ordered: s.shortfall, qty_received: 0, unit: s.unit,
+        event_ids: s.eventIds, event_names: s.eventNames,
+      }));
+      const {error:liErr} = await supabase.from('store_po_items').insert(lineItems);
+      if(liErr) console.error("PO items err:",liErr);
+      else { setTab("orders"); }
+    } catch(e){ console.error("PO gen failed:",e); }
+    setPoLoading(false);
   }
 
   async function saveIngredientMapping(ingName, ingHindi, opsItem) {
@@ -733,7 +778,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 {itemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
-            {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Per Pax",k:"perPax",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
+            {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
               <div key={f.k}>
                 <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={fld}/>
@@ -770,7 +815,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},{v:"requirements",l:T2("📋 Event Requirements")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -1370,37 +1415,115 @@ function StoreModule({events, lang="en", currentUser=null}) {
               );
             })()}
 
+            {/* ── SHORTAGE SUMMARY ── */}
+            {(()=>{
+              const shortages = [];
+              const seenIng = {};
+              Object.values(evBags).forEach(({ev, sections})=>{
+                Object.entries(sections).forEach(([sec, secObj])=>{
+                  Object.values(secObj.items).forEach(ing=>{
+                    const mapping = ingredientMap[ing.name];
+                    if(!mapping) return;
+                    const stock = getStockForIngredient(ing.name);
+                    if(!stock) return;
+                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:ing.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,eventIds:[],eventNames:[]};
+                    seenIng[ing.name].required += ing.totalQty;
+                    if(!seenIng[ing.name].eventIds.includes(ev.id)){seenIng[ing.name].eventIds.push(ev.id);seenIng[ing.name].eventNames.push(ev.guest);}
+                  });
+                });
+              });
+              Object.values(seenIng).forEach(s=>{
+                s.shortfall = Math.ceil(Math.max(0, s.required - s.available));
+                if(s.shortfall > 0) shortages.push(s);
+              });
+              shortages.sort((a,b)=>b.shortfall-a.shortfall);
+              if(!shortages.length) return null;
+              return(
+                <Card style={{padding:"14px 16px",marginTop:16,border:`1.5px solid ${C.redBorder}`,background:C.redBg}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.red}}>⚠ {T2("Shortages")} — {shortages.length} {T2("items")}</div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Stock below required for")} {filtEvs.length} {T2("events")}</div>
+                    </div>
+                    {hasPerm(currentUser,"store.edit_stock")&&<button disabled={poLoading} onClick={()=>generatePO(shortages,filtEvs)}
+                      style={{padding:"8px 16px",borderRadius:10,background:poLoading?C.muted:C.red,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:poLoading?"default":"pointer",minHeight:36,opacity:poLoading?.6:1}}>
+                      {poLoading?"⏳ ...":"📋 "+T2("Generate PO")}
+                    </button>}
+                  </div>
+                  <div style={{border:`1px solid ${C.redBorder}`,borderRadius:10,overflow:"hidden"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",background:C.red+"15",borderBottom:`1px solid ${C.redBorder}`}}>
+                      {[T2("Ingredient"),T2("Required"),T2("Stock"),T2("Short")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase"}}>{h}</div>)}
+                    </div>
+                    {shortages.slice(0,20).map((s,idx)=>(
+                      <div key={s.name} style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",borderBottom:idx<Math.min(shortages.length,20)-1?`1px solid ${C.redBorder}22`:"none",alignItems:"center"}}>
+                        <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{s.name}</div><div style={{fontSize:10,color:C.muted}}>{s.eventNames.join(", ")}</div></div>
+                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtIssueQty(s.required,s.unit)}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:C.amber}}>{fmtIssueQty(s.available,s.unit)}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:C.red}}>−{fmtIssueQty(s.shortfall,s.unit)}</div>
+                      </div>
+                    ))}
+                    {shortages.length>20&&<div style={{padding:"6px 12px",fontSize:11,color:C.muted,textAlign:"center"}}>+{shortages.length-20} {T2("more")}</div>}
+                  </div>
+                </Card>
+              );
+            })()}
+
             </div>
         );
       })()}
 
-      {/* ── ORDERS ── */}
+      {/* ── ORDERS (POs from Supabase) ── */}
       {tab==="orders"&&(
         <div>
-          {orders.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No orders placed yet.")}</div>}
-          {[...orders].reverse().map(ord=>{
-            const sc=ord.status==="Received"?C.green:C.amber;
-            const sb=ord.status==="Received"?C.greenBg:C.amberBg;
+          {purchaseOrders.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No purchase orders yet. Generate from Smart Issue shortages.")}</div>}
+          {purchaseOrders.map(po=>{
+            const stColors={draft:{c:C.muted,bg:C.bg},ordered:{c:C.amber,bg:C.amberBg},partial:{c:C.amber,bg:C.amberBg},received:{c:C.green,bg:C.greenBg},cancelled:{c:C.red,bg:C.redBg}};
+            const sc=stColors[po.status]||stColors.draft;
+            const lineItems=po.items||[];
+            const totalOrdered=lineItems.reduce((s,i)=>s+(+i.qty_ordered||0),0);
+            const totalReceived=lineItems.reduce((s,i)=>s+(+i.qty_received||0),0);
             return (
-              <Card key={ord.id} style={{padding:"12px 16px",marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:ord.status==="Ordered"?8:0}}>
+              <Card key={po.id} style={{padding:"14px 16px",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,color:C.text}}>{ord.itemName}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{ord.qty} {ord.unit} · Ordered: {ord.orderedAt}</div>
-                    {ord.receivedAt&&<div style={{fontSize:12,color:C.green,marginTop:1}}>✓ Received {ord.receivedQty} at {ord.receivedAt}</div>}
+                    <div style={{fontSize:13,fontWeight:700,color:C.text}}>{po.po_number}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{lineItems.length} items · {new Date(po.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</div>
+                    {po.notes&&<div style={{fontSize:10,color:C.muted,marginTop:2,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{po.notes}</div>}
                   </div>
-                  <span style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:20,background:sb,color:sc}}>{ord.status}</span>
+                  <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:20,background:sc.bg,color:sc.c,textTransform:"capitalize"}}>{po.status}</span>
                 </div>
-                {ord.status==="Ordered"&&(
-                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                    <input type="number" placeholder={`Max ${ord.qty}`} defaultValue={ord.qty} id={"rcv-"+ord.id}
-                      style={{width:110,padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}/>
-                    <Btn onClick={()=>{
-                      const qty=+(document.getElementById("rcv-"+ord.id)?.value||0);
-                      if(qty<=0) return;
-                      setItems(p=>p.map(i=>i.id!==ord.itemId?i:{...i,inStock:i.inStock+qty}));
-                      setOrders(p=>p.map(o=>o.id!==ord.id?o:{...o,status:"Received",receivedQty:qty,receivedAt:new Date().toLocaleString("en-IN")}));
-                    }} color={C.green} style={{fontSize:11,padding:"5px 12px"}}>{T2("✓ Mark Received")}</Btn>
+                {lineItems.length>0&&(
+                  <div style={{border:`1px solid ${C.borderLight}`,borderRadius:8,overflow:"hidden",marginBottom:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.borderLight}`}}>
+                      {[T2("Item"),T2("Ordered"),T2("Recv"),T2("Unit")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
+                    </div>
+                    {lineItems.map(li=>(
+                      <div key={li.id} style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",borderBottom:`1px solid ${C.borderLight}22`,alignItems:"center"}}>
+                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>{li.ops_item_name||li.ingredient_name}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{li.qty_ordered}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:(+li.qty_received)>=(+li.qty_ordered)?C.green:C.amber}}>{li.qty_received}</div>
+                        <div style={{fontSize:11,color:C.muted}}>{li.unit||"-"}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(po.status==="draft"||po.status==="ordered"||po.status==="partial")&&hasPerm(currentUser,"store.edit_stock")&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {po.status==="draft"&&<Btn onClick={async()=>{
+                      await supabase.from('store_purchase_orders').update({status:'ordered',ordered_at:new Date().toISOString()}).eq('id',po.id);
+                    }} color={C.amber} style={{fontSize:11,padding:"6px 14px"}}>📦 {T2("Mark Ordered")}</Btn>}
+                    {(po.status==="ordered"||po.status==="partial")&&<Btn onClick={async()=>{
+                      for(const li of lineItems){
+                        if((+li.qty_received)<(+li.qty_ordered)){
+                          await supabase.from('store_po_items').update({qty_received:li.qty_ordered}).eq('id',li.id);
+                        }
+                      }
+                      await supabase.from('store_purchase_orders').update({status:'received',received_at:new Date().toISOString()}).eq('id',po.id);
+                    }} color={C.green} style={{fontSize:11,padding:"6px 14px"}}>✅ {T2("Mark All Received")}</Btn>}
+                    {po.status==="draft"&&<Btn onClick={async()=>{
+                      if(!confirm("Cancel this PO?")) return;
+                      await supabase.from('store_purchase_orders').update({status:'cancelled'}).eq('id',po.id);
+                    }} color={C.red} style={{fontSize:11,padding:"6px 14px"}}>✕ {T2("Cancel")}</Btn>}
                   </div>
                 )}
               </Card>
@@ -1410,49 +1533,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       )}
 
       {/* ── EVENT REQUIREMENTS ── */}
-      {tab==="requirements"&&(
-        <div>
-          <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"var(--font-display)",marginBottom:2}}>📋 Auto-Requirements for Upcoming Events</div>
-            <div style={{fontSize:11,color:C.gold,opacity:.8}}>{upcoming.length} events · {totalPax.toLocaleString()} total pax</div>
-          </div>
-          {upcoming.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:10,fontSize:12,color:C.muted}}>No upcoming events. Add from Dashboard.</div>}
-          {upcoming.length>0&&(
-            <div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-                {upcoming.map(ev=>(
-                  <div key={ev.id} style={{padding:"6px 12px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9}}>
-                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{ev.guest}</div>
-                    <div style={{fontSize:12,color:C.muted}}>{ev.date} · {ev.pax} pax</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-                <div style={{display:"grid",gridTemplateColumns:"2fr 90px 90px 90px 90px",background:C.bg,padding:"7px 14px",borderBottom:`1px solid ${C.border}`}}>
-                  {["Item","In Stock","Required","Shortfall","Action"].map(h=><div key={h} style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
-                </div>
-                {items.filter(i=>i.perPax>0).map((item,idx)=>{
-                  const req=Math.ceil(item.perPax*totalPax);
-                  const short=Math.max(0,req-item.inStock);
-                  return (
-                    <div key={item.id} style={{display:"grid",gridTemplateColumns:"2fr 90px 90px 90px 90px",padding:"8px 14px",borderBottom:`1px solid ${C.borderLight}`,alignItems:"center",background:idx%2===0?C.surface:"#FAFAFA"}}>
-                      <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{item.name}</div><div style={{fontSize:11,color:C.muted}}>{item.perPax}× per pax</div></div>
-                      <div style={{fontSize:12,fontWeight:600,color:item.inStock>=req?C.green:C.red}}>{item.inStock}</div>
-                      <div style={{fontSize:12,fontWeight:600,color:C.text}}>{req}</div>
-                      <div style={{fontSize:12,fontWeight:700,color:short>0?C.red:C.green}}>{short>0?`−${short}`:"✓"}</div>
-                      {short>0
-                        ?<button onClick={()=>{setShowOrder(item.id);setOrderQty(String(short));}}
-                            style={{padding:"4px 9px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer",background:C.red,color:"#fff",border:"none"}}>Order {short}</button>
-                        :<span style={{fontSize:12,color:C.green,fontWeight:600}}>{T2("OK ✓")}</span>
-                      }
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      
 
       {/* ── INGREDIENT MAP (admin) ── */}
       {tab==="ingmap"&&(()=>{
