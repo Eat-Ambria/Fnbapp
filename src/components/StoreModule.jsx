@@ -181,6 +181,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapSearch, setMapSearch] = useState("");
   const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
   const [mapTabSearch, setMapTabSearch] = useState("");
+  const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -1369,49 +1370,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
               );
             })()}
 
-            {/* ── Ingredient mapping modal ── */}
-            {mapModalIng&&(
-              <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
-                onClick={()=>{setMapModalIng(null);setMapSearch("");}}>
-                <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-                  <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Link to Store Item")}</div>
-                    <div style={{fontSize:12,color:C.muted}}>
-                      {mapModalIng.name}{mapModalIng.hindi?` (${mapModalIng.hindi})`:""} · {T2("recipe unit")}: {mapModalIng.unit}
-                    </div>
-                    <input value={mapSearch} onChange={e=>setMapSearch(e.target.value)} placeholder={T2("Search store items...")}
-                      autoFocus style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,marginTop:10,boxSizing:"border-box"}}/>
-                  </div>
-                  <div style={{overflow:"auto",flex:1,padding:"8px 0"}}>
-                    {items.filter(i=>i.source==="ops"||i.source==="store").filter(i=>{
-                      if(!mapSearch) return true;
-                      const s=mapSearch.toLowerCase();
-                      return (i.name||"").toLowerCase().includes(s)||(i.h||"").includes(s)||(i.cat||"").toLowerCase().includes(s);
-                    }).slice(0,50).map(si=>(
-                      <div key={si.id} onClick={()=>saveIngredientMapping(mapModalIng.name,mapModalIng.hindi,si)}
-                        style={{padding:"10px 18px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
-                        onMouseOver={e=>e.currentTarget.style.background=C.bg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:600,color:C.text}}>{si.name}</div>
-                          <div style={{fontSize:10,color:C.muted}}>{si.cat} · {si.unit}{si.h?" · "+si.h:""}</div>
-                        </div>
-                        <div style={{textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:12,fontWeight:600,color:si.available>0?C.green:C.red}}>{si.available}</div>
-                          <div style={{fontSize:10,color:C.muted}}>{si.unit}</div>
-                        </div>
-                      </div>
-                    ))}
-                    {items.filter(i=>(i.source==="ops"||i.source==="store")&&(!mapSearch||(i.name||"").toLowerCase().includes(mapSearch.toLowerCase())||(i.h||"").includes(mapSearch)||(i.cat||"").toLowerCase().includes(mapSearch.toLowerCase()))).length===0&&(
-                      <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("No matching store items found")}</div>
-                    )}
-                  </div>
-                  <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
-                    <button onClick={()=>{setMapModalIng(null);setMapSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
         );
       })()}
 
@@ -1530,16 +1489,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {/* Filter pills + search */}
             <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
               {[{v:"all",l:T2("All")+" ("+total+")"},{v:"unmapped",l:"⚠ "+T2("Unmapped")+" ("+unmappedCount+")"},{v:"mapped",l:"✓ "+T2("Mapped")+" ("+mappedCount+")"}].map(f=>(
-                <button key={f.v} onClick={()=>setMapTabFilter(f.v)} style={{padding:"7px 14px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32,
+                <button key={f.v} onClick={()=>{setMapTabFilter(f.v);setMapTabPage(0);}} style={{padding:"7px 14px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32,
                   background:mapTabFilter===f.v?C.gold:C.bg,color:mapTabFilter===f.v?C.goldBg:C.muted,border:`1px solid ${mapTabFilter===f.v?C.gold:C.border}`}}>{f.l}</button>
               ))}
             </div>
-            <input value={mapTabSearch} onChange={e=>setMapTabSearch(e.target.value)} placeholder={T2("Search ingredients...")}
+            <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
               style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}/>
 
             {/* Auto-link all suggestions button */}
-            {mapTabFilter==="unmapped"&&unmappedCount>0&&(()=>{
-              const suggestions = filtered.filter(i=>!ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
+            {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
+              const suggestions = allRecipeIngredients.filter(i=>!ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
               if(suggestions.length===0) return null;
               return(
                 <button onClick={async()=>{
@@ -1555,7 +1514,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {/* Ingredient list */}
             {filtered.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No ingredients match your filter.")}</div>}
 
-            {filtered.map(ing=>{
+            {/* Pagination info */}
+            {filtered.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:11,color:C.muted}}>{T2("Showing")} {mapTabPage*30+1}–{Math.min((mapTabPage+1)*30,filtered.length)} {T2("of")} {filtered.length}</span>
+              <div style={{display:"flex",gap:6}}>
+                {mapTabPage>0&&<button onClick={()=>setMapTabPage(p=>p-1)} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.bg,color:C.text,border:`1px solid ${C.border}`}}>← {T2("Prev")}</button>}
+                {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>setMapTabPage(p=>p+1)} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.gold,color:C.goldBg,border:"none"}}>→ {T2("Next")}</button>}
+              </div>
+            </div>}
+
+            {filtered.slice(mapTabPage*30,(mapTabPage+1)*30).map(ing=>{
               const mapping = ingredientMap[ing.name];
               const isMapped = !!mapping;
               const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
@@ -1614,9 +1582,59 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 </Card>
               );
             })}
+
+            {/* Bottom pagination */}
+            {filtered.length>30&&<div style={{display:"flex",justifyContent:"center",gap:8,marginTop:14,paddingTop:14,borderTop:`1px solid ${C.borderLight}`}}>
+              {mapTabPage>0&&<button onClick={()=>{setMapTabPage(p=>p-1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",background:C.bg,color:C.text,border:`1px solid ${C.border}`}}>← {T2("Previous")}</button>}
+              <span style={{padding:"8px 14px",fontSize:12,color:C.muted}}>{T2("Page")} {mapTabPage+1} / {Math.ceil(filtered.length/30)}</span>
+              {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>{setMapTabPage(p=>p+1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",background:C.gold,color:C.goldBg,border:"none"}}>→ {T2("Next")}</button>}
+            </div>}
           </div>
         );
       })()}
+
+    {/* ── Ingredient mapping modal (global — works on any tab) ── */}
+      {mapModalIng&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>{setMapModalIng(null);setMapSearch("");}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Link to Store Item")}</div>
+              <div style={{fontSize:12,color:C.muted}}>
+                {mapModalIng.name}{mapModalIng.hindi?` (${mapModalIng.hindi})`:""} · {T2("recipe unit")}: {mapModalIng.unit}
+              </div>
+              <input value={mapSearch} onChange={e=>setMapSearch(e.target.value)} placeholder={T2("Search store items...")}
+                autoFocus style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,marginTop:10,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{overflow:"auto",flex:1,padding:"8px 0"}}>
+              {items.filter(i=>i.source==="ops"||i.source==="store").filter(i=>{
+                if(!mapSearch) return true;
+                const s=mapSearch.toLowerCase();
+                return (i.name||"").toLowerCase().includes(s)||(i.h||"").includes(s)||(i.cat||"").toLowerCase().includes(s);
+              }).slice(0,50).map(si=>(
+                <div key={si.id} onClick={()=>saveIngredientMapping(mapModalIng.name,mapModalIng.hindi,si)}
+                  style={{padding:"10px 18px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                  onMouseOver={e=>e.currentTarget.style.background=C.bg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{si.name}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{si.cat} · {si.unit}{si.h?" · "+si.h:""}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:si.available>0?C.green:C.red}}>{si.available}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{si.unit}</div>
+                  </div>
+                </div>
+              ))}
+              {items.filter(i=>(i.source==="ops"||i.source==="store")&&(!mapSearch||(i.name||"").toLowerCase().includes(mapSearch.toLowerCase())||(i.h||"").includes(mapSearch)||(i.cat||"").toLowerCase().includes(mapSearch.toLowerCase()))).length===0&&(
+                <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("No matching store items found")}</div>
+              )}
+            </div>
+            <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
+              <button onClick={()=>{setMapModalIng(null);setMapSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
