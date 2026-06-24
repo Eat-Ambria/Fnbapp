@@ -331,7 +331,7 @@ export default function App() {
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
         ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[],odc_location:payload.new.odc_location||null,odc_address:payload.new.odc_address||null,odc_contact_phone:payload.new.odc_contact_phone||null,odc_transport_cost:payload.new.odc_transport_cost||null,odc_lead:payload.new.odc_lead||null,site_recce:payload.new.site_recce||null,odc_menu_confirmed:payload.new.odc_menu_confirmed??false};
       }
-      if(payload.eventType==='INSERT'&&ev) setEvents_raw(p=>[...p,ev]);
+      if(payload.eventType==='INSERT'&&ev) setEvents_raw(p=>p.some(e=>e.id===ev.id)?p.map(e=>e.id===ev.id?ev:e):[...p,ev]);
       if(payload.eventType==='UPDATE'&&ev) setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e));
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
