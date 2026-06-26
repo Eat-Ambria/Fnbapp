@@ -127,8 +127,14 @@ function findRecipeForDish(dishName) {
 function getStepsForDish(name) {
   try {
     const r = findRecipeForDish(name);
-    if(r && r.steps && r.steps.length) return r.steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null,d1:!!s.d1,subs:Array.isArray(s.subs)&&s.subs.length>0?s.subs.map(sb=>({t:sb.t||"",i:sb.i||""})):null}));
-  } catch(e){}
+    if (!r) { console.warn('[SOP miss]', name, '→ no recipe found, using generic steps'); return GENERIC_STEPS; }
+    // Defensive: handle triple-encoded steps (string instead of array)
+    let steps = r.steps;
+    if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch(e2){} }
+    if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch(e3){} }
+    if (!Array.isArray(steps) || steps.length === 0) { console.warn('[SOP miss]', name, '→ recipe found (' + r.n + ') but steps empty/invalid'); return GENERIC_STEPS; }
+    return steps.map(s=>({t:s.t||"Step",desc:s.i||"",tm:s.tm||null,ccp:s.ccp||null,d1:!!s.d1,subs:Array.isArray(s.subs)&&s.subs.length>0?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):null}));
+  } catch(e){ console.warn('[SOP miss]', name, '→ error:', e.message); }
   return GENERIC_STEPS;
 }
 

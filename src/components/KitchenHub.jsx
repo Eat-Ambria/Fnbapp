@@ -26,22 +26,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // SOPs have "पनीर (15 kg / 200 PAX)" baked in — we show scaled ingredients separately
   function cleanStepText(text) {
     if (!text) return "";
-    return text
-      // Remove "(15 kg / 200 PAX)" or "(2 kg)" or "(10 L)" or "(500 gm)" patterns
-      .replace(/\(\s*[\d.,]+\s*(?:kg|gm?|ml|li?t(?:re|er)?s?|pcs?|pieces?)\s*(?:\/\s*[\d.,]+\s*(?:PAX|pax))?\s*\)/gi, "")
-      // Remove standalone "15 kg" or "200 gm" or "10 L" preceded by quantity context
-      .replace(/\b([\d.,]+)\s*(kg|gm?|ml|li?t(?:re|er)?s?)\b/gi, function(match, num, unit) {
-        // Keep temperature references like "170°C" and time references
-        return "";
-      })
-      // Remove "/ 200 PAX" or "200 PAX" standalone references
-      .replace(/\/?\s*[\d.,]+\s*PAX/gi, "")
-      // Clean up double spaces, leading/trailing dashes, extra punctuation
-      .replace(/\s{2,}/g, " ")
-      .replace(/\(\s*\)/g, "")
-      .replace(/\s*—\s*—\s*/g, " — ")
-      .replace(/^\s*[—,]\s*/, "")
-      .trim();
+    return text.trim();
   }
 
   // Section tablet filtering — always uses sop_categories (set in Access Manager)
