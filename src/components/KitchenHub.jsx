@@ -149,6 +149,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [dishMapSel, setDishMapSel] = useState({}); // {lmsName: recipeDishName}
   const [dishMapSaving, setDishMapSaving] = useState(false);
   const [dishMapSearch, setDishMapSearch] = useState("");
+  const [dishMapDrop, setDishMapDrop] = useState(null); // lms_name of open dropdown row
+  const [dishMapDropQ, setDishMapDropQ] = useState("");
 
   // ── Yield editing ──
   const YIELD_UNITS = ["kg","gm","ltr","ml","piece","chafing dish"];
@@ -1918,20 +1920,45 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   {/* Dropdown / status */}
                   {row.status==="auto"?(
                     <span style={{fontSize:10,color:C.green,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,flexShrink:0}}>✓ Auto</span>
-                  ):row.status==="mapped"&&!sel?(
-                    <div style={{display:"flex",gap:4,flexShrink:0}}>
-                      <select value="" onChange={e=>{if(e.target.value)setDishMapSel(p=>({...p,[row.lms]:e.target.value}));}} style={{padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,maxWidth:200}}>
-                        <option value="">Change...</option>
-                        {RECIPE_DB.cats.map(cat=><optgroup key={cat.id} label={cat.name}>{(RECIPE_DB.recipes[cat.id]||[]).map((r,i)=><option key={i} value={r.n}>{r.n}</option>)}</optgroup>)}
-                      </select>
-                      <button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>
+                  ):(()=>{
+                    const isOpen = dishMapDrop===row.lms;
+                    const display = sel || (row.status==="mapped"?row.sopName:null);
+                    const q = dishMapDropQ.toLowerCase();
+                    const filtered = isOpen ? allRecipes.filter(r=>!q||r.n.toLowerCase().includes(q)||r.cat.toLowerCase().includes(q)) : [];
+                    const grouped = {};
+                    filtered.forEach(r=>{if(!grouped[r.cat])grouped[r.cat]=[];grouped[r.cat].push(r);});
+                    return(
+                    <div style={{position:"relative",flexShrink:0,maxWidth:240,minWidth:160}}>
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        <button onClick={()=>{if(isOpen){setDishMapDrop(null);}else{setDishMapDrop(row.lms);setDishMapDropQ("");}}} style={{flex:1,padding:"6px 10px",borderRadius:8,border:`1px solid ${isUnlinked&&!display?C.red:display?C.greenBorder:C.border}`,fontSize:11,fontWeight:display?600:400,color:display?C.text:C.faint,background:display?C.greenBg+"40":C.surface,cursor:"pointer",textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minHeight:30}}>
+                          {display||"Select SOP..."}
+                        </button>
+                        {row.status==="mapped"&&!sel&&<button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>}
+                        {sel&&<button onClick={()=>setDishMapSel(p=>({...p,[row.lms]:null}))} style={{padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>}
+                      </div>
+                      {isOpen&&(
+                        <div style={{position:"absolute",top:"100%",right:0,zIndex:20,width:280,maxHeight:260,background:C.surface,border:`1.5px solid ${C.gold}`,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,.25)",marginTop:4,display:"flex",flexDirection:"column"}}>
+                          <div style={{padding:"8px 8px 6px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+                            <input autoFocus value={dishMapDropQ} onChange={e=>setDishMapDropQ(e.target.value)} placeholder="Type to search recipes..." style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.darkCard,boxSizing:"border-box"}}/>
+                          </div>
+                          <div style={{overflowY:"auto",flex:1}}>
+                            {Object.keys(grouped).length===0&&<div style={{padding:16,textAlign:"center",fontSize:11,color:C.faint}}>No recipes match</div>}
+                            {Object.entries(grouped).map(([catName,recs])=>(
+                              <div key={catName}>
+                                <div style={{padding:"6px 10px 3px",fontSize:10,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:.4,background:C.goldBg+"40",position:"sticky",top:0}}>{catName}</div>
+                                {recs.map((r,i)=>(
+                                  <div key={i} onMouseDown={e=>{e.preventDefault();setDishMapSel(p=>({...p,[row.lms]:r.n}));setDishMapDrop(null);}} style={{padding:"6px 12px",fontSize:12,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,background:(display===r.n)?C.greenBg:"transparent"}} onMouseEnter={e=>e.currentTarget.style.background=C.goldBg} onMouseLeave={e=>e.currentTarget.style.background=(display===r.n)?C.greenBg:"transparent"}>
+                                    {(()=>{if(!q)return r.n;const idx=r.n.toLowerCase().indexOf(q);if(idx<0)return r.n;return <>{r.n.slice(0,idx)}<b style={{color:C.gold}}>{r.n.slice(idx,idx+q.length)}</b>{r.n.slice(idx+q.length)}</>;})()}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ):(
-                    <select value={sel||""} onChange={e=>setDishMapSel(p=>({...p,[row.lms]:e.target.value||null}))} style={{padding:"4px 6px",borderRadius:6,border:`1px solid ${isUnlinked?C.red:C.border}`,fontSize:11,color:sel?C.text:C.faint,background:C.surface,maxWidth:220,flexShrink:0}}>
-                      <option value="">Select SOP recipe...</option>
-                      {RECIPE_DB.cats.map(cat=><optgroup key={cat.id} label={cat.name}>{(RECIPE_DB.recipes[cat.id]||[]).map((r,i)=><option key={i} value={r.n}>{r.n}</option>)}</optgroup>)}
-                    </select>
-                  )}
+                    );
+                  })()}
                 </div>
               );})}
               {filteredRows.length===0&&<div style={{textAlign:"center",padding:30,color:C.faint,fontSize:13}}>No dishes match search</div>}
