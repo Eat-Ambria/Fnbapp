@@ -157,6 +157,30 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [editingYield, setEditingYield] = useState(false);
   const [yieldForm, setYieldForm] = useState([]);
 
+  // ── Ingredient Usage Modal (captures actual vs scaled) ──
+  const [usageModal, setUsageModal] = useState(null);
+  const [usageActuals, setUsageActuals] = useState({});
+  function openUsageModal(dish, pax, isPrepDay, onConfirm) {
+    const ingr = getIngrForDish(dish.name, pax);
+    if (ingr && ingr.length > 0) {
+      setUsageModal({evId:dish.fEvId, idx:dish.fIdx, dishName:dish.name, pax:pax, isPrepDay:isPrepDay, ingredients:ingr, onConfirm:onConfirm});
+      setUsageActuals({});
+    } else { onConfirm(); }
+  }
+  async function saveUsageAndDone() {
+    if (!usageModal) return;
+    const rows = usageModal.ingredients.map(ing => {
+      const actual = usageActuals[ing.n];
+      return { name: ing.n, hindi: ing.h||"", scaled_qty: Math.round(ing.q*100)/100, unit: ing.u, actual_qty: actual !== undefined && actual !== "" ? parseFloat(actual) : null };
+    });
+    try {
+      const mod = await import('../lib/supabase.js');
+      await mod.supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown" });
+    } catch(e) { console.error('Usage log save error:', e); }
+    usageModal.onConfirm();
+    setUsageModal(null);
+  }
+
   // ── SOP Add/Edit Modal ──
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
   const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
@@ -629,6 +653,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             effectiveScales={effectiveScales}
             tick={tick}
             setTab={setTab}
+            onBeforeDishDone={openUsageModal}
           />
         ):(
           <div style={{textAlign:"center",padding:"60px 20px"}}>
@@ -872,7 +897,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         </div>
                                       )}
                                     </div>);})}
-                                  {(()=>{const elapsed=d2s.dishStartedAt?Math.floor((Date.now()-d2s.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:6}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
+                                  {(()=>{const elapsed=d2s.dishStartedAt?Math.floor((Date.now()-d2s.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:6}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                                 </div>);})()}
                             {isExp&&isDone&&<div style={{padding:"16px 20px",borderTop:`1.5px solid ${C.greenBorder}`,background:C.greenBg,textAlign:"center"}}><div style={{fontSize:16,color:C.green,fontWeight:700}}>✅ {T2("Prep complete")}</div></div>}
                           </div>);
@@ -1013,7 +1038,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       </div>
                                     )}
                                   </div>);})}
-                                {(()=>{const d2f=ds(dish.fEvId,dish.fIdx,dish.name);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
+                                {(()=>{const d2f=ds(dish.fEvId,dish.fIdx,dish.name);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                               </div>);})()}
                         </div>
                       );
@@ -2062,6 +2087,47 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>Cancel</button>
                 <button onClick={saveIngredients} disabled={!ingDirty} style={{padding:"8px 20px",borderRadius:10,fontSize:12,fontWeight:700,background:ingDirty?C.green:C.faint,color:"#fff",border:"none",cursor:ingDirty?"pointer":"default",opacity:ingDirty?1:.5,minHeight:36}}>💾 Save</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Ingredient Usage Modal ═══ */}
+      {usageModal && (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
+          <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid "+C.border}}>
+              <div style={{fontSize:15,fontWeight:700,color:C.text}}>📊 Ingredient Usage</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:2}}>{usageModal.dishName} — {usageModal.pax} pax {usageModal.isPrepDay?"(Prep Day)":"(Event Day)"}</div>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"0 20px"}}>
+              <div style={{display:"flex",padding:"10px 0 6px",borderBottom:"2px solid "+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5}}>
+                <div style={{flex:2}}>Ingredient</div>
+                <div style={{flex:1,textAlign:"right"}}>Scaled</div>
+                <div style={{flex:1,textAlign:"right"}}>Actual</div>
+              </div>
+              {usageModal.ingredients.map((ing,i) => (
+                <div key={i} style={{display:"flex",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.borderLight,fontSize:12}}>
+                  <div style={{flex:2}}>
+                    <div style={{color:C.text,fontWeight:500}}>{ing.n}</div>
+                    {ing.h && <div style={{fontSize:10,color:C.muted}}>{ing.h}</div>}
+                  </div>
+                  <div style={{flex:1,textAlign:"right",color:C.muted,fontSize:11}}>{Math.round(ing.q*100)/100} {ing.u}</div>
+                  <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
+                    <input type="number" step="any" inputMode="decimal"
+                      placeholder={String(Math.round(ing.q*100)/100)}
+                      value={usageActuals[ing.n]||""}
+                      onChange={e=>{const v=e.target.value;setUsageActuals(p=>({...p,[ing.n]:v}));}}
+                      style={{width:64,padding:"5px 6px",borderRadius:6,border:"1px solid "+C.border,fontSize:12,textAlign:"right",background:C.bg,color:C.text}} />
+                    <div style={{fontSize:9,color:C.faint,marginTop:1}}>{ing.u}</div>
+                  </div>
+                </div>
+              ))}
+              <div style={{padding:"8px 0",fontSize:10,color:C.muted,fontStyle:"italic"}}>Leave blank if scaled quantity was correct</div>
+            </div>
+            <div style={{padding:"12px 20px",borderTop:"1px solid "+C.border,display:"flex",gap:10}}>
+              <button onClick={()=>{usageModal.onConfirm();setUsageModal(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"transparent",border:"1px solid "+C.border,color:C.muted,fontSize:12,cursor:"pointer"}}>Skip</button>
+              <button onClick={saveUsageAndDone} style={{flex:2,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save & Done ✅</button>
             </div>
           </div>
         </div>

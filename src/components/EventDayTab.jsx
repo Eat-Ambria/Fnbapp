@@ -62,7 +62,7 @@ function EventDayTab({
   transportQueue = [], setTransportQueue,
   dishSignoff, setDishSignoff,
   openCam, capturePhoto, stopCam, camOn, camRef, capRef, camStreamRef,
-  appliedScales = {}, effectiveScales = {}, tick, setTab,
+  appliedScales = {}, effectiveScales = {}, tick, setTab, onBeforeDishDone,
 }) {
   const T2 = s => T(s, lang);
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -506,7 +506,8 @@ function EventDayTab({
                                     }]);
                                   }
                                 }
-                                setDs(dish.fEvId, dish.fIdx, updates, dish);
+                                const doFinish = () => setDs(dish.fEvId, dish.fIdx, updates, dish);
+                                if (onBeforeDishDone) { const evObj = todayEvs.find(e => e.id === dish.fEvId); onBeforeDishDone(dish, evObj?.pax||0, false, doFinish); } else { doFinish(); }
                               }} style={{ width:"100%", padding: "14px", borderRadius: 12, background: needsTransport?`linear-gradient(135deg,${C.amber},#B07A10)`:C.green, color: needsTransport?"#fff":"#0A0A0F", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                                 {needsTransport?`🚛 ${T2("Ready for Transport")}`:`✅ ${T2("Mark Complete")}`}
                               </button>
