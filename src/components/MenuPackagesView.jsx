@@ -295,6 +295,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!dish) return { status: 'unmapped', recipe: null };
     var dn = dish.toLowerCase().trim();
     var mapKey = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === dn; });
+    if (mapKey && DISH_NAME_MAP[mapKey] === '__none__') return { status: 'unmapped', recipe: null };
     if (mapKey) return { status: 'mapped', recipe: DISH_NAME_MAP[mapKey] };
     var recipe = findRecipeForDish(dish);
     if (recipe) return { status: 'auto', recipe: recipe.n };
@@ -309,8 +310,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setMapDropOpen(null); setMapSearch("");
   }
   async function removeMapping(lmsName) {
-    try { await supabase.from('dish_name_map').delete().eq('lms_name', lmsName); delete DISH_NAME_MAP[lmsName]; }
-    catch(e) { alert('Error removing: ' + e.message); }
+    try {
+      var ms = getMappingStatus(lmsName);
+      if (ms.status === 'auto') {
+        await supabase.from('dish_name_map').upsert({ lms_name: lmsName, recipe_dish_name: '__none__' }, { onConflict: 'lms_name' });
+        DISH_NAME_MAP[lmsName] = '__none__';
+      } else {
+        await supabase.from('dish_name_map').delete().eq('lms_name', lmsName); delete DISH_NAME_MAP[lmsName];
+      }
+    } catch(e) { alert('Error removing: ' + e.message); }
   }
 
   var PKG_META = {
@@ -728,11 +736,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                       });
                                     })()}
                                   </div>
+                                  {ms && (ms.status === 'mapped' || ms.status === 'auto') && (
+                                    <button onClick={function(e) { e.stopPropagation(); removeMapping(d); setMapDropOpen(null); }}
+                                      style={{ padding: "6px 10px", borderTop: "1px solid " + C.borderLight, background: C.redBg, color: C.red, fontSize: 10, cursor: "pointer", textAlign: "center", width: "100%", border: "none", borderTop: "1px solid " + C.borderLight }}>Remove mapping</button>
+                                  )}
                                 </div>
-                                {ms && ms.status === 'mapped' && (
-                                  <button onClick={function() { removeMapping(d); setMapDropOpen(null); }}
-                                    style={{ marginTop: 4, padding: "3px 10px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer" }}>Remove mapping</button>
-                                )}
                               </div>
                             )}
                           </div>
