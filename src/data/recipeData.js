@@ -127,7 +127,7 @@ function findRecipeForDish(dishName) {
 function getStepsForDish(name) {
   try {
     const r = findRecipeForDish(name);
-    if (!r) { console.warn('[SOP miss]', name, '→ no recipe found, using generic steps'); return GENERIC_STEPS; }
+    if (!r) { const allNames = RECIPE_DB.cats.flatMap(c=>(RECIPE_DB.recipes[c.id]||[]).map(r2=>r2.n)); console.warn('[SOP miss]', name, '→ no recipe found ('+allNames.length+' recipes in DB). Closest:', allNames.filter(rn=>rn.toLowerCase().includes(name.split(' ')[0].toLowerCase())||name.toLowerCase().includes(rn.split(' ')[0].toLowerCase()))); return GENERIC_STEPS; }
     // Defensive: handle triple-encoded steps (string instead of array)
     let steps = r.steps;
     if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch(e2){} }
