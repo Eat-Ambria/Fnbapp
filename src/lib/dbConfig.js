@@ -164,6 +164,7 @@ export async function loadAllConfig() {
     allocRulesRaw,
     vendorCategoriesRaw,
     dishCategoriesRaw,
+    dishNameMapRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
@@ -176,11 +177,16 @@ export async function loadAllConfig() {
     loadTable('staff_allocation_rules',[], null),
     loadTable('vendor_categories',     [], null),
     loadTable('dish_categories',       [], null),
+    loadTable('dish_name_map',         [], null),
   ]);
 
   // Build dish→category lookup from dish_categories table
   const dishCatMap = {};
   (dishCategoriesRaw || []).forEach(r => { dishCatMap[r.dish_name] = r.category_id; });
+
+  // Build LMS name → SOP recipe name lookup
+  const dishNameMap = {};
+  (dishNameMapRaw || []).forEach(r => { dishNameMap[r.lms_name] = r.recipe_dish_name; });
 
   return {
     vehicles,
@@ -195,5 +201,6 @@ export async function loadAllConfig() {
     allocRules:         transformAllocRules(allocRulesRaw),
     vendorCategories:   transformVendorCategories(vendorCategoriesRaw),
     dishCategories:     dishCatMap,
+    dishNameMap,
   };
 }

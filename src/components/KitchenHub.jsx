@@ -4,7 +4,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, interpolatePax, hasIngredients } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, interpolatePax, hasIngredients } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -143,6 +143,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [d1FnFilter, setD1FnFilter] = useState("combined"); // "combined" | eventId
   const [tick, setTick] = useState(0);
   const [dishSignoff, setDishSignoff] = useState(null); // {evId,idx,mode:"completed"|"ready_for_transport",chefName,selfie}
+
+  // ── Dish Name Mapping ──
+  const [showDishMap, setShowDishMap] = useState(false);
+  const [dishMapSel, setDishMapSel] = useState({}); // {lmsName: recipeDishName}
+  const [dishMapSaving, setDishMapSaving] = useState(false);
+  const [dishMapSearch, setDishMapSearch] = useState("");
 
   // ── Yield editing ──
   const YIELD_UNITS = ["kg","gm","ltr","ml","piece","chafing dish"];
@@ -586,6 +592,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             alert('✅ All dishes reset to fresh state');
           }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
             ↺ {T2("Reset all")}
+          </button>
+        )}
+        {currentUser&&currentUser.role==='admin'&&(
+          <button onClick={()=>setShowDishMap(true)} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:currentUser.role==='admin'?0:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
+            🔗 {T2("Dish Map")}
           </button>
         )}
       </div>
@@ -1811,6 +1822,128 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </Card>
             </div>
           )}
+        </div>
+        );
+      })()}
+
+      {/* ═══ DISH NAME MAPPING MODAL ═══ */}
+      {showDishMap&&currentUser?.role==='admin'&&(()=>{
+        // Collect all unique LMS dish names from today + tomorrow events
+        const allEvs = [...todayEvs, ...tomorrowEvs];
+        const lmsNames = [...new Set(allEvs.flatMap(ev=>menuArr(ev)))].sort();
+        const allRecipes = RECIPE_DB.cats.flatMap(cat=>(RECIPE_DB.recipes[cat.id]||[]).map(r=>({n:r.n,cat:cat.name,catId:cat.id})));
+        // For each LMS name, determine status
+        const rows = lmsNames.map(lms=>{
+          const mapped = DISH_NAME_MAP[lms];
+          if(mapped){
+            const rec = allRecipes.find(r=>r.n===mapped||r.n.toLowerCase().trim()===mapped.toLowerCase().trim());
+            return {lms, status:"mapped", sopName:mapped, cat:rec?.cat||""};
+          }
+          const auto = findRecipeForDish(lms);
+          if(auto) return {lms, status:"auto", sopName:auto.n, cat:auto.cat?.name||""};
+          return {lms, status:"unlinked", sopName:null, cat:""};
+        });
+        const unlinked = rows.filter(r=>r.status==="unlinked");
+        const mapped = rows.filter(r=>r.status==="mapped");
+        const auto = rows.filter(r=>r.status==="auto");
+        const filteredRows = dishMapSearch ? rows.filter(r=>r.lms.toLowerCase().includes(dishMapSearch.toLowerCase())||(r.sopName||"").toLowerCase().includes(dishMapSearch.toLowerCase())) : rows;
+
+        async function saveMappings(){
+          const entries = Object.entries(dishMapSel).filter(([k,v])=>v);
+          if(entries.length===0) return;
+          setDishMapSaving(true);
+          try{
+            const mod = await import('../lib/supabase.js');
+            const sb = mod.supabase; if(!sb){setDishMapSaving(false);return;}
+            for(const [lmsName, recipeName] of entries){
+              const {error} = await sb.from('dish_name_map').upsert({lms_name:lmsName, recipe_dish_name:recipeName},{onConflict:'lms_name'});
+              if(error) console.error('Map save error:', lmsName, error);
+              else DISH_NAME_MAP[lmsName] = recipeName;
+            }
+            setDishMapSel({});
+            alert('✅ '+entries.length+' mapping(s) saved');
+          }catch(e){console.error('Map save error:',e);alert('Error saving');}
+          setDishMapSaving(false);
+        }
+
+        async function removeMapping(lmsName){
+          if(!confirm('Remove mapping for "'+lmsName+'"?')) return;
+          try{
+            const mod = await import('../lib/supabase.js');
+            const sb = mod.supabase; if(!sb)return;
+            await sb.from('dish_name_map').delete().eq('lms_name',lmsName);
+            delete DISH_NAME_MAP[lmsName];
+            setDishMapSel(p=>{const n={...p};delete n[lmsName];return n;});
+          }catch(e){console.error(e);}
+        }
+
+        const pendingCount = Object.values(dishMapSel).filter(Boolean).length;
+
+        return(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 0",overflowY:"auto"}} onClick={e=>{if(e.target===e.currentTarget)setShowDishMap(false);}}>
+          <div style={{background:C.surface,borderRadius:16,width:"min(96vw,700px)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
+            {/* Header */}
+            <div style={{padding:"18px 20px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🔗 Dish Name Mapping</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:3}}>Link LMS menu items → SOP recipes · {lmsNames.length} dishes</div>
+                </div>
+                <button onClick={()=>setShowDishMap(false)} style={{width:32,height:32,borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+              {/* Stats */}
+              <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>⚠ {unlinked.length} unlinked</span>
+                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold}}>🔗 {mapped.length} mapped</span>
+                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>✓ {auto.length} auto-matched</span>
+              </div>
+              {/* Search */}
+              <input value={dishMapSearch} onChange={e=>setDishMapSearch(e.target.value)} placeholder="Search dishes..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.darkCard,marginTop:10,boxSizing:"border-box"}}/>
+            </div>
+            {/* Body */}
+            <div style={{overflowY:"auto",flex:1,padding:"8px 12px"}}>
+              {filteredRows.map((row,ri)=>{
+                const sel = dishMapSel[row.lms];
+                const isUnlinked = row.status==="unlinked"&&!sel;
+                return(
+                <div key={ri} style={{padding:"10px 8px",borderBottom:`1px solid ${C.borderLight}`,display:"flex",gap:10,alignItems:"center",background:isUnlinked?C.redBg+"60":"transparent",borderRadius:6,marginBottom:2}}>
+                  {/* Status dot */}
+                  <div style={{width:8,height:8,borderRadius:4,flexShrink:0,background:row.status==="unlinked"?(sel?C.amber:C.red):row.status==="mapped"?C.gold:C.green}}/>
+                  {/* LMS name */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.lms}</div>
+                    {row.status==="auto"&&<div style={{fontSize:10,color:C.green,marginTop:2}}>auto → {row.sopName}</div>}
+                    {row.status==="mapped"&&<div style={{fontSize:10,color:C.gold,marginTop:2}}>mapped → {row.sopName}</div>}
+                  </div>
+                  {/* Dropdown / status */}
+                  {row.status==="auto"?(
+                    <span style={{fontSize:10,color:C.green,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,flexShrink:0}}>✓ Auto</span>
+                  ):row.status==="mapped"&&!sel?(
+                    <div style={{display:"flex",gap:4,flexShrink:0}}>
+                      <select value="" onChange={e=>{if(e.target.value)setDishMapSel(p=>({...p,[row.lms]:e.target.value}));}} style={{padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,maxWidth:200}}>
+                        <option value="">Change...</option>
+                        {RECIPE_DB.cats.map(cat=><optgroup key={cat.id} label={cat.name}>{(RECIPE_DB.recipes[cat.id]||[]).map((r,i)=><option key={i} value={r.n}>{r.n}</option>)}</optgroup>)}
+                      </select>
+                      <button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>
+                    </div>
+                  ):(
+                    <select value={sel||""} onChange={e=>setDishMapSel(p=>({...p,[row.lms]:e.target.value||null}))} style={{padding:"4px 6px",borderRadius:6,border:`1px solid ${isUnlinked?C.red:C.border}`,fontSize:11,color:sel?C.text:C.faint,background:C.surface,maxWidth:220,flexShrink:0}}>
+                      <option value="">Select SOP recipe...</option>
+                      {RECIPE_DB.cats.map(cat=><optgroup key={cat.id} label={cat.name}>{(RECIPE_DB.recipes[cat.id]||[]).map((r,i)=><option key={i} value={r.n}>{r.n}</option>)}</optgroup>)}
+                    </select>
+                  )}
+                </div>
+              );})}
+              {filteredRows.length===0&&<div style={{textAlign:"center",padding:30,color:C.faint,fontSize:13}}>No dishes match search</div>}
+            </div>
+            {/* Footer */}
+            {pendingCount>0&&(
+              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                <span style={{fontSize:12,color:C.amber,fontWeight:600}}>{pendingCount} unsaved mapping{pendingCount>1?"s":""}</span>
+                <button onClick={saveMappings} disabled={dishMapSaving} style={{padding:"10px 24px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",opacity:dishMapSaving?.6:1,minHeight:40}}>{dishMapSaving?"Saving...":"💾 Save Mappings"}</button>
+              </div>
+            )}
+          </div>
         </div>
         );
       })()}

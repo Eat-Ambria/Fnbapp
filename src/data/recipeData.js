@@ -105,6 +105,12 @@ function findRecipeForDish(dishName) {
   if(!dishName || typeof RECIPE_DB === "undefined") return null;
   try {
     const all = RECIPE_DB.cats.flatMap(cat => (RECIPE_DB.recipes[cat.id]||[]).map(r=>({...r,cat})));
+    // Tier 0: explicit mapping from dish_name_map table
+    const mapped = DISH_NAME_MAP[dishName] || Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim()) && DISH_NAME_MAP[Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim())];
+    if (mapped) {
+      const mapMatch = all.find(r => r.n === mapped || r.n.toLowerCase().trim() === mapped.toLowerCase().trim());
+      if (mapMatch) return mapMatch;
+    }
     const n   = dishName.toLowerCase().trim();
     // Tier 1: exact match
     const exact = all.find(r=>r.n.toLowerCase()===n);
@@ -262,6 +268,10 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishCategories) {
     DISH_CAT_MAP = cfg.dishCategories;
   }
+  // Hydrate LMS→SOP dish name map
+  if (cfg.dishNameMap) {
+    DISH_NAME_MAP = cfg.dishNameMap;
+  }
   
 }
 
@@ -269,6 +279,7 @@ function hydrateRecipeData(cfg) {
 // Single source of truth: always returns SOP category, never kitchen sections.
 // Priority: dish_categories table → recipes table → regex guess → fallback
 let DISH_CAT_MAP = {};  // hydrated on boot
+let DISH_NAME_MAP = {}; // LMS menu name → SOP recipe dish_name
 
 function getCatIdForDish(dishName) {
   if (!dishName) return null;
@@ -354,4 +365,4 @@ function hasIngredients(dishName) {
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, interpolatePax, hasIngredients };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, interpolatePax, hasIngredients };
