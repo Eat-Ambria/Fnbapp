@@ -193,6 +193,7 @@ export async function loadAllConfig() {
     coldItems,
     menuPackages:       transformMenuPackages(menuPackagesRaw),
     menuPackageNames:   Object.keys(transformMenuPackages(menuPackagesRaw)),
+    dishGroups:         (function() { var g = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ g[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups||'{}') : (r.dish_groups||{}); }); return g; })(),
     vendors,
     recipeCategories,
     recipes:            transformRecipes(recipesRaw),

@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
@@ -80,8 +80,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [customCats, setCustomCats] = useState([]);
   var [dishEditMode, setDishEditMode] = useState(false);
   var [editSections, setEditSections] = useState({});
+  var [editGroups, setEditGroups] = useState({});
   var [dishSaving, setDishSaving] = useState(false);
   var [addSecVal, setAddSecVal] = useState("");
+  var [addGrpSec, setAddGrpSec] = useState("");
+  var [addGrpName, setAddGrpName] = useState("");
   var [mapDropOpen, setMapDropOpen] = useState(null);
   var [mapSearch, setMapSearch] = useState("");
 
@@ -168,17 +171,31 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   function cloneES(obj) {
     var out = {}; Object.keys(obj).forEach(function(k) { out[k] = [].concat(obj[k]); }); return out;
   }
+  function cloneEG(obj) {
+    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = { section: obj[k].section, items: [].concat(obj[k].items) }; }); return out;
+  }
   function enterDishEdit() {
+    var pkgGroups = DISH_GROUPS[selPkg] || {};
+    var groupedSet = {};
+    Object.values(pkgGroups).forEach(function(items) { (items||[]).forEach(function(d) { groupedSet[d] = true; }); });
     var bySec = {};
     (MENU_PACKAGES[selPkg] || []).forEach(function(d) {
+      if (groupedSet[d]) return;
       var sec = getSectionForDish(d);
       if (!bySec[sec]) bySec[sec] = [];
       bySec[sec].push(d);
     });
     setEditSections(bySec);
-    setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal("");
+    var eg = {};
+    Object.entries(pkgGroups).forEach(function(entry) {
+      var items = entry[1] || [];
+      var sec = items.length > 0 ? getSectionForDish(items[0]) : "Other";
+      eg[entry[0]] = { section: sec, items: [].concat(items) };
+    });
+    setEditGroups(eg);
+    setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
   }
-  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); }
+  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); }
   function renameDishInSec(sec, idx, val) {
     var upd = cloneES(editSections); upd[sec][idx] = val; setEditSections(upd);
   }
@@ -189,50 +206,88 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setEditSections(upd);
   }
   function addDishInSec(sec) {
-    var upd = cloneES(editSections);
-    if (!upd[sec]) upd[sec] = [];
-    upd[sec].push("");
-    setEditSections(upd);
+    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = []; upd[sec].push(""); setEditSections(upd);
   }
   function splitDishInSec(sec, idx) {
-    var dish = editSections[sec][idx]; var parts = [];
+    var dish = editSections[sec][idx]; var parts = []; var label = '';
     var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
-    if (pm) parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean);
-    else if (dish.includes('/')) parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean);
+    if (pm) { label = pm[1].trim(); parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
+    else if (dish.includes('/')) { parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
     if (parts.length < 2) return;
-    var upd = cloneES(editSections); upd[sec].splice(idx, 1);
-    for (var i = parts.length - 1; i >= 0; i--) upd[sec].splice(idx, 0, parts[i]);
-    setEditSections(upd);
+    var updSec = cloneES(editSections); updSec[sec].splice(idx, 1);
+    if (label) {
+      var updGrp = cloneEG(editGroups);
+      updGrp[label] = { section: sec, items: parts };
+      setEditGroups(updGrp);
+    } else {
+      for (var i = parts.length - 1; i >= 0; i--) updSec[sec].splice(idx, 0, parts[i]);
+    }
+    setEditSections(updSec);
   }
-  var editDishTotal = Object.values(editSections).reduce(function(s, a) { return s + a.length; }, 0);
+  function renameDishInGrp(grp, idx, val) {
+    var upd = cloneEG(editGroups); upd[grp].items[idx] = val; setEditGroups(upd);
+  }
+  function deleteDishInGrp(grp, idx) {
+    var upd = cloneEG(editGroups); upd[grp].items = upd[grp].items.filter(function(_, i) { return i !== idx; });
+    if (upd[grp].items.length === 0) delete upd[grp];
+    setEditGroups(upd);
+  }
+  function addDishToGrp(grp) {
+    var upd = cloneEG(editGroups); upd[grp].items.push(""); setEditGroups(upd);
+  }
+  function deleteGroup(grp) {
+    var g = editGroups[grp]; if (!g) return;
+    var updSec = cloneES(editSections);
+    if (!updSec[g.section]) updSec[g.section] = [];
+    g.items.forEach(function(d) { if (d.trim()) updSec[g.section].push(d); });
+    setEditSections(updSec);
+    var updGrp = cloneEG(editGroups); delete updGrp[grp]; setEditGroups(updGrp);
+  }
+  function createGroup(sec) {
+    if (!addGrpName.trim()) return;
+    var upd = cloneEG(editGroups);
+    upd[addGrpName.trim()] = { section: sec, items: [""] };
+    setEditGroups(upd); setAddGrpName(""); setAddGrpSec("");
+  }
+  var editDishTotal = Object.values(editSections).reduce(function(s, a) { return s + a.length; }, 0)
+    + Object.values(editGroups).reduce(function(s, g) { return s + (g.items||[]).length; }, 0);
+  var editSecNames = Object.keys(editSections).concat(
+    Object.values(editGroups).map(function(g) { return g.section; })
+  ).filter(function(v, i, a) { return a.indexOf(v) === i; }).sort();
   async function saveDishes() {
     setDishSaving(true);
     try {
       var origSet = {};
       (MENU_PACKAGES[selPkg] || []).forEach(function(d) { origSet[d] = true; });
-      var secNames = Object.keys(editSections).sort();
       var filtered = [];
-      secNames.forEach(function(sec) {
+      editSecNames.forEach(function(sec) {
         (editSections[sec] || []).forEach(function(d) { if (d.trim()) filtered.push(d.trim()); });
+        Object.entries(editGroups).forEach(function(ge) {
+          if (ge[1].section === sec) (ge[1].items||[]).forEach(function(d) { if (d.trim()) filtered.push(d.trim()); });
+        });
       });
-      var res = await supabase.from('menu_packages').update({ dishes: filtered }).eq('name', selPkg);
+      var dg = {};
+      Object.entries(editGroups).forEach(function(ge) {
+        var items = (ge[1].items||[]).filter(function(d) { return d.trim(); }).map(function(d) { return d.trim(); });
+        if (items.length > 0) dg[ge[0]] = items;
+      });
+      var res = await supabase.from('menu_packages').update({ dishes: filtered, dish_groups: dg }).eq('name', selPkg);
       if (res.error) throw res.error;
       MENU_PACKAGES[selPkg] = filtered;
-      // Assign section for new dishes
-      for (var si = 0; si < secNames.length; si++) {
-        var sec = secNames[si]; var catId = secToCatId(sec);
-        var items = editSections[sec] || [];
-        for (var di = 0; di < items.length; di++) {
-          var d = items[di].trim();
+      DISH_GROUPS[selPkg] = dg;
+      for (var si = 0; si < editSecNames.length; si++) {
+        var sec = editSecNames[si]; var catId = secToCatId(sec);
+        var allInSec = [].concat(editSections[sec] || []);
+        Object.entries(editGroups).forEach(function(ge) { if (ge[1].section === sec) allInSec = allInSec.concat(ge[1].items||[]); });
+        for (var di = 0; di < allInSec.length; di++) {
+          var d = allInSec[di].trim();
           if (d && !origSet[d]) {
-            await supabase.from('dish_categories').upsert(
-              { dish_name: d, category_id: catId }, { onConflict: 'dish_name' }
-            );
+            await supabase.from('dish_categories').upsert({ dish_name: d, category_id: catId }, { onConflict: 'dish_name' });
           }
         }
       }
       try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}
-      setDishEditMode(false); setEditSections({});
+      setDishEditMode(false); setEditSections({}); setEditGroups({});
     } catch(e) { alert('Error saving dishes: ' + e.message); }
     setDishSaving(false);
   }
@@ -409,7 +464,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <div>
             {/* Header */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditSections({}); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
+              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditSections({}); setEditGroups({}); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
               {isAdmin && !editMode && !dishEditMode && (
                 <React.Fragment>
                   <button onClick={function() { setEditMode(true); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Categories</button>
@@ -475,56 +530,108 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               </div>
             )}
 
-            {/* ── Dish Edit Mode — section-grouped ── */}
-            {dishEditMode && (
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 10, padding: "8px 12px", background: C.blueBg, borderRadius: 8 }}>
-                  {editDishTotal} dishes across {Object.keys(editSections).length} sections
-                </div>
-                {Object.entries(editSections).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-                  var sec = entry[0]; var secDishes = entry[1];
-                  var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
-                  var em = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
-                  return (
-                    <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
-                      <div style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: em.color }}>{em.icon} {sec} <span style={{ fontWeight: 400, fontSize: 12, color: C.muted }}>({secDishes.length})</span></span>
+            {/* ── Dish Edit Mode — section-grouped with groups ── */}
+            {dishEditMode && (function() {
+              var secGroupsFor = function(sec) {
+                return Object.entries(editGroups).filter(function(e) { return e[1].section === sec; });
+              };
+              var secTotal = function(sec) {
+                var n = (editSections[sec]||[]).length;
+                secGroupsFor(sec).forEach(function(e) { n += (e[1].items||[]).length; });
+                return n;
+              };
+              return (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 10, padding: "8px 12px", background: C.blueBg, borderRadius: 8 }}>
+                    {editDishTotal} dishes across {editSecNames.filter(function(s){return s!=="Beverages";}).length} sections
+                  </div>
+                  {editSecNames.filter(function(s) { return s !== "Beverages"; }).map(function(sec) {
+                    var secDishes = editSections[sec] || [];
+                    var secGrps = secGroupsFor(sec);
+                    if (secDishes.length === 0 && secGrps.length === 0) return null;
+                    var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
+                    var em = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
+                    return (
+                      <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
+                        <div style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: em.color }}>{em.icon} {sec} <span style={{ fontWeight: 400, fontSize: 12, color: C.muted }}>({secTotal(sec)})</span></span>
+                        </div>
+                        <div style={{ padding: "6px 12px 10px" }}>
+                          {secDishes.map(function(d, i) {
+                            return (
+                              <div key={'d-'+i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + C.borderLight }}>
+                                <input value={d} onChange={function(e) { renameDishInSec(sec, i, e.target.value); }}
+                                  style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
+                                {isSplittable(d) && (
+                                  <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
+                                )}
+                                <button onClick={function() { deleteDishInSec(sec, i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                              </div>
+                            );
+                          })}
+                          {secGrps.map(function(ge) {
+                            var grpName = ge[0]; var grpItems = ge[1].items || [];
+                            return (
+                              <div key={'g-'+grpName} style={{ margin: "6px 0", border: "1.5px solid " + C.amberBorder, borderRadius: 8, background: C.amberBg + "40", overflow: "hidden" }}>
+                                <div style={{ padding: "6px 10px", background: C.amberBg, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>▸ {grpName} <span style={{ fontWeight: 400, fontSize: 11, color: C.muted }}>({grpItems.length})</span></span>
+                                  <button onClick={function() { deleteGroup(grpName); }} style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 9, cursor: "pointer" }}>Ungroup</button>
+                                </div>
+                                <div style={{ padding: "4px 10px 8px" }}>
+                                  {grpItems.map(function(gd, gi) {
+                                    return (
+                                      <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", borderBottom: gi < grpItems.length - 1 ? "1px solid " + C.borderLight : "none" }}>
+                                        <input value={gd} onChange={function(e) { renameDishInGrp(grpName, gi, e.target.value); }}
+                                          style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish in group" />
+                                        <button onClick={function() { deleteDishInGrp(grpName, gi); }} style={{ width: 22, height: 22, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                                      </div>
+                                    );
+                                  })}
+                                  <button onClick={function() { addDishToGrp(grpName); }}
+                                    style={{ display: "block", width: "100%", padding: "4px 0", marginTop: 3, background: "transparent", border: "1px dashed " + C.amberBorder, borderRadius: 4, color: C.amber, fontSize: 10, cursor: "pointer", textAlign: "center" }}>+ Add to {grpName}</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                            <button onClick={function() { addDishInSec(sec); }}
+                              style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.border, borderRadius: 6, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish</button>
+                            {addGrpSec === sec ? (
+                              <React.Fragment>
+                                <input autoFocus value={addGrpName} onChange={function(e) { setAddGrpName(e.target.value); }} placeholder="e.g. Dim-sum Station"
+                                  onKeyDown={function(e) { if (e.key === 'Enter') createGroup(sec); }}
+                                  style={{ flex: 2, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.amberBorder, fontSize: 11, background: C.surface, color: C.text }} />
+                                <button onClick={function() { createGroup(sec); }} disabled={!addGrpName.trim()}
+                                  style={{ padding: "4px 10px", borderRadius: 6, background: addGrpName.trim() ? C.amber : C.faint, color: "#fff", border: "none", fontSize: 10, fontWeight: 600, cursor: addGrpName.trim() ? "pointer" : "not-allowed" }}>Create</button>
+                                <button onClick={function() { setAddGrpSec(""); setAddGrpName(""); }}
+                                  style={{ padding: "4px 8px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 10, cursor: "pointer" }}>✕</button>
+                              </React.Fragment>
+                            ) : (
+                              <button onClick={function() { setAddGrpSec(sec); setAddGrpName(""); }}
+                                style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.amberBorder, borderRadius: 6, color: C.amber, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add group</button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ padding: "6px 12px 10px" }}>
-                        {secDishes.map(function(d, i) {
-                          return (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: i < secDishes.length - 1 ? "1px solid " + C.borderLight : "none" }}>
-                              <input value={d} onChange={function(e) { renameDishInSec(sec, i, e.target.value); }}
-                                style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
-                              {isSplittable(d) && (
-                                <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
-                              )}
-                              <button onClick={function() { deleteDishInSec(sec, i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
-                            </div>
-                          );
-                        })}
-                        <button onClick={function() { addDishInSec(sec); }}
-                          style={{ display: "block", width: "100%", padding: "6px 0", marginTop: 4, background: "transparent", border: "1px dashed " + C.border, borderRadius: 6, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish to {sec}</button>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                  <select value={addSecVal} onChange={function(e) { setAddSecVal(e.target.value); }}
-                    style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
-                    <option value="">+ Add section…</option>
-                    {allSections.filter(function(s) { return !editSections[s] && s !== "Beverages"; }).map(function(s) {
-                      var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                      return <option key={s} value={s}>{cat ? cat.icon : "🍽"} {s}</option>;
-                    })}
-                  </select>
-                  {addSecVal && (
-                    <button onClick={function() { addDishInSec(addSecVal); setAddSecVal(""); }}
-                      style={{ padding: "6px 14px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Add</button>
-                  )}
+                    );
+                  })}
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                    <select value={addSecVal} onChange={function(e) { setAddSecVal(e.target.value); }}
+                      style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
+                      <option value="">+ Add section…</option>
+                      {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; }).map(function(s) {
+                        var cat2 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
+                        return <option key={s} value={s}>{cat2 ? cat2.icon : "🍽"} {s}</option>;
+                      })}
+                    </select>
+                    {addSecVal && (
+                      <button onClick={function() { addDishInSec(addSecVal); setAddSecVal(""); }}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Add</button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Section groups */}
             {!dishEditMode && Object.entries(bySection).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
@@ -550,13 +657,28 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           {allSelected ? "Deselect all" : "Select all"} ({dishes.length})
                         </div>
                       )}
-                      {dishes.map(function(d, i) {
+                      {(function() {
+                        var vGrps = DISH_GROUPS[selPkg] || {};
+                        var d2g = {};
+                        Object.entries(vGrps).forEach(function(ge) { (ge[1]||[]).forEach(function(dd) { d2g[dd] = ge[0]; }); });
+                        var shown = {}; var viewItems = [];
+                        dishes.forEach(function(d) {
+                          var grp = d2g[d];
+                          if (grp && !shown[grp]) { viewItems.push({ type: 'hdr', label: grp }); shown[grp] = true; }
+                          viewItems.push({ type: 'dish', name: d, indent: !!grp });
+                        });
+                        return viewItems;
+                      })().map(function(item, i) {
+                        if (item.type === 'hdr') return (
+                          <div key={'gh-'+item.label} style={{ padding: "5px 0 2px", fontSize: 11, fontWeight: 700, color: C.amber, display: "flex", alignItems: "center", gap: 4 }}>▸ {item.label}</div>
+                        );
+                        var d = item.name;
                         var ms = !editMode ? getMappingStatus(d) : null;
                         var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : C.red) : m2.color;
                         return (
                           <div key={i}>
                             <div onClick={editMode ? function() { toggleDish(d); } : undefined}
-                              style={{ padding: "6px 0", borderBottom: (i < dishes.length - 1 && mapDropOpen !== d) ? "1px solid " + C.borderLight : "none", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: editMode ? "pointer" : "default", background: selected[d] ? C.amberBg + "80" : "transparent", borderRadius: selected[d] ? 6 : 0, paddingLeft: selected[d] ? 6 : 0 }}>
+                              style={{ padding: "6px 0", borderBottom: "1px solid " + C.borderLight, fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: editMode ? "pointer" : "default", background: selected[d] ? C.amberBg + "80" : "transparent", borderRadius: selected[d] ? 6 : 0, paddingLeft: item.indent ? 16 : (selected[d] ? 6 : 0) }}>
                               {editMode && (
                                 <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (selected[d] ? C.green : C.border), background: selected[d] ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{selected[d] ? "✓" : ""}</span>
                               )}
