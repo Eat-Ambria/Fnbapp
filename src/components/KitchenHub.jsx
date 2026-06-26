@@ -808,7 +808,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:20,fontWeight:700,color:isDone?C.green:m2.color}}>{dish.totalPax}</div><div style={{fontSize:12,color:C.muted}}>pax</div></div>
                               <span style={{fontSize:18,color:C.faint,flexShrink:0}}>{isExp?"▼":"▶"}</span>
                             </div>
-                            {isExp&&!isDone&&(()=>{
+                            {isExp&&(()=>{
                               const d2s=ds(dish.fEvId,dish.fIdx,dish.name);
                               const allStepsFn = getStepsForDish(dish.name);
                               const d1Only = allStepsFn.filter(s=>s.d1);
@@ -828,9 +828,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()},dish)} style={{padding:"14px 20px",borderRadius:12,width:"100%",background:C.green,color:"#fff",border:"none",fontSize:16,fontWeight:700,cursor:"pointer",minHeight:54,marginTop:10}}>⏹ {T2("Done")} — {T2("Items collected")}</button>}
                                     {ssDone&&<div style={{fontSize:14,color:C.green,fontWeight:700,marginTop:8}}>✅ {T2("Store sourcing complete")}</div>}
                                   </div>
-                                  {(()=>{if(ssDone)return null;const pax=dish.totalPax||0;const ing=getIngrForDish(dish.name,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
-                                    <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${C.border}`}}>
-                                      <div style={{fontSize:14,fontWeight:700,color:C.gold,marginBottom:8}}>🧺 {T2("Items to collect")} — {pax} pax</div>
+                                  {(()=>{const pax=dish.totalPax||0;const ing=getIngrForDish(dish.name,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
+                                    <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:5}}>
+                                      <div style={{fontSize:14,fontWeight:700,color:ssDone?C.green:C.gold,marginBottom:8}}>{ssDone?"📊":"🧺"} {ssDone?T2("Ingredients"):T2("Items to collect")} — {pax} pax</div>
                                       <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                     </div>);})()}
                                   <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
@@ -897,9 +897,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         </div>
                                       )}
                                     </div>);})}
-                                  {(()=>{const elapsed=d2s.dishStartedAt?Math.floor((Date.now()-d2s.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:6}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
+                                  {(()=>{if(isDone)return(<div style={{padding:"12px 0",textAlign:"center"}}><div style={{fontSize:14,color:C.green,fontWeight:700}}>✅ {T2("Prep complete")}{d2s.dishCompletedAt?" — "+new Date(d2s.dishCompletedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):""}</div></div>);const allSD=ssDone&&steps.every((step,si)=>{const sk="step_"+si;const hs=Array.isArray(step.subs)&&step.subs.length>0;if(hs)return step.subs.every((_,sbi)=>!!(d2s.manual&&d2s.manual[sk+"_sub_"+sbi]));return !!(d2s.manual&&d2s.manual[sk]);});if(!allSD)return(<div style={{padding:"12px 0",textAlign:"center"}}><div style={{padding:"14px",borderRadius:12,background:C.faint+"30",border:"1.5px dashed "+C.border,color:C.muted,fontSize:14}}>🔒 {T2("Complete all steps to mark prep done")}</div></div>);const elapsed=d2s.dishStartedAt?Math.floor((Date.now()-d2s.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",marginBottom:6}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"16px",borderRadius:12,background:C.green,color:"#fff",border:"none",fontSize:18,fontWeight:700,cursor:"pointer",minHeight:56}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                                 </div>);})()}
-                            {isExp&&isDone&&<div style={{padding:"16px 20px",borderTop:`1.5px solid ${C.greenBorder}`,background:C.greenBg,textAlign:"center"}}><div style={{fontSize:16,color:C.green,fontWeight:700}}>✅ {T2("Prep complete")}</div></div>}
+                            
                           </div>);
                       })}
                     </div>}
@@ -952,7 +952,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             </div>
                           </div>
 
-                          {isExp&&!isDone&&(()=>{
+                          {isExp&&(()=>{
                             const d2s=ds(dish.fEvId,dish.fIdx,dish.name);
                             const ssStarted=!!d2s.storeStart;const ssDone=!!d2s.storeEnd;
                             const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
@@ -970,9 +970,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   {ssStarted&&!ssDone&&<button onClick={()=>setDs(dish.fEvId,dish.fIdx,{storeEnd:Date.now()},dish)} style={{padding:"10px 16px",borderRadius:8,width:"100%",background:`linear-gradient(135deg,${C.green},#147A54)`,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,marginTop:6}}>⏹ Done — Items Collected</button>}
                                   {ssDone&&<div style={{fontSize:12,color:C.green,fontWeight:700,marginTop:6}}>✅ Store sourcing complete — ready to cook</div>}
                                 </div>
-                                {(()=>{if(ssDone)return null;const pax=dish.totalPax||0;const ing=getIngrForDish(dishName,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
-                                  <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`}}>
-                                    <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:5}}>🧺 {T2("Items to collect")} — {pax} pax</div>
+                                {(()=>{const pax=dish.totalPax||0;const ing=getIngrForDish(dishName,pax);if(!ing||ing.length===0)return null;const isNew=ing[0]?._newFmt;return(
+                                  <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:5}}>
+                                    <div style={{fontSize:11,fontWeight:700,color:ssDone?C.green:C.gold,marginBottom:5}}>{ssDone?"📊":"🧺"} {ssDone?T2("Ingredients"):T2("Items to collect")} — {pax} pax</div>
                                     <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=isNew?i.q:(()=>{const eff=effectiveScales[dish.fEvId];const pct=eff?.percent||(pax>0?Math.round(pax/BASE_PAX*100):100);return i.q*pax*(pct/100);})();const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold}}>{qty}</b></span>;})}</div>
                                   </div>);})()}
                                 {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx,dish.name);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
