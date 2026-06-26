@@ -1904,6 +1904,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
             {/* Body */}
             <div style={{overflowY:"auto",flex:1,padding:"8px 12px"}}>
+              {dishMapDrop&&<div style={{position:"fixed",inset:0,zIndex:15}} onClick={()=>setDishMapDrop(null)}/>}
               {filteredRows.map((row,ri)=>{
                 const sel = dishMapSel[row.lms];
                 const isUnlinked = row.status==="unlinked"&&!sel;
@@ -1914,15 +1915,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   {/* LMS name */}
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.lms}</div>
-                    {row.status==="auto"&&<div style={{fontSize:10,color:C.green,marginTop:2}}>auto → {row.sopName}</div>}
-                    {row.status==="mapped"&&<div style={{fontSize:10,color:C.gold,marginTop:2}}>mapped → {row.sopName}</div>}
+                    {row.status==="auto"&&!sel&&<div style={{fontSize:10,color:C.green,marginTop:2}}>auto → {row.sopName}</div>}
+                    {row.status==="mapped"&&!sel&&<div style={{fontSize:10,color:C.gold,marginTop:2}}>mapped → {row.sopName}</div>}
+                    {sel&&<div style={{fontSize:10,color:C.amber,marginTop:2}}>→ {sel.split("/")[0].trim()} (unsaved)</div>}
                   </div>
                   {/* Dropdown / status */}
-                  {row.status==="auto"?(
-                    <span style={{fontSize:10,color:C.green,padding:"3px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,flexShrink:0}}>✓ Auto</span>
-                  ):(()=>{
+                  {(()=>{
                     const isOpen = dishMapDrop===row.lms;
-                    const display = sel || (row.status==="mapped"?row.sopName:null);
+                    const display = sel || (row.status!=="unlinked"?row.sopName:null);
                     const q = dishMapDropQ.toLowerCase();
                     const filtered = isOpen ? allRecipes.filter(r=>!q||r.n.toLowerCase().includes(q)||r.cat.toLowerCase().includes(q)) : [];
                     const grouped = {};
@@ -1933,7 +1933,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <button onClick={()=>{if(isOpen){setDishMapDrop(null);}else{setDishMapDrop(row.lms);setDishMapDropQ("");}}} style={{flex:1,padding:"6px 10px",borderRadius:8,border:`1px solid ${isUnlinked&&!display?C.red:display?C.greenBorder:C.border}`,fontSize:11,fontWeight:display?600:400,color:display?C.text:C.faint,background:display?C.greenBg+"40":C.surface,cursor:"pointer",textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minHeight:30}}>
                           {display||"Select SOP..."}
                         </button>
-                        {row.status==="mapped"&&!sel&&<button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>}
+                        {(row.status==="mapped"&&!sel)&&<button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>}
                         {sel&&<button onClick={()=>setDishMapSel(p=>({...p,[row.lms]:null}))} style={{padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>}
                       </div>
                       {isOpen&&(
