@@ -5,7 +5,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -78,6 +78,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [newCatName, setNewCatName] = useState("");
   var [newCatIcon, setNewCatIcon] = useState("🍽");
   var [customCats, setCustomCats] = useState([]);
+  var [dishEditMode, setDishEditMode] = useState(false);
+  var [editDishes, setEditDishes] = useState([]);
+  var [dishSaving, setDishSaving] = useState(false);
+  var [mapDropOpen, setMapDropOpen] = useState(null);
+  var [mapSearch, setMapSearch] = useState("");
 
   var allSections = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
 
@@ -144,6 +149,67 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       alert('Error: ' + e.message);
     }
     setSaving(false);
+  }
+
+  // ─── Dish editing + SOP mapping helpers ───
+  var allRecipes = (RECIPE_DB.cats || []).flatMap(function(cat) {
+    return (RECIPE_DB.recipes[cat.id] || []).map(function(r) { return { name: r.n, catName: cat.name, catIcon: cat.icon }; });
+  });
+  function isSplittable(dish) {
+    if (!dish) return false;
+    var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
+    if (pm && pm[2].includes('/')) return true;
+    return (dish.match(/\//g) || []).length >= 1;
+  }
+  function splitDish(idx) {
+    var dish = editDishes[idx]; var parts = [];
+    var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
+    if (pm) parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean);
+    else if (dish.includes('/')) parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean);
+    if (parts.length < 2) return;
+    var upd = [].concat(editDishes); upd.splice(idx, 1);
+    for (var i = parts.length - 1; i >= 0; i--) upd.splice(idx, 0, parts[i]);
+    setEditDishes(upd);
+  }
+  function enterDishEdit() {
+    setEditDishes([].concat(MENU_PACKAGES[selPkg] || []));
+    setDishEditMode(true); setEditMode(false); setSelected({});
+  }
+  function cancelDishEdit() { setDishEditMode(false); setEditDishes([]); }
+  function deleteDish(idx) { setEditDishes(editDishes.filter(function(_, i) { return i !== idx; })); }
+  function renameDish(idx, val) { var upd = [].concat(editDishes); upd[idx] = val; setEditDishes(upd); }
+  async function saveDishes() {
+    setDishSaving(true);
+    try {
+      var filtered = editDishes.filter(function(d) { return d.trim(); });
+      var res = await supabase.from('menu_packages').update({ dishes: filtered }).eq('name', selPkg);
+      if (res.error) throw res.error;
+      MENU_PACKAGES[selPkg] = filtered;
+      try { localStorage.removeItem('ambria_cfg_menu_packages'); } catch(e2) {}
+      setDishEditMode(false); setEditDishes([]);
+    } catch(e) { alert('Error saving dishes: ' + e.message); }
+    setDishSaving(false);
+  }
+  function getMappingStatus(dish) {
+    if (!dish) return { status: 'unmapped', recipe: null };
+    var dn = dish.toLowerCase().trim();
+    var mapKey = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === dn; });
+    if (mapKey) return { status: 'mapped', recipe: DISH_NAME_MAP[mapKey] };
+    var recipe = findRecipeForDish(dish);
+    if (recipe) return { status: 'auto', recipe: recipe.n };
+    return { status: 'unmapped', recipe: null };
+  }
+  async function saveOneMapping(lmsName, recipeName) {
+    try {
+      var res = await supabase.from('dish_name_map').upsert({ lms_name: lmsName, recipe_dish_name: recipeName }, { onConflict: 'lms_name' });
+      if (res.error) throw res.error;
+      DISH_NAME_MAP[lmsName] = recipeName;
+    } catch(e) { alert('Error saving mapping: ' + e.message); }
+    setMapDropOpen(null); setMapSearch("");
+  }
+  async function removeMapping(lmsName) {
+    try { await supabase.from('dish_name_map').delete().eq('lms_name', lmsName); delete DISH_NAME_MAP[lmsName]; }
+    catch(e) { alert('Error removing: ' + e.message); }
   }
 
   var PKG_META = {
@@ -297,12 +363,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <div>
             {/* Header */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={function() { setSelPkg(null); setEditMode(false); setSelected({}); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
-              {isAdmin && !editMode && (
-                <button onClick={function() { setEditMode(true); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Categories</button>
+              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditDishes([]); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
+              {isAdmin && !editMode && !dishEditMode && (
+                <React.Fragment>
+                  <button onClick={function() { setEditMode(true); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Categories</button>
+                  <button onClick={enterDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.blueBg, border: "1px solid " + C.blueBorder, color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Dishes</button>
+                </React.Fragment>
               )}
               {editMode && (
                 <button onClick={function() { setEditMode(false); setSelected({}); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✕ Cancel</button>
+              )}
+              {dishEditMode && (
+                <React.Fragment>
+                  <button onClick={cancelDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✕ Cancel</button>
+                  <button onClick={saveDishes} disabled={dishSaving} style={{ padding: "10px 18px", borderRadius: 10, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: dishSaving ? "not-allowed" : "pointer", minHeight: 44, opacity: dishSaving ? 0.6 : 1 }}>{dishSaving ? "Saving…" : "💾 Save"}</button>
+                </React.Fragment>
               )}
             </div>
 
@@ -354,8 +429,30 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               </div>
             )}
 
+            {/* ── Dish Edit Mode — flat list ── */}
+            {dishEditMode && (
+              <div style={{ border: "1.5px solid " + C.blueBorder, borderRadius: 12, padding: "10px 14px", background: C.blueBg + "40" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 8 }}>{editDishes.length} dishes — edit, rename, split or delete</div>
+                {editDishes.map(function(d, i) {
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: i < editDishes.length - 1 ? "1px solid " + C.borderLight : "none" }}>
+                      <span style={{ fontSize: 10, color: C.muted, width: 22, textAlign: "right", flexShrink: 0 }}>{i + 1}.</span>
+                      <input value={d} onChange={function(e) { renameDish(i, e.target.value); }}
+                        style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
+                      {isSplittable(d) && (
+                        <button onClick={function() { splitDish(i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
+                      )}
+                      <button onClick={function() { deleteDish(i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                    </div>
+                  );
+                })}
+                <button onClick={function() { setEditDishes([].concat(editDishes, [""])); }}
+                  style={{ display: "block", width: "100%", padding: "8px 0", marginTop: 6, background: "transparent", border: "1px dashed " + C.border, borderRadius: 8, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish</button>
+              </div>
+            )}
+
             {/* Section groups */}
-            {Object.entries(bySection).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+            {!dishEditMode && Object.entries(bySection).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
               var sec = entry[0]; var dishes = entry[1];
               var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
               var m2 = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
@@ -379,13 +476,56 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         </div>
                       )}
                       {dishes.map(function(d, i) {
+                        var ms = !editMode ? getMappingStatus(d) : null;
+                        var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : C.red) : m2.color;
                         return (
-                          <div key={i} onClick={editMode ? function() { toggleDish(d); } : undefined}
-                            style={{ padding: "6px 0", borderBottom: i < dishes.length - 1 ? "1px solid " + C.borderLight : "none", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: editMode ? "pointer" : "default", background: selected[d] ? C.amberBg + "80" : "transparent", borderRadius: selected[d] ? 6 : 0, paddingLeft: selected[d] ? 6 : 0 }}>
-                            {editMode && (
-                              <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (selected[d] ? C.green : C.border), background: selected[d] ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{selected[d] ? "✓" : ""}</span>
+                          <div key={i}>
+                            <div onClick={editMode ? function() { toggleDish(d); } : undefined}
+                              style={{ padding: "6px 0", borderBottom: (i < dishes.length - 1 && mapDropOpen !== d) ? "1px solid " + C.borderLight : "none", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: editMode ? "pointer" : "default", background: selected[d] ? C.amberBg + "80" : "transparent", borderRadius: selected[d] ? 6 : 0, paddingLeft: selected[d] ? 6 : 0 }}>
+                              {editMode && (
+                                <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (selected[d] ? C.green : C.border), background: selected[d] ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{selected[d] ? "✓" : ""}</span>
+                              )}
+                              {!editMode && <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }}></span>}
+                              {editMode && <span style={{ color: m2.color, fontSize: 10 }}>•</span>}
+                              <span style={{ flex: 1 }}>{d}</span>
+                              {ms && ms.status !== 'unmapped' && (
+                                <span style={{ fontSize: 10, color: ms.status === 'mapped' ? C.gold : C.green, flexShrink: 0 }}>→ {ms.recipe && ms.recipe.length > 28 ? ms.recipe.slice(0, 26) + '…' : ms.recipe}</span>
+                              )}
+                              {isAdmin && !editMode && ms && ms.status === 'unmapped' && (
+                                <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
+                                  style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer", flexShrink: 0 }}>Link SOP</button>
+                              )}
+                              {isAdmin && !editMode && ms && ms.status !== 'unmapped' && (
+                                <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
+                                  style={{ padding: "2px 6px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 9, cursor: "pointer", flexShrink: 0 }}>✎</button>
+                              )}
+                            </div>
+                            {mapDropOpen === d && (
+                              <div style={{ position: "relative", zIndex: 30, margin: "2px 0 6px 20px" }}>
+                                <div onClick={function() { setMapDropOpen(null); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 15 }}></div>
+                                <div style={{ position: "relative", zIndex: 20, background: C.surface, border: "1.5px solid " + C.border, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,.12)", maxHeight: 260, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                                  <input autoFocus value={mapSearch} onChange={function(e) { setMapSearch(e.target.value); }} placeholder="Search recipes…"
+                                    style={{ padding: "8px 10px", border: "none", borderBottom: "1px solid " + C.borderLight, fontSize: 12, outline: "none", background: "transparent", color: C.text }} />
+                                  <div style={{ overflowY: "auto", flex: 1 }}>
+                                    {allRecipes.filter(function(r) { return !mapSearch || r.name.toLowerCase().includes(mapSearch.toLowerCase()) || r.catName.toLowerCase().includes(mapSearch.toLowerCase()); }).slice(0, 50).map(function(r) {
+                                      return (
+                                        <div key={r.name} onClick={function() { saveOneMapping(d, r.name); }}
+                                          style={{ padding: "6px 10px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid " + C.borderLight, display: "flex", gap: 6, alignItems: "center" }}
+                                          onMouseEnter={function(ev) { ev.currentTarget.style.background = C.bg; }}
+                                          onMouseLeave={function(ev) { ev.currentTarget.style.background = "transparent"; }}>
+                                          <span style={{ fontSize: 10, color: C.muted }}>{r.catIcon}</span>
+                                          <span>{r.name}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                                {ms && ms.status === 'mapped' && (
+                                  <button onClick={function() { removeMapping(d); setMapDropOpen(null); }}
+                                    style={{ marginTop: 4, padding: "3px 10px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer" }}>Remove mapping</button>
+                                )}
+                              </div>
                             )}
-                            <span style={{ color: m2.color, fontSize: 10 }}>•</span>{d}
                           </div>
                         );
                       })}
@@ -394,6 +534,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 </div>
               );
             })}
+            {!dishEditMode && null}
           </div>
         );
       })()}
