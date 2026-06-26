@@ -153,7 +153,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   // ─── Dish editing + SOP mapping helpers ───
   var allRecipes = (RECIPE_DB.cats || []).flatMap(function(cat) {
-    return (RECIPE_DB.recipes[cat.id] || []).map(function(r) { return { name: r.n, catName: cat.name, catIcon: cat.icon }; });
+    return (RECIPE_DB.recipes[cat.id] || []).map(function(r) {
+      var dn = r.n.indexOf('/') > -1 ? r.n.split('/')[0].trim() : r.n;
+      return { name: r.n, display: dn, catName: cat.name, catIcon: cat.icon };
+    });
   });
   function isSplittable(dish) {
     if (!dish) return false;
@@ -507,17 +510,29 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                   <input autoFocus value={mapSearch} onChange={function(e) { setMapSearch(e.target.value); }} placeholder="Search recipes…"
                                     style={{ padding: "8px 10px", border: "none", borderBottom: "1px solid " + C.borderLight, fontSize: 12, outline: "none", background: "transparent", color: C.text }} />
                                   <div style={{ overflowY: "auto", flex: 1 }}>
-                                    {allRecipes.filter(function(r) { return !mapSearch || r.name.toLowerCase().includes(mapSearch.toLowerCase()) || r.catName.toLowerCase().includes(mapSearch.toLowerCase()); }).slice(0, 50).map(function(r) {
-                                      return (
-                                        <div key={r.name} onClick={function() { saveOneMapping(d, r.name); }}
-                                          style={{ padding: "6px 10px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid " + C.borderLight, display: "flex", gap: 6, alignItems: "center" }}
-                                          onMouseEnter={function(ev) { ev.currentTarget.style.background = C.bg; }}
-                                          onMouseLeave={function(ev) { ev.currentTarget.style.background = "transparent"; }}>
-                                          <span style={{ fontSize: 10, color: C.muted }}>{r.catIcon}</span>
-                                          <span>{r.name}</span>
-                                        </div>
-                                      );
-                                    })}
+                                    {(function() {
+                                      var filtered = allRecipes.filter(function(r) { var q = mapSearch.toLowerCase(); return !mapSearch || r.display.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.catName.toLowerCase().includes(q); });
+                                      var byCat = {};
+                                      filtered.forEach(function(r) { if (!byCat[r.catName]) byCat[r.catName] = { icon: r.catIcon, items: [] }; byCat[r.catName].items.push(r); });
+                                      return Object.entries(byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+                                        var catName = entry[0]; var grp = entry[1];
+                                        return (
+                                          <div key={catName}>
+                                            <div style={{ position: "sticky", top: 0, padding: "5px 10px", fontSize: 10, fontWeight: 700, color: C.muted, background: C.bg, borderBottom: "1px solid " + C.borderLight, zIndex: 2 }}>{grp.icon} {catName}</div>
+                                            {grp.items.map(function(r) {
+                                              return (
+                                                <div key={r.name} onClick={function() { saveOneMapping(d, r.name); }}
+                                                  style={{ padding: "6px 10px 6px 22px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid " + C.borderLight, color: C.text }}
+                                                  onMouseEnter={function(ev) { ev.currentTarget.style.background = C.bg; }}
+                                                  onMouseLeave={function(ev) { ev.currentTarget.style.background = "transparent"; }}>
+                                                  {r.display}{r.display !== r.name ? <span style={{ fontSize: 10, color: C.muted, marginLeft: 6 }}>{r.name.split('/').slice(1).join('/').trim()}</span> : null}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                                 {ms && ms.status === 'mapped' && (
