@@ -79,8 +79,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [newCatIcon, setNewCatIcon] = useState("🍽");
   var [customCats, setCustomCats] = useState([]);
   var [dishEditMode, setDishEditMode] = useState(false);
-  var [editDishes, setEditDishes] = useState([]);
+  var [editSections, setEditSections] = useState({});
   var [dishSaving, setDishSaving] = useState(false);
+  var [addSecVal, setAddSecVal] = useState("");
   var [mapDropOpen, setMapDropOpen] = useState(null);
   var [mapSearch, setMapSearch] = useState("");
 
@@ -164,32 +165,74 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (pm && pm[2].includes('/')) return true;
     return (dish.match(/\//g) || []).length >= 1;
   }
-  function splitDish(idx) {
-    var dish = editDishes[idx]; var parts = [];
+  function cloneES(obj) {
+    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = [].concat(obj[k]); }); return out;
+  }
+  function enterDishEdit() {
+    var bySec = {};
+    (MENU_PACKAGES[selPkg] || []).forEach(function(d) {
+      var sec = getSectionForDish(d);
+      if (!bySec[sec]) bySec[sec] = [];
+      bySec[sec].push(d);
+    });
+    setEditSections(bySec);
+    setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal("");
+  }
+  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); }
+  function renameDishInSec(sec, idx, val) {
+    var upd = cloneES(editSections); upd[sec][idx] = val; setEditSections(upd);
+  }
+  function deleteDishInSec(sec, idx) {
+    var upd = cloneES(editSections);
+    upd[sec] = upd[sec].filter(function(_, i) { return i !== idx; });
+    if (upd[sec].length === 0) delete upd[sec];
+    setEditSections(upd);
+  }
+  function addDishInSec(sec) {
+    var upd = cloneES(editSections);
+    if (!upd[sec]) upd[sec] = [];
+    upd[sec].push("");
+    setEditSections(upd);
+  }
+  function splitDishInSec(sec, idx) {
+    var dish = editSections[sec][idx]; var parts = [];
     var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
     if (pm) parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean);
     else if (dish.includes('/')) parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean);
     if (parts.length < 2) return;
-    var upd = [].concat(editDishes); upd.splice(idx, 1);
-    for (var i = parts.length - 1; i >= 0; i--) upd.splice(idx, 0, parts[i]);
-    setEditDishes(upd);
+    var upd = cloneES(editSections); upd[sec].splice(idx, 1);
+    for (var i = parts.length - 1; i >= 0; i--) upd[sec].splice(idx, 0, parts[i]);
+    setEditSections(upd);
   }
-  function enterDishEdit() {
-    setEditDishes([].concat(MENU_PACKAGES[selPkg] || []));
-    setDishEditMode(true); setEditMode(false); setSelected({});
-  }
-  function cancelDishEdit() { setDishEditMode(false); setEditDishes([]); }
-  function deleteDish(idx) { setEditDishes(editDishes.filter(function(_, i) { return i !== idx; })); }
-  function renameDish(idx, val) { var upd = [].concat(editDishes); upd[idx] = val; setEditDishes(upd); }
+  var editDishTotal = Object.values(editSections).reduce(function(s, a) { return s + a.length; }, 0);
   async function saveDishes() {
     setDishSaving(true);
     try {
-      var filtered = editDishes.filter(function(d) { return d.trim(); });
+      var origSet = {};
+      (MENU_PACKAGES[selPkg] || []).forEach(function(d) { origSet[d] = true; });
+      var secNames = Object.keys(editSections).sort();
+      var filtered = [];
+      secNames.forEach(function(sec) {
+        (editSections[sec] || []).forEach(function(d) { if (d.trim()) filtered.push(d.trim()); });
+      });
       var res = await supabase.from('menu_packages').update({ dishes: filtered }).eq('name', selPkg);
       if (res.error) throw res.error;
       MENU_PACKAGES[selPkg] = filtered;
-      try { localStorage.removeItem('ambria_cfg_menu_packages'); } catch(e2) {}
-      setDishEditMode(false); setEditDishes([]);
+      // Assign section for new dishes
+      for (var si = 0; si < secNames.length; si++) {
+        var sec = secNames[si]; var catId = secToCatId(sec);
+        var items = editSections[sec] || [];
+        for (var di = 0; di < items.length; di++) {
+          var d = items[di].trim();
+          if (d && !origSet[d]) {
+            await supabase.from('dish_categories').upsert(
+              { dish_name: d, category_id: catId }, { onConflict: 'dish_name' }
+            );
+          }
+        }
+      }
+      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}
+      setDishEditMode(false); setEditSections({});
     } catch(e) { alert('Error saving dishes: ' + e.message); }
     setDishSaving(false);
   }
@@ -366,7 +409,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <div>
             {/* Header */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditDishes([]); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
+              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditSections({}); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
               {isAdmin && !editMode && !dishEditMode && (
                 <React.Fragment>
                   <button onClick={function() { setEditMode(true); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Categories</button>
@@ -432,25 +475,54 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               </div>
             )}
 
-            {/* ── Dish Edit Mode — flat list ── */}
+            {/* ── Dish Edit Mode — section-grouped ── */}
             {dishEditMode && (
-              <div style={{ border: "1.5px solid " + C.blueBorder, borderRadius: 12, padding: "10px 14px", background: C.blueBg + "40" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 8 }}>{editDishes.length} dishes — edit, rename, split or delete</div>
-                {editDishes.map(function(d, i) {
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 10, padding: "8px 12px", background: C.blueBg, borderRadius: 8 }}>
+                  {editDishTotal} dishes across {Object.keys(editSections).length} sections
+                </div>
+                {Object.entries(editSections).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+                  var sec = entry[0]; var secDishes = entry[1];
+                  var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
+                  var em = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
                   return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: i < editDishes.length - 1 ? "1px solid " + C.borderLight : "none" }}>
-                      <span style={{ fontSize: 10, color: C.muted, width: 22, textAlign: "right", flexShrink: 0 }}>{i + 1}.</span>
-                      <input value={d} onChange={function(e) { renameDish(i, e.target.value); }}
-                        style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
-                      {isSplittable(d) && (
-                        <button onClick={function() { splitDish(i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
-                      )}
-                      <button onClick={function() { deleteDish(i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                    <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
+                      <div style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: em.color }}>{em.icon} {sec} <span style={{ fontWeight: 400, fontSize: 12, color: C.muted }}>({secDishes.length})</span></span>
+                      </div>
+                      <div style={{ padding: "6px 12px 10px" }}>
+                        {secDishes.map(function(d, i) {
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: i < secDishes.length - 1 ? "1px solid " + C.borderLight : "none" }}>
+                              <input value={d} onChange={function(e) { renameDishInSec(sec, i, e.target.value); }}
+                                style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
+                              {isSplittable(d) && (
+                                <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
+                              )}
+                              <button onClick={function() { deleteDishInSec(sec, i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                            </div>
+                          );
+                        })}
+                        <button onClick={function() { addDishInSec(sec); }}
+                          style={{ display: "block", width: "100%", padding: "6px 0", marginTop: 4, background: "transparent", border: "1px dashed " + C.border, borderRadius: 6, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish to {sec}</button>
+                      </div>
                     </div>
                   );
                 })}
-                <button onClick={function() { setEditDishes([].concat(editDishes, [""])); }}
-                  style={{ display: "block", width: "100%", padding: "8px 0", marginTop: 6, background: "transparent", border: "1px dashed " + C.border, borderRadius: 8, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish</button>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                  <select value={addSecVal} onChange={function(e) { setAddSecVal(e.target.value); }}
+                    style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
+                    <option value="">+ Add section…</option>
+                    {allSections.filter(function(s) { return !editSections[s] && s !== "Beverages"; }).map(function(s) {
+                      var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
+                      return <option key={s} value={s}>{cat ? cat.icon : "🍽"} {s}</option>;
+                    })}
+                  </select>
+                  {addSecVal && (
+                    <button onClick={function() { addDishInSec(addSecVal); setAddSecVal(""); }}
+                      style={{ padding: "6px 14px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Add</button>
+                  )}
+                </div>
               </div>
             )}
 
