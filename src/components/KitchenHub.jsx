@@ -779,7 +779,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const totalCount = secItems.length;
                 const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
                 return(
-                  <div key={sec} style={{marginBottom:14,borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
+                  <div key={sec} style={{marginBottom:14,borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}>
                     <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"18px 22px",cursor:"pointer",borderBottom:secOpen?`1.5px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:70}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div style={{width:46,height:46,borderRadius:12,background:m2.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{m2.icon}</div>
@@ -798,7 +798,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const isExp = expandedDishes.has(cKey);
                         const sp = dish.specials&&dish.specials.length>0 ? dish.specials.map(s=>s.instruction).join(", ") : "";
                         return(
-                          <div key={dish.name} style={{marginBottom:10,borderRadius:12,border:`1.5px solid ${isDone?C.greenBorder:isExp?m2.color:C.border}`,background:C.surface,overflow:"hidden"}}>
+                          <div key={dish.name} style={{marginBottom:10,borderRadius:12,border:`1.5px solid ${isDone?C.greenBorder:isExp?m2.color:C.border}`,background:C.surface}}>
                             <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:isDone?C.greenBg+"60":"transparent"}}>
                               <div style={{width:36,height:36,borderRadius:10,background:isDone?C.green:C.border,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:isDone?"#fff":C.muted}}>{isDone?"✓":di+1}</div>
                               <div style={{flex:1,minWidth:0}}>
@@ -859,6 +859,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         {!hasSubs&&!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:0}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"12px 18px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:48}}>✓</button>}
                                         {hasSubs&&!stDone&&<span style={{fontSize:12,color:C.muted}}>↓</span>}
                                         {!hasSubs&&!stS&&!stDone&&!prevD&&<div style={{padding:"12px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:15,color:C.faint,minHeight:48,display:"flex",alignItems:"center"}}>🔒</div>}
+                                        {stDone&&!isDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:false},starts:{...(d2d.starts||{}),[sk]:null}},dish);}} style={{padding:"6px 10px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:11,cursor:"pointer"}}>↩ Undo</button>}
                                       </div>
                                       </div>
                                       {hasSubs&&(
@@ -890,6 +891,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                                     {!sbDone&&sbPrevD&&!sbStarted&&!sb.tm&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>✓ {T2("Done")}</button>}
                                                     {!sbDone&&sbStarted&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sbk]?Math.floor((Date.now()-d2d.starts[sbk])/1000):0;const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sbk]:el}};if(sbi===step.subs.length-1){upd.doneElapsed[sk]=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"8px 16px",borderRadius:10,background:sbOver?`linear-gradient(135deg,${C.red},#801818)`:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>{sbOver?"⚠":"✓"} {T2("Done")}</button>}
                                                     {!sbDone&&!sbPrevD&&<div style={{padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:13,color:C.faint}}>🔒</div>}
+                                                    {sbDone&&!isDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}},dish);}} style={{padding:"4px 8px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:10,cursor:"pointer"}}>↩</button>}
                                                   </div>
                                                 </div>
                                               </div>);
@@ -918,7 +920,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const totalCount = secItems.length;
               const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
               return(
-                <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
+                <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
                   <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{fontSize:16}}>{displayIcon}</span>
@@ -1000,6 +1002,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       {!hasSubs&&!stS&&!stDone&&!step.tm&&prevD&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(si===0&&!d2d.dishStartedAt)upd.dishStartedAt=Date.now();setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"6px 10px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",minHeight:32}}>✓</button>}
                                       {hasSubs&&!stDone&&<span style={{fontSize:10,color:C.muted}}>↓</span>}
                                       {!hasSubs&&!stS&&!stDone&&!prevD&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,minHeight:32,display:"flex",alignItems:"center"}}>🔒</div>}
+                                      {stDone&&!isDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sk]:false},starts:{...(d2d.starts||{}),[sk]:null}},dish);}} style={{padding:"4px 8px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:10,cursor:"pointer"}}>↩</button>}
                                     </div>
                                     </div>
                                     {hasSubs&&(
@@ -1031,6 +1034,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                                   {!sbDone&&sbPrevD&&!sbStarted&&!sb.tm&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"6px 12px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>✓ {T2("Done")}</button>}
                                                   {!sbDone&&sbStarted&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sbk]?Math.floor((Date.now()-d2d.starts[sbk])/1000):0;const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})},doneElapsed:{...(d2d.doneElapsed||{}),[sbk]:el}};if(sbi===step.subs.length-1){upd.doneElapsed[sk]=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"6px 12px",borderRadius:8,background:sbOver?`linear-gradient(135deg,${C.red},#801818)`:C.green,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",minHeight:32}}>{sbOver?"⚠":"✓"} {T2("Done")}</button>}
                                                   {!sbDone&&!sbPrevD&&<div style={{padding:"6px 8px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,fontSize:11,color:C.faint}}>🔒</div>}
+                                                  {sbDone&&!isDone&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}},dish);}} style={{padding:"3px 6px",borderRadius:5,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:9,cursor:"pointer"}}>↩</button>}
                                                 </div>
                                               </div>
                                             </div>);
