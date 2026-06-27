@@ -380,8 +380,8 @@ function EventDayTab({
                             large={isSectionUser}
                           />
 
-                          {/* Ingredient list (before & during store collection) */}
-                          {!storeDone && (() => {
+                          {/* Ingredient list */}
+                          {(() => {
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             const pax = evObj ? +evObj.pax : 0;
                             if (pax <= 0) return null;
@@ -391,9 +391,9 @@ function EventDayTab({
                             const eff = effectiveScales[dish.fEvId];
                             const isOverridden = eff?.isOverride || false;
                             return (
-                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.border}` }}>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 5 }}>
-                                  🧺 {T2("Items to collect")} — {pax} pax
+                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 5 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: storeDone ? C.green : C.gold, marginBottom: 5 }}>
+                                  {storeDone ? "📊" : "🧺"} {storeDone ? T2("Ingredients") : T2("Items to collect")} — {pax} pax
                                   {isNew
                                     ? <span style={{ fontSize: 10, color: C.green, marginLeft: 6 }}>📊 {T2("scaled from DB")}</span>
                                     : isOverridden
@@ -623,6 +623,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {!subs && running && !done && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: overdue ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>{overdue ? "⚠" : "✓"} Done</button>}
         {subs && locked && !done && <div style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: SZ.btnFt }}>🔒</div>}
         {subs && !locked && !done && <span style={{ fontSize: large?12:10, color: C.muted }}>↓</span>}
+        {done && !subs && d2d && setDsFn && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[stepKey]:false},starts:{...(d2d.starts||{}),[stepKey]:null}});}} style={{padding:large?"6px 10px":"4px 8px",borderRadius:large?8:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?11:10,cursor:"pointer"}}>↩ Undo</button>}
       </div>
       </div>
       {subs && d2d && setDsFn && (
@@ -657,6 +658,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                     {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.gold, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
                     {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
                     {!sbDone && !sbPrevD && <div style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: SZ.subBtnFt, color: C.faint }}>🔒</div>}
+                    {sbDone && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}});}} style={{padding:large?"4px 8px":"3px 6px",borderRadius:large?6:5,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?10:9,cursor:"pointer"}}>↩</button>}
                   </div>
                 </div>
               </div>
