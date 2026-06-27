@@ -183,6 +183,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // ── Analytics ──
   const [analyticsEvId, setAnalyticsEvId] = useState(null);
+  const [analyticsDate, setAnalyticsDate] = useState(null);
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
@@ -1871,7 +1872,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {tab==="analytics"&&(()=>{
         const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date!==TODAY&&e.date!==TOMORROW)];
         const hasCombined=kt["__combined"]&&Object.keys(kt["__combined"]).length>0;
-        const selId=analyticsEvId||(hasCombined?"__combined":allEvs[0]?.id||null);
+        const uniqueDates=[...new Set(allEvs.map(e=>e.date))].sort().reverse();
+        const selDate=analyticsDate||uniqueDates[0]||TODAY;
+        const dateEvs=allEvs.filter(e=>e.date===selDate);
+        const fmtDate=d=>{try{return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"});}catch(e){return d;}};
+        const selId=analyticsEvId||(dateEvs[0]?.id||null);
         function buildPerf(dishName,d2s){
           const allSt=getStepsForDish(dishName);const d1St=allSt.filter(s=>s.d1);
           const steps=d1St.length>0?d1St:allSt;
@@ -1927,13 +1932,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           <div>
             <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>📊 {T2("Kitchen Analytics")}</div>
             <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Performance analysis — timing, efficiency, ingredient variance")}</div>
-            {/* ── Event Selector (dropdown) ── */}
-            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16}}>
-              <select value={selId||""} onChange={e=>{setAnalyticsEvId(e.target.value||null);setAnalyticsExp(new Set());}} style={{flex:1,maxWidth:400,padding:"12px 14px",borderRadius:10,border:`1.5px solid ${C.gold}`,fontSize:13,color:C.text,background:C.surface,fontWeight:600,minHeight:46}}>
-                {hasCombined&&<option value="__combined">🍳 Combined — {Object.keys(kt["__combined"]||{}).filter(k=>k.startsWith("dish|")).length} dishes tracked</option>}
-                {allEvs.map(ev=>{const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;return <option key={ev.id} value={ev.id}>{ev.guest||"Function"} — {ev.date} · {ev.pax} pax · {mc} dishes{tracked>0?" · "+tracked+" tracked":""}</option>;})}
-              </select>
-              {selEv&&<div style={{fontSize:12,color:C.muted}}>{menuArr(selEv).length} dishes · {selEv.venue||""}</div>}
+            {/* ── Calendar Date Picker ── */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Select Date</div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:6}}>
+                {uniqueDates.map(d=>{const isSel=d===selDate;const ec=allEvs.filter(e=>e.date===d).length;const hasTracked=allEvs.filter(e=>e.date===d).some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);return(
+                  <button key={d} onClick={()=>{setAnalyticsDate(d);setAnalyticsEvId(null);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,whiteSpace:"nowrap",flexShrink:0,minHeight:44}}>
+                    <div style={{fontWeight:600}}>{fmtDate(d)}</div>
+                    <div style={{fontSize:10,opacity:.8}}>{ec} event{ec>1?"s":""}{hasTracked?" · ✓":""}</div>
+                  </button>
+                );})}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold+"20":"transparent",color:selId==="__combined"?C.gold:C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:40}}>🍳 Combined</button>}
+                {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;return(
+                  <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:40,textAlign:"left"}}>
+                    <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                    <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax · {mc} dishes{tracked>0?" · "+tracked+" tracked":""} · {ev.venue||""}</div>
+                  </button>
+                );})}
+              </div>
             </div>
             {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>📊</div><div style={{fontSize:14,color:C.muted}}>{T2("Select an event above. Complete dishes in Prep Day or Event Day to see full analytics.")}</div></div>}
             {perfs.length>0&&(<>
@@ -1959,25 +1977,88 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>}
             </div>
             {/* ── Section Breakdown ── */}
-            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>By Section</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Dishes by Section</div>
             <div style={{marginBottom:20}}>
-              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;return(
-                <div key={cid} style={{padding:"12px 16px",marginBottom:6,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:20}}>{sec.ic}</span>
-                    <div><div style={{fontSize:13,fontWeight:600,color:sec.co}}>{sec.n}</div><div style={{fontSize:11,color:C.muted}}>{dn}/{sec.ds.length} done</div></div>
+              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;const secOpen=analyticsExp.has("sec_"+cid);return(
+                <div key={cid} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
+                  <div onClick={()=>{setAnalyticsExp(p=>{const s=new Set(p);s.has("sec_"+cid)?s.delete("sec_"+cid):s.add("sec_"+cid);return s;});}} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:20}}>{sec.ic}</span>
+                      <div><div style={{fontSize:13,fontWeight:600,color:sec.co}}>{sec.n}</div><div style={{fontSize:11,color:C.muted}}>{dn}/{sec.ds.length} done</div></div>
+                    </div>
+                    <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                      <div style={{width:60,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:3}}/></div>
+                      <span style={{fontSize:11,color:C.green,fontWeight:600}}>⬇{un}</span>
+                      <span style={{fontSize:11,color:C.red,fontWeight:600}}>⬆{ov}</span>
+                      <span style={{fontSize:14,color:C.faint}}>{secOpen?"▼":"▶"}</span>
+                    </div>
                   </div>
-                  <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                    <div style={{width:60,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:3}}/></div>
-                    <span style={{fontSize:11,color:C.green,fontWeight:600}}>⬇{un}</span>
-                    <span style={{fontSize:11,color:C.red,fontWeight:600}}>⬆{ov}</span>
-                  </div>
+                  {secOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${C.borderLight}`}}>
+                    {sec.ds.sort((a,b)=>{const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"✅":p.status==="in_progress"?"⏳":"⬜";return(
+                      <div key={p.name} style={{marginTop:6,borderRadius:8,border:`1px solid ${p.status==="not_started"?C.borderLight:C.border}`,background:p.status==="not_started"?C.bg:C.surface,opacity:p.status==="not_started"?.6:1}}>
+                        <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"10px 12px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:12,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{stLabel} {p.name}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)||"—"}</div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            {p.isDone&&p.hasData&&<div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,background:p.delta>5?C.redBg:p.delta<-5?C.greenBg:C.surface,border:`1px solid ${p.delta>5?C.redBorder:p.delta<-5?C.greenBorder:C.border}`,color:p.delta>5?C.red:p.delta<-5?C.green:C.muted}}>{p.delta>0?"+":""}{fS(p.delta)}</div>}
+                            {p.hasData&&<span style={{fontSize:12,color:C.faint}}>{isOpen?"▼":"▶"}</span>}
+                          </div>
+                        </div>
+                        {isOpen&&<div style={{padding:"0 12px 10px",borderTop:`1px solid ${C.borderLight}`}}>
+                          {p.storeT!=null&&<div style={{padding:"6px 0",fontSize:11,color:C.muted}}>🏪 Store: <b style={{color:C.gold}}>{fS(p.storeT)}</b></div>}
+                          {p.sPerfs.map((sp,si)=>{
+                            if(sp.hs){return(
+                              <div key={si} style={{padding:"4px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontSize:11,fontWeight:600,color:sp.done?C.green:C.text,marginBottom:3}}>{si+1}. {sp.l} {sp.done&&"✅"}</div>
+                                <div style={{marginLeft:14}}>
+                                  {sp.subs.map((sub,sbi)=>{const dc=sub.delta!=null?(sub.delta>0?C.red:sub.delta<0?C.green:C.muted):C.faint;return(
+                                    <div key={sbi} style={{display:"flex",justifyContent:"space-between",padding:"2px 0",fontSize:10}}>
+                                      <span style={{color:sub.done?C.green:C.text}}>{si+1}{String.fromCharCode(97+sbi)}. {sub.l}</span>
+                                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                                        <span style={{color:C.faint}}>SOP {sub.exp?fS(sub.exp):"—"}</span>
+                                        <span style={{fontWeight:600,color:sub.done?dc:C.faint}}>{sub.act!=null?fS(sub.act):"—"}</span>
+                                        {sub.delta!=null&&<span style={{fontWeight:700,color:dc,fontSize:9}}>{sub.delta>0?"🔴+":"🟢"}{fS(Math.abs(sub.delta))}</span>}
+                                      </div>
+                                    </div>
+                                  );})}
+                                </div>
+                              </div>
+                            );}
+                            const dc=sp.delta!=null?(sp.delta>0?C.red:sp.delta<0?C.green:C.muted):C.faint;
+                            return(
+                              <div key={si} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:11}}>
+                                <span style={{color:sp.done?C.green:C.text}}>{si+1}. {sp.l} {sp.done&&"✅"}</span>
+                                <div style={{display:"flex",gap:8,flexShrink:0}}>
+                                  <span style={{color:C.faint,fontSize:10}}>SOP {sp.exp?fS(sp.exp):"—"}</span>
+                                  <span style={{fontWeight:600,color:sp.done?dc:C.faint,fontSize:10}}>{sp.act!=null?fS(sp.act):"—"}</span>
+                                  {sp.delta!=null&&<span style={{fontSize:9,fontWeight:700,color:dc,padding:"1px 4px",borderRadius:4,background:sp.delta>0?C.redBg:C.greenBg}}>{sp.delta>0?"+":""}{fS(sp.delta)}</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {usageLog&&(()=>{const dts=(usageLog.ingredients||[]).filter(i=>i.actual_qty!=null);if(dts.length===0)return null;return(
+                            <div style={{marginTop:8,padding:"8px 10px",borderRadius:6,background:C.bg,border:`1px solid ${C.border}`}}>
+                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:4}}>📊 Ingredients</div>
+                              {dts.map((ing,ii)=>{const diff=ing.actual_qty-ing.scaled_qty;const pct=ing.scaled_qty>0?Math.round(diff/ing.scaled_qty*100):0;return(
+                                <div key={ii} style={{display:"flex",justifyContent:"space-between",padding:"2px 0",fontSize:10,borderBottom:ii<dts.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                  <span style={{color:C.text}}>{ing.name}</span>
+                                  <span><span style={{color:C.faint}}>{ing.scaled_qty}{ing.unit}</span> → <b style={{color:C.text}}>{ing.actual_qty}{ing.unit}</b> <span style={{fontWeight:700,color:diff>0?C.red:C.green}}>{diff>0?"+":""}{pct}%</span></span>
+                                </div>
+                              );})}
+                            </div>
+                          );})()}
+                        </div>}
+                      </div>
+                    );})}
+                  </div>}
                 </div>
               );})}
             </div>
             {/* ── Dish Performance ── */}
-            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Dish Performance</div>
-            {perfs.sort((a,b)=>{if(a.status!==b.status){const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}if(a.isDone&&b.isDone)return b.delta-a.delta;return 0;}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"✅ Done":p.status==="in_progress"?"⏳ In progress":"⬜ Not started";return(
+            
+            {false&&perfs.sort((a,b)=>{if(a.status!==b.status){const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}if(a.isDone&&b.isDone)return b.delta-a.delta;return 0;}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"✅ Done":p.status==="in_progress"?"⏳ In progress":"⬜ Not started";return(
               <div key={p.name} style={{marginBottom:6,borderRadius:10,border:`1px solid ${p.status==="not_started"?C.borderLight:C.border}`,background:p.status==="not_started"?C.bg:C.surface,opacity:p.status==="not_started"?.7:1}}>
                 <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"12px 16px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -2045,6 +2126,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>
             );})}
             {/* ── Ingredient Variance Summary ── */}
+            {deltas.length===0&&usageLogs.length>0&&<div style={{marginTop:20,padding:"16px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:11,color:C.muted}}>📊 All ingredients used at scaled quantities — no variances recorded</div></div>}
+            {deltas.length===0&&usageLogs.length===0&&perfs.length>0&&<div style={{marginTop:20,padding:"16px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:11,color:C.faint}}>📊 No ingredient usage data yet — data appears when chefs log actual quantities on "Mark prep done"</div></div>}
             {deltas.length>0&&(<>
               <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,marginTop:20,textTransform:"uppercase",letterSpacing:.5}}>Ingredient Variance</div>
               <div style={{borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
