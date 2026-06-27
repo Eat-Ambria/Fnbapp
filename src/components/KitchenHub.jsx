@@ -184,6 +184,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // ── Analytics ──
   const [analyticsEvId, setAnalyticsEvId] = useState(null);
   const [analyticsDate, setAnalyticsDate] = useState(null);
+  const [calMo, setCalMo] = useState(()=>new Date().getMonth());
+  const [calYr, setCalYr] = useState(()=>new Date().getFullYear());
+  const ANA_VP={"Ambria Pushpanjali":{code:"AP",c:"#D85A30"},"Ambria Exotica":{code:"AE",c:"#BA7517"},"Manaktala Farm":{code:"MKT",c:"#8B5E2F"},"Ambria Restro":{code:"AR",c:"#1D9E75"},"Outdoor Catering (ODC)":{code:"ODC",c:"#7F77DD"},"Ambria Manaktala":{code:"AM",c:"#BA7517"}};
+  const anaGp=v=>ANA_VP[v]||{code:"EV",c:"#8B5E2F"};
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
@@ -1934,23 +1938,67 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Performance analysis — timing, efficiency, ingredient variance")}</div>
             {/* ── Calendar Date Picker ── */}
             <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Select Date</div>
-              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:6}}>
-                {uniqueDates.map(d=>{const isSel=d===selDate;const ec=allEvs.filter(e=>e.date===d).length;const hasTracked=allEvs.filter(e=>e.date===d).some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);return(
-                  <button key={d} onClick={()=>{setAnalyticsDate(d);setAnalyticsEvId(null);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,whiteSpace:"nowrap",flexShrink:0,minHeight:44}}>
-                    <div style={{fontWeight:600}}>{fmtDate(d)}</div>
-                    <div style={{fontSize:10,opacity:.8}}>{ec} event{ec>1?"s":""}{hasTracked?" · ✓":""}</div>
-                  </button>
-                );})}
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+              {(()=>{
+                const pad2=n=>String(n).padStart(2,"0");
+                const MO_N=["January","February","March","April","May","June","July","August","September","October","November","December"];
+                const DY=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+                const first=new Date(calYr,calMo,1).getDay();
+                const dim=new Date(calYr,calMo+1,0).getDate();
+                const prevDim=new Date(calYr,calMo,0).getDate();
+                const cells2=[];
+                for(let i=first-1;i>=0;i--) cells2.push({d:prevDim-i,c:false});
+                for(let i=1;i<=dim;i++) cells2.push({d:i,c:true});
+                while(cells2.length<42) cells2.push({d:cells2.length-first-dim+1,c:false});
+                const cDate=cell=>cell.c?`${calYr}-${pad2(calMo+1)}-${pad2(cell.d)}`:null;
+                const eod2=d=>allEvs.filter(e=>e.date===d);
+                const prevMo=()=>{if(calMo===0){setCalMo(11);setCalYr(y=>y-1);}else setCalMo(m=>m-1);};
+                const nextMo=()=>{if(calMo===11){setCalMo(0);setCalYr(y=>y+1);}else setCalMo(m=>m+1);};
+                const todayS=TODAY;
+                return(
+                <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                      <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[calMo]} {calYr}</div>
+                      <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                    </div>
+                    <button onClick={()=>{setCalYr(new Date().getFullYear());setCalMo(new Date().getMonth());setAnalyticsDate(todayS);setAnalyticsEvId(null);setAnalyticsExp(new Set());}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {cells2.map((cell,i)=>{const dt=cDate(cell);const evs2=dt?eod2(dt):[];const isT=dt===todayS;const isS=dt===selDate;
+                      const vCols=[...new Set(evs2.map(e=>anaGp(e.venue).c))];
+                      const hasTracked=evs2.some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);
+                      return(
+                        <div key={i} onClick={()=>{if(!dt)return;setAnalyticsDate(dt);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
+                          style={{height:52,padding:"5px 6px",cursor:dt?"pointer":"default",
+                            borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
+                            background:isS?C.goldBg:isT?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
+                          <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":C.text}}>{cell.d}</div>
+                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}{hasTracked&&<div style={{width:6,height:6,borderRadius:"50%",background:C.green,border:`1px solid ${C.greenBorder}`}}/>}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+                    <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:C.green,border:`1px solid ${C.greenBorder}`}}/><span style={{fontSize:10,color:C.muted}}>Tracked</span></div>
+                  </div>
+                </div>);
+              })()}
+              {/* ── Event cards for selected date ── */}
+              <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} · {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
                 {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold+"20":"transparent",color:selId==="__combined"?C.gold:C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:40}}>🍳 Combined</button>}
-                {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;return(
-                  <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:40,textAlign:"left"}}>
+                {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
+                  <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
                     <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
                     <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax · {mc} dishes{tracked>0?" · "+tracked+" tracked":""} · {ev.venue||""}</div>
                   </button>
                 );})}
+                {dateEvs.length===0&&<div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
               </div>
             </div>
             {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>📊</div><div style={{fontSize:14,color:C.muted}}>{T2("Select an event above. Complete dishes in Prep Day or Event Day to see full analytics.")}</div></div>}
