@@ -181,6 +181,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setUsageModal(null);
   }
 
+  // ── Analytics ──
+  const [analyticsEvId, setAnalyticsEvId] = useState(null);
+  const [usageLogs, setUsageLogs] = useState([]);
+  const [analyticsExp, setAnalyticsExp] = useState(new Set());
+  function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
+  function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>{mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds).then(({data})=>{setUsageLogs(data||[]);});}).catch(()=>setUsageLogs([]));}
+
   // ── SOP Add/Edit Modal ──
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
   const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
@@ -416,6 +423,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     {v:"d1",      l:T2("Prep day")},
     {v:"scaling", l:T2("Scaling")},
     {v:"sops",    l:T2("SOPs")},
+    {v:"analytics",l:"📊 "+T2("Analytics")},
   ];
   const TABS_FILTERED = isSectionUser
     ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
@@ -1045,6 +1053,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 {(()=>{const d2f=ds(dish.fEvId,dish.fIdx,dish.name);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                               </div>);})()}
                         </div>
+                      
                       );
                     })}
                   </div>}
@@ -1854,6 +1863,216 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
           )}
         </div>
+        );
+      })()}
+
+      {/* ═══ ANALYTICS TAB ═══ */}
+      {tab==="analytics"&&(()=>{
+        const allEvs=[...todayEvs,...tomorrowEvs];
+        const hasCombined=kt["__combined"]&&Object.keys(kt["__combined"]).length>0;
+        const selId=analyticsEvId||(hasCombined?"__combined":allEvs[0]?.id||null);
+        // Fetch usage logs on first render or event change
+        if(selId&&usageLogs._fetched!==selId){
+          const evIds=selId==="__combined"?allEvs.map(e=>e.id):[selId];
+          if(evIds.length>0){fetchUsageLogs(evIds);usageLogs._fetched=selId;}
+        }
+        function buildPerf(dishName,d2s){
+          const allSt=getStepsForDish(dishName);const d1St=allSt.filter(s=>s.d1);
+          const steps=d1St.length>0?d1St:allSt;
+          const catId=getCatIdForDish(dishName);const cat=getCatForDish(dishName);
+          const storeT=d2s.storeEnd&&d2s.storeStart?Math.floor((d2s.storeEnd-d2s.storeStart)/1000):null;
+          const totalT=d2s.dishCompletedAt&&d2s.dishStartedAt?Math.floor((d2s.dishCompletedAt-d2s.dishStartedAt)/1000):null;
+          let expT=0,actT=0,overC=0,underC=0;
+          const sPerfs=steps.map((step,si)=>{
+            const sk="step_"+si;const hs=Array.isArray(step.subs)&&step.subs.length>0;
+            if(hs){
+              const subs=step.subs.map((sb,sbi)=>{
+                const sbk=sk+"_sub_"+sbi;const exp=sb.tm||0;const act=d2s.doneElapsed?.[sbk];
+                const done=!!(d2s.manual?.[sbk]);const delta=act!=null&&exp?act-exp:null;
+                if(exp)expT+=exp;if(act!=null)actT+=act;
+                if(delta!=null){if(delta>0)overC++;if(delta<0)underC++;}
+                return{l:sb.t,exp,act,done,delta};
+              });
+              return{l:step.t,hs:true,subs,done:subs.every(s=>s.done)};
+            }
+            const exp=step.tm||0;const act=d2s.doneElapsed?.[sk];
+            const done=!!(d2s.manual?.[sk]);const delta=act!=null&&exp?act-exp:null;
+            if(exp)expT+=exp;if(act!=null)actT+=act;
+            if(delta!=null){if(delta>0)overC++;if(delta<0)underC++;}
+            return{l:step.t,hs:false,exp,act,done,delta};
+          });
+          return{name:dishName,catId,catName:cat.name||"",catIcon:cat.icon||"🍽",catColor:cat.color||C.muted,isDone:!!d2s.mesaDone,storeT,totalT,expT,actT,overC,underC,delta:actT-expT,sPerfs};
+        }
+        const perfs=[];
+        if(selId==="__combined"){
+          Object.entries(kt["__combined"]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|"))perfs.push(buildPerf(k.slice(5),d2s));});
+        } else if(selId){
+          const ev=allEvs.find(e=>e.id===selId);
+          if(ev)menuArr(ev).forEach((name,idx)=>{const d2s=kt[selId]?.[selId+"|"+idx]||{};if(Object.keys(d2s).length>0)perfs.push(buildPerf(name,d2s));});
+        }
+        const done=perfs.filter(p=>p.isDone);const started=perfs.filter(p=>!p.isDone&&p.actT>0);
+        const byS={};perfs.forEach(p=>{if(!byS[p.catId])byS[p.catId]={n:p.catName,ic:p.catIcon,co:p.catColor,ds:[]};byS[p.catId].ds.push(p);});
+        const avgDelta=done.length?Math.round(done.reduce((s,p)=>s+p.delta,0)/done.length):0;
+        const avgStoreArr=done.filter(p=>p.storeT!=null);const avgStoreT=avgStoreArr.length?Math.round(avgStoreArr.reduce((s,p)=>s+p.storeT,0)/avgStoreArr.length):null;
+        const totalOver=done.reduce((s,p)=>s+p.overC,0);const totalUnder=done.reduce((s,p)=>s+p.underC,0);
+        const fS=s=>{if(s==null)return"—";const m=Math.floor(Math.abs(s)/60);const sc=Math.abs(s)%60;return m+"m"+(sc>0?" "+sc+"s":"");};
+        const dC=d=>d==null?C.faint:d>5?C.red:d<-5?C.green:C.muted;
+        const dBadge=d=>d==null?"—":d>0?"+"+fS(d):d<0?fS(Math.abs(d))+" under":"on time";
+        // Ingredient deltas
+        const deltas=[];(usageLogs||[]).forEach(log=>{(log.ingredients||[]).forEach(ing=>{
+          if(ing.actual_qty!=null&&Math.abs(ing.actual_qty-ing.scaled_qty)>0.01)
+            deltas.push({dish:log.dish_name,n:ing.name,scaled:ing.scaled_qty,actual:ing.actual_qty,u:ing.unit,d:ing.actual_qty-ing.scaled_qty,pct:ing.scaled_qty>0?Math.round((ing.actual_qty-ing.scaled_qty)/ing.scaled_qty*100):0});
+        });});
+        return(
+          <div>
+            <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>📊 {T2("Kitchen Analytics")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Performance analysis — timing, efficiency, ingredient variance")}</div>
+            {/* ── Event Selector ── */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+              {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold:"transparent",color:selId==="__combined"?"#fff":C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:44}}>
+                <div style={{fontWeight:600}}>🍳 Combined</div>
+                <div style={{fontSize:10,opacity:.8}}>{Object.keys(kt["__combined"]||{}).filter(k=>k.startsWith("dish|")).length} dishes tracked</div>
+              </button>}
+              {allEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;return(
+                <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
+                  <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                  <div style={{fontSize:10,opacity:.8}}>{ev.date} · {ev.pax} pax · {tracked} tracked</div>
+                </button>
+              );})}
+            </div>
+            {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>📊</div><div style={{fontSize:14,color:C.muted}}>{T2("No tracking data yet. Complete dishes in Prep Day or Event Day to see analytics.")}</div></div>}
+            {perfs.length>0&&(<>
+            {/* ── Summary Cards ── */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+              <div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:C.text}}>{done.length}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{perfs.length}</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Dishes done</div>
+              </div>
+              <div style={{padding:"14px 16px",borderRadius:12,background:avgDelta>0?C.redBg:C.greenBg,border:`1.5px solid ${avgDelta>0?C.redBorder:C.greenBorder}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:avgDelta>0?C.red:C.green}}>{avgDelta>0?"+":""}{fS(avgDelta)}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Avg step delta</div>
+              </div>
+              <div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"baseline"}}><span style={{fontSize:20,fontWeight:700,color:C.green}}>{totalUnder}</span><span style={{fontSize:11,color:C.muted}}>under</span><span style={{fontSize:20,fontWeight:700,color:C.red}}>{totalOver}</span><span style={{fontSize:11,color:C.muted}}>over</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Step timing</div>
+              </div>
+              {avgStoreT!=null&&<div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:C.gold}}>{fS(avgStoreT)}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Avg store collection</div>
+              </div>}
+            </div>
+            {/* ── Section Breakdown ── */}
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>By Section</div>
+            <div style={{marginBottom:20}}>
+              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;return(
+                <div key={cid} style={{padding:"12px 16px",marginBottom:6,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:20}}>{sec.ic}</span>
+                    <div><div style={{fontSize:13,fontWeight:600,color:sec.co}}>{sec.n}</div><div style={{fontSize:11,color:C.muted}}>{dn}/{sec.ds.length} done</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                    <div style={{width:60,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:3}}/></div>
+                    <span style={{fontSize:11,color:C.green,fontWeight:600}}>⬇{un}</span>
+                    <span style={{fontSize:11,color:C.red,fontWeight:600}}>⬆{ov}</span>
+                  </div>
+                </div>
+              );})}
+            </div>
+            {/* ── Dish Performance ── */}
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Dish Performance</div>
+            {perfs.sort((a,b)=>b.delta-a.delta).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);return(
+              <div key={p.name} style={{marginBottom:6,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
+                <div onClick={()=>toggleAnalyticsDish(p.name)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:14}}>{p.catIcon}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:p.isDone?C.text:C.muted,textDecoration:p.isDone?"none":"none"}}>{p.name}{!p.isDone&&<span style={{marginLeft:6,fontSize:10,color:C.amber,fontWeight:400}}>in progress</span>}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    {p.isDone&&<div style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:700,background:p.delta>5?C.redBg:p.delta<-5?C.greenBg:C.surface,border:`1px solid ${p.delta>5?C.redBorder:p.delta<-5?C.greenBorder:C.border}`,color:p.delta>5?C.red:p.delta<-5?C.green:C.muted}}>{p.delta>0?"+":""}{fS(p.delta)}</div>}
+                    <span style={{fontSize:14,color:C.faint}}>{isOpen?"▼":"▶"}</span>
+                  </div>
+                </div>
+                {isOpen&&<div style={{padding:"0 16px 14px",borderTop:`1px solid ${C.borderLight}`}}>
+                  {p.storeT!=null&&<div style={{padding:"8px 0",fontSize:12,color:C.muted}}>🏪 Store collection: <b style={{color:C.gold}}>{fS(p.storeT)}</b></div>}
+                  {p.sPerfs.map((sp,si)=>{
+                    if(sp.hs){return(
+                      <div key={si} style={{padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+                        <div style={{fontSize:12,fontWeight:600,color:sp.done?C.green:C.text,marginBottom:4}}>{si+1}. {sp.l} {sp.done&&"✅"}</div>
+                        <div style={{marginLeft:16}}>
+                          {sp.subs.map((sub,sbi)=>{const dc=sub.delta!=null?(sub.delta>0?C.red:sub.delta<0?C.green:C.muted):C.faint;return(
+                            <div key={sbi} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:11}}>
+                              <span style={{color:sub.done?C.green:C.text}}>{si+1}{String.fromCharCode(97+sbi)}. {sub.l}</span>
+                              <div style={{display:"flex",gap:8,flexShrink:0}}>
+                                <span style={{color:C.faint}}>{sub.exp?fS(sub.exp):"—"}</span>
+                                <span style={{fontWeight:600,color:sub.done?dc:C.faint}}>{sub.act!=null?fS(sub.act):"—"}</span>
+                                {sub.delta!=null&&<span style={{fontSize:10,fontWeight:700,color:dc,minWidth:50,textAlign:"right"}}>{sub.delta>0?"🔴 +":"🟢 "}{fS(Math.abs(sub.delta))}</span>}
+                              </div>
+                            </div>
+                          );})}
+                        </div>
+                      </div>
+                    );}
+                    const dc=sp.delta!=null?(sp.delta>0?C.red:sp.delta<0?C.green:C.muted):C.faint;
+                    return(
+                      <div key={si} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:12}}>
+                        <span style={{color:sp.done?C.green:C.text,fontWeight:500}}>{si+1}. {sp.l} {sp.done&&"✅"}</span>
+                        <div style={{display:"flex",gap:10,flexShrink:0,alignItems:"center"}}>
+                          <span style={{color:C.faint,fontSize:11}}>SOP: {sp.exp?fS(sp.exp):"—"}</span>
+                          <span style={{fontWeight:600,color:sp.done?dc:C.faint,fontSize:11}}>Actual: {sp.act!=null?fS(sp.act):"—"}</span>
+                          {sp.delta!=null&&<span style={{fontSize:10,fontWeight:700,color:dc,padding:"2px 6px",borderRadius:6,background:sp.delta>0?C.redBg:C.greenBg}}>{sp.delta>0?"+":" "}{fS(sp.delta)}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Ingredient deltas for this dish */}
+                  {usageLog&&(()=>{const dts=(usageLog.ingredients||[]).filter(i=>i.actual_qty!=null);if(dts.length===0)return null;return(
+                    <div style={{marginTop:10,padding:"10px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:6}}>📊 Ingredient Usage</div>
+                      {dts.map((ing,ii)=>{const diff=ing.actual_qty-ing.scaled_qty;const pct=ing.scaled_qty>0?Math.round(diff/ing.scaled_qty*100):0;const isOver=diff>0.01;const isUnder=diff<-0.01;return(
+                        <div key={ii} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:11,borderBottom:ii<dts.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                          <span style={{color:C.text}}>{ing.name}</span>
+                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                            <span style={{color:C.faint}}>{ing.scaled_qty} {ing.unit}</span>
+                            <span style={{color:C.text,fontWeight:600}}>→ {ing.actual_qty} {ing.unit}</span>
+                            {(isOver||isUnder)&&<span style={{fontSize:10,fontWeight:700,color:isOver?C.red:C.green,padding:"1px 6px",borderRadius:4,background:isOver?C.redBg:C.greenBg}}>{isOver?"+":""}{pct}%</span>}
+                            {!isOver&&!isUnder&&<span style={{fontSize:10,color:C.green}}>✓</span>}
+                          </div>
+                        </div>
+                      );})}
+                    </div>
+                  );})()}
+                </div>}
+              </div>
+            );})}
+            {/* ── Ingredient Variance Summary ── */}
+            {deltas.length>0&&(<>
+              <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,marginTop:20,textTransform:"uppercase",letterSpacing:.5}}>Ingredient Variance</div>
+              <div style={{borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                  <thead><tr style={{background:C.darkCard}}>
+                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted}}>Dish</th>
+                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted}}>Ingredient</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Scaled</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Actual</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Δ</th>
+                  </tr></thead>
+                  <tbody>{deltas.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct)).map((d,i)=>(
+                    <tr key={i} style={{borderTop:`1px solid ${C.borderLight}`,background:i%2===0?C.surface:C.darkCard}}>
+                      <td style={{padding:"6px 10px",fontSize:11,color:C.text}}>{d.dish}</td>
+                      <td style={{padding:"6px 10px",fontSize:11,color:C.text,fontWeight:500}}>{d.n}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.faint}}>{d.scaled} {d.u}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text,fontWeight:600}}>{d.actual} {d.u}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontWeight:700,color:d.d>0?C.red:C.green,padding:"2px 6px",borderRadius:4,background:d.d>0?C.redBg:C.greenBg}}>{d.d>0?"+":""}{d.pct}%</span></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </>)}
+            </>)}
+          </div>
         );
       })()}
 
