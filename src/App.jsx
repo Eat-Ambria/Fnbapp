@@ -407,7 +407,12 @@ export default function App() {
   }
   function handleLogout(){
     setCurrentUser(null); setActiveDept(null);
-    try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+    try{
+      localStorage.removeItem("ambria_session_user");
+      localStorage.removeItem("ambria_emp_id");
+      localStorage.removeItem("ambria_pin");
+      localStorage.removeItem("ambria_remember");
+    }catch(e){}
   }
 
   // ── NAV per department ──
@@ -536,7 +541,7 @@ export default function App() {
               </>);
             })()}
           </div>
-          <button onClick={function(){setCurrentUser(null);}}
+          <button onClick={handleLogout}
             style={{padding:'8px 16px',borderRadius:10,background:C.surface,
               border:`1px solid ${C.border}`,color:C.muted,fontSize:11,
               cursor:'pointer'}}>
