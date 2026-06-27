@@ -118,7 +118,11 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       "Management":"AM","Sweets":"SW","Chaat":"CT","Chinese":"CH","Tandoor":"TD",
       "Continental":"CN","Indian Curries":"IN","Bakery":"BK",
       "Service":"SV","Crockery":"CR","Beverages":"BV",
-      "Transportation":"TR","ODC":"OD"
+      "Transportation":"TR","ODC":"OD",
+      "Main Course":"IN","Indian Main Course":"IN","Indian Tandoor":"TD",
+      "Chinese & Pan Asian":"CH","Chinese & Pan-Asian":"CH",
+      "Chaat Station":"CT","Indian Desserts":"SW","Savoury Halwai":"HW",
+      "Soup Station":"SP","Salads":"SL","APC":"AP",
     };
     const DEPT_PREFIX_MAP = {
       "kitchen":"KT","service":"SV","crockery":"CR",

@@ -47,7 +47,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [selEmp,setSelEmp]       = useState(null);
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
-  const [newEmpForm,setNewEmpForm] = useState({name:"",section:"Indian Curries",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+  const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
 
   // Computed — filtered by active department
   const _resolvedStaff = STAFF_LIST.map(function(s){ return Object.assign({},s,{section:resolveSection(s.section)}); });
@@ -112,7 +112,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     const record = {...newEmpForm,id:newId,staff_id:newId,staffListId:newId,is_active:true,active:true};
     setEmpDb(p=>[...p,record]);
     if(syncToServer) syncToServer('upsert',record);
-    setNewEmpForm({name:"",section:"Indian Curries",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+    setNewEmpForm({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
     setShowAddEmp(false);
   }
   function saveEmpEdit(){
