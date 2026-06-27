@@ -1975,16 +1975,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <div key={i} onClick={()=>{if(!dt)return;setAnalyticsDate(dt);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
                           style={{height:52,padding:"5px 6px",cursor:dt?"pointer":"default",
                             borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
-                            background:isS?C.goldBg:isT?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
-                          <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":C.text}}>{cell.d}</div>
-                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}{hasTracked&&<div style={{width:6,height:6,borderRadius:"50%",background:C.green,border:`1px solid ${C.greenBorder}`}}/>}</div>}
+                            background:isS?C.goldBg:isT?"#FAEEDA":hasTracked?"rgba(29,158,117,0.07)":"transparent",opacity:cell.c?1:.2}}>
+                          <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":hasTracked?C.green:C.text}}>{cell.d}{hasTracked&&<span style={{fontSize:8,marginLeft:1,verticalAlign:"super"}}>✓</span>}</div>
+                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
                         </div>
                       );
                     })}
                   </div>
                   <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
                     {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
-                    <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:C.green,border:`1px solid ${C.greenBorder}`}}/><span style={{fontSize:10,color:C.muted}}>Tracked</span></div>
+                    <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:14,height:14,borderRadius:3,background:"rgba(29,158,117,0.08)",border:"1px solid rgba(29,158,117,0.18)"}}><span style={{fontSize:7,color:C.green,display:"flex",alignItems:"center",justifyContent:"center",height:"100%"}}>✓</span></div><span style={{fontSize:10,color:C.muted}}>Tracked</span></div>
                   </div>
                 </div>);
               })()}
