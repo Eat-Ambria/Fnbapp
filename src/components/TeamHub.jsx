@@ -1,7 +1,7 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
-import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
@@ -50,7 +50,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [newEmpForm,setNewEmpForm] = useState({name:"",section:"Indian Curries",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
 
   // Computed — filtered by active department
-  const deptStaffList = deptSections ? STAFF_LIST.filter(s=>deptSections.includes(s.section)) : STAFF_LIST;
+  const _resolvedStaff = STAFF_LIST.map(function(s){ return Object.assign({},s,{section:resolveSection(s.section)}); });
+  const deptStaffList = deptSections ? _resolvedStaff.filter(s=>deptSections.includes(s.section)) : _resolvedStaff;
   // Merge empDb + STAFF_LIST so directory shows all staff the kiosk sees
   const allEmpDb = (function(){
     var db = safeArr(empDb);
@@ -58,14 +59,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     var fromList = STAFF_LIST.filter(function(s){
       return !dbNames.has((s.name||'').toLowerCase());
     }).map(function(s){
-      return {id:String(s.id),staff_id:String(s.id),staffListId:String(s.id),name:s.name,section:s.section,dept:s.section,role:s.role||'staff',is_active:true,pin:'0000',joining:'',source:'stafflist'};
+      return {id:String(s.id),staff_id:String(s.id),staffListId:String(s.id),name:s.name,section:resolveSection(s.section),dept:resolveSection(s.section),role:s.role||'staff',is_active:true,pin:'0000',joining:'',source:'stafflist'};
     });
     return db.concat(fromList);
   })();
-  const deptEmpDb = deptSections ? allEmpDb.filter(e=>deptSections.includes(e.section)) : allEmpDb;
+  const deptEmpDb = deptSections ? allEmpDb.filter(e=>deptSections.includes(resolveSection(e.section))) : allEmpDb;
   const deptStaffIds = new Set(deptStaffList.map(s=>String(s.id)));
   const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptStaffIds.has(String(a.staffId))));
-  const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(l.staffSection)) : safeArr(leaves);
+  const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(resolveSection(l.staffSection))) : safeArr(leaves);
   const pending    = deptLeaves.filter(l=>l.status==="Pending");
   const approved   = deptLeaves.filter(l=>l.status==="Approved");
   const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
