@@ -73,7 +73,7 @@ function EventDayTab({
   function dk(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
   function ds(evId, idx, dishName) {
-    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || {};
+    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || kt["__combined"]?.[ck(dishName)] || {};
     return kt[evId]?.[dk(evId, idx)] || {};
   } 
   function setDs(evId, idx, upd, dishInfo) {
