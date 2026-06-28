@@ -74,13 +74,8 @@ function EventDayTab({
   function ck(dishName) { return "dish|" + dishName; }
   function ds(evId, idx, dishName) {
     if (isCombined && dishName) return kt["__combined"]?.[ck(dishName)] || {};
-    var perEv = kt[evId]?.[dk(evId, idx)] || {};
-    if (dishName && !Object.keys(perEv).length) {
-      var cb = kt["__combined"]?.[ck(dishName)] || {};
-      if (Object.keys(cb).length) { var r = Object.assign({}, cb); delete r.mesaDone; return r; }
-    }
-    return perEv;
-  }
+    return kt[evId]?.[dk(evId, idx)] || {};
+  } 
   function setDs(evId, idx, upd, dishInfo) {
     setKitchenTracking(p => {
       const o = p && typeof p === "object" ? { ...p } : {};
