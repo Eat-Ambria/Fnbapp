@@ -73,7 +73,7 @@ function EventDayTab({
   function dk(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
   function ds(evId, idx, dishName) {
-    if (isCombined && dishName) return kt["__combined"]?.[ck(dishName)] || {};
+    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || {};
     return kt[evId]?.[dk(evId, idx)] || {};
   } 
   function setDs(evId, idx, upd, dishInfo) {
@@ -81,7 +81,7 @@ function EventDayTab({
       const o = p && typeof p === "object" ? { ...p } : {};
       if (isCombined && dishInfo?.name) {
         const cKey = ck(dishInfo.name);
-        o["__combined"] = { ...(o["__combined"] || {}), [cKey]: { ...(o["__combined"]?.[cKey] || {}), ...upd } };
+        var _ck = "__combined_" + TODAY; o[_ck] = { ...(o[_ck] || {}), [cKey]: { ...(o[_ck]?.[cKey] || {}), ...upd } };
         // Propagate cooking progress to per-function keys (except mesaDone — transport is per-event)
         var propUpd = Object.assign({}, upd); delete propUpd.mesaDone;
         if (Object.keys(propUpd).length > 0) {

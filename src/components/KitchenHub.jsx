@@ -356,7 +356,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function dk(evId,idx){return evId+"|"+idx;}
   function ck(dishName){return "dish|"+dishName;}
   function ds(evId,idx,dishName){
-    if(d1FnFilter==="combined" && dishName) return kt["__combined"]?.[ck(dishName)]||{};
+    if(d1FnFilter==="combined" && dishName) return kt["__combined_"+TOMORROW]?.[ck(dishName)]||{};
     return kt[evId]?.[dk(evId,idx)]||{};
   }
   function setDs(evId,idx,upd,dishInfo){
@@ -364,7 +364,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       const o=p&&typeof p==="object"?{...p}:{};
       if(d1FnFilter==="combined" && dishInfo?.name){
         const cKey=ck(dishInfo.name);
-        o["__combined"]={...(o["__combined"]||{}),[cKey]:{...(o["__combined"]?.[cKey]||{}),...upd}};
+        var _ck="__combined_"+TOMORROW;o[_ck]={...(o[_ck]||{}),[cKey]:{...(o[_ck]?.[cKey]||{}),...upd}};
         var propUpd=Object.assign({},upd); delete propUpd.mesaDone;
         if(Object.keys(propUpd).length>0){
           (dishInfo.fns||[]).forEach(fn=>{
@@ -1876,9 +1876,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {/* ═══ ANALYTICS TAB ═══ */}
       {tab==="analytics"&&(()=>{
         const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date!==TODAY&&e.date!==TOMORROW)];
-        const hasCombined=kt["__combined"]&&Object.keys(kt["__combined"]).length>0;
         const uniqueDates=[...new Set(allEvs.map(e=>e.date))].sort().reverse();
         const selDate=analyticsDate||uniqueDates[0]||TODAY;
+        const combKey="__combined_"+selDate;
+        const hasCombined=kt[combKey]&&Object.keys(kt[combKey]).length>0;
         const dateEvs=allEvs.filter(e=>e.date===selDate);
         const fmtDate=d=>{try{return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"});}catch(e){return d;}};
         const selId=analyticsEvId||(dateEvs[0]?.id||null);
@@ -1913,7 +1914,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
         const perfs=[];const seen=new Set();
         if(selId==="__combined"){
-          Object.entries(kt["__combined"]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|")){const n=k.slice(5);perfs.push(buildPerf(n,d2s));seen.add(n);}});
+          Object.entries(kt[combKey]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|")){const n=k.slice(5);perfs.push(buildPerf(n,d2s));seen.add(n);}});
           allEvs.forEach(ev=>{menuArr(ev).forEach(name=>{if(!seen.has(name)){perfs.push(buildPerf(name,{}));seen.add(name);}});});
         } else if(selId){
           const ev=allEvs.find(e=>e.id===selId);
