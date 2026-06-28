@@ -1719,8 +1719,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           </div>
                           {(mapping.unit_conversion||1)!==1&&(
                             <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
-                              <span style={{fontSize:10,color:C.muted}}>1 {ing.unit} = {mapping.unit_conversion} {mapping.ops_item_unit}</span>
-                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:String(mapping.unit_conversion||1),editMode:true})}
+                              <span style={{fontSize:10,color:C.muted}}>1 {mapping.ops_item_unit} = {Math.round(1/(mapping.unit_conversion||1)*10000)/10000} {ing.unit}</span>
+                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:String(Math.round(1/(mapping.unit_conversion||1)*10000)/10000),editMode:true})}
                                 style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:C.bg,color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
                             </div>
                           )}
@@ -1836,16 +1836,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
             </div>
             <div style={{padding:"18px"}}>
-              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("How many")} {convModal.storeUnit} {T2("in")} 1 {convModal.recipeUnit}?</div>
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("How many")} {convModal.recipeUnit} {T2("in")} 1 {convModal.storeUnit}?</div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>1 {convModal.recipeUnit} =</span>
+                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>1 {convModal.storeUnit} =</span>
                 <input type="number" step="any" min="0" value={convModal.convValue} autoFocus
                   onChange={e=>setConvModal(function(prev){return Object.assign({},prev,{convValue:e.target.value});})}
                   style={{flex:1,padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center"}}/>
-                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{convModal.storeUnit}</span>
+                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{convModal.recipeUnit}</span>
               </div>
               <div style={{fontSize:10,color:C.faint,marginTop:8}}>
-                {T2("Example")}: 1 pc Badi Elaichi = 0.005 kg
+                {T2("Example")}: 1 bottle Cooking Wine = 750 ml
               </div>
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
@@ -1853,13 +1853,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
               <button onClick={()=>{
                 var val=parseFloat(convModal.convValue);
                 if(!val||val<=0){alert(T2("Enter a valid conversion value"));return;}
+                var conv=1/val;
                 if(convModal.editMode){
-                  var upd=Object.assign({},ingredientMap[convModal.ingName],{unit_conversion:val});
+                  var upd=Object.assign({},ingredientMap[convModal.ingName],{unit_conversion:conv});
                   setIngredientMap(function(prev){var n=Object.assign({},prev);n[convModal.ingName]=upd;return n;});
                   setConvModal(null);
-                  supabase.from("ingredient_item_map").update({unit_conversion:val}).eq("ingredient_name",convModal.ingName).then(function(r){if(r.error)console.error("Conv update failed:",r.error);});
+                  supabase.from("ingredient_item_map").update({unit_conversion:conv}).eq("ingredient_name",convModal.ingName).then(function(r){if(r.error)console.error("Conv update failed:",r.error);});
                 }else{
-                  saveIngredientMapping(convModal.ingName,convModal.ingHindi,convModal.opsItem,val);
+                  saveIngredientMapping(convModal.ingName,convModal.ingHindi,convModal.opsItem,conv);
                 }
               }} disabled={!convModal.convValue||parseFloat(convModal.convValue)<=0}
                 style={{flex:1,padding:"10px",borderRadius:10,background:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.borderLight:C.gold,border:"none",color:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.muted:C.goldBg,fontSize:12,fontWeight:700,cursor:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?"not-allowed":"pointer"}}>✓ {T2("Save")}</button>
