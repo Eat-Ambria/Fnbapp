@@ -262,6 +262,32 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
     setSopModal(null);setSopRecipe(recObj);
   }
+  function deleteCategory(catId){
+    if(!window.confirm('Delete this SOP section? This cannot be undone.')) return;
+    var arr=safeArr(RECIPE_DB.recipes[catId]);
+    if(arr.length>0){window.alert('Cannot delete — section still has '+arr.length+' recipes. Move or delete them first.');return;}
+    RECIPE_DB.cats=RECIPE_DB.cats.filter(c=>c.id!==catId);
+    delete RECIPE_DB.recipes[catId];
+    import('../lib/supabase.js').then(mod=>{
+      mod.supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{if(r.error)console.error('Cat delete err:',r.error);else console.log('✅ Category deleted:',catId);});
+    });
+    logActivity('kitchen','SOP category deleted: '+catId,'sop_category_delete',{catId:catId},currentUser?.id);
+    setSopCat(null);
+  }
+  function moveRecipe(recipe,fromCatId,toCatId){
+    if(!toCatId||toCatId===fromCatId) return;
+    var fromArr=RECIPE_DB.recipes[fromCatId]||[];
+    var idx=fromArr.findIndex(r=>r.n===recipe.n);
+    if(idx>=0) fromArr.splice(idx,1);
+    if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
+    RECIPE_DB.recipes[toCatId].push(recipe);
+    RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+    import('../lib/supabase.js').then(mod=>{
+      mod.supabase.from('recipes').update({category_id:toCatId}).eq('dish_name',recipe.n).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('✅ Recipe moved:',recipe.n,'→',toCatId);});
+    });
+    logActivity('kitchen','SOP moved: '+recipe.n+' → '+toCatId,'sop_move',{dish:recipe.n,from:fromCatId,to:toCatId},currentUser?.id);
+    setSopRecipe(null);setSopCat(toCatId);
+  }
   function deleteSop(recipe,catId){
     if(!window.confirm('Delete "'+recipe.n+'"? This cannot be undone.'))return;
     const cid=catId||sopCat||"";
@@ -1532,9 +1558,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             !sopCat?(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
                 {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;return(
-                  <button key={cat.id} onClick={()=>setSopCat(cat.id)} style={{background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
-                    <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
-                  </button>);})}
+                  <div key={cat.id} style={{position:"relative"}}>
+                    <button onClick={()=>setSopCat(cat.id)} style={{width:"100%",background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
+                      <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
+                    </button>
+                    {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✕</button>}
+                  </div>);})}
               </div>
             ):(
               <div>
@@ -1574,6 +1603,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <>
                           <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
                           <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
+                          <select defaultValue="" onChange={e=>{if(e.target.value)moveRecipe(sopRecipe,sopCat,e.target.value);e.target.value="";}} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:C.surface,cursor:"pointer",minHeight:32}}>
+                            <option value="" disabled>📁 Move to…</option>
+                            {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                          </select>
                         </>
                       ):(
                         <>
