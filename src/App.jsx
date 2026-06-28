@@ -56,6 +56,8 @@ export default function App() {
   const [repairs,setRepairs]         = useState([]);
   const [allocRules,setAllocRules]   = useState({});
   const [dbChecklists,setDbChecklists] = useState({});
+  const [tabletScreen,setTabletScreen] = useState("kitchen");
+  const [tabletSidebarOpen,setTabletSidebarOpen] = useState(false);
   const T2 = s => T(s, lang);
 
   // ── PWA auto-update ──
@@ -518,40 +520,73 @@ export default function App() {
   }
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
+    const TABLET_NAV=[
+      {id:"dashboard",label:"Dashboard",icon:"📊"},
+      {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
+      {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
+    ].filter(function(n){ return canAccessScreen(currentUser, n.id); });
+    const _cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
+    const _catObjs = _cats.map(function(c){ return (RECIPE_DB.cats||[]).find(function(x){ return x.id===c; }); }).filter(Boolean);
+    const _firstCat = _catObjs[0]||null;
+    const _catNames = _catObjs.length>0?_catObjs.map(function(c){ return c.name; }).join(' + '):'';
+    const _hdrColor = _firstCat?.color || C.gold;
+    const _title = currentUser.name || _catNames || currentUser.section || 'Kitchen';
+    function tabletContent(scr){
+      switch(scr){
+        case "dashboard": return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+        case "kitchen": return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+        case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
+        case "repair": return <RepairMaintenance lang={lang} currentDept="kitchen" currentUser={currentUser}/>;
+        default: return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+      }
+    }
     return (
-      <div style={{minHeight:'100vh',background:C.bg}}>
-        <div style={{padding:'12px 20px',background:C.surface,
-          borderBottom:`1px solid ${C.border}`,display:'flex',
-          justifyContent:'space-between',alignItems:'center'}}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            {(()=>{
-              const cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
-              const catObjs = cats.map(c=>(RECIPE_DB.cats||[]).find(x=>x.id===c)).filter(Boolean);
-              const firstCat = catObjs[0]||null;
-              const catNames = catObjs.length>0?catObjs.map(c=>c.name).join(' + '):'';
-              const headerColor = firstCat?.color || C.gold;
-              const title = currentUser.name || catNames || currentUser.section || 'Kitchen';
-              return (<>
-                <span style={{fontSize:20}}>{firstCat?.icon || '🍽'}</span>
+      <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden"}}>
+        {tabletSidebarOpen&&(
+          <div style={{width:220,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+            <div style={{padding:"16px 14px",borderBottom:`1px solid ${C.borderLight}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:18}}>{_firstCat?.icon||'🍽'}</span>
                 <div>
-                  <div style={{fontSize:16,fontWeight:700,color:headerColor,
-                    fontFamily:'var(--font-display)'}}>{title}</div>
-                  <div style={{fontSize:11,color:C.muted}}>{catNames?catNames+' · ':''}{TODAY_LABEL}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:_hdrColor,fontFamily:'var(--font-display)'}}>{_title}</div>
+                  <div style={{fontSize:10,color:C.muted}}>{_catNames}</div>
                 </div>
-              </>);
-            })()}
+              </div>
+            </div>
+            <nav style={{flex:1,padding:"8px",overflowY:"auto"}}>
+              {TABLET_NAV.map(function(item){
+                var active=tabletScreen===item.id;
+                return(
+                  <button key={item.id} onClick={function(){setTabletScreen(item.id);setTabletSidebarOpen(false);}} style={{
+                    display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",
+                    borderRadius:10,marginBottom:4,cursor:"pointer",textAlign:"left",
+                    background:active?_hdrColor+"12":"transparent",
+                    border:active?"1.5px solid "+_hdrColor+"25":"1.5px solid transparent",
+                    borderLeft:active?"3px solid "+_hdrColor:"3px solid transparent",
+                    color:active?_hdrColor:C.muted,fontSize:12,fontWeight:active?600:400}}>
+                    <span style={{fontSize:15}}>{item.icon}</span>{item.label}
+                  </button>
+                );
+              })}
+            </nav>
+            <div style={{padding:"12px",borderTop:`1px solid ${C.border}`}}>
+              <button onClick={handleLogout} style={{width:"100%",padding:"10px",borderRadius:10,background:"none",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>← Exit</button>
+            </div>
           </div>
-          <button onClick={handleLogout}
-            style={{padding:'8px 16px',borderRadius:10,background:C.surface,
-              border:`1px solid ${C.border}`,color:C.muted,fontSize:11,
-              cursor:'pointer'}}>
-            ← Exit
-          </button>
-        </div>
-        <div style={{padding:'20px'}}>
-          <KitchenHub events={events} kitchenTracking={kitchenTracking}
-            setKitchenTracking={setKitchenTracking} lang={lang}
-            currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>
+        )}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{flexShrink:0,padding:"10px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+            <button onClick={function(){setTabletSidebarOpen(function(p){return !p;});}} style={{width:36,height:36,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted}}>
+              {tabletSidebarOpen?"✕":"☰"}
+            </button>
+            <span style={{fontSize:16}}>{_firstCat?.icon||'🍽'}</span>
+            <div style={{fontSize:14,fontWeight:700,color:_hdrColor,fontFamily:'var(--font-display)'}}>{_title}</div>
+            <div style={{fontSize:11,color:C.muted}}>{'· '+_catNames+' · '+TODAY_LABEL}</div>
+          </div>
+          <div style={{flex:1,overflow:"auto",padding:"20px"}}>
+            {tabletContent(tabletScreen)}
+          </div>
         </div>
       </div>
     );

@@ -106,7 +106,7 @@ function EventDayTab({
   }
   function markManual(evId, idx, si, dishInfo) {
     const d = ds(evId, idx, dishInfo?.name);
-    const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    const now = new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     const el = d.starts?.[si] ? Math.floor((Date.now() - d.starts[si]) / 1000) : 0;
     setDs(evId, idx, {
       manual: { ...(d.manual || {}), [si]: true },
@@ -493,7 +493,7 @@ function EventDayTab({
                               </div>
                               {needsTransport&&<div style={{fontSize:11,color:C.amber,textAlign:"center",marginBottom:8}}>🚛 {T2("This dish needs transport to")} <b>{tev?.venue||"venue"}</b></div>}
                               <button onClick={() => {
-                                const now = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+                                const now = new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
                                 const updates = { ready: true, completed: true, completedBy: currentUser?.name || "Chef", completedAt: now, readyAt: now };
                                 if(needsTransport) {
                                   updates.transportLinked = true;
@@ -549,7 +549,7 @@ function EventDayTab({
                 </div>
                 {dispatched
                   ? <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>🚛 {kt[ev.id]?.__dispatch_time}</span>
-                  : <button onClick={() => { setEvMeta(ev.id, "__dispatch_ready", true); setEvMeta(ev.id, "__dispatch_time", new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })); }} style={{ padding: "8px 16px", borderRadius: 10, background: C.gold, color: "#0A0A0F", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  : <button onClick={() => { setEvMeta(ev.id, "__dispatch_ready", true); setEvMeta(ev.id, "__dispatch_time", new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })); }} style={{ padding: "8px 16px", borderRadius: 10, background: C.gold, color: "#0A0A0F", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                     🚛 {T2("Dispatch")}
                   </button>
                 }
@@ -658,8 +658,8 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                   </div>
                   <div style={{ flexShrink: 0 }}>
                     {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
-                    {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.gold, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
-                    {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
+                    {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.gold, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
+                    {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
                     {!sbDone && !sbPrevD && <div style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: SZ.subBtnFt, color: C.faint }}>🔒</div>}
                     {sbDone && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}});}} style={{padding:large?"4px 8px":"3px 6px",borderRadius:large?6:5,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?10:9,cursor:"pointer"}}>↩</button>}
                   </div>
