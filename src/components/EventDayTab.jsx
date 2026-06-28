@@ -82,11 +82,14 @@ function EventDayTab({
       if (isCombined && dishInfo?.name) {
         const cKey = ck(dishInfo.name);
         o["__combined"] = { ...(o["__combined"] || {}), [cKey]: { ...(o["__combined"]?.[cKey] || {}), ...upd } };
-        // Always propagate ALL step progress to per-function keys
-        (dishInfo.fns || []).forEach(fn => {
-          const k2 = dk(fn.evId, fn.idx);
-          o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: { ...(o[fn.evId]?.[k2] || {}), ...upd } };
-        });
+        // Propagate cooking progress to per-function keys (except mesaDone — transport is per-event)
+        var propUpd = Object.assign({}, upd); delete propUpd.mesaDone;
+        if (Object.keys(propUpd).length > 0) {
+          (dishInfo.fns || []).forEach(fn => {
+            const k2 = dk(fn.evId, fn.idx);
+            o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: { ...(o[fn.evId]?.[k2] || {}), ...propUpd } };
+          });
+        }
       } else {
         const k2 = dk(evId, idx);
         o[evId] = { ...(o[evId] || {}), [k2]: { ...(o[evId]?.[k2] || {}), ...upd } };

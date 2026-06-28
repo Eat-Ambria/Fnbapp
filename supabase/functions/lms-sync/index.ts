@@ -394,6 +394,25 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── Clean up cancelled / removed LMS events ──
+    // Any LMS-sourced event in the sync window that wasn't in this batch is gone from LMS
+    const upsertedIds = new Set(finalEvents.map(e => e.id));
+    const { data: existingLms } = await sb
+      .from("events")
+      .select("id")
+      .gte("date", fromDate)
+      .lte("date", uptoDate)
+      .like("id", "LMS-%");
+
+    const toDelete = (existingLms || []).filter(e => !upsertedIds.has(e.id)).map(e => e.id);
+    let deleted = 0;
+    if (toDelete.length > 0) {
+      const { error: delErr } = await sb.from("events").delete().in("id", toDelete);
+      if (delErr) console.error("Delete cancelled LMS events error:", delErr);
+      else deleted = toDelete.length;
+      console.log(`Cleaned up ${deleted} cancelled/removed LMS events: ${toDelete.join(", ")}`);
+    }
+
     // ── Update sync log ──
     if (logId) {
       await sb.from("lms_sync_log").update({
@@ -403,6 +422,7 @@ Deno.serve(async (req) => {
         catering_count: cateringRows.length,
         total_upserted: upserted,
         total_skipped: skipped,
+        total_deleted: deleted,
       }).eq("id", logId);
     }
 
@@ -412,6 +432,7 @@ Deno.serve(async (req) => {
       catering_rows: cateringRows.length,
       events_upserted: upserted,
       events_skipped: skipped,
+      events_deleted: deleted,
       sync_window: `${fromDate} → ${uptoDate}`,
     };
     console.log("LMS Sync complete:", result);
