@@ -1242,7 +1242,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
             Object.values(secObj.items).forEach(ing=>{
               if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[]};
-              collBags[sec].items[ing.name].totalQty+=ing.totalQty;
+              var collMerged=addQtyWithUnitNorm(collBags[sec].items[ing.name],ing.totalQty,ing.unit);
+              collBags[sec].items[ing.name].totalQty=collMerged.totalQty;
+              collBags[sec].items[ing.name].unit=collMerged.unit;
               collBags[sec].items[ing.name].evBreak.push({evId:ev.id,evName:ev.guest,qty:ing.totalQty});
             });
           });
@@ -1504,14 +1506,21 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     if(!mapping) return;
                     const stock = getStockForIngredient(ing.name);
                     if(!stock) return;
-                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};
-                    seenIng[ing.name].required += ing.totalQty * (stock.conversion || 1);
+                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:ing.unit,storeUnit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};
+                    var sMerged=addQtyWithUnitNorm({totalQty:seenIng[ing.name].required,unit:seenIng[ing.name].unit},ing.totalQty,ing.unit);
+                    seenIng[ing.name].required=sMerged.totalQty;
+                    seenIng[ing.name].unit=sMerged.unit;
                     if(!seenIng[ing.name].eventIds.includes(ev.id)){seenIng[ing.name].eventIds.push(ev.id);seenIng[ing.name].eventNames.push(ev.guest);}
                   });
                 });
               });
               Object.values(seenIng).forEach(s=>{
-                s.shortfall = Math.ceil(Math.max(0, s.required - s.available));
+                var recG=toGrams(s.required,s.unit);var stoG=toGrams(1,s.storeUnit);
+                if(recG!==null&&stoG!==null){s.required=recG/stoG;s.unit=s.storeUnit;}
+                else{var recM=toMl(s.required,s.unit);var stoM=toMl(1,s.storeUnit);
+                if(recM!==null&&stoM!==null){s.required=recM/stoM;s.unit=s.storeUnit;}
+                else{s.required=s.required*(s.conversion||1);s.unit=s.storeUnit;}}
+                s.shortfall=Math.ceil(Math.max(0,s.required-s.available));
                 if(s.shortfall > 0) shortages.push(s);
               });
               shortages.sort((a,b)=>b.shortfall-a.shortfall);
