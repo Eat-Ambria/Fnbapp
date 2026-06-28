@@ -157,15 +157,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [editingYield, setEditingYield] = useState(false);
   const [yieldForm, setYieldForm] = useState([]);
 
-  // ── Ingredient Usage Modal (captures actual vs scaled) ──
+  // ── Yield Capture + Ingredient Usage Modal ──
+  const [yieldModal, setYieldModal] = useState(null);
+  const [yieldQty, setYieldQty] = useState("");
+  const [yieldUnit, setYieldUnit] = useState("kg");
   const [usageModal, setUsageModal] = useState(null);
   const [usageActuals, setUsageActuals] = useState({});
   function openUsageModal(dish, pax, isPrepDay, onConfirm) {
-    const ingr = getIngrForDish(dish.name, pax);
+    setYieldModal({dish:dish, pax:pax, isPrepDay:isPrepDay, onConfirm:onConfirm});
+    setYieldQty(""); setYieldUnit("kg");
+  }
+  function proceedToIngredientUsage() {
+    if (!yieldModal) return;
+    var ym = yieldModal;
+    setYieldModal(null);
+    var ingr = getIngrForDish(ym.dish.name, ym.pax);
     if (ingr && ingr.length > 0) {
-      setUsageModal({evId:dish.fEvId, idx:dish.fIdx, dishName:dish.name, pax:pax, isPrepDay:isPrepDay, ingredients:ingr, onConfirm:onConfirm});
+      setUsageModal({evId:ym.dish.fEvId, idx:ym.dish.fIdx, dishName:ym.dish.name, pax:ym.pax, isPrepDay:ym.isPrepDay, ingredients:ingr, onConfirm:ym.onConfirm, yieldQty:parseFloat(yieldQty)||null, yieldUnit:yieldUnit});
       setUsageActuals({});
-    } else { onConfirm(); }
+    } else { ym.onConfirm(); }
   }
   async function saveUsageAndDone() {
     if (!usageModal) return;
@@ -175,7 +185,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     });
     try {
       const mod = await import('../lib/supabase.js');
-      await mod.supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown" });
+      await mod.supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
     } catch(e) { console.error('Usage log save error:', e); }
     usageModal.onConfirm();
     setUsageModal(null);
@@ -2451,6 +2461,49 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       )}
 
       {/* ═══ Ingredient Usage Modal ═══ */}
+      {yieldModal && (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setYieldModal(null);yieldModal.onConfirm();}}>
+          <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:400,boxShadow:"0 8px 32px rgba(0,0,0,.2)",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"20px 24px",borderBottom:"1px solid "+C.border}}>
+              <div style={{fontSize:16,fontWeight:700,color:C.text}}>⚖️ Yield / उपज</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:4}}>{yieldModal.dish.name} — {yieldModal.pax} pax</div>
+            </div>
+            <div style={{padding:"24px"}}>
+              <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:4}}>How much quantity was made?</div>
+              <div style={{fontSize:13,color:C.muted,marginBottom:16}}>कितनी मात्रा बनी?</div>
+              <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                <div style={{flex:2}}>
+                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Quantity / मात्रा</div>
+                  <input type="number" step="any" inputMode="decimal" autoFocus
+                    value={yieldQty}
+                    onChange={e=>setYieldQty(e.target.value)}
+                    placeholder="0"
+                    style={{width:"100%",padding:"14px 16px",borderRadius:10,border:"2px solid "+C.goldBorder,fontSize:22,fontWeight:700,textAlign:"center",color:C.text,background:C.bg,boxSizing:"border-box"}} />
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Unit / इकाई</div>
+                  <select value={yieldUnit} onChange={e=>setYieldUnit(e.target.value)}
+                    style={{width:"100%",padding:"14px 8px",borderRadius:10,border:"2px solid "+C.border,fontSize:15,fontWeight:600,color:C.text,background:C.bg,cursor:"pointer",boxSizing:"border-box"}}>
+                    <option value="kg">kg</option>
+                    <option value="L">L (litre)</option>
+                    <option value="gm">gm</option>
+                    <option value="ml">ml</option>
+                    <option value="pcs">pcs / पीस</option>
+                    <option value="plates">plates</option>
+                    <option value="bowls">bowls</option>
+                    <option value="trays">trays</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div style={{padding:"12px 24px 20px",display:"flex",gap:10}}>
+              <button onClick={()=>{setYieldQty("");proceedToIngredientUsage();}} style={{flex:1,padding:"12px",borderRadius:10,background:"transparent",border:"1px solid "+C.border,color:C.muted,fontSize:12,cursor:"pointer"}}>Skip</button>
+              <button onClick={proceedToIngredientUsage} disabled={!yieldQty} style={{flex:2,padding:"12px",borderRadius:10,background:yieldQty?C.gold:"#ccc",color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:yieldQty?"pointer":"default",opacity:yieldQty?1:0.6}}>Next → आगे</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {usageModal && (
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
           <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
