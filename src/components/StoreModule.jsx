@@ -1506,7 +1506,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     if(!mapping) return;
                     const stock = getStockForIngredient(ing.name);
                     if(!stock) return;
-                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:ing.unit,storeUnit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};
+                    if(!seenIng[ing.name]){var _oi=allRecipeIngredients.find(function(a){return a.name===ing.name;});seenIng[ing.name]={name:ing.name,unit:ing.unit,origUnit:_oi?_oi.unit:ing.unit,storeUnit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};}
                     var sMerged=addQtyWithUnitNorm({totalQty:seenIng[ing.name].required,unit:seenIng[ing.name].unit},ing.totalQty,ing.unit);
                     seenIng[ing.name].required=sMerged.totalQty;
                     seenIng[ing.name].unit=sMerged.unit;
@@ -1519,7 +1519,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 if(recG!==null&&stoG!==null){s.required=recG/stoG;s.unit=s.storeUnit;}
                 else{var recM=toMl(s.required,s.unit);var stoM=toMl(1,s.storeUnit);
                 if(recM!==null&&stoM!==null){s.required=recM/stoM;s.unit=s.storeUnit;}
-                else{s.required=s.required*(s.conversion||1);s.unit=s.storeUnit;}}
+                else{var oF=getUnitFamily(s.origUnit),aF=getUnitFamily(s.unit),adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;s.required=s.required*adj*(s.conversion||1);s.unit=s.storeUnit;}}
                 s.shortfall=Math.ceil(Math.max(0,s.required-s.available));
                 if(s.shortfall > 0) shortages.push(s);
               });
