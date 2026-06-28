@@ -184,6 +184,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
   const [purchaseOrders, setPurchaseOrders] = useState([]); // from store_purchase_orders + store_po_items
   const [poLoading, setPoLoading] = useState(false);
+  const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -497,6 +498,34 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return bestScore >= 40 ? bestMatch : null;
   }
 
+  /* ── Unit family helpers for conversion ── */
+  var UNIT_FAMILIES = {
+    weight: { units: ["g","gm","gms","kg"], base: "g", factors: { g:1, gm:1, gms:1, kg:1000 } },
+    volume: { units: ["ml","l","ltr","litre"], base: "ml", factors: { ml:1, l:1000, ltr:1000, litre:1000 } },
+  };
+  function getUnitFamily(u) {
+    var ul = (u||"").toLowerCase().replace(/\s+/g,"").replace(/\./g,"");
+    for (var fam in UNIT_FAMILIES) {
+      if (UNIT_FAMILIES[fam].units.indexOf(ul) >= 0) return { family: fam, toBase: UNIT_FAMILIES[fam].factors[ul] || 1 };
+    }
+    return null;
+  }
+  function calcAutoConversion(recipeUnit, storeUnit) {
+    var rf = getUnitFamily(recipeUnit);
+    var sf = getUnitFamily(storeUnit);
+    if (!rf || !sf || rf.family !== sf.family) return null;
+    return rf.toBase / sf.toBase;
+  }
+  function handleStoreItemSelect(ingName, ingHindi, ingUnit, opsItem) {
+    var recU = (ingUnit||"").toLowerCase().replace(/\s+/g,"");
+    var stoU = (opsItem.unit||"").toLowerCase().replace(/\s+/g,"");
+    if (recU === stoU) { saveIngredientMapping(ingName, ingHindi, opsItem, 1); return; }
+    var auto = calcAutoConversion(ingUnit, opsItem.unit);
+    if (auto !== null) { saveIngredientMapping(ingName, ingHindi, opsItem, auto); return; }
+    setMapModalIng(null); setMapSearch("");
+    setConvModal({ ingName: ingName, ingHindi: ingHindi||"", opsItem: opsItem, recipeUnit: ingUnit, storeUnit: opsItem.unit, convValue: "", editMode: false });
+  }
+
   /* ── Ingredient → Store item mapping helpers ── */
   function getStockForIngredient(ingName) {
     const mapping = ingredientMap[ingName];
@@ -531,7 +560,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
     setPoLoading(false);
   }
 
-  async function saveIngredientMapping(ingName, ingHindi, opsItem) {
+  async function saveIngredientMapping(ingName, ingHindi, opsItem, conversion) {
+    var conv = (typeof conversion === "number" && conversion > 0) ? conversion : 1;
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const rec = {
       ingredient_name: ingName,
@@ -539,12 +569,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
       ops_item_id: opsItem._opsId,
       ops_item_name: opsItem.name,
       ops_item_unit: opsItem.unit,
-      unit_conversion: 1,
+      unit_conversion: conv,
       mapped_by: staffId,
     };
     setIngredientMap(prev => ({ ...prev, [ingName]: rec }));
     setMapModalIng(null);
     setMapSearch("");
+    setConvModal(null);
     const { error } = await supabase.from('ingredient_item_map').upsert(rec, { onConflict: 'ingredient_name' });
     if (error) console.error("Mapping save failed:", error);
   }
@@ -1232,12 +1263,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const done = isIssued(evId,sec,ing.name);
           const stock = getStockForIngredient(ing.name);
           const isMapped = !!ingredientMap[ing.name];
+          var reqSU = stock ? ing.totalQty * (stock.conversion || 1) : 0;
           return(
             <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
               <div>
                 <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
-                {isMapped&&stock&&<div style={{fontSize:10,color:stock.available>=ing.totalQty?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>
-                  {T2("Stock")}: {stock.available} {stock.unit}{stock.available<ing.totalQty?" — "+T2("short")+" "+(Math.ceil(ing.totalQty-stock.available))+" "+ing.unit:""}
+                {isMapped&&stock&&<div style={{fontSize:10,color:stock.available>=reqSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>
+                  {T2("Stock")}: {stock.available} {stock.unit}{reqSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(reqSU-stock.available,stock.unit):""}
+                  {stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}
                 </div>}
                 {!isMapped&&<div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>}
               </div>
@@ -1427,7 +1460,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                   {(()=>{
                                     const stock=getStockForIngredient(ing.name);
                                     const isMapped=!!ingredientMap[ing.name];
-                                    if(isMapped&&stock) return <div style={{fontSize:10,color:stock.available>=ing.totalQty?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{stock.available<ing.totalQty?" — "+T2("short")+" "+Math.ceil(ing.totalQty-stock.available)+" "+ing.unit:""}</div>;
+                                    if(isMapped&&stock){var rSU=ing.totalQty*(stock.conversion||1);return <div style={{fontSize:10,color:stock.available>=rSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{rSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(rSU-stock.available,stock.unit):""}{stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}</div>;}
                                     if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
                                     return null;
                                   })()}
@@ -1471,8 +1504,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     if(!mapping) return;
                     const stock = getStockForIngredient(ing.name);
                     if(!stock) return;
-                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:ing.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,eventIds:[],eventNames:[]};
-                    seenIng[ing.name].required += ing.totalQty;
+                    if(!seenIng[ing.name]) seenIng[ing.name]={name:ing.name,unit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};
+                    seenIng[ing.name].required += ing.totalQty * (stock.conversion || 1);
                     if(!seenIng[ing.name].eventIds.includes(ev.id)){seenIng[ing.name].eventIds.push(ev.id);seenIng[ing.name].eventNames.push(ev.guest);}
                   });
                 });
@@ -1629,7 +1662,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
               return(
                 <button onClick={async()=>{
                   for(const s of suggestions){
-                    await saveIngredientMapping(s.ing.name, s.ing.hindi, s.match.item);
+                    var autoC = calcAutoConversion(s.ing.unit, s.match.item.unit);
+                    await saveIngredientMapping(s.ing.name, s.ing.hindi, s.match.item, autoC !== null ? autoC : 1);
                   }
                 }} style={{width:"100%",padding:"12px",borderRadius:10,background:C.gold,color:C.goldBg,border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginBottom:14,minHeight:40}}>
                   ✨ {T2("Auto-link")} {suggestions.length} {T2("suggested matches")}
@@ -1666,12 +1700,28 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
                       {/* Mapped — show linked item */}
                       {isMapped&&(
-                        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
-                          <div style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.greenBg,color:C.green,fontWeight:600}}>
-                            ✓ {mapping.ops_item_name} ({mapping.ops_item_unit})
+                        <div style={{marginTop:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <div style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.greenBg,color:C.green,fontWeight:600}}>
+                              ✓ {mapping.ops_item_name} ({mapping.ops_item_unit})
+                            </div>
+                            <button onClick={()=>removeIngredientMapping(ing.name)}
+                              style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.redBg,color:C.red,border:"none",cursor:"pointer",fontWeight:600}}>✕</button>
                           </div>
-                          <button onClick={()=>removeIngredientMapping(ing.name)}
-                            style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.redBg,color:C.red,border:"none",cursor:"pointer",fontWeight:600}}>✕</button>
+                          {(mapping.unit_conversion||1)!==1&&(
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
+                              <span style={{fontSize:10,color:C.muted}}>1 {ing.unit} = {mapping.unit_conversion} {mapping.ops_item_unit}</span>
+                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:String(mapping.unit_conversion||1),editMode:true})}
+                                style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:C.bg,color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
+                            </div>
+                          )}
+                          {(mapping.unit_conversion||1)===1&&ing.unit!==(mapping.ops_item_unit||"").toLowerCase()&&(
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
+                              <span style={{fontSize:10,color:C.amber}}>⚠ {T2("Units differ")} ({ing.unit} → {mapping.ops_item_unit})</span>
+                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:"",editMode:true})}
+                                style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer"}}>{T2("Set conversion")}</button>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1679,7 +1729,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       {!isMapped&&suggestion&&(
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:8,flexWrap:"wrap"}}>
                           <span style={{fontSize:10,color:C.muted}}>💡 {T2("Suggested")}:</span>
-                          <button onClick={()=>saveIngredientMapping(ing.name, ing.hindi, suggestion.item)}
+                          <button onClick={()=>handleStoreItemSelect(ing.name, ing.hindi, ing.unit, suggestion.item)}
                             style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
                             {suggestion.item.name} ({suggestion.score}%)
                           </button>
@@ -1738,7 +1788,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 const s=mapSearch.toLowerCase();
                 return (i.name||"").toLowerCase().includes(s)||(i.h||"").includes(s)||(i.cat||"").toLowerCase().includes(s);
               }).slice(0,50).map(si=>(
-                <div key={si.id} onClick={()=>saveIngredientMapping(mapModalIng.name,mapModalIng.hindi,si)}
+                <div key={si.id} onClick={()=>handleStoreItemSelect(mapModalIng.name,mapModalIng.hindi,mapModalIng.unit,si)}
                   style={{padding:"10px 18px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
                   onMouseOver={e=>e.currentTarget.style.background=C.bg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
                   <div>
@@ -1757,6 +1807,53 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
               <button onClick={()=>{setMapModalIng(null);setMapSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unit conversion prompt modal ── */}
+      {convModal&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setConvModal(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{convModal.editMode?T2("Edit Conversion"):T2("Unit Conversion Required")}</div>
+              <div style={{fontSize:12,color:C.muted}}>
+                {convModal.ingName}{convModal.ingHindi?" ("+convModal.ingHindi+")":""}
+              </div>
+              <div style={{fontSize:11,color:C.faint,marginTop:2}}>
+                {T2("Recipe unit")}: <b>{convModal.recipeUnit}</b> → {T2("Store unit")}: <b>{convModal.storeUnit}</b>
+              </div>
+            </div>
+            <div style={{padding:"18px"}}>
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("How many")} {convModal.storeUnit} {T2("in")} 1 {convModal.recipeUnit}?</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>1 {convModal.recipeUnit} =</span>
+                <input type="number" step="any" min="0" value={convModal.convValue} autoFocus
+                  onChange={e=>setConvModal(function(prev){return Object.assign({},prev,{convValue:e.target.value});})}
+                  style={{flex:1,padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center"}}/>
+                <span style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>{convModal.storeUnit}</span>
+              </div>
+              <div style={{fontSize:10,color:C.faint,marginTop:8}}>
+                {T2("Example")}: 1 pc Badi Elaichi = 0.005 kg
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
+              <button onClick={()=>setConvModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+              <button onClick={()=>{
+                var val=parseFloat(convModal.convValue);
+                if(!val||val<=0){alert(T2("Enter a valid conversion value"));return;}
+                if(convModal.editMode){
+                  var upd=Object.assign({},ingredientMap[convModal.ingName],{unit_conversion:val});
+                  setIngredientMap(function(prev){var n=Object.assign({},prev);n[convModal.ingName]=upd;return n;});
+                  setConvModal(null);
+                  supabase.from("ingredient_item_map").update({unit_conversion:val}).eq("ingredient_name",convModal.ingName).then(function(r){if(r.error)console.error("Conv update failed:",r.error);});
+                }else{
+                  saveIngredientMapping(convModal.ingName,convModal.ingHindi,convModal.opsItem,val);
+                }
+              }} disabled={!convModal.convValue||parseFloat(convModal.convValue)<=0}
+                style={{flex:1,padding:"10px",borderRadius:10,background:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.borderLight:C.gold,border:"none",color:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.muted:C.goldBg,fontSize:12,fontWeight:700,cursor:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?"not-allowed":"pointer"}}>✓ {T2("Save")}</button>
             </div>
           </div>
         </div>
