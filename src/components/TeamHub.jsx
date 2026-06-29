@@ -42,6 +42,22 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       .then(function(res){setAttDateData(res.data||[]);setAttDateLoading(false);})
       .catch(function(){setAttDateData([]);setAttDateLoading(false);});
   }
+  const [monthStr,setMonthStr] = useState(TODAY.slice(0,7));
+  const [monthData,setMonthData] = useState(null);
+  const [monthLoading,setMonthLoading] = useState(false);
+  function fetchMonthData(m){
+    if(!m||!supabase){setMonthData(null);return;}
+    setMonthLoading(true);
+    var start=m+'-01';
+    var y=+m.split('-')[0],mo=+m.split('-')[1];
+    var lastDay=new Date(y,mo,0).getDate();
+    var end=m+'-'+String(lastDay).padStart(2,'0');
+    if(end>TODAY) end=TODAY;
+    supabase.from('attendance').select('*').gte('date',start).lte('date',end)
+      .order('date',{ascending:true})
+      .then(function(res){setMonthData(res.data||[]);setMonthLoading(false);})
+      .catch(function(){setMonthData([]);setMonthLoading(false);});
+  }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);
   const [selEmp,setSelEmp]       = useState(null);
@@ -72,7 +88,9 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
   const allSecs    = deptSections ? ["All",...deptSections] : ["All",...ALL_DEPARTMENTS];
   const filtered   = secFilter==="All" ? deptStaffList : deptStaffList.filter(s=>s.section===secFilter);
-  const present    = todayRecs.filter(a=>a.status==="Present").length;
+  const totalActive = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');}).length;
+  const punchedIn  = todayRecs.filter(function(a){return a.in_time && !a.is_vendor && a.dept!=='vendor';}).length;
+  const present    = punchedIn;
   const dirFiltered = deptEmpDb.filter(e=>{
     const ms = dirFilter==="All"||e.section===dirFilter||e.role===dirFilter;
     const mt = !dirSearch.trim()||e.name.toLowerCase().includes(dirSearch.toLowerCase())||e.id.toLowerCase().includes(dirSearch.toLowerCase());
@@ -136,6 +154,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
 
   const TABS = [
     {id:"attendance", l:"✅ Attendance"},
+    {id:"monthly",    l:"📊 Monthly"},
     {id:"leaves",     l:"🌿 Leaves"},
     {id:"chefs",      l:"🤝 Outside Staff & Vendors"},
     {id:"directory",  l:"🪪 Team"},
@@ -144,40 +163,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   return (
     <div>
 
-      {/* ── STAFF TODAY SUMMARY ── */}
-      <Card style={{marginBottom:14,padding:"14px 18px"}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:10}}>👥 Staff today — {TODAY_LABEL}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-          <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.green}}>{present}</div>
-            <div style={{fontSize:12,color:C.green,fontWeight:600}}>{T2("Present")}</div>
-          </div>
-          <div style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.red}}>{Math.max(0,deptStaffList.length-present)}</div>
-            <div style={{fontSize:12,color:C.red,fontWeight:600}}>{T2("Absent")}</div>
-            {deptStaffList.length<=present&&<div style={{fontSize:12,color:C.green,marginTop:2}}>All present ✓</div>}
-          </div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-          <div style={{background:C.amberBg,border:`1px solid ${C.amberBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.amber}}>{deptLeaves.filter(l=>l.status==="Approved"&&l.from<=TODAY&&l.to>=TODAY).length}</div>
-            <div style={{fontSize:12,color:C.amber,fontWeight:600}}>{T2("On Leave")}</div>
-            {deptLeaves.filter(l=>l.status==="Approved"&&l.from<=TODAY&&l.to>=TODAY).map((l,i)=><div key={i} style={{fontSize:12,color:C.amber,marginTop:1}}>• {l.staffName}</div>)}
-          </div>
-          <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.gold}}>{pending.length}</div>
-            <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{T2("Pending leave")}</div>
-            {pending.map((l,i)=><div key={i} style={{fontSize:10,color:C.gold,marginTop:1}}>• {l.staffName}</div>)}
-          </div>
-        </div>
-        
-      </Card>
-
       {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>👥 Team</div>
-          <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {present}{deptStaffList.length?'/'+deptStaffList.length:''} present</div>
+          <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {punchedIn}/{totalActive} present</div>
         </div>
         <div style={{display:"flex",gap:8}}>
           <div style={{background:C.greenBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
@@ -345,6 +335,91 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             })}
           </div>}
         
+        </div>);
+      })()}
+
+      {/* ── MONTHLY ── */}
+      {tab==="monthly" && (()=>{
+        // Auto-fetch on first open
+        if(!monthData&&!monthLoading){fetchMonthData(monthStr);return <div style={{padding:30,textAlign:'center',color:C.muted}}>Loading…</div>;}
+        var allStaff = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');});
+        var recs = safeArr(monthData).filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
+        // Compute date range
+        var y=+monthStr.split('-')[0],mo=+monthStr.split('-')[1];
+        var lastDay=new Date(y,mo,0).getDate();
+        var endDate=monthStr+'-'+String(lastDay).padStart(2,'0');
+        if(endDate>TODAY) endDate=TODAY;
+        var daysInRange=+endDate.split('-')[2];
+        // Build per-employee stats
+        var rows = allStaff.map(function(s){
+          var sid=String(s.staff_id||s.staffListId||s.id);
+          var myRecs=recs.filter(function(a){return String(a.staff_id||a.staffId)===sid;});
+          var present=0,halfDay=0,incomplete=0,totalHrs=0;
+          myRecs.forEach(function(r){
+            if(!r.in_time) return;
+            if(!r.out_time){incomplete++;return;}
+            var cl=classifyDay(r.in_time,r.out_time);
+            if(cl.status==='Present') present++;
+            else if(cl.status==='Half Day') halfDay++;
+            if(cl.hours) totalHrs+=cl.hours;
+          });
+          var daysWorked=present+halfDay+incomplete;
+          var absent=Math.max(0,daysInRange-daysWorked);
+          var avgHrs=daysWorked>0?totalHrs/daysWorked:0;
+          return {id:sid,name:s.name||'',dept:s.dept||s.section||'',section:s.section||'',
+            present:present,halfDay:halfDay,incomplete:incomplete,absent:absent,
+            daysWorked:daysWorked,totalHrs:totalHrs,avgHrs:avgHrs};
+        });
+        // Sort by days worked desc
+        rows.sort(function(a,b){return b.daysWorked-a.daysWorked;});
+        // Totals
+        var totPresent=rows.reduce(function(a,r){return a+r.present;},0);
+        var totHalf=rows.reduce(function(a,r){return a+r.halfDay;},0);
+        var totInc=rows.reduce(function(a,r){return a+r.incomplete;},0);
+        var avgAtt=rows.length>0?(rows.reduce(function(a,r){return a+r.daysWorked;},0)/rows.length).toFixed(1):0;
+        var monthLabel=new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+        return (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:8}}>
+            <div>
+              <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📊 Monthly Attendance</div>
+              <div style={{fontSize:12,color:C.muted}}>{monthLabel} · {daysInRange} days · {rows.length} staff</div>
+            </div>
+            <input type="month" value={monthStr} max={TODAY.slice(0,7)}
+              onChange={function(e){var m=e.target.value;if(m){setMonthStr(m);setMonthData(null);fetchMonthData(m);}}}
+              style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
+          </div>
+          {monthLoading&&<div style={{padding:30,textAlign:'center',color:C.muted,fontSize:12}}>Loading…</div>}
+          {!monthLoading&&monthData&&<div>
+            {/* Summary */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}}>
+              {[{l:'Avg Days/Person',v:avgAtt,c:C.text},{l:'Total Present Days',v:totPresent,c:C.green},{l:'Half Days',v:totHalf,c:C.amber},{l:'Incomplete',v:totInc,c:'#E67E22'}].map(function(card){
+                return <div key={card.l} style={{background:C.surface,borderRadius:10,padding:'10px 12px',textAlign:'center',border:'1px solid '+C.border}}>
+                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>{card.l}</div>
+                  <div style={{fontSize:22,fontWeight:700,color:card.c,marginTop:2}}>{card.v}</div>
+                </div>;
+              })}
+            </div>
+            {/* Table */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
+              <div>Name</div><div>Dept</div><div>Present</div><div>Half</div><div>Absent</div><div>Inc.</div><div>Hrs</div><div>Avg/d</div>
+            </div>
+            <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
+              {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No data for this month</div>
+              :rows.map(function(r,ri){
+                return <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
+                  <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
+                  <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept}</div>
+                  <div style={{color:C.green,fontWeight:700,textAlign:'center'}}>{r.present}</div>
+                  <div style={{color:C.amber,fontWeight:700,textAlign:'center'}}>{r.halfDay||'—'}</div>
+                  <div style={{color:C.red,fontWeight:700,textAlign:'center'}}>{r.absent}</div>
+                  <div style={{color:'#E67E22',fontWeight:700,textAlign:'center'}}>{r.incomplete||'—'}</div>
+                  <div style={{color:C.text,fontWeight:600,textAlign:'center'}}>{r.totalHrs>0?fmtHours(r.totalHrs):'—'}</div>
+                  <div style={{color:r.avgHrs>=6?C.green:r.avgHrs>=4?C.amber:C.red,fontWeight:600,textAlign:'center',fontSize:11}}>{r.avgHrs>0?r.avgHrs.toFixed(1)+'h':'—'}</div>
+                </div>;
+              })}
+            </div>
+          </div>}
         </div>);
       })()}
 
