@@ -31,6 +31,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [attDate,setAttDate] = useState(TODAY);
   const [attDateData,setAttDateData] = useState(null);
   const [attDateLoading,setAttDateLoading] = useState(false);
+  const [attSearch,setAttSearch] = useState('');
+  const [attStatusFilter,setAttStatusFilter] = useState('All');
   function fetchAttDate(d){
     if(!d||d===TODAY||!supabase){setAttDateData(null);return;}
     setAttDateLoading(true);
@@ -246,10 +248,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         var fDept = secFilter==='All'?merged:merged.filter(function(r){return r.dept===secFilter||r.section===secFilter;});
         var attStatusColors = {Present:C.green, Absent:C.red, Incomplete:'#E67E22', 'Half Day':C.amber};
         var attStatuses = ['All','Present','Absent','Incomplete','Half Day'];
-        if(!window._attStatusFilter) window._attStatusFilter = 'All';
-        if(!window._attSearch) window._attSearch = '';
-        var fStatus = window._attStatusFilter==='All'?fDept:fDept.filter(function(r){return r.status===window._attStatusFilter;});
-        var fSearch = window._attSearch?fStatus.filter(function(r){return r.name.toLowerCase().includes(window._attSearch.toLowerCase())||r.code.toLowerCase().includes(window._attSearch.toLowerCase());}):fStatus;
+        var fStatus = attStatusFilter==='All'?fDept:fDept.filter(function(r){return r.status===attStatusFilter;});
+        var fSearch = attSearch?fStatus.filter(function(r){return (r.name||'').toLowerCase().includes(attSearch.toLowerCase())||(r.code||'').toLowerCase().includes(attSearch.toLowerCase());}):fStatus;
         var rows = fSearch.sort(function(a,b){return a.name.localeCompare(b.name);});
         return (
         <div>
@@ -270,11 +270,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             </select>
             <div style={{display:'flex',gap:3}}>
               {attStatuses.map(function(st){
-                var active = window._attStatusFilter===st;
-                return <button key={st} onClick={function(){window._attStatusFilter=st;setSecFilter(function(p){return p;});}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
+                var active = attStatusFilter===st;
+                return <button key={st} onClick={function(){setAttStatusFilter(st);}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
               })}
             </div>
-            <input value={window._attSearch||''} onChange={function(e){window._attSearch=e.target.value;setSecFilter(function(p){return p;});}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
+            <input value={attSearch} onChange={function(e){setAttSearch(e.target.value);}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
           </div>
           {/* Summary cards */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:16}}>
@@ -815,7 +815,10 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                   </div>
                 ))}
               </div>
-              <Btn onClick={addEmployee} color={C.wine} style={{fontSize:11,padding:"6px 16px"}}>{T2("Add Employee")}</Btn>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={addEmployee} color={C.wine} style={{fontSize:11,padding:"6px 16px"}}>{T2("Add Employee")}</Btn>
+                <Btn onClick={()=>setShowAddEmp(false)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"6px 14px"}}>Cancel</Btn>
+              </div>
             </div>
           )}
 
