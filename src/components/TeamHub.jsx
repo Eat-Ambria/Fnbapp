@@ -357,7 +357,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           IN: {a.in_time||'—'}
                         </div>
                         {a.out_time
-                          ? <div style={{fontSize:12,color:C.red,fontWeight:700}}>OUT: {a.out_time}</div>
+                          ? <><div style={{fontSize:12,color:C.red,fontWeight:700}}>OUT: {a.out_time}</div>
+                            <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{fmtHours(calcHoursWorked(a.in_time,a.out_time))}</div></>
                           : <div style={{fontSize:11,color:C.amber}}>⏳ Still working</div>}
                       </div>
                     </div>

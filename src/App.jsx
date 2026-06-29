@@ -16,7 +16,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay } from './utils/helpers.js';
 
 // Components
 import { ErrorBoundary, Avatar } from './components/SharedUI.jsx';
@@ -262,6 +262,38 @@ export default function App() {
         if (!Array.isArray(extras)) extras = [];
         return {...e, menuPackage:pkg, menu, extras, odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false};
       }));
+      // ── Auto-close stale attendance: in_time set but no out_time, older than 16 hours ──
+      var MAX_SHIFT_HOURS = 16;
+      var nowMs = Date.now();
+      var staleRecs = attData.filter(function(a){
+        if(!a.in_time || a.out_time) return false;
+        try {
+          var inMs = new Date(a.date+'T'+a.in_time).getTime();
+          return (nowMs - inMs) / 36e5 >= MAX_SHIFT_HOURS;
+        } catch(e){ return false; }
+      });
+      if(staleRecs.length > 0){
+        console.log('⏰ Auto-closing '+staleRecs.length+' stale attendance records (>'+MAX_SHIFT_HOURS+'h)');
+        staleRecs.forEach(function(rec){
+          try {
+            var inMs2 = new Date(rec.date+'T'+rec.in_time).getTime();
+            // Auto out_time = in_time + 16h (no midnight cap — staff can work past midnight)
+            var autoOutMs = inMs2 + MAX_SHIFT_HOURS * 36e5;
+            var outDt = new Date(autoOutMs);
+            var outTimeStr = outDt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+            var dayClass = classifyDay(rec.in_time, outTimeStr);
+            var autoStatus = dayClass.status;
+            rec.out_time = outTimeStr;
+            rec.status = autoStatus;
+            rec.auto_closed = true;
+            if(supabase){
+              supabase.from('attendance').update({out_time:outTimeStr, status:autoStatus})
+                .eq('staff_id',rec.staff_id).eq('date',rec.date)
+                .then(function(r){if(r.error)console.error('Auto-close err:',rec.staff_name,r.error);});
+            }
+          } catch(e){ console.warn('Auto-close skip:',rec.staff_name,e); }
+        });
+      }
       const todayAtt = attData.filter(a=>a.date===TODAY);
       setAttendance_raw(todayAtt.map(normalizeAtt));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));

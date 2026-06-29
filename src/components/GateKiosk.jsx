@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, calcHoursWorked, fmtHours, classifyDay, genPunchId } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
 import { Avatar, SelfieCapture } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
@@ -57,6 +57,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   }
 
   function handlePunch(type) {
+    var punchId = genPunchId();
     var now = new Date();
     var timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     var sid = selStaff.staffListId || selStaff.staff_id;
@@ -64,6 +65,10 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       return a.staff_id===sid && a.date===TODAY;
     });
     var recordId = (todayRec && todayRec.id) ? todayRec.id : 'att-'+Date.now();
+    var inTime = type==='IN' ? timeStr : (todayRec ? todayRec.in_time||'' : '');
+    var outTime = type==='OUT' ? timeStr : '';
+    var dayClass = outTime ? classifyDay(inTime, outTime) : {status:'Present',hours:null};
+    var hoursWorked = outTime ? calcHoursWorked(inTime, outTime) : null;
     var newRecord = {
       id: recordId,
       staff_id: sid,
@@ -71,9 +76,10 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       section: selStaff.section || '',
       dept: selStaff.dept || '',
       date: TODAY,
-      status: 'Present',
-      in_time: type==='IN' ? timeStr : (todayRec ? todayRec.in_time||'' : ''),
-      out_time: type==='OUT' ? timeStr : '',
+      status: dayClass.status,
+      in_time: inTime,
+      out_time: outTime,
+      client_punch_id: punchId,
       in_photo: type==='IN' ? photo : (todayRec ? todayRec.in_photo||null : null),
       out_photo: type==='OUT' ? photo : null,
       venue: venueName,
@@ -91,7 +97,8 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       if (typeof supabase!=='undefined' && supabase) {
         var dbRec = {id:newRecord.id,staff_id:newRecord.staff_id,staff_name:newRecord.staff_name,
           section:newRecord.section,dept:newRecord.dept,date:newRecord.date,status:newRecord.status,
-          in_time:newRecord.in_time,out_time:newRecord.out_time,venue:newRecord.venue};
+          in_time:newRecord.in_time,out_time:newRecord.out_time,venue:newRecord.venue,
+          client_punch_id:punchId,hours_worked:hoursWorked};
         supabase.from('attendance').upsert(dbRec,{onConflict:'staff_id,date'})
           .then(function(){
             if (photoBlob) {
