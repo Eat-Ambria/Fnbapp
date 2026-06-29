@@ -5,6 +5,7 @@ import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, calcHoursWorked, fmtHours, classifyDay, genPunchId } from '../utils/helpers.js';
 import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
 import { Avatar, SelfieCapture } from './SharedUI.jsx';
+import { PunchCapture } from './PunchCapture.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -18,6 +19,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   const [photo, setPhoto] = useState(null);
   const [photoBlob, setPhotoBlob] = useState(null);
   const [vendorForm, setVendorForm] = useState({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
+  const [gpsData, setGpsData] = useState(null);
   const photoRef = useRef(null);
 
   const venueName = currentUser.venue || 'Ambria';
@@ -99,6 +101,14 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           section:newRecord.section,dept:newRecord.dept,date:newRecord.date,status:newRecord.status,
           in_time:newRecord.in_time,out_time:newRecord.out_time,venue:newRecord.venue,
           client_punch_id:punchId,hours_worked:hoursWorked};
+        if (gpsData && type==='IN') {
+          dbRec.in_latitude=gpsData.latitude; dbRec.in_longitude=gpsData.longitude;
+          dbRec.in_gps_accuracy=gpsData.accuracy; dbRec.in_location=gpsData.areaName||null;
+        }
+        if (gpsData && type==='OUT') {
+          dbRec.out_latitude=gpsData.latitude; dbRec.out_longitude=gpsData.longitude;
+          dbRec.out_gps_accuracy=gpsData.accuracy; dbRec.out_location=gpsData.areaName||null;
+        }
         supabase.from('attendance').upsert(dbRec,{onConflict:'staff_id,date'})
           .then(function(){
             if (photoBlob) {
@@ -124,6 +134,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       setSuccess(null);
       setPhoto(null);
       setPhotoBlob(null);
+      setGpsData(null);
     }, 4000);
   }
 
@@ -485,6 +496,27 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   // ── STEP 3: SELFIE + PUNCH ──
   if (step === 'selfie' && selStaff) {
+    // No photo yet → PunchCapture (programmatic camera + GPS)
+    if (!photo) {
+      var _sid = selStaff.staffListId || selStaff.staff_id;
+      var _rec = safeArr(attendance).find(function(a){ return a.staff_id===_sid && a.date===TODAY; });
+      var _isIn = _rec && _rec.in_time && !_rec.out_time;
+      return React.createElement('div',{style:{padding:'20px 16px'}},
+        header,
+        React.createElement(PunchCapture, {
+          punchType: _isIn ? 'out' : 'in',
+          staffName: selStaff.name,
+          onComplete: function(result) {
+            setPhoto(result.dataUrl);
+            setPhotoBlob(result.blob);
+            setGpsData(result.gps || null);
+          },
+          onCancel: function() {
+            setStep('name'); setSelStaff(null); setPhoto(null); setGpsData(null);
+          }
+        })
+      );
+    }
     var sid3 = selStaff.staffListId || selStaff.staff_id;
     var todayRec3 = safeArr(attendance).find(function(a){
       return a.staff_id===sid3 && a.date===TODAY;
@@ -525,30 +557,26 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         fontFamily:'var(--font-display)',marginBottom:4}},selStaff.name),
       React.createElement('div',{style:{fontSize:13,color:C.muted,marginBottom:20}},
         (selStaff.section||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
-      photo ? React.createElement('div',{style:{marginBottom:16}},
+      React.createElement('div',{style:{marginBottom:16}},
         React.createElement('img',{src:photo,style:{width:140,height:140,
           borderRadius:20,objectFit:'cover',border:'3px solid '+C.wine}}),
         React.createElement('div',{style:{fontSize:11,color:C.green,marginTop:6,fontWeight:700}},
           '✅ Selfie captured')
-      ) : null,
-      React.createElement('div',{style:{marginBottom:20}},
-        React.createElement('input',{
-          ref:photoRef,type:'file',accept:'image/*',capture:'user',
-          onChange:handlePhoto,style:{display:'none'}
-        }),
-        React.createElement('button',{
-          onClick:function(){photoRef.current&&photoRef.current.click();},
-          style:{padding:'16px 32px',borderRadius:14,
-            background:photo?C.surface:'linear-gradient(135deg,'+C.wine+',#6D4A25)',
-            color:photo?C.wine:'#fff',
-            border:photo?'2px solid '+C.wine:'none',
-            fontSize:15,fontWeight:700,cursor:'pointer',minHeight:54}
-        }, photo?'📸 Retake Selfie':'📸 Take Selfie First')
       ),
-      photo
-        ? React.createElement('div',{style:{marginTop:8}}, punchEl)
-        : React.createElement('div',{style:{fontSize:12,color:C.amber,marginTop:8}},
-            '⚠️ Take selfie first to enable punch button'),
+      React.createElement('div',{style:{marginBottom:12,textAlign:'center'}},
+        React.createElement('button',{
+          onClick:function(){setPhoto(null);setPhotoBlob(null);setGpsData(null);},
+          style:{padding:'8px 20px',borderRadius:10,background:C.surface,
+            border:'1px solid '+C.border,color:C.wine,fontSize:12,fontWeight:600,cursor:'pointer'}
+        },'📸 Retake'),
+        gpsData
+          ? React.createElement('div',{style:{fontSize:11,color:C.green,marginTop:8}},
+              '📍 '+(gpsData.areaName||(gpsData.latitude.toFixed(4)+', '+gpsData.longitude.toFixed(4)))
+              +(gpsData.accuracy?' (±'+Math.round(gpsData.accuracy)+'m)':''))
+          : React.createElement('div',{style:{fontSize:11,color:C.amber,marginTop:8}},
+              '📍 No GPS — location not recorded')
+      ),
+      React.createElement('div',{style:{marginTop:8}}, punchEl),
       React.createElement('button',{
         onClick:function(){setStep('name');setSelStaff(null);setPhoto(null);},
         style:{marginTop:20,padding:'10px 24px',borderRadius:10,
