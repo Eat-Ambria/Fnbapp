@@ -446,7 +446,7 @@ function EventDayTab({
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started && !d1Done)}
+                                    elapsedSec={el} timerSec={tm} locked={false}
                                     d1Badge={d1Done}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
@@ -472,7 +472,7 @@ function EventDayTab({
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done} running={started && !done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={currentUser?.role==='admin'?false:(!prevDone && !done && !started)}
+                                    elapsedSec={el} timerSec={tm} locked={false}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
                                     doneTime={d.manualAt?.[si] || null}
@@ -639,7 +639,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
           {subs.map((sb, sbi) => {
             const sbk = stepKey + "_sub_" + sbi;
             const sbDone = !!(d2d.manual && d2d.manual[sbk]);
-            const sbPrevD = sbi === 0 ? !locked : !!(d2d.manual && d2d.manual[stepKey + "_sub_" + (sbi - 1)]);
+            const sbPrevD = true;
             const sbStarted = !!(d2d.starts && d2d.starts[sbk]);
             const sbEl = sbStarted ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0;
             const sbOver = sbStarted && sb.tm > 0 && sbEl >= sb.tm && !sbDone;
@@ -665,7 +665,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                     {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
                     {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.gold, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
                     {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
-                    {!sbDone && !sbPrevD && <div style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.darkCard, border: `1px solid ${C.border}`, fontSize: SZ.subBtnFt, color: C.faint }}>🔒</div>}
+                    
                     {sbDone && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}});}} style={{padding:large?"4px 8px":"3px 6px",borderRadius:large?6:5,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?10:9,cursor:"pointer"}}>↩</button>}
                   </div>
                 </div>
