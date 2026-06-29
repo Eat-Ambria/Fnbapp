@@ -26,7 +26,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   const DEPTS = [
     {id:'kitchen',label:'Kitchen',icon:'👨‍🍳',
-      sections:['Indian Curries','Tandoor','Chinese','Chaat','Sweets','Continental','Bakery']},
+      sections:['Main Course','Indian Tandoor','Chinese & Pan Asian','Chaat Station','Savoury Halwai','Continental','Bakery','K.S.T']},
     {id:'service',label:'Service',icon:'🍽',sections:['Service']},
     {id:'crockery',label:'Crockery',icon:'🍶',sections:['Crockery']},
     {id:'beverages',label:'Beverages',icon:'🥤',sections:['Beverages']},
