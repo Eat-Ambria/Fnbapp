@@ -89,7 +89,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const present    = punchedIn;
   const dirFiltered = deptEmpDb.filter(e=>{
     const ms = dirFilter==="All"||e.section===dirFilter||e.role===dirFilter;
-    const mt = !dirSearch.trim()||e.name.toLowerCase().includes(dirSearch.toLowerCase())||e.id.toLowerCase().includes(dirSearch.toLowerCase());
+    const mt = !dirSearch.trim()||(e.name||'').toLowerCase().includes(dirSearch.toLowerCase())||(e.id||e.staff_id||e.staffListId||'').toLowerCase().includes(dirSearch.toLowerCase());
     return ms&&mt;
   });
 

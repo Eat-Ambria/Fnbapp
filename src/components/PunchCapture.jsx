@@ -141,6 +141,8 @@ function PunchCapture(props) {
   var _fl = useState(false);      var flash      = _fl[0];     var setFlash      = _fl[1];
   var _er = useState(null);       var camErr     = _er[0];     var setCamErr     = _er[1];
   var _cd = useState(60);         var countdown  = _cd[0];     var setCountdown  = _cd[1];
+  var _fc = useState('user');     var facingMode = _fc[0];     var setFacingMode = _fc[1];
+  var facingRef = useRef('user');
 
   /* ── mount: GPS + camera ────────────────────────────── */
   useEffect(function() {
@@ -245,6 +247,41 @@ function PunchCapture(props) {
     }
   }
 
+  /* ── switch front / back camera ─────────────────────── */
+  function switchCamera() {
+    var newMode = facingRef.current === 'user' ? 'environment' : 'user';
+    facingRef.current = newMode;
+    setFacingMode(newMode);
+    if (detectRef.current) { clearInterval(detectRef.current); detectRef.current = null; }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(function(t){ t.stop(); });
+      streamRef.current = null;
+    }
+    histRef.current = [];
+    setFaceOk(false);
+    setMotionOk(false);
+    setStatusMsg('Switching camera…');
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: newMode, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    }).then(function(stream) {
+      if (!aliveRef.current) { stream.getTracks().forEach(function(t){ t.stop(); }); return; }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = function() {
+          videoRef.current.play();
+          setPhase('camera');
+          setStatusMsg(newMode === 'user' ? 'Position your face in the oval' : 'Back camera — tap Capture when ready');
+          if (newMode === 'user') startDetection();
+        };
+      }
+    }).catch(function(err) {
+      console.error('Camera switch:', err);
+      setCamErr('Could not switch camera (' + (err.message || err.name) + ')');
+    });
+  }
+
   /* ── capture selfie ─────────────────────────────────── */
   function handleCapture() {
     if (!videoRef.current) return;
@@ -262,9 +299,11 @@ function PunchCapture(props) {
     var cv  = document.createElement('canvas');
     cv.width = w; cv.height = h;
     var ctx = cv.getContext('2d');
-    // Mirror (front camera is flipped in display)
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
+    // Mirror only for front camera
+    if (facingRef.current === 'user') {
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, 0, 0, w, h);
 
     var dataUrl = cv.toDataURL('image/jpeg', 0.6);
@@ -313,7 +352,7 @@ function PunchCapture(props) {
     padding:'14px 28px', borderRadius:12, fontSize:14, fontWeight:700,
     cursor:'pointer', border:'none', minHeight:48
   };
-  var ready     = faceOk && motionOk;
+  var ready     = facingMode === 'environment' || (faceOk && motionOk);
   var ringColor = ready ? C.green : faceOk ? C.amber : 'rgba(255,255,255,0.5)';
   var ringStyle = ready ? 'solid' : 'dashed';
   var showCam   = phase === 'camera';
@@ -334,10 +373,10 @@ function PunchCapture(props) {
         ref: videoRef, autoPlay: true, playsInline: true, muted: true,
         style: showCam
           ? {position:'absolute',top:0,left:0,width:'100%',height:'100%',
-             objectFit:'cover',transform:'scaleX(-1)'}
+             objectFit:'cover',transform:facingMode==='user'?'scaleX(-1)':'none'}
           : {position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}
       }),
-      showCam ? React.createElement('div', {style:{
+      showCam && facingMode === 'user' ? React.createElement('div', {style:{
         position:'absolute', top:'10%', left:'20%', width:'60%', height:'70%',
         borderRadius:'50%',
         border:'3px ' + ringStyle + ' ' + ringColor,
@@ -436,7 +475,13 @@ function PunchCapture(props) {
           color:'#fff', border:'none', minHeight:48,
           opacity: ready ? 1 : 0.5,
           transition:'opacity 0.3s, background 0.3s'}
-      }, '📸 Capture')
+      }, '📸 Capture'),
+      React.createElement('button', {
+        onClick: switchCamera,
+        style:{padding:'12px 18px',borderRadius:12,fontSize:18,
+          cursor:'pointer',background:C.surface,color:C.text,
+          border:'1px solid '+C.border,minHeight:48}
+      }, '🔄')
     ) : null,
 
     // ── Camera live: hint ──
