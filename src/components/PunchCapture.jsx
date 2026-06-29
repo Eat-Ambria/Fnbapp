@@ -313,10 +313,52 @@ function PunchCapture(props) {
     padding:'14px 28px', borderRadius:12, fontSize:14, fontWeight:700,
     cursor:'pointer', border:'none', minHeight:48
   };
+  var ready     = faceOk && motionOk;
+  var ringColor = ready ? C.green : faceOk ? C.amber : 'rgba(255,255,255,0.5)';
+  var ringStyle = ready ? 'solid' : 'dashed';
+  var showCam   = phase === 'camera';
 
-  // ── Camera error ──
-  if (camErr) {
-    return React.createElement('div', {style:{textAlign:'center',padding:40}},
+  // Single return — video + canvas always in DOM so refs survive phase transitions
+  return React.createElement('div', {
+    style:{width:'100%',maxWidth:400,margin:'0 auto'}
+  },
+
+    // ── Video + canvas (ALWAYS mounted, hidden until camera phase) ──
+    React.createElement('div', {
+      style:{position:'relative',width:'100%',
+        paddingTop: showCam ? '75%' : 0,
+        background: showCam ? '#000' : 'transparent',
+        borderRadius:20, overflow:'hidden'}
+    },
+      React.createElement('video', {
+        ref: videoRef, autoPlay: true, playsInline: true, muted: true,
+        style: showCam
+          ? {position:'absolute',top:0,left:0,width:'100%',height:'100%',
+             objectFit:'cover',transform:'scaleX(-1)'}
+          : {position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}
+      }),
+      showCam ? React.createElement('div', {style:{
+        position:'absolute', top:'10%', left:'20%', width:'60%', height:'70%',
+        borderRadius:'50%',
+        border:'3px ' + ringStyle + ' ' + ringColor,
+        boxShadow:'0 0 0 9999px rgba(0,0,0,0.35)',
+        transition:'border-color 0.3s, border-style 0.3s',
+        pointerEvents:'none'
+      }}) : null,
+      showCam ? React.createElement('div', {style:{
+        position:'absolute',top:8,right:10,
+        background:'rgba(0,0,0,0.55)',color:'#fff',
+        padding:'3px 8px',borderRadius:8,fontSize:11,fontWeight:600
+      }}, countdown + 's') : null,
+      flash ? React.createElement('div', {style:{
+        position:'absolute',top:0,left:0,right:0,bottom:0,
+        background:'#fff',opacity:0.85,transition:'opacity 0.3s'
+      }}) : null
+    ),
+    React.createElement('canvas', {ref: canvasRef, style:{display:'none'}}),
+
+    // ── Camera error ──
+    camErr ? React.createElement('div', {style:{textAlign:'center',padding:40}},
       React.createElement('div', {style:{fontSize:48,marginBottom:16}}, '📷'),
       React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.red,marginBottom:8,lineHeight:1.5}}, camErr),
       React.createElement('div', {style:{fontSize:12,color:C.muted,marginBottom:20}},
@@ -325,12 +367,10 @@ function PunchCapture(props) {
         onClick: onCancel,
         style:Object.assign({}, BTN, {background:C.surface,color:C.text,border:'1px solid '+C.border})
       }, '← Go Back')
-    );
-  }
+    ) : null,
 
-  // ── GPS fail (selfie already captured) ──
-  if (phase === 'gps_fail' && captured) {
-    return React.createElement('div', {style:{textAlign:'center',padding:40}},
+    // ── GPS fail ──
+    phase === 'gps_fail' && captured ? React.createElement('div', {style:{textAlign:'center',padding:40}},
       React.createElement('div', {style:{fontSize:48,marginBottom:8}}, '📍'),
       React.createElement('div', {style:{fontSize:16,fontWeight:700,color:C.amber,marginBottom:6}},
         'GPS Unavailable'),
@@ -352,83 +392,31 @@ function PunchCapture(props) {
           style:Object.assign({}, BTN, {background:C.surface,color:C.text,border:'1px solid '+C.border})
         }, 'Cancel')
       )
-    );
-  }
+    ) : null,
 
-  // ── Init (camera loading) ──
-  if (phase === 'init') {
-    return React.createElement('div', {style:{textAlign:'center',padding:60}},
-      React.createElement('div', {style:{fontSize:48,marginBottom:16,
-        animation:'pulse 1.5s infinite'}}, '📷'),
-      React.createElement('div', {style:{fontSize:14,color:C.muted}}, 'Opening camera…'),
+    // ── Init (camera loading) ──
+    phase === 'init' && !camErr ? React.createElement('div', {style:{textAlign:'center',padding:40}},
+      React.createElement('div', {style:{fontSize:48,marginBottom:16}}, '📷'),
+      React.createElement('div', {style:{fontSize:14,color:C.muted,marginBottom:20}}, 'Opening camera…'),
       React.createElement('button', {
-        onClick: onCancel,
-        style:Object.assign({}, BTN, {marginTop:24,background:C.surface,color:C.muted,
+        onClick: function(){ cleanup(); onCancel(); },
+        style:Object.assign({}, BTN, {background:C.surface,color:C.muted,
           border:'1px solid '+C.border,fontSize:12})
       }, '← Cancel')
-    );
-  }
+    ) : null,
 
-  // ── Camera live ──
-  var ready     = faceOk && motionOk;
-  var ringColor = ready ? C.green : faceOk ? C.amber : 'rgba(255,255,255,0.5)';
-  var ringStyle = ready ? 'solid' : 'dashed';
-
-  return React.createElement('div', {
-    style:{width:'100%',maxWidth:400,margin:'0 auto'}
-  },
-    // Header
-    React.createElement('div', {style:{textAlign:'center',padding:'4px 0',marginBottom:6}},
+    // ── Camera live: header ──
+    showCam ? React.createElement('div', {style:{textAlign:'center',padding:'8px 0 4px',marginTop:6}},
       React.createElement('div', {style:{fontSize:15,fontWeight:700,color:C.text,
         fontFamily:'var(--font-display)'}}, staffName),
       React.createElement('div', {style:{
         fontSize:12,fontWeight:600,marginTop:2,
         color: ready ? C.green : faceOk ? C.amber : C.muted
       }}, statusMsg)
-    ),
+    ) : null,
 
-    // Video container
-    React.createElement('div', {
-      style:{position:'relative',width:'100%',paddingTop:'75%',
-        background:'#000',borderRadius:20,overflow:'hidden'}
-    },
-      // Video element
-      React.createElement('video', {
-        ref: videoRef, autoPlay: true, playsInline: true, muted: true,
-        style:{position:'absolute',top:0,left:0,width:'100%',height:'100%',
-          objectFit:'cover',transform:'scaleX(-1)'}
-      }),
-
-      // Oval face guide
-      React.createElement('div', {style:{
-        position:'absolute', top:'10%', left:'20%', width:'60%', height:'70%',
-        borderRadius:'50%',
-        border:'3px ' + ringStyle + ' ' + ringColor,
-        boxShadow:'0 0 0 9999px rgba(0,0,0,0.35)',
-        transition:'border-color 0.3s, border-style 0.3s',
-        pointerEvents:'none'
-      }}),
-
-      // Countdown badge
-      React.createElement('div', {style:{
-        position:'absolute',top:8,right:10,
-        background:'rgba(0,0,0,0.55)',color:'#fff',
-        padding:'3px 8px',borderRadius:8,fontSize:11,fontWeight:600
-      }}, countdown + 's'),
-
-      // Flash overlay
-      flash ? React.createElement('div', {style:{
-        position:'absolute',top:0,left:0,right:0,bottom:0,
-        background:'#fff',opacity:0.85,
-        transition:'opacity 0.3s'
-      }}) : null
-    ),
-
-    // Hidden analysis canvas
-    React.createElement('canvas', {ref: canvasRef, style:{display:'none'}}),
-
-    // Controls
-    React.createElement('div', {
+    // ── Camera live: controls ──
+    showCam ? React.createElement('div', {
       style:{display:'flex',gap:12,justifyContent:'center',marginTop:14}
     },
       React.createElement('button', {
@@ -449,10 +437,10 @@ function PunchCapture(props) {
           opacity: ready ? 1 : 0.5,
           transition:'opacity 0.3s, background 0.3s'}
       }, '📸 Capture')
-    ),
+    ) : null,
 
-    // Ready hint
-    !ready ? React.createElement('div', {style:{
+    // ── Camera live: hint ──
+    showCam && !ready ? React.createElement('div', {style:{
       textAlign:'center',fontSize:11,color:C.muted,marginTop:8
     }}, faceOk
       ? 'Move your head slightly to confirm liveness'
