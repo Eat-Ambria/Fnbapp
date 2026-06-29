@@ -347,10 +347,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               </div>;
             })}
           </div>}
-        </div>);
-      })()}
-
-          {/* ── ATTENDANCE HISTORY ── */}
+        {/* ── ATTENDANCE HISTORY ── */}
           {(currentUser?.role==='admin'||currentUser?.role==='head_chef')&&(
             <div style={{marginTop:20}}>
               <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:'var(--font-display)',marginBottom:8}}>📅 Attendance History</div>
@@ -402,8 +399,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               )}
             </div>
           )}
-        </div>
-      )}
+        </div>);
+      })()}
 
       {/* ── LEAVES ── */}
       {tab==="leaves" && (
@@ -968,6 +965,9 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
 
 
