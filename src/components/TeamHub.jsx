@@ -20,10 +20,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const deptSections = activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null;
 
   const [secFilter,setSecFilter] = useState("All");
-  const [leaveTab,setLeaveTab]   = useState("pending");
-  const [leaveForm,setLeaveForm] = useState({staffId:"",from:"",to:"",reason:""});
-  const [rejectId,setRejectId]   = useState(null);
-  const [rejectReason,setRejectReason] = useState("");
   const [vendorOrders,setVendorOrders] = useState([]);
   const [vendorSubTab,setVendorSubTab] = useState("book");
   const [bookingForm,setBookingForm]   = useState({vendorId:"",vendorName:"",eventId:"",eventName:"",venue:"",date:"",time:"",endTime:"",pax:"",staffReqs:{},notes:""});
@@ -112,16 +108,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     return out;
   },[]);
 
-  // Leave helpers
-  function addLeave(){
-    if(!leaveForm.staffId||!leaveForm.from||!leaveForm.to) return;
-    const s = deptStaffList.find(x=>x.id===+leaveForm.staffId);
-    if(!s) return;
-    setLeaves(p=>[...p,{id:Date.now(),staffId:s.id,staffName:s.name,staffSection:s.section,from:leaveForm.from,to:leaveForm.to,reason:leaveForm.reason,status:"Pending"}]);
-    setLeaveForm({staffId:"",from:"",to:"",reason:""});
-  }
-  function approveLeave(id){setLeaves(p=>p.map(l=>l.id!==id?l:{...l,status:"Approved"}));}
-  function rejectLeave(id,reason){setLeaves(p=>p.map(l=>l.id!==id?l:{...l,status:"Rejected",rejectReason:reason}));setRejectId(null);setRejectReason("");}
+  
 
   // Employee helpers
   function addEmployee(){
@@ -155,7 +142,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const TABS = [
     {id:"attendance", l:"✅ Attendance"},
     {id:"monthly",    l:"📊 Monthly"},
-    {id:"leaves",     l:"🌿 Leaves"},
     {id:"chefs",      l:"🤝 Outside Staff & Vendors"},
     {id:"directory",  l:"🪪 Team"},
   ];
@@ -423,92 +409,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         </div>);
       })()}
 
-      {/* ── LEAVES ── */}
-      {tab==="leaves" && (
-        <div>
-          {/* Apply leave form */}
-          <Card style={{marginBottom:14,padding:"14px 16px"}}>
-            <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>{T2("Apply Leave")}</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:8}}>
-              <div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:3}}>Staff</div>
-                <select value={leaveForm.staffId} onChange={e=>setLeaveForm(p=>({...p,staffId:e.target.value}))} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
-                  <option value="">Select staff…</option>
-                  {deptStaffList.map(s=><option key={s.id} value={s.id}>{s.name} ({s.section})</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:3}}>From</div>
-                <input type="date" value={leaveForm.from} onChange={e=>setLeaveForm(p=>({...p,from:e.target.value}))} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:3}}>To</div>
-                <input type="date" value={leaveForm.to} onChange={e=>setLeaveForm(p=>({...p,to:e.target.value}))} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:3}}>Reason</div>
-                <input value={leaveForm.reason} onChange={e=>setLeaveForm(p=>({...p,reason:e.target.value}))} placeholder={T2("Reason")} style={{width:"100%",padding:"7px 9px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-              </div>
-            </div>
-            <Btn onClick={addLeave} color={C.wine} style={{fontSize:12,padding:"6px 16px"}}>{T2("Apply Leave")}</Btn>
-          </Card>
-
-          {/* Leave sub-tabs */}
-          <div style={{display:"flex",gap:6,marginBottom:12}}>
-            {[{v:"pending",l:"Pending",count:pending.length},{v:"approved",l:"Approved",count:approved.length},{v:"rejected",l:"Rejected",count:rejected.length}].map(t=>(
-              <button key={t.v} onClick={()=>setLeaveTab(t.v)} style={{padding:"5px 14px",borderRadius:20,fontSize:12,cursor:"pointer",background:leaveTab===t.v?C.wine:"transparent",color:leaveTab===t.v?"#fff":C.muted,border:`1.5px solid ${leaveTab===t.v?C.wine:C.border}`}}>
-                {t.l} {t.count>0&&<span style={{fontSize:10,opacity:.8}}>({t.count})</span>}
-              </button>
-            ))}
-          </div>
-
-          {/* Leave list */}
-          {(leaveTab==="pending"?pending:leaveTab==="approved"?approved:rejected).map((l,i)=>{
-            const idx = deptStaffList.findIndex(s=>s.id===l.staffId||s.name===l.staffName);
-            return (
-              <div key={l.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`}}>
-                <div style={{display:"flex",gap:9,alignItems:"flex-start"}}>
-                  <Avatar name={l.staffName||"?"} size={32} index={idx>=0?idx:i}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{l.staffName}</div>
-                    <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
-                      <STag name={l.staffSection||"—"}/>
-                      <Chip label={`${l.from} → ${l.to}`} color={C.muted} bg={C.bg} size={10}/>
-                    </div>
-                    {l.reason&&<div style={{fontSize:10,color:C.faint,marginTop:3}}>{l.reason}</div>}
-                    {rejectId===l.id&&(
-                      <div style={{marginTop:7,display:"flex",gap:6,alignItems:"center"}}>
-                        <input value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="Rejection reason…" style={{flex:1,padding:"5px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg}}/>
-                        <Btn onClick={()=>rejectLeave(l.id,rejectReason)} color={C.red} style={{fontSize:11,padding:"5px 10px"}}>Confirm</Btn>
-                        <Btn onClick={()=>{setRejectId(null);setRejectReason("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"5px 10px"}}>Cancel</Btn>
-                      </div>
-                    )}
-                    {rejectId!==l.id&&(
-                      <div style={{display:"flex",gap:5,flexShrink:0,marginTop:6}}>
-                        {leaveTab==="pending"&&hasPermission(currentUser,"team.leave_approve")&&(
-                          <>
-                            <Btn onClick={()=>approveLeave(l.id)} color={C.green} style={{fontSize:10,padding:"6px 12px"}}>✓ Approve</Btn>
-                            <Btn onClick={()=>setRejectId(l.id)} color={C.red} style={{fontSize:10,padding:"6px 12px"}}>✕ Reject</Btn>
-                          </>
-                        )}
-                        {leaveTab==="rejected"&&l.rejectReason&&<div style={{fontSize:12,color:C.red}}>{l.rejectReason}</div>}
-                      </div>
-                    )}
-                  </div>
-                  <span style={{fontSize:10,fontWeight:600,padding:"3px 9px",borderRadius:20,
-                    background:l.status==="Approved"?C.greenBg:l.status==="Rejected"?C.redBg:C.amberBg,
-                    color:l.status==="Approved"?C.green:l.status==="Rejected"?C.red:C.amber}}>
-                    {l.status}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          {(leaveTab==="pending"?pending:leaveTab==="approved"?approved:rejected).length===0&&(
-            <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12}}>No {leaveTab} leaves.</div>
-          )}
-        </div>
-      )}
 
       {/* ── OUTSIDE STAFF & VENDORS ── */}
       {tab==="chefs" && (
