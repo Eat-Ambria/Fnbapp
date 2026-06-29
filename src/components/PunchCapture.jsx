@@ -72,8 +72,8 @@ function analyzeSkinTone(video, canvas) {
     var skin = false;
     if (lum >= 60) {
       // Normal-light thresholds
-      skin = r>80 && g>50 && b>30 && r>g && r>b &&
-             Math.abs(r-g)>15 && (r-b)>20 && (r-b)<120 && (r-g)<80;
+      skin = r>60 && g>40 && b>20 && r>g && r>b &&
+             Math.abs(r-g)>10 && (r-b)>12 && (r-b)<130 && (r-g)<90;
     } else {
       // Low-light relaxed
       skin = r>40 && g>25 && b>15 && r>g && r>b &&
@@ -93,8 +93,8 @@ function analyzeSkinTone(video, canvas) {
   var lowLight = lumMean < 60;
 
   var detected = lowLight
-    ? (skinR > 0.10 && midR > 0.45 && lumVar > 100)
-    : (skinR > 0.22 && brightR < 0.40 && midR > 0.55 && lumVar > 400);
+    ? (skinR > 0.08 && midR > 0.30 && lumVar > 60)
+    : (skinR > 0.12 && brightR < 0.50 && midR > 0.30 && lumVar > 150);
 
   return { detected: detected, skinRatio: skinR, luminanceMean: lumMean };
 }
@@ -104,13 +104,13 @@ function analyzeSkinTone(video, canvas) {
    Cumulative delta of skinRatio + normalised luminanceMean.
    ═══════════════════════════════════════════════════════════ */
 function checkMotion(history) {
-  if (history.length < 3) return false;
+  if (history.length < 2) return false;
   var delta = 0;
   for (var i = 1; i < history.length; i++) {
     delta += Math.abs(history[i].skinRatio      - history[i-1].skinRatio);
     delta += Math.abs(history[i].luminanceMean  - history[i-1].luminanceMean) / 255;
   }
-  return delta > 0.015;
+  return delta > 0.006;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -207,7 +207,7 @@ function PunchCapture(props) {
       var res    = analyzeSkinTone(videoRef.current, canvasRef.current);
       var hist   = histRef.current;
       hist.push(res);
-      if (hist.length > 6) hist.shift();
+      if (hist.length > 4) hist.shift();
 
       var face   = res.detected;
       var motion = checkMotion(hist);
@@ -219,7 +219,7 @@ function PunchCapture(props) {
         : !motion ? 'Face detected — move slightly…'
         : 'Ready! Tap capture ✓'
       );
-    }, 500);
+    }, 300);
   }
 
   /* ── 60 s auto-close countdown ──────────────────────── */
@@ -320,7 +320,7 @@ function PunchCapture(props) {
 
   // Single return — video + canvas always in DOM so refs survive phase transitions
   return React.createElement('div', {
-    style:{width:'100%',maxWidth:400,margin:'0 auto'}
+    style:{width:'100%',maxWidth:560,margin:'0 auto'}
   },
 
     // ── Video + canvas (ALWAYS mounted, hidden until camera phase) ──
