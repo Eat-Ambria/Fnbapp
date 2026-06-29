@@ -81,4 +81,10 @@ function genPunchId() {
     : Date.now() + '_' + Math.random().toString(36).slice(2);
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId };
+function fmtStamp(ts) {
+  var d = ts ? new Date(ts) : new Date();
+  return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}) + ' ' +
+         d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp };
