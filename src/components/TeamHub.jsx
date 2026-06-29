@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay } from '../utils/helpers.js';
 import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
@@ -248,171 +248,107 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       </div>
 
       {/* ── ATTENDANCE ── */}
-      {tab==="attendance" && (
+      {tab==="attendance" && (()=>{
+        var allStaff = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');});
+        var todayAtt = safeArr(attendance).filter(function(a){return a.date===TODAY;});
+        var staffAtt = todayAtt.filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
+        var vendorAtt = todayAtt.filter(function(a){return a.is_vendor || a.dept==='vendor';});
+        // Build merged rows: every active staff member + their attendance record
+        var merged = allStaff.map(function(s){
+          var sid = String(s.staff_id||s.staffListId||s.id);
+          var rec = staffAtt.find(function(a){return String(a.staff_id||a.staffId)===sid;});
+          var status = 'Absent';
+          var hrs = null;
+          if(rec && rec.in_time){
+            if(rec.out_time){
+              var cl = classifyDay(rec.in_time, rec.out_time);
+              status = cl.status;
+              hrs = cl.hours;
+            } else { status = 'Incomplete'; }
+          }
+          return {id:sid, code:s.staff_id||s.staffListId||'', name:s.name||'', dept:s.dept||'', section:s.section||'',
+            inTime:rec?rec.in_time||'':'', outTime:rec?rec.out_time||'':'', status:status, hours:hrs,
+            venue:rec?rec.venue||'':'', photo:rec?(rec.in_photo_url||rec.in_photo||rec.photo||null):null, rec:rec};
+        });
+        // Departments for filter
+        var depts = ['All'].concat([...new Set(merged.map(function(r){return r.dept||r.section;}).filter(Boolean))].sort());
+        // Counts
+        var cPresent = merged.filter(function(r){return r.status==='Present';}).length;
+        var cAbsent = merged.filter(function(r){return r.status==='Absent';}).length;
+        var cIncomplete = merged.filter(function(r){return r.status==='Incomplete';}).length;
+        var cHalf = merged.filter(function(r){return r.status==='Half Day';}).length;
+        // Filters
+        var fDept = secFilter==='All'?merged:merged.filter(function(r){return r.dept===secFilter||r.section===secFilter;});
+        var attStatusColors = {Present:C.green, Absent:C.red, Incomplete:'#E67E22', 'Half Day':C.amber};
+        var attStatuses = ['All','Present','Absent','Incomplete','Half Day'];
+        if(!window._attStatusFilter) window._attStatusFilter = 'All';
+        if(!window._attSearch) window._attSearch = '';
+        var fStatus = window._attStatusFilter==='All'?fDept:fDept.filter(function(r){return r.status===window._attStatusFilter;});
+        var fSearch = window._attSearch?fStatus.filter(function(r){return r.name.toLowerCase().includes(window._attSearch.toLowerCase())||r.code.toLowerCase().includes(window._attSearch.toLowerCase());}):fStatus;
+        var rows = fSearch.sort(function(a,b){return a.name.localeCompare(b.name);});
+        return (
         <div>
-          {/* Section filter */}
-          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
-            {allSecs.map(s=>(
-              <button key={s} onClick={()=>setSecFilter(s)} style={{padding:"4px 11px",borderRadius:20,fontSize:11,cursor:"pointer",background:secFilter===s?C.wine:"transparent",color:secFilter===s?"#fff":C.muted,border:`1px solid ${secFilter===s?C.wine:C.border}`}}>{s}</button>
-            ))}
+          <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)',marginBottom:2}}>📋 Daily Attendance</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{TODAY_LABEL}</div>
+          {/* Filters */}
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>
+            <select value={secFilter} onChange={function(e){setSecFilter(e.target.value);}} style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:120}}>
+              {depts.map(function(d){return <option key={d} value={d}>{d}</option>;})}
+            </select>
+            <div style={{display:'flex',gap:3}}>
+              {attStatuses.map(function(st){
+                var active = window._attStatusFilter===st;
+                return <button key={st} onClick={function(){window._attStatusFilter=st;setSecFilter(function(p){return p;});}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
+              })}
+            </div>
+            <input value={window._attSearch||''} onChange={function(e){window._attSearch=e.target.value;setSecFilter(function(p){return p;});}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
           </div>
-
-          {/* Present staff only */}
-          {(()=>{
-            const presentStaff = filtered.filter(s=>todayRecs.some(r=>r.staffId===String(s.id)&&r.status==="Present"));
-            return presentStaff.length>0?(
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-                {presentStaff.map((s,i)=>{
-                  const rec = todayRecs.find(r=>r.staffId===String(s.id)&&r.status==="Present");
-                  const m = SECTION_META[s.section]||{color:C.muted};
-                  return (
-                    <div key={s.id} style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10,padding:"11px 12px"}}>
-                      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
-                        {rec?.photo
-                          ? <img src={rec.photo} style={{width:32,height:32,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.green}`}}/>
-                          : <Avatar name={s.name} size={32} index={i}/>
-                        }
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                          <div style={{fontSize:11,color:m.color,fontWeight:500}}>{T2(s.section)}</div>
-                        </div>
-                      </div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <span style={{fontSize:10,fontWeight:600,padding:"5px 10px",borderRadius:10,background:C.green,color:"#0A0A0F"}}>
-                          ✓ {rec?.time}
-                        </span>
-                        {rec?.pinVerified&&<span style={{fontSize:12,color:C.green}}>🔐</span>}
-                        {rec?.photo&&<span style={{fontSize:12,color:C.green}}>📸</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ):(
-              <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
-                {T2("No staff checked in yet. Attendance is marked at Property Gate Kiosk.")}
-              </div>
-            );
-          })()}
-
-          {/* ── TODAY'S ATTENDANCE DASHBOARD (admin / head_chef) ── */}
-          {(currentUser?.role==='admin'||currentUser?.role==='head_chef') && (()=>{
-            var todayAtt = safeArr(attendance)
-              .filter(function(a){return a.date===TODAY;})
-              .sort(function(a,b){return (a.in_time||'').localeCompare(b.in_time||'');});
-            var staffAtt  = todayAtt.filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
-            var vendorAtt = todayAtt.filter(function(a){return a.is_vendor || a.dept==='vendor';});
-            var currentlyIn = staffAtt.filter(function(a){return a.in_time&&!a.out_time;}).length;
-            var punchedOut  = staffAtt.filter(function(a){return a.in_time&&a.out_time;}).length;
-            var totalActive = safeArr(empDb).filter(function(s){
-              return s.is_active!==false && s.role!=='kiosk_gate' && s.role!=='admin' && s.role!=='head_chef' && !s.role?.startsWith('section_');
-            }).length;
-            var notYetIn = Math.max(0, totalActive - staffAtt.length);
-            if (todayAtt.length===0) return null;
-            return (
-              <div style={{marginTop:20}}>
-                <div style={{fontSize:16,fontWeight:700,color:C.text,
-                  fontFamily:'var(--font-display)',marginBottom:4}}>
-                  📋 Today's Attendance
+          {/* Summary cards */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:16}}>
+            {[{l:'Total',v:merged.length,c:C.text},{l:'Present',v:cPresent,c:C.green},{l:'Absent',v:cAbsent,c:C.red},{l:'Incomplete',v:cIncomplete,c:'#E67E22'},{l:'Half Day',v:cHalf,c:C.amber}].map(function(card){
+              return <div key={card.l} style={{background:C.surface,borderRadius:10,padding:'10px 12px',textAlign:'center',border:'1px solid '+C.border}}>
+                <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>{card.l}</div>
+                <div style={{fontSize:22,fontWeight:700,color:card.c,marginTop:2}}>{card.v}</div>
+              </div>;
+            })}
+          </div>
+          {/* Table header */}
+          <div style={{display:'grid',gridTemplateColumns:'60px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
+            <div>Code</div><div></div><div>Name</div><div>Dept</div><div>IN</div><div>OUT</div><div>Status</div><div>Hrs</div><div>Venue</div>
+          </div>
+          {/* Table rows */}
+          <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
+            {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No records match filters</div>
+            :rows.map(function(r,ri){
+              var sc = attStatusColors[r.status]||C.muted;
+              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'60px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
+                <div style={{color:C.muted,fontSize:11}}>{r.code}</div>
+                <div>{r.photo?<img src={r.photo} style={{width:28,height:28,borderRadius:'50%',objectFit:'cover'}}/>:<Avatar name={r.name} size={28} index={ri}/>}</div>
+                <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
+                <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept||r.section}</div>
+                <div style={{color:r.inTime?C.green:C.muted,fontWeight:600}}>{r.inTime||'—'}</div>
+                <div style={{color:r.outTime?C.red:C.muted,fontWeight:600}}>{r.outTime||'—'}</div>
+                <div><span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:6,background:sc+'18',color:sc}}>{r.status.toUpperCase()}</span></div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{r.hours!=null?fmtHours(r.hours):'—'}</div>
+                <div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.venue||'—'}</div>
+              </div>;
+            })}
+          </div>
+          {/* Vendor section */}
+          {vendorAtt.length>0&&<div style={{marginTop:16}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8}}>🏢 Outside Vendors ({vendorAtt.length})</div>
+            {vendorAtt.map(function(a,i){
+              return <div key={a.id||i} style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',marginBottom:4,background:C.surface,borderRadius:10,border:'1px solid '+C.border}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{a.staff_name||'Unknown'}</div>
+                  <div style={{fontSize:11,color:'#9060C8'}}>{a.vendor_company||''}{a.vendor_purpose?' · '+a.vendor_purpose:''}</div>
                 </div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:12}}>
-                  {staffAtt.length} staff · {vendorAtt.length} vendor{vendorAtt.length!==1?'s':''} today
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
-                  <div style={{background:C.greenBg,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.greenBorder}`}}>
-                    <div style={{fontSize:20,fontWeight:700,color:C.green}}>{currentlyIn}</div>
-                    <div style={{fontSize:10,color:C.green}}>Currently IN</div>
-                  </div>
-                  <div style={{background:C.redBg,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.redBorder}`}}>
-                    <div style={{fontSize:20,fontWeight:700,color:C.red}}>{punchedOut}</div>
-                    <div style={{fontSize:10,color:C.red}}>Punched OUT</div>
-                  </div>
-                  <div style={{background:C.surface,borderRadius:10,padding:'10px',textAlign:'center',border:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:20,fontWeight:700,color:C.muted}}>{notYetIn}</div>
-                    <div style={{fontSize:10,color:C.muted}}>Not yet IN</div>
-                  </div>
-                </div>
-                {staffAtt.map(function(a,i){
-                  return (
-                    <div key={a.id||a.staff_id} style={{display:'flex',gap:12,alignItems:'center',
-                      padding:'10px 14px',marginBottom:6,background:C.surface,
-                      borderRadius:10,border:`1px solid ${C.border}`}}>
-                      <div>
-                        {(a.in_photo||a.out_photo||a.photo)
-                          ? <img src={a.in_photo||a.out_photo||a.photo}
-                              style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:`2px solid ${C.green}`}}/>
-                          : <Avatar name={a.staff_name||'?'} size={36} index={i}/>}
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,color:C.text,
-                          overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                          {a.staff_name||a.staff_id}
-                        </div>
-                        <div style={{fontSize:11,color:C.muted}}>
-                          {a.section||''}{a.venue?' · '+a.venue:''}
-                        </div>
-                      </div>
-                      <div style={{textAlign:'right',flexShrink:0}}>
-                        <div style={{fontSize:12,color:C.green,fontWeight:700}}>
-                          IN: {a.in_time||'—'}
-                        </div>
-                        {a.out_time
-                          ? <><div style={{fontSize:12,color:C.red,fontWeight:700}}>OUT: {a.out_time}</div>
-                            <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{fmtHours(calcHoursWorked(a.in_time,a.out_time))}</div></>
-                          : <div style={{fontSize:11,color:C.amber}}>⏳ Still working</div>}
-                      </div>
-                    </div>
-                  );
-                })}
-                {vendorAtt.length>0&&(
-                  <div style={{marginTop:12}}>
-                    <div style={{fontSize:12,fontWeight:700,color:C.muted,
-                      textTransform:'uppercase',letterSpacing:0.8,marginBottom:8}}>
-                      🏢 Outside Vendors ({vendorAtt.length})
-                    </div>
-                    {vendorAtt.map(function(a,i){
-                      var timeLabel = a.in_time ? 'IN: '+a.in_time : a.out_time ? 'OUT: '+a.out_time : '—';
-                      var timeColor = a.in_time ? C.green : C.red;
-                      return (
-                        <div key={a.id||a.staff_id+i} style={{display:'flex',gap:12,alignItems:'flex-start',
-                          padding:'10px 14px',marginBottom:6,background:C.purpleBg,
-                          borderRadius:10,border:`1px solid ${C.purpleBorder}`}}>
-                          <div style={{flexShrink:0}}>
-                            {a.photo
-                              ? <img src={a.photo} style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',border:`2px solid ${C.purple}`}}/>
-                              : <div style={{width:36,height:36,borderRadius:'50%',background:C.purpleBg,
-                                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏢</div>}
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:C.text}}>
-                              {a.staff_name||'Unknown'}
-                            </div>
-                            <div style={{fontSize:11,color:C.purple,fontWeight:600}}>
-                              {a.vendor_company||''}
-                              {a.vendor_purpose?' · '+a.vendor_purpose:''}
-                            </div>
-                            {(a.vendor_phone||a.vendor_vehicle)&&(
-                              <div style={{fontSize:10,color:C.faint,marginTop:2}}>
-                                {a.vendor_phone?'📞 '+a.vendor_phone:''}
-                                {a.vendor_phone&&a.vendor_vehicle?' · ':''}
-                                {a.vendor_vehicle?'🚗 '+a.vendor_vehicle:''}
-                              </div>
-                            )}
-                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
-                              {a.section||'General'}{a.venue?' · '+a.venue:''}
-                            </div>
-                          </div>
-                          <div style={{textAlign:'right',flexShrink:0}}>
-                            <div style={{fontSize:12,color:timeColor,fontWeight:700}}>{timeLabel}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+                <div style={{fontSize:12,fontWeight:700,color:a.in_time?C.green:C.red}}>{a.in_time?'IN: '+a.in_time:a.out_time?'OUT: '+a.out_time:'—'}</div>
+              </div>;
+            })}
+          </div>}
+        </div>);
+      })()}
 
           {/* ── ATTENDANCE HISTORY ── */}
           {(currentUser?.role==='admin'||currentUser?.role==='head_chef')&&(
@@ -1032,9 +968,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
 
 
