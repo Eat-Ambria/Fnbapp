@@ -32,7 +32,16 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [newStaffForm,setNewStaffForm] = useState({name:"",section:"Beverages",role:"staff"});
   const [dirSearch,setDirSearch] = useState("");
   const [dirFilter,setDirFilter] = useState("All");
-  
+  const [attDate,setAttDate] = useState(TODAY);
+  const [attDateData,setAttDateData] = useState(null);
+  const [attDateLoading,setAttDateLoading] = useState(false);
+  function fetchAttDate(d){
+    if(!d||d===TODAY||!supabase){setAttDateData(null);return;}
+    setAttDateLoading(true);
+    supabase.from('attendance').select('*').eq('date',d).order('in_time',{ascending:true})
+      .then(function(res){setAttDateData(res.data||[]);setAttDateLoading(false);})
+      .catch(function(){setAttDateData([]);setAttDateLoading(false);});
+  }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);
   const [selEmp,setSelEmp]       = useState(null);
@@ -144,9 +153,9 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             <div style={{fontSize:12,color:C.green,fontWeight:600}}>{T2("Present")}</div>
           </div>
           <div style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"10px 13px"}}>
-            <div style={{fontSize:22,fontWeight:700,color:C.red}}>{deptStaffList.length-present}</div>
+            <div style={{fontSize:22,fontWeight:700,color:C.red}}>{Math.max(0,deptStaffList.length-present)}</div>
             <div style={{fontSize:12,color:C.red,fontWeight:600}}>{T2("Absent")}</div>
-            {deptStaffList.length-present===0&&<div style={{fontSize:12,color:C.green,marginTop:2}}>All present ✓</div>}
+            {deptStaffList.length<=present&&<div style={{fontSize:12,color:C.green,marginTop:2}}>All present ✓</div>}
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
@@ -168,7 +177,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>👥 Team</div>
-          <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {present}/{deptStaffList.length} present</div>
+          <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {present}{deptStaffList.length?'/'+deptStaffList.length:''} present</div>
         </div>
         <div style={{display:"flex",gap:8}}>
           <div style={{background:C.greenBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
@@ -227,7 +236,10 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       {/* ── ATTENDANCE ── */}
       {tab==="attendance" && (()=>{
         var allStaff = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');});
-        var todayAtt = safeArr(attendance).filter(function(a){return a.date===TODAY;});
+        var viewDate = attDate||TODAY;
+        var isToday = viewDate===TODAY;
+        var viewLabel = isToday ? TODAY_LABEL : new Date(viewDate+'T12:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+        var todayAtt = isToday ? safeArr(attendance).filter(function(a){return a.date===TODAY;}) : safeArr(attDateData||[]);
         var staffAtt = todayAtt.filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
         var vendorAtt = todayAtt.filter(function(a){return a.is_vendor || a.dept==='vendor';});
         // Build merged rows: every active staff member + their attendance record
@@ -265,8 +277,16 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         var rows = fSearch.sort(function(a,b){return a.name.localeCompare(b.name);});
         return (
         <div>
-          <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)',marginBottom:2}}>📋 Daily Attendance</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{TODAY_LABEL}</div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexWrap:'wrap',gap:8}}>
+            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📋 Daily Attendance</div>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input type="date" value={viewDate} max={TODAY} onChange={function(e){var d=e.target.value;if(d){setAttDate(d);if(d!==TODAY)fetchAttDate(d);else setAttDateData(null);}}}
+                style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
+              {!isToday&&<button onClick={function(){setAttDate(TODAY);setAttDateData(null);}}
+                style={{padding:'6px 14px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',background:C.gold,color:'#fff',border:'none'}}>Today</button>}
+            </div>
+          </div>
+          <div style={{fontSize:12,color:isToday?C.muted:C.amber,marginBottom:14,fontWeight:isToday?400:600}}>{viewLabel}{!isToday?' (historical)':''}{attDateLoading?' — loading…':''}</div>
           {/* Filters */}
           <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>
             <select value={secFilter} onChange={function(e){setSecFilter(e.target.value);}} style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:120}}>
