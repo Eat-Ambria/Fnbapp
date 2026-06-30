@@ -615,12 +615,12 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
         {/* Done: show time taken + under/over */}
         {!subs && done && hasDoneElapsed && (
           <div style={{ fontSize: SZ.done, marginTop: 3, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ color: C.green }}>✅ {doneM}m{doneS > 0 ? ` ${doneS}s` : ""} done</span>
+            <span style={{ color: C.green }}>✅ {doneM}m{doneS > 0 ? ` ${doneS}s` : ""} done</span>{doneTime&&<span style={{color:C.muted,fontWeight:400,fontSize:SZ.done}}> · {doneTime}</span>}
             {wasUnder && diffSec > 0 && <span style={{ color: C.green, fontWeight: 600 }}>🟢 {diffM > 0 ? `${diffM}m ` : ""}{diffS}s under</span>}
             {wasOver && <span style={{ color: C.red, fontWeight: 600 }}>🔴 +{diffM > 0 ? `${diffM}m ` : ""}{diffS}s over</span>}
           </div>
         )}
-        {!subs && done && !hasDoneElapsed && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ done</div>}
+        {!subs && done && !hasDoneElapsed && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅{doneTime ? " "+doneTime : " done"}</div>}
         {subs && done && <div style={{ fontSize: 11, color: C.green, marginTop: 3 }}>✅ all sub-steps done</div>}
         {!subs && !done && !running && !locked && timerSec > 0 && <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>⏱ {Math.floor(timerSec / 60)}m</div>}
       </div>
@@ -657,7 +657,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                     <div style={{ fontSize: SZ.subTitle, fontWeight: 600, color: sbDone ? C.green : sbStarted ? (sbOver ? C.red : C.amber) : C.text, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.t}</div>
                     {sb.i && <div style={{ fontSize: SZ.subDesc, color: C.muted, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word", overflowWrap: "anywhere" }}>{sb.i}</div>}
                     {sbStarted && !sbDone && sb.tm > 0 && <div style={{marginTop:4}}><ProgressBar pct={sbPct} color={sbOver ? C.red : C.amber} h={large?4:3}/><div style={{fontSize:SZ.subTimer,fontWeight:700,marginTop:2,color:sbOver?C.red:C.amber}}>⏱ {Math.floor(sbEl/60)}m {sbEl%60}s{sbOver?<span style={{color:C.red}}> +{Math.floor((sbEl-sb.tm)/60)}m {(sbEl-sb.tm)%60}s over</span>:<span> — {Math.floor(sbRem/60)}m left</span>}</div></div>}
-                    {sbDone && sbHasDoneEl && <div style={{fontSize:SZ.subHint,marginTop:2,color:sbWasOver?C.red:C.green}}>✅ {Math.floor(sbDE/60)}m{sbDE%60>0?` ${sbDE%60}s`:""}{sbWasOver?<span style={{fontWeight:600}}> 🔴 +{Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s over</span>:<span style={{fontWeight:600}}> 🟢 {Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s under</span>}</div>}
+                    {sbDone && sbHasDoneEl && <div style={{fontSize:SZ.subHint,marginTop:2,color:sbWasOver?C.red:C.green}}>✅ {Math.floor(sbDE/60)}m{sbDE%60>0?` ${sbDE%60}s`:""}{sbWasOver?<span style={{fontWeight:600}}> 🔴 +{Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s over</span>:<span style={{fontWeight:600}}> 🟢 {Math.floor(sbDiffSec/60)>0?Math.floor(sbDiffSec/60)+"m ":"" }{sbDiffSec%60}s under</span>}{d2d.manualAt?.[sbk]&&<span style={{color:C.muted,fontWeight:400}}> · {d2d.manualAt[sbk]}</span>}</div>}
                     {sbDone && !sbHasDoneEl && d2d.manualAt?.[sbk] && <div style={{fontSize:SZ.subHint,color:C.green,marginTop:2}}>✅ {d2d.manualAt[sbk]}</div>}
                     {!sbDone && !sbStarted && sb.tm > 0 && <div style={{fontSize:SZ.subHint,color:C.faint,marginTop:2}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</div>}
                   </div>
