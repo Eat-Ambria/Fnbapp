@@ -73,10 +73,10 @@ function EventDayTab({
   function dk(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
   function ds(evId, idx, dishName) {
-    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || kt["__combined"]?.[ck(dishName)] || {};
+    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || {};
     var perEv = kt[evId]?.[dk(evId, idx)] || {};
     if (dishName && !Object.keys(perEv).length) {
-      var cb = kt["__combined_"+TODAY]?.[ck(dishName)] || kt["__combined"]?.[ck(dishName)] || {};
+      var cb = kt["__combined_"+TODAY]?.[ck(dishName)] || {};
       if (Object.keys(cb).length) { var r = Object.assign({}, cb); delete r.mesaDone; return r; }
     }
     return perEv;
