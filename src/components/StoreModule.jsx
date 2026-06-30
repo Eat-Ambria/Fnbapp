@@ -185,6 +185,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [purchaseOrders, setPurchaseOrders] = useState([]); // from store_purchase_orders + store_po_items
   const [poLoading, setPoLoading] = useState(false);
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
+  const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
@@ -1541,14 +1542,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     <div style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",background:C.red+"15",borderBottom:`1px solid ${C.redBorder}`}}>
                       {[T2("Ingredient"),T2("Required"),T2("Stock"),T2("Short")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase"}}>{h}</div>)}
                     </div>
-                    {shortages.slice(0,20).map((s,idx)=>(
-                      <div key={s.name} style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",borderBottom:idx<Math.min(shortages.length,20)-1?`1px solid ${C.redBorder}22`:"none",alignItems:"center"}}>
-                        <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{s.name}</div><div style={{fontSize:10,color:C.muted}}>{s.eventNames.join(", ")}</div></div>
+                    {shortages.slice(0,20).map((s,idx)=>{
+                      const isExp=expandedShortage===s.name;
+                      const sopMatch=allRecipeIngredients.find(i=>i.name===s.name);
+                      const recipes=sopMatch?sopMatch.dishes:[];
+                      return(
+                      <div key={s.name}>
+                      <div onClick={()=>setExpandedShortage(isExp?null:s.name)} style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",borderBottom:(!isExp&&idx<Math.min(shortages.length,20)-1)?`1px solid ${C.redBorder}22`:"none",alignItems:"center",cursor:"pointer",background:isExp?C.red+"08":"transparent"}}>
+                        <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{isExp?"▾":"▸"} {s.name}</div><div style={{fontSize:10,color:C.muted}}>{s.eventNames.join(", ")}</div></div>
                         <div style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtIssueQty(s.required,s.unit)}</div>
                         <div style={{fontSize:12,fontWeight:600,color:C.amber}}>{fmtIssueQty(s.available,s.unit)}</div>
                         <div style={{fontSize:12,fontWeight:700,color:C.red}}>−{fmtIssueQty(s.shortfall,s.unit)}</div>
                       </div>
-                    ))}
+                      {isExp&&<div style={{padding:"6px 12px 10px",background:C.red+"06",borderBottom:`1px solid ${C.redBorder}22`}}>
+                        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Used in {recipes.length} SOP recipe{recipes.length!==1?"s":""}</div>
+                        {recipes.length?<div style={{display:"flex",flexWrap:"wrap",gap:4}}>{recipes.map(r=><span key={r} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.text}}>{r}</span>)}</div>
+                        :<div style={{fontSize:11,color:C.muted}}>No SOP recipe match found</div>}
+                      </div>}
+                      </div>);
+                    })}
                     {shortages.length>20&&<div style={{padding:"6px 12px",fontSize:11,color:C.muted,textAlign:"center"}}>+{shortages.length-20} {T2("more")}</div>}
                   </div>
                 </Card>

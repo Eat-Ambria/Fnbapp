@@ -53,6 +53,7 @@ export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
   const [lang,setLang]               = useState("en");
+  const [sideOpen,setSideOpen]       = useState(true);
   const [repairs,setRepairs]         = useState([]);
   const [allocRules,setAllocRules]   = useState({});
   const [dbChecklists,setDbChecklists] = useState({});
@@ -679,16 +680,17 @@ export default function App() {
       )}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
-      <div style={{width:260,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative"}}>
+      <div style={{width:sideOpen?260:56,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",transition:"width 0.2s ease",overflow:"hidden"}}>
+        <button onClick={()=>setSideOpen(p=>!p)} style={{position:"absolute",top:26,right:sideOpen?10:-99,zIndex:2,background:C.surfaceHover||C.bg,border:`1px solid ${C.border}`,borderRadius:6,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,color:C.muted,padding:0}}>{sideOpen?"◂":"▸"}</button>
 
         {/* Dept badge + branding */}
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
             <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}90)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",boxShadow:`0 4px 12px ${curDeptMeta.color}30`}}>{curDeptMeta.icon}</div>
-            <div>
+            {sideOpen&&<div>
               <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2(curDeptMeta.name)}</div>
               <div style={{fontSize:11,color:C.muted,letterSpacing:.3}}>Ambria Cuisines</div>
-            </div>
+            </div>}
           </div>
         </div>
 
@@ -721,8 +723,8 @@ export default function App() {
                 fontSize:13,fontWeight:active?600:400,letterSpacing:.3,
                 boxShadow:active?`0 2px 12px ${curDeptMeta.color}10`:"none",
               }}>
-                <span style={{display:"flex",alignItems:"center",gap:12}}>
-                  <span style={{fontSize:17,opacity:active?1:.7}}>{item.icon}</span>{T(item.label,lang)}
+                <span style={{display:"flex",alignItems:"center",gap:sideOpen?12:0,justifyContent:sideOpen?"flex-start":"center"}}>
+                  <span style={{fontSize:17,opacity:active?1:.7}}>{item.icon}</span>{sideOpen&&T(item.label,lang)}
                 </span>
                 {badge>0&&<span style={{background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}80)`,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,boxShadow:`0 2px 6px ${curDeptMeta.color}30`}}>{badge}</span>}
               </button>
@@ -740,20 +742,20 @@ export default function App() {
           </div>
         </div>
         {/* User + lang + logout */}
-        <div style={{padding:"16px 16px",borderTop:`1px solid ${C.borderLight}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-            <Avatar name={currentUser?.name||"A"} size={34} index={0}/>
-            <div>
+        <div style={{padding:sideOpen?"16px 16px":"10px 8px",borderTop:`1px solid ${C.borderLight}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:sideOpen?12:8,justifyContent:sideOpen?"flex-start":"center"}}>
+            <Avatar name={currentUser?.name||"A"} size={sideOpen?34:28} index={0}/>
+            {sideOpen&&<div>
               <div style={{fontSize:12,fontWeight:600,color:C.text,letterSpacing:.3}}>{currentUser?.name}</div>
               <div style={{fontSize:11,color:C.muted}}>{currentUser?.id}</div>
-            </div>
+            </div>}
           </div>
-          <div style={{display:"flex",gap:8}}>
+          {sideOpen?<div style={{display:"flex",gap:8}}>
             <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:11,padding:"10px 10px",cursor:"pointer",fontWeight:600,minHeight:42}}>
               {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
             </button>
             <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.muted,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
-          </div>
+          </div>:<button onClick={handleLogout} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:14,padding:"6px",cursor:"pointer"}}>🚪</button>}
         </div>
         </div>
       </div>
