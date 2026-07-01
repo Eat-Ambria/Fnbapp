@@ -681,7 +681,7 @@ export default function App() {
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
       {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
       <div style={{width:sideOpen?260:56,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",transition:"width 0.2s ease",overflow:"hidden"}}>
-        <button onClick={()=>setSideOpen(p=>!p)} style={{position:"absolute",top:26,right:sideOpen?10:-99,zIndex:2,background:C.surfaceHover||C.bg,border:`1px solid ${C.border}`,borderRadius:6,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,color:C.muted,padding:0}}>{sideOpen?"◂":"▸"}</button>
+        <button onClick={()=>setSideOpen(p=>!p)} style={{position:"absolute",top:26,right:sideOpen?10:8,zIndex:2,background:C.surfaceHover||C.bg,border:`1px solid ${C.border}`,borderRadius:6,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,color:C.muted,padding:0}}>{sideOpen?"◂":"▸"}</button>
 
         {/* Dept badge + branding */}
         <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
