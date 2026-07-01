@@ -26,7 +26,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   const DEPTS = [
     {id:'kitchen',label:'Kitchen',icon:'👨‍🍳',
-      sections:['Main Course','Indian Tandoor','Chinese & Pan Asian','Chaat Station','Halwai & Savoury','Continental','Bakery','K.S.T']},
+      sections:['Main Course','Indian Tandoor','Indian Curries','Tandoor','Chinese & Pan Asian','Chinese','Chaat Station','Chaat','Savoury Halwai','Halwai & Savoury','Sweets','Continental','Bakery','K.S.T','Main Course + Chaat Station + Indian Desserts']},
     {id:'service',label:'Service',icon:'🍽',sections:['Service']},
     {id:'crockery',label:'Crockery',icon:'🍶',sections:['Crockery']},
     {id:'beverages',label:'Beverages',icon:'🥤',sections:['Beverages']},
@@ -38,20 +38,24 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   ];
 
   function getStaffForDept(dept) {
+    var secSet = new Set((dept.sections||[]).map(function(x){return x.toLowerCase();}));
+    function matchesDept(s) {
+      if (secSet.size && secSet.has((s.section||'').toLowerCase())) return true;
+      if (s.dept && s.dept === dept.id) return true;
+      return false;
+    }
     // First try empDb (Supabase staff records)
     var dbStaff = safeArr(empDb).filter(function(s) {
       if (s.is_active === false) return false;
       if (s.role === 'kiosk_gate' || s.role === 'admin' || s.role === 'head_chef') return false;
       if (s.role && s.role.startsWith('section_')) return false;
-      if (dept.sections) return dept.sections.includes(s.section);
-      return s.dept === dept.id;
+      return matchesDept(s);
     });
     // Merge in STAFF_LIST entries not already in empDb (by name match)
     var dbNames = new Set(dbStaff.map(function(s){ return (s.name||'').toLowerCase(); }));
     var listStaff = STAFF_LIST.filter(function(s) {
       if (dbNames.has((s.name||'').toLowerCase())) return false;
-      if (dept.sections) return dept.sections.includes(s.section);
-      return false;
+      return matchesDept(s);
     }).map(function(s) {
       return { staffListId: String(s.id), staff_id: String(s.id), name: s.name, section: s.section, dept: dept.id, role: s.role, is_active: true };
     });
