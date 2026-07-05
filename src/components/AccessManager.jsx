@@ -55,7 +55,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   }
 
   // ── State ──
-  const blankForm = {staff_id:"",name:"",role:"section_tablet",section:"",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
+  const blankForm = {staff_id:"",name:"",role:"staff",section:"",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId]   = useState(null);
   const [delId, setDelId]     = useState(null);
