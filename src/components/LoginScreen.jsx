@@ -3,7 +3,6 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { safeArr } from '../utils/helpers.js';
-import { STAFF_LIST, VENUE_OPTIONS } from '../data/staffData.js';
 
 function LoginScreen({ empDb, onLogin, lang="en" }) {
   const T2 = s => T(s, lang);
@@ -26,10 +25,9 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         const pin2 = rpin.trim();
         const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
         if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
-          const sl = STAFF_LIST.find(s=>s.name===emp.name);
           const rid = emp.id||emp.staffListId||emp.staff_id;
           const savedVenue = localStorage.getItem("ambria_venue_override")||emp.venue||"";
-          onLogin({...emp, id:rid, staffListId:emp.staffListId||sl?.id||rid, venue:savedVenue});
+          onLogin({...emp, id:rid, staffListId:emp.staffListId||rid, venue:savedVenue});
           return;
         }
         setEmpId(id); setPin(pin2); setRemember(true);
@@ -39,11 +37,10 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
   },[]);
 
   function finalizeLogin(emp, venue) {
-    const sl = STAFF_LIST.find(s=>s.name===emp.name);
     const resolvedId = emp.id || emp.staffListId || emp.staff_id;
     const finalVenue = venue || emp.venue || "";
     if(venue) try{localStorage.setItem("ambria_venue_override",venue);}catch(e){}
-    onLogin({...emp, id: resolvedId, staffListId: emp.staffListId || sl?.id || resolvedId, venue: finalVenue});
+    onLogin({...emp, id: resolvedId, staffListId: emp.staffListId || resolvedId, venue: finalVenue});
   }
 
   async function handleLogin(){

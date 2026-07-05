@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW } from '../utils/helpers.js';
-import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
+import { GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
 import { canAccessScreen } from '../data/permissions.js';
@@ -108,7 +108,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // ── KIOSK OVERLAY ──
   if(kioskMode) return (
-    <KioskAttendance staffList={STAFF_LIST} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={()=>setKioskMode(false)} lang={lang} currentUser={currentUser}/>
+    <KioskAttendance staffList={safeArr(empDb).filter(s=>s.is_active!==false)} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={()=>setKioskMode(false)} lang={lang} currentUser={currentUser}/>
   );
 
   // ── DEPARTMENT SELECTOR ──
@@ -185,9 +185,6 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // ── DEPARTMENT DATA ──
   const dept = DEPTS.find(d=>d.id===selDept)||DEPTS[0];
 
-  // Kitchen section staff
-  const kitchenStaff = STAFF_LIST.filter(s=>KITCHEN_SECTIONS.includes(s.section));
-  const bevStaff = STAFF_LIST.filter(s=>s.section==="Beverages");
   const odcEvs = todayEvs.filter(e=>(e.venue||"").includes("ODC"));
   const tomorrowOdc = tomorrowEvs.filter(e=>(e.venue||"").includes("ODC"));
 
@@ -233,7 +230,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* ══════ ATTENDANCE TAB (shared across all depts) ══════ */}
       {activeTab==="attendance"&&(()=>{
         const curDeptConfig = DEPTS.find(d=>d.id===selDept);
-        const deptStaff = curDeptConfig ? STAFF_LIST.filter(curDeptConfig.staffFilter) : [];
+        const deptStaff = curDeptConfig ? safeArr(empDb).filter(function(s){return s.is_active!==false && curDeptConfig.staffFilter(s);}) : [];
         const deptPresent = todayAtts.filter(a=>a.status==="Present"&&deptStaff.some(s=>String(s.staffListId||s.staff_id||s.id)===String(a.staffId||a.staff_id)));
         return (
           <div>

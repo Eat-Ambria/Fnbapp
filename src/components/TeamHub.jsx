@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay } from '../utils/helpers.js';
-import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
+import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
@@ -63,31 +63,19 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [deleteConfirm,setDeleteConfirm] = useState(null);
   const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
 
-  // Computed — filtered by active department
-  const _resolvedStaff = STAFF_LIST.map(function(s){ return Object.assign({},s,{section:resolveSection(s.section)}); });
-  const deptStaffList = deptSections ? _resolvedStaff.filter(s=>deptSections.includes(s.section)) : _resolvedStaff;
-  // Supabase is source of truth. STAFF_LIST only used as fallback if Supabase is empty (initial load / dev).
-  const allEmpDb = (function(){
-    var db = safeArr(empDb);
-    if (db.length > 10) return db; // Supabase has real data → use exclusively
-    // Fallback: STAFF_LIST for dev/empty-DB scenarios
-    var dbNames = new Set(db.map(function(s){ return (s.name||'').toLowerCase().replace(/\s+/g,''); }));
-    var fromList = STAFF_LIST.filter(function(s){
-      return !dbNames.has((s.name||'').toLowerCase().replace(/\s+/g,''));
-    }).map(function(s){
-      return {id:String(s.id),staff_id:String(s.id),staffListId:String(s.id),name:s.name,section:resolveSection(s.section),dept:resolveSection(s.section),role:s.role||'staff',is_active:true,pin:'0000',joining:'',source:'stafflist'};
-    });
-    return db.concat(fromList);
-  })();
-  const deptEmpDb = deptSections ? allEmpDb.filter(e=>deptSections.includes(resolveSection(e.section))) : allEmpDb;
-  const deptStaffIds = new Set(deptStaffList.map(s=>String(s.id)));
-  const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptStaffIds.has(String(a.staffId))));
+  // Computed — filtered by active department. Supabase is the sole source of truth.
+  const allEmpDb = safeArr(empDb).filter(function(s){
+    return s.is_active !== false && s.role !== 'kiosk_gate' && !(s.role||'').startsWith('section_');
+  });
+  const deptStaffList = deptSections ? allEmpDb.filter(e=>deptSections.includes(resolveSection(e.section))) : allEmpDb;
+  const deptEmpDb = deptStaffList;
+  const deptStaffIds = new Set(deptStaffList.map(s=>String(s.staff_id||s.id||'')));
+  const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptSections.includes(resolveSection(a.section))));
   const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(resolveSection(l.staffSection))) : safeArr(leaves);
   const pending    = deptLeaves.filter(l=>l.status==="Pending");
   const approved   = deptLeaves.filter(l=>l.status==="Approved");
   const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
   const allSecs    = deptSections ? ["All",...deptSections] : ["All",...ALL_DEPARTMENTS];
-  const filtered   = secFilter==="All" ? deptStaffList : deptStaffList.filter(s=>s.section===secFilter);
   const totalActive = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');}).length;
   const punchedIn  = todayRecs.filter(function(a){return a.in_time && !a.is_vendor && a.dept!=='vendor';}).length;
   const present    = punchedIn;

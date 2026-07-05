@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
-import { STAFF_LIST, yrsOfService } from '../data/staffData.js';
+import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 
 function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
@@ -15,7 +15,11 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
   const sid = String(user.staffListId||user.staff_id||user.id||'');
   const todayRec = safeArr(attendance).find(a=>(String(a.staff_id)===sid||String(a.staffId)===sid)&&a.date===TODAY);
   const myLeaves = (leaves||[]).filter(l=>l.staffName===user.name);
-  const staffIdx = STAFF_LIST.findIndex(s=>s.id===user.staffListId);
+  const staffIdx = (function(){
+    var s = String(user.staffListId||user.staff_id||user.id||user.name||'');
+    var h = 0; for (var i=0;i<s.length;i++) h = ((h<<5)-h+s.charCodeAt(i))|0;
+    return Math.abs(h) % 32;
+  })();
 
   function submitLeave() {
     if(!leaveForm.from||!leaveForm.to)return;
@@ -28,7 +32,7 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
       {/* Top bar */}
       <div style={{background:C.gold,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <Avatar name={user.name} size={36} index={staffIdx>=0?staffIdx:0}/>
+          <Avatar name={user.name} size={36} index={staffIdx}/>
           <div>
             <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{user.name}</div>
             <div style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{user.id} · {user.section} · {user.dept}</div>
@@ -150,7 +154,7 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
             <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>{T2("My Profile")}</div>
             <Card style={{marginBottom:12}}>
               <div style={{display:"flex",gap:16,alignItems:"center",marginBottom:16}}>
-                <Avatar name={user.name} size={64} index={staffIdx>=0?staffIdx:0}/>
+                <Avatar name={user.name} size={64} index={staffIdx}/>
                 <div>
                   <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{user.name}</div>
                   <div style={{fontSize:12,color:C.muted,marginTop:3}}>{user.section} · {user.dept}</div>

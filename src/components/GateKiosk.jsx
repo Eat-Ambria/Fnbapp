@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { C, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, calcHoursWorked, fmtHours, classifyDay, genPunchId } from '../utils/helpers.js';
-import { STAFF_LIST, GROOMING_CHECKS } from '../data/staffData.js';
+import { GROOMING_CHECKS } from '../data/staffData.js';
 import { Avatar, SelfieCapture } from './SharedUI.jsx';
 import { PunchCapture } from './PunchCapture.jsx';
 import { dbUpsert } from '../lib/db.js';
@@ -47,19 +47,11 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     // First try empDb (Supabase staff records)
     var dbStaff = safeArr(empDb).filter(function(s) {
       if (s.is_active === false) return false;
-      if (s.role === 'kiosk_gate' || s.role === 'admin' || s.role === 'head_chef') return false;
+      if (s.role === 'kiosk_gate') return false;
       if (s.role && s.role.startsWith('section_')) return false;
       return matchesDept(s);
     });
-    // Merge in STAFF_LIST entries not already in empDb (by name match)
-    var dbNames = new Set(dbStaff.map(function(s){ return (s.name||'').toLowerCase(); }));
-    var listStaff = STAFF_LIST.filter(function(s) {
-      if (dbNames.has((s.name||'').toLowerCase())) return false;
-      return matchesDept(s);
-    }).map(function(s) {
-      return { staffListId: String(s.id), staff_id: String(s.id), name: s.name, section: s.section, dept: dept.id, role: s.role, is_active: true };
-    });
-    return dbStaff.concat(listStaff);
+    return dbStaff;
   }
 
   function handlePunch(type) {
