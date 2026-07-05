@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { safeArr } from '../utils/helpers.js';
+import { VENUE_OPTIONS } from '../data/staffData.js';
 
 function LoginScreen({ empDb, onLogin, lang="en" }) {
   const T2 = s => T(s, lang);
