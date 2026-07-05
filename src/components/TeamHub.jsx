@@ -815,9 +815,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
           {/* Employee cards */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {dirFiltered.map((emp,i)=>{
-              const isEdit = selEmp?.id===emp.id;
+              const eid = emp.staff_id||emp.staffListId||emp.id;
+              const sid = selEmp && (selEmp.staff_id||selEmp.staffListId||selEmp.id);
+              const isEdit = !!sid && sid===eid;
               return (
-                <div key={emp.id} style={{background:C.surface,border:`1px solid ${isEdit?C.wine:C.border}`,borderRadius:10,padding:"11px 13px",opacity:emp.active?1:.65}}>
+                <div key={eid||i} style={{background:C.surface,border:`1px solid ${isEdit?C.wine:C.border}`,borderRadius:10,padding:"11px 13px",opacity:emp.active?1:.65}}>
                   {isEdit&&editEmpForm ? (
                     <div>
                       <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Edit — {emp.name}</div>
