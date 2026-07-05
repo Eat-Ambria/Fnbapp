@@ -27,7 +27,8 @@ const AVATAR_COLORS = [
 ];
 
 const SECTIONS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets"];
-let ALL_DEPARTMENTS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets","Beverages","Service","Crockery","Transportation","ODC","Outdoor Staff","Management"];
+let ALL_DEPARTMENTS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets","Beverages","Service","Crockery","Transportation","ODC","Outdoor Staff","Management"]; // fallback; hydrated from team_sections
+let TEAM_DEPTS = []; // Populated from team_departments + team_sections
 const NON_KITCHEN_DEPTS = ["Service","Crockery","Transportation","ODC","Outdoor Staff","Management"];
 const LEGACY_TO_CAT_ID = {"Indian Curries":"maincourse","Tandoor":"tandoor","Chinese":"chinese","Chaat":"chaat","Sweets":"sweets"};
 var LEGACY_SECTION_MAP = {};
@@ -123,10 +124,12 @@ function hydrateConstants(config) {
       if(newMeta[cur]) newMeta[old] = newMeta[cur];
     });
     SECTION_META = newMeta;
-    // Rebuild ALL_DEPARTMENTS
-    var catNames = cats.map(function(c){ return c.name; });
-    var extras = NON_KITCHEN_DEPTS.filter(function(n){ return catNames.indexOf(n)===-1; });
-    ALL_DEPARTMENTS = catNames.concat(extras);
+  }
+  // ── Team sections (independent of recipe_categories) drive ALL_DEPARTMENTS + TEAM_DEPTS ──
+  if (config.teamDepts && config.teamDepts.length) {
+    TEAM_DEPTS = config.teamDepts;
+    var flat = config.teamDepts.reduce(function(acc,d){ return acc.concat(d.sections || []); }, []);
+    if (flat.length) ALL_DEPARTMENTS = flat;
   }
 }
 
@@ -135,4 +138,4 @@ const OPS_SUPABASE_URL = import.meta.env.VITE_OPS_SUPABASE_URL || "";
 const OPS_SUPABASE_KEY = import.meta.env.VITE_OPS_SUPABASE_ANON_KEY || "";
 const OPS_IMG_BASE = OPS_SUPABASE_URL ? OPS_SUPABASE_URL + "/storage/v1/object/public/images/" : "";
 
-export { C, AVATAR_COLORS, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants, resolveSection, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE };
+export { C, AVATAR_COLORS, ALL_DEPARTMENTS, TEAM_DEPTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants, resolveSection, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE };

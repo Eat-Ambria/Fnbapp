@@ -1,6 +1,6 @@
 // Ambria FnB — Gate Kiosk (full-screen attendance)
 import React, { useState, useRef, useEffect } from "react";
-import { C, SECTION_META } from '../data/constants.js';
+import { C, SECTION_META, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, calcHoursWorked, fmtHours, classifyDay, genPunchId } from '../utils/helpers.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
@@ -24,18 +24,11 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   const venueName = currentUser.venue || 'Ambria';
 
-  const DEPTS = [
-    {id:'kitchen',label:'Kitchen',icon:'👨‍🍳',
-      sections:['Main Course','Indian Tandoor','Indian Curries','Tandoor','Chinese & Pan Asian','Chinese','Chaat Station','Chaat','Savoury Halwai','Halwai & Savoury','Sweets','Continental','Bakery','K.S.T','Main Course + Chaat Station + Indian Desserts']},
-    {id:'service',label:'Service',icon:'🍽',sections:['Service']},
-    {id:'crockery',label:'Crockery',icon:'🍶',sections:['Crockery']},
-    {id:'beverages',label:'Beverages',icon:'🥤',sections:['Beverages']},
-    {id:'transport',label:'Transport',icon:'🚛',sections:['Transportation','Transport']},
-    {id:'odc',label:'ODC',icon:'🏕',sections:['ODC']},
-    {id:'management',label:'Management',icon:'🔐',sections:['Management']},
-    {id:'maintenance',label:'Maintenance',icon:'🔧',sections:['Maintenance']},
-    {id:'vendor',label:'Outside Vendor',icon:'🏢'},
-  ];
+  const DEPTS = React.useMemo(function(){
+    var arr = (TEAM_DEPTS||[]).map(function(d){ return {id:d.id,label:d.label,icon:d.icon,sections:d.sections||[]}; });
+    arr.push({id:'vendor',label:'Outside Vendor',icon:'🏢'});
+    return arr;
+  }, [TEAM_DEPTS.length]);
 
   function getStaffForDept(dept) {
     var secSet = new Set((dept.sections||[]).map(function(x){return x.toLowerCase();}));

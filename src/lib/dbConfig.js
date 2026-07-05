@@ -165,6 +165,8 @@ export async function loadAllConfig() {
     vendorCategoriesRaw,
     dishCategoriesRaw,
     dishNameMapRaw,
+    teamDeptsRaw,
+    teamSectionsRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
@@ -178,7 +180,22 @@ export async function loadAllConfig() {
     loadTable('vendor_categories',     [], null),
     loadTable('dish_categories',       [], null),
     loadTable('dish_name_map',         [], null),
+    loadTable('team_departments',      [], null),
+    loadTable('team_sections',         [], null),
   ]);
+
+  // Join team_departments + team_sections into [{id,label,icon,sections:[names]}]
+  const teamDepts = (teamDeptsRaw || [])
+    .filter(d => d.is_active !== false)
+    .sort((a,b) => (a.sort_order||0) - (b.sort_order||0))
+    .map(d => ({
+      id: d.id, label: d.label, icon: d.icon,
+      sections: (teamSectionsRaw || [])
+        .filter(s => s.dept_id === d.id && s.is_active !== false)
+        .sort((a,b) => (a.sort_order||0) - (b.sort_order||0))
+        .map(s => s.name)
+    }));
+
 
   // Build dish→category lookup from dish_categories table
   const dishCatMap = {};
@@ -203,5 +220,6 @@ export async function loadAllConfig() {
     vendorCategories:   transformVendorCategories(vendorCategoriesRaw),
     dishCategories:     dishCatMap,
     dishNameMap,
+    teamDepts,
   };
 }

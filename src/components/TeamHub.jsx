@@ -1,7 +1,7 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
-import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, resolveSection } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
@@ -15,8 +15,12 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const T2 = s => T(s, lang);
 
   // Department-to-section mapping for filtering
-  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages').map(c=>c.name);
-  const DEPT_SECTIONS_MAP = {kitchen:KITCHEN_SECTIONS,service:["Service"],crockery:["Crockery"],beverages:["Beverages"],transport:["Transportation"],odc:["ODC"]};
+  const DEPT_SECTIONS_MAP = React.useMemo(function(){
+    var map = {};
+    (TEAM_DEPTS||[]).forEach(function(d){ map[d.id] = d.sections || []; });
+    return map;
+  }, [TEAM_DEPTS.length]);
+  const KITCHEN_SECTIONS = DEPT_SECTIONS_MAP.kitchen || [];
   const deptSections = activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null;
 
   const [secFilter,setSecFilter] = useState("All");
