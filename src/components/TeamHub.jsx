@@ -16,9 +16,17 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
 
   // Department-to-section mapping for filtering
   const DEPT_SECTIONS_MAP = React.useMemo(function(){
-    var map = {};
+    var map={};
     (TEAM_DEPTS||[]).forEach(function(d){ map[d.id] = d.sections || []; });
     return map;
+  }, [TEAM_DEPTS.length]);
+  // Reverse lookup: section name → team_department id (for auto-deriving dept on add)
+  const SECTION_TO_DEPT = React.useMemo(function(){
+    var m={};
+    (TEAM_DEPTS||[]).forEach(function(d){
+      (d.sections||[]).forEach(function(sec){ m[sec] = d.id; });
+    });
+    return m;
   }, [TEAM_DEPTS.length]);
   const KITCHEN_SECTIONS = DEPT_SECTIONS_MAP.kitchen || [];
   const deptSections = activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null;
@@ -65,7 +73,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [selEmp,setSelEmp]       = useState(null);
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
-  const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+  const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",role:"staff",pin:"0000",joining:TODAY,active:true});
   const [editPhotoFile,setEditPhotoFile] = useState(null);
   const [editPhotoPreview,setEditPhotoPreview] = useState(null);
   const [addPhotoFile,setAddPhotoFile] = useState(null);
@@ -112,8 +120,18 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   
 
   // Employee helpers
+  function openAddForm(){
+    var defSec = (deptSections && deptSections.length>0 && deptSections.length===1) ? deptSections[0] : "";
+    setNewEmpForm({name:"",section:defSec,role:"staff",pin:"0000",joining:TODAY,active:true});
+    setAddPhotoFile(null);
+    setAddPhotoPreview(null);
+    setShowAddEmp(true);
+  }
   async function addEmployee(){
-    if(!newEmpForm.name.trim()) return;
+    if(!newEmpForm.name.trim()) { alert("Please enter a name"); return; }
+    if(!newEmpForm.section) { alert("Please pick a section"); return; }
+    var dept = SECTION_TO_DEPT[newEmpForm.section] || null;
+    if(!dept) { alert("Section '"+newEmpForm.section+"' is not mapped to any department. Check team_sections table."); return; }
     const newId="STF-"+Date.now();
     var photo_url = null;
     if (addPhotoFile) {
@@ -121,11 +139,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       photo_url = await uploadStaffPhoto(supabase, newId, addPhotoFile);
       setPhotoUploading(false);
     }
-    const record = {...newEmpForm,id:newId,staff_id:newId,staffListId:newId,is_active:true,active:true};
+    const record = {...newEmpForm, dept:dept, id:newId, staff_id:newId, staffListId:newId, is_active:true, active:true};
     if (photo_url) record.photo_url = photo_url;
     setEmpDb(p=>[...p,record]);
     if(syncToServer) syncToServer('upsert',record);
-    setNewEmpForm({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+    setNewEmpForm({name:"",section:"",role:"staff",pin:"0000",joining:TODAY,active:true});
     setAddPhotoFile(null);
     setAddPhotoPreview(null);
     setShowAddEmp(false);
@@ -813,23 +831,35 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               <option value="admin">Admin</option>
               <option value="headchef">{T2("Head Chefs")}</option>
             </select>
-            <Btn onClick={()=>setShowAddEmp(s=>!s)} color={showAddEmp?"transparent":C.wine} textColor={showAddEmp?C.muted:"#fff"} border={showAddEmp?`1px solid ${C.border}`:"none"} style={{fontSize:12,padding:"7px 14px"}}>{showAddEmp?"× Cancel":"+ Add Employee"}</Btn>
+            <Btn onClick={()=>{ if(showAddEmp){setShowAddEmp(false);} else {openAddForm();} }} color={showAddEmp?"transparent":C.wine} textColor={showAddEmp?C.muted:"#fff"} border={showAddEmp?`1px solid ${C.border}`:"none"} style={{fontSize:12,padding:"7px 14px"}}>{showAddEmp?"× Cancel":"+ Add Employee"}</Btn>
           </div>
 
           {showAddEmp && (
             <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
               <div style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:10}}>{T2("New Employee")}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
-                {[{l:"Full Name",k:"name",ph:"Full name"},{l:"Section",k:"section",type:"sel",opts:ALL_DEPARTMENTS},{l:"Role",k:"role",type:"sel",opts:["staff","headchef","admin"]},{l:"PIN (4 digits)",k:"pin",max:4,ph:"0000"},{l:"Joining Date",k:"joining",dt:"date"},{l:"Dept",k:"dept",ph:"F&B Kitchen"}].map(f=>(
+                {[
+                  {l:"Full Name",k:"name",ph:"Full name"},
+                  {l:"Section",k:"section",type:"sel",opts:(deptSections&&deptSections.length>0)?deptSections:ALL_DEPARTMENTS,placeholder:"— Pick section —"},
+                  {l:"Role",k:"role",type:"sel",opts:["staff","headchef","admin"]},
+                  {l:"PIN (4 digits)",k:"pin",max:4,ph:"0000"},
+                  {l:"Joining Date",k:"joining",dt:"date"}
+                ].map(f=>(
                   <div key={f.k}>
                     <div style={{fontSize:11,color:C.muted,marginBottom:2}}>{f.l}</div>
                     {f.type==="sel"
-                      ? <select value={newEmpForm[f.k]} onChange={e=>setNewEmpForm(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>{f.opts.map(o=><option key={o}>{o}</option>)}</select>
+                      ? <select value={newEmpForm[f.k]||""} onChange={e=>setNewEmpForm(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                          {f.placeholder && <option value="">{f.placeholder}</option>}
+                          {f.opts.map(o=><option key={o} value={o}>{o}</option>)}
+                        </select>
                       : <input type={f.dt||"text"} value={newEmpForm[f.k]} onChange={e=>setNewEmpForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} maxLength={f.max} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
                     }
                   </div>
                 ))}
               </div>
+              {newEmpForm.section && (
+                <div style={{fontSize:10,color:C.faint,marginBottom:8}}>→ Will be assigned to Dept: <b style={{color:C.muted}}>{((TEAM_DEPTS||[]).find(d=>d.id===SECTION_TO_DEPT[newEmpForm.section])||{}).label||SECTION_TO_DEPT[newEmpForm.section]||"—"}</b></div>
+              )}
               <div style={{display:"flex",gap:8}}>
                 <Btn onClick={addEmployee} color={C.wine} style={{fontSize:11,padding:"6px 16px"}}>{T2("Add Employee")}</Btn>
                 <Btn onClick={()=>setShowAddEmp(false)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"6px 14px"}}>Cancel</Btn>

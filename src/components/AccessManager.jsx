@@ -1,6 +1,6 @@
 // Ambria FnB — Access Manager (RBAC) — Redesigned with modal forms
 import React, { useState } from "react";
-import { C, ALL_DEPARTMENTS } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
 import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
@@ -36,13 +36,23 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     {v:"admin",              l:"👑 Admin — Full Access"},
     {v:"head_chef",          l:"👨‍🍳 Head Chef — Kitchen + Store + Transport"},
     {v:"section_tablet",     l:"📱 Section Tablet — Pick SOP categories below"},
-    {v:"service",            l:"🍽 Service Dept"},
+    {v:"service",            l:"🍽 F&B Dept"},
     {v:"crockery",           l:"🍶 Crockery Dept"},
     {v:"beverages",          l:"🥤 Beverages Dept"},
     {v:"transport",          l:"🚛 Transport"},
     {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
+    {v:"staff",              l:"👤 Basic Staff — Attendance only"},
   ];
   const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
+  // Auto-derive dept from selected section via team_sections mapping
+  function deptForSection(secName){
+    if(!secName) return null;
+    for(var i=0;i<TEAM_DEPTS.length;i++){
+      var d=TEAM_DEPTS[i];
+      if(Array.isArray(d.sections) && d.sections.indexOf(secName)>=0) return d.id;
+    }
+    return null;
+  }
 
   // ── State ──
   const blankForm = {staff_id:"",name:"",role:"section_tablet",section:"",dept:"kitchen",pin:"1111",is_active:true,venue:"",sop_categories:[]};
@@ -336,25 +346,16 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             {form.role!=='section_tablet'&&!form.role?.startsWith('section_')&&(
             <div>
-              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Department")}</div>
-              <select value={form.section} onChange={e=>setForm(p=>({...p,section:e.target.value,staff_id:editId?p.staff_id:autoGenerateId(e.target.value,p.dept)}))} style={fld}>
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Section")}</div>
+              <select value={form.section||""} onChange={e=>{var s=e.target.value;var d=deptForSection(s);setForm(p=>({...p,section:s,dept:d||p.dept,staff_id:editId?p.staff_id:autoGenerateId(s,d||p.dept)}));}} style={fld}>
+                <option value="">— Select section —</option>
                 {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
               </select>
+              {form.section && (
+                <div style={{fontSize:10,color:C.faint,marginTop:4}}>→ Dept: <b style={{color:C.muted}}>{((TEAM_DEPTS||[]).find(d=>d.id===form.dept)||{}).label||form.dept||"—"}</b></div>
+              )}
             </div>
             )}
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Department")}</div>
-              <select value={form.dept||"kitchen"} onChange={e=>{var d=e.target.value;setForm(p=>({...p,dept:d,staff_id:editId?p.staff_id:autoGenerateId(p.section,d)}));}} style={fld}>
-                <option value="kitchen">Kitchen</option>
-                <option value="service">Service</option>
-                <option value="crockery">Crockery</option>
-                <option value="beverages">Beverages</option>
-                <option value="transport">Transportation</option>
-                <option value="odc">ODC</option>
-                <option value="management">Management</option>
-                <option value="maintenance">Maintenance</option>
-              </select>
-            </div>
             <div>
               <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("PIN (4 digits)")}</div>
               <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700,fontFamily:"monospace"}} type="text" inputMode="numeric"/>
@@ -441,7 +442,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               {v:"head_chef",l:"👨‍🍳 Head Chef",desc:"Kitchen + Store + Transport + Team"},
             ]},
             {tier:"Departments",roles:[
-              {v:"service",l:"🍽 Service"},{v:"crockery",l:"🍶 Crockery"},{v:"beverages",l:"🥤 Beverages"},{v:"transport",l:"🚛 Transport"},
+              {v:"service",l:"🍽 F&B"},{v:"crockery",l:"🍶 Crockery"},{v:"beverages",l:"🥤 Beverages"},{v:"transport",l:"🚛 Transport"},
             ]},
             {tier:"Section Tablets",roles:[
               {v:"section_tablet",l:"📱 Kitchen Tablet"},
