@@ -29,7 +29,9 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     return m;
   }, [TEAM_DEPTS.length]);
   const KITCHEN_SECTIONS = DEPT_SECTIONS_MAP.kitchen || [];
-  const deptSections = activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null;
+  // Admins are cross-dept — never scope their view by activeDept.
+  // Section heads / dept managers stay scoped to their sidebar dept.
+  const deptSections = (currentUser?.role === 'admin') ? null : (activeDept && DEPT_SECTIONS_MAP[activeDept] ? DEPT_SECTIONS_MAP[activeDept] : null);
 
   const [secFilter,setSecFilter] = useState("All");
   const [vendorOrders,setVendorOrders] = useState([]);
