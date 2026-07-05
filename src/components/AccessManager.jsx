@@ -165,18 +165,21 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   }
   function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
+    // SOP categories & tablet-style section derivation apply ONLY to section_tablet roles.
+    // For any other role, section is exactly what the user picked in the Section dropdown.
+    const isTablet = form.role==='section_tablet' || (form.role||'').startsWith('section_');
     if(editId){
       const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
-      const cats = form.sop_categories||[];
-      const derivedSection = cats.length>0 ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
+      const cats = isTablet ? (form.sop_categories||[]) : [];
+      const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
       const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry);
       logActivity('system', 'Staff updated: '+form.name+' ('+editId+')', 'staff_edit', {staff_id:editId, name:form.name, role:form.role}, currentUser?.id);
     } else {
       const sid = form.staff_id.toUpperCase();
-      const cats = form.sop_categories||[];
-      const derivedSection = cats.length>0 ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
+      const cats = isTablet ? (form.sop_categories||[]) : [];
+      const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
       const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
       if(syncToServer) syncToServer('upsert', newStaff);
