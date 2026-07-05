@@ -17,7 +17,11 @@ function getEmpByStaffId(empDb, staffListId) {
 }
 
 function yrsOfService(joining) {
-  const diff = new Date() - new Date(joining);
+  if (!joining) return '—';
+  const j = new Date(joining);
+  if (isNaN(j.getTime())) return '—';
+  const diff = new Date() - j;
+  if (diff < 0) return '—';
   const yrs = Math.floor(diff / (1000*60*60*24*365));
   const mos = Math.floor((diff % (1000*60*60*24*365)) / (1000*60*60*24*30));
   return yrs > 0 ? `${yrs}y ${mos}m` : `${mos} months`;

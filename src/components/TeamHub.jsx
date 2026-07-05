@@ -66,12 +66,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   // Computed — filtered by active department
   const _resolvedStaff = STAFF_LIST.map(function(s){ return Object.assign({},s,{section:resolveSection(s.section)}); });
   const deptStaffList = deptSections ? _resolvedStaff.filter(s=>deptSections.includes(s.section)) : _resolvedStaff;
-  // Merge empDb + STAFF_LIST so directory shows all staff the kiosk sees
+  // Supabase is source of truth. STAFF_LIST only used as fallback if Supabase is empty (initial load / dev).
   const allEmpDb = (function(){
     var db = safeArr(empDb);
-    var dbNames = new Set(db.map(function(s){ return (s.name||'').toLowerCase(); }));
+    if (db.length > 10) return db; // Supabase has real data → use exclusively
+    // Fallback: STAFF_LIST for dev/empty-DB scenarios
+    var dbNames = new Set(db.map(function(s){ return (s.name||'').toLowerCase().replace(/\s+/g,''); }));
     var fromList = STAFF_LIST.filter(function(s){
-      return !dbNames.has((s.name||'').toLowerCase());
+      return !dbNames.has((s.name||'').toLowerCase().replace(/\s+/g,''));
     }).map(function(s){
       return {id:String(s.id),staff_id:String(s.id),staffListId:String(s.id),name:s.name,section:resolveSection(s.section),dept:resolveSection(s.section),role:s.role||'staff',is_active:true,pin:'0000',joining:'',source:'stafflist'};
     });

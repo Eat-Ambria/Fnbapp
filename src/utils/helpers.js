@@ -50,12 +50,28 @@ function normalizeAtt(a) {
   };
 }
 
+// Convert "08:46:09 am" / "05:58 PM" / "17:30" → minutes since 00:00
+function _toMins(t) {
+  if (!t) return null;
+  var s = String(t).trim();
+  var ampm = null;
+  var m = s.match(/\b(am|pm|AM|PM)\b/);
+  if (m) { ampm = m[1].toLowerCase(); s = s.replace(m[0],'').trim(); }
+  var p = s.split(':');
+  var h = parseInt(p[0],10); var mn = parseInt(p[1],10)||0;
+  if (isNaN(h)) return null;
+  if (ampm) {
+    if (h === 12) h = 0;          // 12 am = 0, 12 pm = 12
+    if (ampm === 'pm') h += 12;
+  }
+  return h*60 + mn;
+}
+
 // Cross-midnight-safe hours calculation: "20:00" → "02:30" = 6.5h
+// Handles both 12h ("08:46 am") and 24h ("20:00") formats.
 function calcHoursWorked(inTime, outTime) {
-  if (!inTime || !outTime) return null;
-  var pIn = inTime.split(':'), pOut = outTime.split(':');
-  var inMin = (parseInt(pIn[0])||0)*60 + (parseInt(pIn[1])||0);
-  var outMin = (parseInt(pOut[0])||0)*60 + (parseInt(pOut[1])||0);
+  var inMin = _toMins(inTime), outMin = _toMins(outTime);
+  if (inMin==null || outMin==null) return null;
   if (outMin < inMin) outMin += 1440; // crossed midnight
   var hrs = (outMin - inMin) / 60;
   return Math.round(hrs * 100) / 100; // 2 decimal places
