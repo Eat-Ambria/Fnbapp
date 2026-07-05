@@ -862,9 +862,29 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               {newEmpForm.section && (
                 <div style={{fontSize:10,color:C.faint,marginBottom:8}}>→ Will be assigned to Dept: <b style={{color:C.muted}}>{((TEAM_DEPTS||[]).find(d=>d.id===SECTION_TO_DEPT[newEmpForm.section])||{}).label||SECTION_TO_DEPT[newEmpForm.section]||"—"}</b></div>
               )}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"10px 12px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+                {addPhotoPreview
+                  ? <img src={addPhotoPreview} style={{width:56,height:56,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`}}/>
+                  : <div style={{width:56,height:56,borderRadius:"50%",background:C.bg,border:`1px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:C.muted}}>📷</div>}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Profile Photo <span style={{color:C.gold}}>· for Gate Kiosk face match</span></div>
+                  <label style={{display:"inline-block",padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:11,cursor:"pointer",color:C.text}}>
+                    {addPhotoPreview?"Change photo":"Add photo"}
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={function(e){
+                      var f = e.target.files && e.target.files[0];
+                      if(!f) return;
+                      setAddPhotoFile(f);
+                      var r = new FileReader();
+                      r.onload = function(ev){ setAddPhotoPreview(ev.target.result); };
+                      r.readAsDataURL(f);
+                    }}/>
+                  </label>
+                  {addPhotoPreview && <button onClick={()=>{setAddPhotoFile(null);setAddPhotoPreview(null);}} style={{marginLeft:6,padding:"6px 10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,fontSize:11,cursor:"pointer",color:C.muted}}>Remove</button>}
+                </div>
+              </div>
               <div style={{display:"flex",gap:8}}>
-                <Btn onClick={addEmployee} color={C.wine} style={{fontSize:11,padding:"6px 16px"}}>{T2("Add Employee")}</Btn>
-                <Btn onClick={()=>setShowAddEmp(false)} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"6px 14px"}}>Cancel</Btn>
+                <Btn onClick={addEmployee} color={C.wine} style={{fontSize:11,padding:"6px 16px",opacity:photoUploading?0.6:1,pointerEvents:photoUploading?"none":"auto"}}>{photoUploading?"Uploading…":T2("Add Employee")}</Btn>
+                <Btn onClick={()=>{setShowAddEmp(false);setAddPhotoFile(null);setAddPhotoPreview(null);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"6px 14px"}}>Cancel</Btn>
               </div>
             </div>
           )}
