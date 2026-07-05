@@ -103,4 +103,44 @@ function fmtStamp(ts) {
          d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp };
+// Client-side JPEG compression via canvas. maxDim caps largest side; quality 0-1.
+function compressImage(file, maxDim, quality) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        var ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob) { resolve(blob); }, 'image/jpeg', quality);
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Upload staff profile photo to Supabase Storage. Returns public URL or null on error.
+async function uploadStaffPhoto(supabase, staffId, file) {
+  if (!supabase || !file || !staffId) return null;
+  try {
+    var blob = await compressImage(file, 400, 0.8);
+    if (!blob) return null;
+    var path = String(staffId) + '.jpg';
+    var { error: upErr } = await supabase.storage
+      .from('staff-photos')
+      .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (upErr) { console.error('staff photo upload:', upErr); return null; }
+    var { data } = supabase.storage.from('staff-photos').getPublicUrl(path);
+    return data && data.publicUrl ? data.publicUrl + '?v=' + Date.now() : null;
+  } catch (e) {
+    console.error('staff photo upload:', e);
+    return null;
+  }
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto };

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
@@ -62,6 +62,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
   const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+  const [editPhotoFile,setEditPhotoFile] = useState(null);
+  const [editPhotoPreview,setEditPhotoPreview] = useState(null);
+  const [addPhotoFile,setAddPhotoFile] = useState(null);
+  const [addPhotoPreview,setAddPhotoPreview] = useState(null);
+  const [photoUploading,setPhotoUploading] = useState(false);
 
   // Computed — filtered by active department. Supabase is the sole source of truth.
   const allEmpDb = safeArr(empDb).filter(function(s){
@@ -103,25 +108,41 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   
 
   // Employee helpers
-  function addEmployee(){
+  async function addEmployee(){
     if(!newEmpForm.name.trim()) return;
     const newId="STF-"+Date.now();
+    var photo_url = null;
+    if (addPhotoFile) {
+      setPhotoUploading(true);
+      photo_url = await uploadStaffPhoto(supabase, newId, addPhotoFile);
+      setPhotoUploading(false);
+    }
     const record = {...newEmpForm,id:newId,staff_id:newId,staffListId:newId,is_active:true,active:true};
+    if (photo_url) record.photo_url = photo_url;
     setEmpDb(p=>[...p,record]);
     if(syncToServer) syncToServer('upsert',record);
     setNewEmpForm({name:"",section:"",dept:"F&B Kitchen",role:"staff",pin:"0000",joining:TODAY,active:true});
+    setAddPhotoFile(null);
+    setAddPhotoPreview(null);
     setShowAddEmp(false);
   }
-  function saveEmpEdit(){
+  async function saveEmpEdit(){
     if(!editEmpForm||!selEmp) return;
-    const updated = {...selEmp,...editEmpForm};
+    var sid = selEmp.staff_id||selEmp.staffListId||selEmp.id;
+    var patch = {...editEmpForm};
+    if (editPhotoFile) {
+      setPhotoUploading(true);
+      var url = await uploadStaffPhoto(supabase, sid, editPhotoFile);
+      setPhotoUploading(false);
+      if (url) patch.photo_url = url;
+    }
+    const updated = {...selEmp,...patch};
     setEmpDb(p=>p.map(e=>{
       var eid = e.id||e.staff_id||e.staffListId;
-      var sid = selEmp.id||selEmp.staff_id||selEmp.staffListId;
-      return eid===sid?{...e,...editEmpForm}:e;
+      return eid===sid?{...e,...patch}:e;
     }));
     if(syncToServer) syncToServer('upsert',updated);
-    setSelEmp(null);setEditEmpForm(null);
+    setSelEmp(null);setEditEmpForm(null);setEditPhotoFile(null);setEditPhotoPreview(null);
   }
   function deleteEmployee(){
     if(!deleteConfirm) return;
@@ -843,16 +864,34 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           </select>
                         </div>
                       </div>
+                      <div style={{marginTop:8,marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
+                        {editPhotoPreview
+                          ? <img src={editPhotoPreview} style={{width:48,height:48,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`}}/>
+                          : <div style={{width:48,height:48,borderRadius:"50%",background:C.bg,border:`1px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.muted}}>📷</div>}
+                        <label style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:11,cursor:"pointer",color:C.text}}>
+                          {editPhotoPreview?"Change photo":"Add photo"}
+                          <input type="file" accept="image/*" style={{display:"none"}} onChange={function(e){
+                            var f = e.target.files && e.target.files[0];
+                            if(!f) return;
+                            setEditPhotoFile(f);
+                            var r = new FileReader();
+                            r.onload = function(ev){ setEditPhotoPreview(ev.target.result); };
+                            r.readAsDataURL(f);
+                          }}/>
+                        </label>
+                      </div>
                       <div style={{display:"flex",gap:6}}>
-                        <Btn onClick={saveEmpEdit} color={C.wine} style={{fontSize:11,padding:"5px 12px"}}>Save</Btn>
-                        <Btn onClick={()=>{setSelEmp(null);setEditEmpForm(null);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"5px 10px"}}>Cancel</Btn>
+                        <Btn onClick={saveEmpEdit} color={C.wine} style={{fontSize:11,padding:"5px 12px",opacity:photoUploading?0.6:1,pointerEvents:photoUploading?"none":"auto"}}>{photoUploading?"Uploading…":"Save"}</Btn>
+                        <Btn onClick={()=>{setSelEmp(null);setEditEmpForm(null);setEditPhotoFile(null);setEditPhotoPreview(null);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:11,padding:"5px 10px"}}>Cancel</Btn>
                       </div>
                     </div>
                   ) : (
                     <div>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                         <div style={{display:"flex",gap:9,alignItems:"center"}}>
-                          <Avatar name={emp.name} size={34} index={i}/>
+                          {emp.photo_url
+                            ? <img src={emp.photo_url} style={{width:34,height:34,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`}}/>
+                            : <Avatar name={emp.name} size={34} index={i}/>}
                           <div>
                             <div style={{fontSize:12,fontWeight:600,color:C.text}}>{emp.name}</div>
                             <div style={{fontSize:10,color:C.gold,fontWeight:600}}>{emp.id}</div>
@@ -863,7 +902,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6,flexShrink:0}}>
-                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section});}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
+                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section});setEditPhotoFile(null);setEditPhotoPreview(emp.photo_url||null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
                           <button onClick={()=>{var eid=emp.id||emp.staff_id||emp.staffListId;var toggled=!emp.active;setEmpDb(p=>p.map(e=>(e.id||e.staff_id||e.staffListId)!==eid?e:{...e,active:toggled,is_active:toggled}));if(syncToServer)syncToServer('upsert',{...emp,active:toggled,is_active:toggled});}} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:emp.active?C.greenBg:C.redBg,color:emp.active?C.green:C.red}}>{emp.active?T2("Active"):T2("Off")}</button>
                           <button onClick={()=>setDeleteConfirm(emp)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,cursor:"pointer",border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red}}>🗑</button>
                         </div>

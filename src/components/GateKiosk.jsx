@@ -349,12 +349,18 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 style:{padding:'14px 12px',borderRadius:12,
                   background: (isIn || isComplete) ? C.greenBg : C.surface,
                   border:'1.5px solid '+((isIn || isComplete) ? C.greenBorder : C.border),
-                  cursor:'pointer',textAlign:'left',minHeight:56}
+                  cursor:'pointer',textAlign:'left',minHeight:72,
+                  display:'flex',alignItems:'center',gap:12}
               },
-                React.createElement('div',{style:{fontSize:14,fontWeight:700,
-                  color:C.text}},s.name),
-                React.createElement('div',{style:{fontSize:11,
-                  color:statusColor,marginTop:2}}, statusText)
+                s.photo_url
+                  ? React.createElement('img',{src:s.photo_url,style:{width:52,height:52,borderRadius:'50%',objectFit:'cover',border:'1px solid '+C.border,flexShrink:0}})
+                  : React.createElement('div',{style:{width:52,height:52,borderRadius:'50%',background:C.bg,border:'1px solid '+C.border,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,fontWeight:700,color:C.muted,flexShrink:0}},(s.name||'?').charAt(0).toUpperCase()),
+                React.createElement('div',{style:{flex:1,minWidth:0}},
+                  React.createElement('div',{style:{fontSize:14,fontWeight:700,
+                    color:C.text}},s.name),
+                  React.createElement('div',{style:{fontSize:11,
+                    color:statusColor,marginTop:2}}, statusText)
+                )
               );
             })
           )
