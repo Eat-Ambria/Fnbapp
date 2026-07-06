@@ -424,7 +424,9 @@ export default function App() {
   async function syncStaff(action, data) {
     const record = {
       staff_id: data.staffListId||data.staff_id, name: data.name||'',
-      section: data.section||null, dept: data.dept||null, role: data.role||'staff',
+      name_hi: data.name_hi||null,
+      section: data.section||null, section_hi: data.section_hi||null,
+      dept: data.dept||null, role: data.role||'staff',
       pin: String(data.pin||'0000'), is_admin: data.role==='admin',
       is_active: data.is_active!==false, joining: data.joining||null,
       phone: data.phone||null, custom_screens: data.custom_screens||null,
