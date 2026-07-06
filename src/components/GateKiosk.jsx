@@ -12,6 +12,7 @@ import { logActivity } from './ActivityLog.jsx';
 
 function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang}) {
   const T2 = s => T(s, lang || 'en');
+  const isHi = (lang === 'hi');
   const [step, setStep] = useState('dept');
   const [selDept, setSelDept] = useState(null);
   const [selStaff, setSelStaff] = useState(null);
@@ -20,13 +21,35 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
   const [photoBlob, setPhotoBlob] = useState(null);
   const [vendorForm, setVendorForm] = useState({name:'',company:'',purpose:'',section:'',phone:'',vehicle:''});
   const [gpsData, setGpsData] = useState(null);
+  const [sectionHiMap, setSectionHiMap] = useState({});
+  const [deptHiMap, setDeptHiMap] = useState({});
   const photoRef = useRef(null);
+  useEffect(function(){
+    var mounted = true;
+    (async function(){
+      if (!supabase) return;
+      var s = await supabase.from('team_sections').select('name, label_hi');
+      if (mounted && !s.error && s.data) {
+        var m = {}; s.data.forEach(function(r){ if (r.name && r.label_hi) m[r.name] = r.label_hi; });
+        setSectionHiMap(m);
+      }
+      var d = await supabase.from('team_departments').select('id, label_hi');
+      if (mounted && !d.error && d.data) {
+        var dm = {}; d.data.forEach(function(r){ if (r.id && r.label_hi) dm[r.id] = r.label_hi; });
+        setDeptHiMap(dm);
+      }
+    })();
+    return function(){ mounted = false; };
+  }, []);
+  function nameOf(s){ if(!s) return ''; return (isHi && s.name_hi) ? s.name_hi : (s.name || ''); }
+  function secOf(sec){ if(!sec) return ''; return (isHi && sectionHiMap[sec]) ? sectionHiMap[sec] : sec; }
+  function deptOf(d){ if(!d) return ''; if(isHi && deptHiMap[d.id]) return deptHiMap[d.id]; return d.label || d.id || ''; }
 
   const venueName = currentUser.venue || 'Ambria';
 
   const DEPTS = React.useMemo(function(){
     var arr = (TEAM_DEPTS||[]).map(function(d){ return {id:d.id,label:d.label,icon:d.icon,sections:d.sections||[]}; });
-    arr.push({id:'vendor',label:'Outside Vendor',icon:'🏢'});
+    arr.push({id:'vendor',label:T2('Outside Vendor'),icon:'🏢'});
     return arr;
   }, [TEAM_DEPTS.length]);
 
@@ -114,7 +137,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       }
     } catch(e){}
     logActivity('attendance', selStaff.name+' punched '+type, 'punch_'+type.toLowerCase(), {staff_id:sid, venue:venueName, section:selStaff.section||''});
-    setSuccess({name:selStaff.name, type:type, time:timeStr});
+    setSuccess({name:nameOf(selStaff), type:type, time:timeStr});
     setStep('success');
     setTimeout(function(){
       setStep('dept');
@@ -234,7 +257,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     React.createElement('div', {style:{fontSize:22,fontWeight:700,
       color:C.wine,fontFamily:'var(--font-display)'}}, venueName),
     React.createElement('div', {style:{fontSize:12,color:C.muted,marginTop:4}},
-      'Gate Kiosk · ' + TODAY_LABEL)
+      T2('Gate Kiosk') + ' · ' + TODAY_LABEL)
   );
 
   // ── STEP 1: SELECT DEPARTMENT ──
@@ -249,7 +272,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         (function(){
           var todayTotal = safeArr(attendance).filter(function(a){return a.date===TODAY && !a.is_vendor;}).length;
           var todayIn = safeArr(attendance).filter(function(a){return a.date===TODAY && !a.is_vendor && a.in_time && !a.out_time;}).length;
-          return todayTotal>0 ? todayIn+' currently in · '+todayTotal+' punched today' : 'No punches yet today';
+          return todayTotal>0 ? todayIn+' '+T2('currently in')+' · '+todayTotal+' '+T2('punched today') : T2('No punches yet today');
         })()
       ),
       React.createElement('div', {style:{display:'grid',
@@ -278,9 +301,9 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           },
             React.createElement('div',{style:{fontSize:32,marginBottom:6}},d.icon),
             React.createElement('div',{style:{fontSize:14,fontWeight:700,
-              color:C.text}},d.label),
+              color:C.text}},deptOf(d)),
             React.createElement('div',{style:{fontSize:11,color:deptIn>0?C.green:C.muted,
-              marginTop:4}},d.id==='vendor'?'Entry Form':(deptIn>0?deptIn+' in · ':'')+count+' staff')
+              marginTop:4}},d.id==='vendor'?T2('Entry Form'):(deptIn>0?deptIn+' '+T2('in')+' · ':'')+count+' '+T2('staff'))
           );
         })
       ),
@@ -290,7 +313,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           style:{padding:'6px 14px',borderRadius:8,background:C.surface,
             border:'1px solid '+C.border,color:C.muted,fontSize:10,
             cursor:'pointer'}
-        }, 'Sign Out')
+        }, T2('Sign Out'))
       )
     );
   }
@@ -314,13 +337,13 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       }, '← ' + T2('Back')),
       React.createElement('div', {style:{fontSize:18,fontWeight:700,
         color:C.text,fontFamily:'var(--font-display)',marginBottom:16}},
-        selDept.icon + ' ' + selDept.label + ' — ' + T2('Select Your Name')),
+        selDept.icon + ' ' + deptOf(selDept) + ' — ' + T2('Select Your Name')),
       Object.keys(grouped).map(function(sec) {
         return React.createElement('div', {key:sec, style:{marginBottom:16}},
           Object.keys(grouped).length > 1 ?
             React.createElement('div', {style:{fontSize:12,fontWeight:700,
               color:C.wine,marginBottom:8,textTransform:'uppercase',
-              letterSpacing:0.8}}, sec) : null,
+              letterSpacing:0.8}}, secOf(sec)) : null,
           React.createElement('div', {style:{display:'grid',
             gridTemplateColumns:'repeat(2,1fr)',gap:8}},
             grouped[sec].map(function(s) {
@@ -331,10 +354,10 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
               var isComplete = todayAtt && todayAtt.in_time && todayAtt.out_time;
               var isIn = todayAtt && todayAtt.in_time && !todayAtt.out_time;
               var statusText = isComplete
-                ? '✅ IN: '+todayAtt.in_time+' · OUT: '+todayAtt.out_time
+                ? '✅ '+T2('IN')+': '+todayAtt.in_time+' · '+T2('OUT')+': '+todayAtt.out_time
                 : isIn
-                  ? '✅ IN since '+todayAtt.in_time
-                  : '⬜ Not yet punched in';
+                  ? '✅ '+T2('IN since')+' '+todayAtt.in_time
+                  : '⬜ '+T2('Not yet punched in');
               var statusColor = (isIn || isComplete) ? C.green : C.muted;
               return React.createElement('button', {
                 key: sid,
@@ -350,7 +373,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                   : React.createElement('div',{style:{width:52,height:52,borderRadius:'50%',background:C.bg,border:'1px solid '+C.border,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,fontWeight:700,color:C.muted,flexShrink:0}},(s.name||'?').charAt(0).toUpperCase()),
                 React.createElement('div',{style:{flex:1,minWidth:0}},
                   React.createElement('div',{style:{fontSize:14,fontWeight:700,
-                    color:C.text}},s.name),
+                    color:C.text}},nameOf(s)),
                   React.createElement('div',{style:{fontSize:11,
                     color:statusColor,marginTop:2}}, statusText)
                 )
@@ -381,10 +404,10 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         style:{padding:'10px 18px',borderRadius:10,background:C.surface,
           border:'1px solid '+C.border,color:C.muted,fontSize:13,
           cursor:'pointer',marginBottom:16,minHeight:44}
-      },'← Back'),
+      },'← '+T2('Back')),
       React.createElement('div',{style:{fontSize:18,fontWeight:700,
         color:C.text,fontFamily:'var(--font-display)',marginBottom:16}},
-        '🏢 Outside Vendor Entry'),
+        '🏢 '+T2('Outside Vendor Entry')),
       React.createElement('div',{style:{background:C.surface,borderRadius:14,
         padding:'18px',border:'1px solid '+C.border}},
         React.createElement('div',{style:{marginBottom:12}},
@@ -522,21 +545,21 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       ? React.createElement('div',{style:{padding:20,background:C.greenBg,borderRadius:14,
           border:'1px solid '+C.greenBorder}},
           React.createElement('div',{style:{fontSize:16,color:C.green,fontWeight:700}},
-            '✅ Attendance complete'),
+            '✅ '+T2('Attendance complete')),
           React.createElement('div',{style:{fontSize:13,color:C.muted,marginTop:4}},
-            'IN: '+todayRec3.in_time+' · OUT: '+todayRec3.out_time)
+            T2('IN')+': '+todayRec3.in_time+' · '+T2('OUT')+': '+todayRec3.out_time)
         )
       : punchedIn3
         ? React.createElement('div',null,
             React.createElement('div',{style:{fontSize:13,color:C.green,marginBottom:10,fontWeight:700}},
-              '✅ Punched IN at '+todayRec3.in_time),
+              '✅ '+T2('Punched IN at')+' '+todayRec3.in_time),
             React.createElement('button',{
               onClick:function(){handlePunch('OUT');},
               style:{padding:'18px 50px',borderRadius:14,fontSize:18,fontWeight:700,
                 cursor:'pointer',minHeight:64,width:'100%',maxWidth:320,
                 background:'linear-gradient(135deg,'+C.red+',#8A1010)',
                 color:'#fff',border:'none'}
-            },'🚪 PUNCH OUT')
+            },'🚪 '+T2('PUNCH OUT'))
           )
         : React.createElement('button',{
             onClick:function(){handlePunch('IN');},
@@ -544,32 +567,32 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
               cursor:'pointer',minHeight:64,width:'100%',maxWidth:320,
               background:'linear-gradient(135deg,#3EAA68,#1A5030)',
               color:'#fff',border:'none'}
-          },'✅ PUNCH IN');
+          },'✅ '+T2('PUNCH IN'));
     return React.createElement('div',{style:{textAlign:'center',padding:'30px 20px'}},
       header,
       React.createElement('div',{style:{fontSize:48,marginBottom:8}},'📸'),
       React.createElement('div',{style:{fontSize:22,fontWeight:700,color:C.text,
-        fontFamily:'var(--font-display)',marginBottom:4}},selStaff.name),
+        fontFamily:'var(--font-display)',marginBottom:4}},nameOf(selStaff)),
       React.createElement('div',{style:{fontSize:13,color:C.muted,marginBottom:20}},
-        (selStaff.section||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
+        (secOf(selStaff.section)||selStaff.dept)+' · '+(selStaff.staffListId||selStaff.staff_id)),
       React.createElement('div',{style:{marginBottom:16}},
         React.createElement('img',{src:photo,style:{width:140,height:140,
           borderRadius:20,objectFit:'cover',border:'3px solid '+C.wine}}),
         React.createElement('div',{style:{fontSize:11,color:C.green,marginTop:6,fontWeight:700}},
-          '✅ Selfie captured')
+          '✅ '+T2('Selfie captured'))
       ),
       React.createElement('div',{style:{marginBottom:12,textAlign:'center'}},
         React.createElement('button',{
           onClick:function(){setPhoto(null);setPhotoBlob(null);setGpsData(null);},
           style:{padding:'8px 20px',borderRadius:10,background:C.surface,
             border:'1px solid '+C.border,color:C.wine,fontSize:12,fontWeight:600,cursor:'pointer'}
-        },'📸 Retake'),
+        },'📸 '+T2('Retake')),
         gpsData
           ? React.createElement('div',{style:{fontSize:11,color:C.green,marginTop:8}},
               '📍 '+(gpsData.areaName||(gpsData.latitude.toFixed(4)+', '+gpsData.longitude.toFixed(4)))
               +(gpsData.accuracy?' (±'+Math.round(gpsData.accuracy)+'m)':''))
           : React.createElement('div',{style:{fontSize:11,color:C.amber,marginTop:8}},
-              '📍 No GPS — location not recorded')
+              '📍 '+T2('No GPS — location not recorded'))
       ),
       React.createElement('div',{style:{marginTop:8}}, punchEl),
       React.createElement('button',{
@@ -577,7 +600,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
         style:{marginTop:20,padding:'10px 24px',borderRadius:10,
           background:C.surface,border:'1px solid '+C.border,
           color:C.muted,fontSize:12,cursor:'pointer'}
-      },'← Wrong person? Go back')
+      },'← '+T2('Wrong person? Go back'))
     );
   }
 
@@ -593,15 +616,15 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
       React.createElement('div',{style:{fontSize:20,
         color:success.type==='IN'?C.green:C.amber,
         fontWeight:700,marginBottom:4}},
-        (success.type==='IN'?'PUNCHED IN':'PUNCHED OUT')+' at '+success.time),
+        T2(success.type==='IN'?'PUNCHED IN':'PUNCHED OUT')+' '+T2('at')+' '+success.time),
       React.createElement('div',{style:{fontSize:16,color:C.muted,
         marginTop:24}},
-        'Returning in 4 seconds...')
+        T2('Returning in 4 seconds...'))
     );
   }
 
   return React.createElement('div',{style:{textAlign:'center',
-    padding:40,color:C.muted}},'Loading...');
+    padding:40,color:C.muted}},T2('Loading...'));
 }
 
 // ── Unified attendance record schema ──────────────────────────────
