@@ -169,6 +169,16 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       return e.is_active !== false && e.name && (!e.name_hi || e.name_hi === '');
     });
     if (toUpdate.length === 0) { alert('All active staff already have Hindi names.'); return; }
+    // Preflight: verify Sanscript is loaded (async import may not be ready)
+    var probe = transliterateName('Ram');
+    if (!probe) {
+      await new Promise(function(r){ setTimeout(r, 800); });
+      probe = transliterateName('Ram');
+    }
+    if (!probe) {
+      alert('Hindi transliteration library not loaded yet. Please reload the page and try again in a few seconds.');
+      return;
+    }
     if (!window.confirm('Backfill Hindi names for ' + toUpdate.length + ' staff? This transliterates from English using Sanscript. You can edit any incorrect ones individually after.')) return;
     setHiBackfillState('running');
     var ok = 0, fail = 0;
@@ -1019,7 +1029,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6,flexShrink:0}}>
-                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section});setEditPhotoFile(null);setEditPhotoPreview(emp.photo_url||null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
+                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,name_hi:emp.name_hi||transliterateName(emp.name||""),pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section,section_hi:emp.section_hi||sectionHiMap[emp.section]||""});setEditPhotoFile(null);setEditPhotoPreview(emp.photo_url||null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
                           <button onClick={()=>{var eid=emp.id||emp.staff_id||emp.staffListId;var toggled=!emp.active;setEmpDb(p=>p.map(e=>(e.id||e.staff_id||e.staffListId)!==eid?e:{...e,active:toggled,is_active:toggled}));if(syncToServer)syncToServer('upsert',{...emp,active:toggled,is_active:toggled});}} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:emp.active?C.greenBg:C.redBg,color:emp.active?C.green:C.red}}>{emp.active?T2("Active"):T2("Off")}</button>
                           <button onClick={()=>setDeleteConfirm(emp)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,cursor:"pointer",border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red}}>🗑</button>
                         </div>
