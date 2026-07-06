@@ -757,10 +757,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if(isSpecial)byDishD1[name].specials.push({guest:ev.guest,pax:ev.pax,instruction:sp});
           });
         });
-        Object.keys(byDishD1).forEach(name=>{
-          const sopSteps = getStepsForDish(name);
-          if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) byDishD1[name].eventDayOnly = true;
-        });
+        // TEMP: d1-based filtering disabled — all dishes flow through, all SOP steps shown regardless of day tagging.
         // Always group by SOP category
         const bySecD1={};
         Object.entries(byDishD1).forEach(([n,info])=>{
@@ -770,8 +767,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         });
         const allSecs = Object.keys(bySecD1).sort();
 
-        const totalD1Done = Object.values(byDishD1).filter(d=>!d.eventDayOnly && ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
-        const totalD1 = Object.values(byDishD1).filter(d=>!d.eventDayOnly).length;
+        const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+        const totalD1 = Object.keys(byDishD1).length;
         const totalD1Pax = filteredEvs.reduce((s,e)=>s+(+e.pax||0),0);
         const combinedPax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
 
@@ -884,7 +881,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             {isExp&&!evOnly&&(()=>{
                               const d2s=ds(dish.fEvId,dish.fIdx,dish.name);
                               const allStepsFn = getStepsForDish(dish.name);
-                              const d1Only = allStepsFn.filter(s=>s.d1);
+                              const d1Only = allStepsFn; // TEMP: showing all steps regardless of d1 tag
                               const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
                               const ssStarted=!!d2s.storeStart;const ssDone=!!d2s.storeEnd;
                               const ssEl=ssStarted&&!ssDone?Math.floor((Date.now()-(d2s.storeStart||0))/1000):0;
@@ -1014,7 +1011,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
                       const isExp = expandedDishes.has(cKey);
                       const allStepsFn = getStepsForDish(dishName);
-                      const d1Only = allStepsFn.filter(s=>s.d1);
+                      const d1Only = allStepsFn; // TEMP: showing all steps regardless of d1 tag
                       const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
                       const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name).mesaDone;
                       return(
