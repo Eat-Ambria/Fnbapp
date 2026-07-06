@@ -10,7 +10,7 @@ import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { logActivity } from './ActivityLog.jsx';
 
-function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang}) {
+function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUser, lang, setLang}) {
   const T2 = s => T(s, lang || 'en');
   const isHi = (lang === 'hi');
   const [step, setStep] = useState('dept');
@@ -250,14 +250,26 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
 
   // ── VENUE HEADER ──
   var header = React.createElement('div', {
-    style:{textAlign:'center',padding:'16px',marginBottom:20,
+    style:{textAlign:'center',padding:'16px',marginBottom:20,position:'relative',
       background:C.surface,borderRadius:16,border:'1px solid '+C.border,
       boxShadow:'0 2px 8px rgba(0,0,0,.06)'}
   },
     React.createElement('div', {style:{fontSize:22,fontWeight:700,
       color:C.wine,fontFamily:'var(--font-display)'}}, venueName),
     React.createElement('div', {style:{fontSize:12,color:C.muted,marginTop:4}},
-      T2('Gate Kiosk') + ' · ' + TODAY_LABEL)
+      T2('Gate Kiosk') + ' · ' + TODAY_LABEL),
+    setLang ? React.createElement('button', {
+      onClick: function(){ setLang(lang==='hi'?'en':'hi'); },
+      style:{position:'absolute',top:12,right:12,padding:'8px 14px',
+        borderRadius:20,background:isHi?C.wine:C.surface,
+        border:'1.5px solid '+(isHi?C.wine:C.border),
+        color:isHi?'#fff':C.wine,fontSize:13,fontWeight:700,
+        cursor:'pointer',minHeight:38,minWidth:80,
+        display:'flex',alignItems:'center',gap:6}
+    },
+      React.createElement('span',{style:{fontSize:14}},'🌐'),
+      React.createElement('span',null, isHi ? 'हिंदी' : 'EN')
+    ) : null
   );
 
   // ── STEP 1: SELECT DEPARTMENT ──
