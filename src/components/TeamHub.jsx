@@ -163,6 +163,33 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     setAddPhotoPreview(null);
     setShowAddEmp(false);
   }
+  const [hiBackfillState, setHiBackfillState] = useState('idle');
+  async function backfillHindiNames(){
+    var toUpdate = safeArr(empDb).filter(function(e){
+      return e.is_active !== false && e.name && (!e.name_hi || e.name_hi === '');
+    });
+    if (toUpdate.length === 0) { alert('All active staff already have Hindi names.'); return; }
+    if (!window.confirm('Backfill Hindi names for ' + toUpdate.length + ' staff? This transliterates from English using Sanscript. You can edit any incorrect ones individually after.')) return;
+    setHiBackfillState('running');
+    var ok = 0, fail = 0;
+    for (var i = 0; i < toUpdate.length; i++) {
+      var s = toUpdate[i];
+      var sid = s.staff_id || s.staffListId || s.id;
+      var patch = {name_hi: transliterateName(s.name)};
+      if (!s.section_hi && s.section && sectionHiMap[s.section]) patch.section_hi = sectionHiMap[s.section];
+      try {
+        setEmpDb(function(prev){ return prev.map(function(e){
+          var eid = e.staff_id || e.staffListId || e.id;
+          return eid === sid ? {...e, ...patch} : e;
+        }); });
+        if (syncToServer) syncToServer('upsert', {...s, ...patch});
+        ok++;
+      } catch(e) { fail++; }
+    }
+    setHiBackfillState('idle');
+    alert('✅ Backfilled Hindi names for ' + ok + ' staff.' + (fail>0 ? ' Failed: '+fail : ''));
+  }
+
   async function saveEmpEdit(){
     if(!editEmpForm||!selEmp) return;
     var sid = selEmp.staff_id||selEmp.staffListId||selEmp.id;
@@ -847,6 +874,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               <option value="headchef">{T2("Head Chefs")}</option>
             </select>
             <Btn onClick={()=>{ if(showAddEmp){setShowAddEmp(false);} else {openAddForm();} }} color={showAddEmp?"transparent":C.wine} textColor={showAddEmp?C.muted:"#fff"} border={showAddEmp?`1px solid ${C.border}`:"none"} style={{fontSize:12,padding:"7px 14px"}}>{showAddEmp?"× Cancel":"+ Add Employee"}</Btn>
+                {(()=>{
+                  var needBackfill = safeArr(empDb).filter(function(e){ return e.is_active!==false && e.name && (!e.name_hi || e.name_hi===''); }).length;
+                  if (needBackfill === 0) return null;
+                  return <Btn onClick={backfillHindiNames} color="transparent" textColor={C.gold} border={`1px solid ${C.gold}`} style={{fontSize:11,padding:"7px 12px",marginLeft:8,opacity:hiBackfillState==='running'?0.5:1,pointerEvents:hiBackfillState==='running'?"none":"auto"}}>{hiBackfillState==='running'?"Working…":`🌐 Backfill Hindi (${needBackfill})`}</Btn>;
+                })()}
           </div>
 
           {showAddEmp && (
@@ -916,17 +948,31 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
                     <div>
                       <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>Edit — {emp.name}</div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:8}}>
-                        {[{l:"Name",k:"name"},{l:"PIN",k:"pin",max:4},{l:"Joining",k:"joining",dt:"date"}].map(f=>(
-                          <div key={f.k}>
-                            <div style={{fontSize:11,color:C.muted,marginBottom:2}}>{f.l}</div>
-                            <input type={f.dt||"text"} value={editEmpForm[f.k]||""} onChange={e=>setEditEmpForm(p=>({...p,[f.k]:e.target.value}))} maxLength={f.max} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-                          </div>
-                        ))}
+                        <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Name</div>
+                          <input type="text" value={editEmpForm.name||""} onChange={e=>setEditEmpForm(p=>({...p,name:e.target.value,name_hi:transliterateName(e.target.value)}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Name (Hindi) <span style={{color:C.gold,fontSize:9}}>· auto</span></div>
+                          <input type="text" value={editEmpForm.name_hi||""} onChange={e=>setEditEmpForm(p=>({...p,name_hi:e.target.value}))} placeholder="नाम" style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>PIN</div>
+                          <input type="text" value={editEmpForm.pin||""} onChange={e=>setEditEmpForm(p=>({...p,pin:e.target.value}))} maxLength={4} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Joining</div>
+                          <input type="date" value={editEmpForm.joining||""} onChange={e=>setEditEmpForm(p=>({...p,joining:e.target.value}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                        </div>
                         <div>
                           <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Section</div>
-                          <select value={editEmpForm.section||""} onChange={e=>setEditEmpForm(p=>({...p,section:e.target.value}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                          <select value={editEmpForm.section||""} onChange={e=>setEditEmpForm(p=>{var v=e.target.value;return{...p,section:v,section_hi:sectionHiMap[v]||v||""};})} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
                             {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
                           </select>
+                        </div>
+                        <div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Section (Hindi) <span style={{color:C.gold,fontSize:9}}>· auto</span></div>
+                          <input type="text" value={editEmpForm.section_hi||""} onChange={e=>setEditEmpForm(p=>({...p,section_hi:e.target.value}))} placeholder="विभाग" style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
                         </div>
                         <div>
                           <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Role</div>
