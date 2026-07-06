@@ -759,7 +759,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         });
         Object.keys(byDishD1).forEach(name=>{
           const sopSteps = getStepsForDish(name);
-          if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) delete byDishD1[name];
+          if(sopSteps.length>0 && !sopSteps.some(s=>s.d1)) byDishD1[name].eventDayOnly = true;
         });
         // Always group by SOP category
         const bySecD1={};
@@ -770,8 +770,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         });
         const allSecs = Object.keys(bySecD1).sort();
 
-        const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
-        const totalD1 = Object.keys(byDishD1).length;
+        const totalD1Done = Object.values(byDishD1).filter(d=>!d.eventDayOnly && ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+        const totalD1 = Object.values(byDishD1).filter(d=>!d.eventDayOnly).length;
         const totalD1Pax = filteredEvs.reduce((s,e)=>s+(+e.pax||0),0);
         const combinedPax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
 
@@ -838,18 +838,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const m2 = {color:catObj2?.color||C.muted,icon:catObj2?.icon||"🍽"};
                 const secOpen = isSecOpen("d1sec_"+sec);
                 if(secItems.length===0) return null;
-                const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+                const prepItems = secItems.filter(d=>!d.eventDayOnly);
+                const eventOnlyCount = secItems.length - prepItems.length;
+                const doneCount = prepItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
                 const totalCount = secItems.length;
-                const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
+                const prepTotal = prepItems.length;
+                const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
                 return(
                   <div key={sec} style={{marginBottom:14,borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}>
                     <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"18px 22px",cursor:"pointer",borderBottom:secOpen?`1.5px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:70}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div style={{width:46,height:46,borderRadius:12,background:m2.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{m2.icon}</div>
-                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(catObj2?.name||sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}</div></div>
+                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(catObj2?.name||sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}{eventOnlyCount>0?` · ${eventOnlyCount} ${T2("event-day only")}`:""}</div></div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div style={{padding:"6px 14px",borderRadius:10,background:m2.color+"18",fontSize:16,fontWeight:700,color:m2.color}}>{doneCount} / {totalCount}</div>
+                        <div style={{padding:"6px 14px",borderRadius:10,background:m2.color+"18",fontSize:16,fontWeight:700,color:m2.color}}>{doneCount} / {prepTotal}</div>
                         <div style={{width:80,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:3,transition:"width .3s"}}/></div>
                         <span style={{fontSize:20,color:C.faint,transform:secOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}>▾</span>
                       </div>
@@ -860,18 +863,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const cKey = `d1dish_${dish.name.replace(/\s/g,"_")}`;
                         const isExp = expandedDishes.has(cKey);
                         const sp = dish.specials&&dish.specials.length>0 ? dish.specials.map(s=>s.instruction).join(", ") : "";
+                        const evOnly = !!dish.eventDayOnly;
                         return(
-                          <div key={dish.name} style={{marginBottom:10,borderRadius:12,border:`1.5px solid ${isDone?C.greenBorder:isExp?m2.color:C.border}`,background:C.surface}}>
-                            <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:isDone?C.greenBg+"60":"transparent"}}>
-                              <div style={{width:36,height:36,borderRadius:10,background:isDone?C.green:C.border,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:isDone?"#fff":C.muted}}>{isDone?"✓":di+1}</div>
+                          <div key={dish.name} style={{marginBottom:10,borderRadius:12,border:`1.5px solid ${evOnly?C.amberBorder:isDone?C.greenBorder:isExp?m2.color:C.border}`,background:C.surface,opacity:evOnly?0.85:1}}>
+                            <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:evOnly?C.amberBg+"40":isDone?C.greenBg+"60":"transparent"}}>
+                              <div style={{width:36,height:36,borderRadius:10,background:evOnly?C.amberBg:isDone?C.green:C.border,border:evOnly?`1px solid ${C.amberBorder}`:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:evOnly?C.amber:isDone?"#fff":C.muted}}>{evOnly?"⏭":isDone?"✓":di+1}</div>
                               <div style={{flex:1,minWidth:0}}>
                                 <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dish.name}</div>
-                                <div style={{fontSize:14,color:C.muted,marginTop:2}}>{dish.fns.length} {T2("event")}{dish.fns.length>1?"s":""}{sp?<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,fontSize:12,color:C.red}}>⚠ {sp}</span>:null}</div>
+                                <div style={{fontSize:14,color:C.muted,marginTop:2}}>{dish.fns.length} {T2("event")}{dish.fns.length>1?"s":""}{evOnly&&<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:12,color:C.amber,fontWeight:600}}>⏭ {T2("Event day only")}</span>}{sp?<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,fontSize:12,color:C.red}}>⚠ {sp}</span>:null}</div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:20,fontWeight:700,color:isDone?C.green:m2.color}}>{dish.totalPax}</div><div style={{fontSize:12,color:C.muted}}>pax</div></div>
                               <span style={{fontSize:18,color:C.faint,flexShrink:0}}>{isExp?"▼":"▶"}</span>
                             </div>
-                            {isExp&&(()=>{
+                            {isExp&&evOnly&&(
+                              <div style={{padding:"20px 24px",borderTop:`1.5px solid ${C.border}`,background:C.bg,textAlign:"center"}}>
+                                <div style={{fontSize:14,color:C.muted,padding:"12px 0"}}>⏭ {T2("This dish has no D-1 prep steps.")}</div>
+                                <div style={{fontSize:12,color:C.faint}}>{T2("All preparation happens on event day — see Event Day tab.")}</div>
+                              </div>
+                            )}
+                            {isExp&&!evOnly&&(()=>{
                               const d2s=ds(dish.fEvId,dish.fIdx,dish.name);
                               const allStepsFn = getStepsForDish(dish.name);
                               const d1Only = allStepsFn.filter(s=>s.d1);
@@ -979,9 +989,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const displayIcon = catObj?.icon || "🍽";
               const secOpen = isSecOpen("d1sec_"+sec);
               if(secItems.length===0) return null;
-              const doneCount = secItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+              const prepItemsA = secItems.filter(d=>!d.eventDayOnly);
+              const doneCount = prepItemsA.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
               const totalCount = secItems.length;
-              const secPct = totalCount>0?Math.round(doneCount/totalCount*100):0;
+              const prepTotal = prepItemsA.length;
+              const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
               return(
                 <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
                   <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -991,7 +1003,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <span style={{fontSize:12,color:C.muted}}>{totalCount} {T2("dishes")}</span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {totalCount}</span>
+                      <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {prepTotal}</span>
                       <div style={{width:60,height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:2,transition:"width .3s"}}/></div>
                       <span style={{fontSize:14,color:C.faint,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                     </div>

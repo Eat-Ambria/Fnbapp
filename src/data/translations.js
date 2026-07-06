@@ -812,6 +812,10 @@ const HI = {
   "Transport":"परिवहन","Store":"स्टोर","Vendors":"विक्रेता","Menu Packages":"मेनू पैकेज",
   "Select an event above to enable ingredient scaling":"इवेंट चुनें — सामग्री स्केलिंग के लिए",
   "Select a function above to continue":"ऊपर से फंक्शन चुनें",
+  "Event day only":"इवेंट डे पर ही",
+  "event-day only":"इवेंट डे पर ही",
+  "This dish has no D-1 prep steps.":"इस डिश के लिए D-1 तैयारी नहीं है।",
+  "All preparation happens on event day — see Event Day tab.":"पूरी तैयारी इवेंट डे पर होगी — इवेंट डे टैब देखें।",
 };
 // T() — translate string if Hindi mode
 function T(key, lang) {
