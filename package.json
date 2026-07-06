@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@indic-transliteration/sanscript": "^1.3.3",
     "@supabase/supabase-js": "^2.106.2",
     "date-fns": "^4.4.0",
     "react": "^19.2.6",

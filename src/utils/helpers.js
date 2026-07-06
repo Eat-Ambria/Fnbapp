@@ -143,4 +143,25 @@ async function uploadStaffPhoto(supabase, staffId, file) {
   }
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto };
+// ── Roman → Devanagari transliteration for Indian names ──
+// Uses ITRANS scheme, best fit for common English spellings ("Gopal" → गोपाल).
+let _sanscript = null;
+(async function _loadSanscript(){
+  try {
+    const mod = await import('@indic-transliteration/sanscript');
+    _sanscript = mod.default || mod;
+  } catch(e) {
+    console.warn('Sanscript load failed:', e);
+  }
+})();
+
+function transliterateName(txt){
+  if (!txt || typeof txt !== 'string' || !_sanscript) return '';
+  try {
+    return txt.trim().split(/\s+/).map(function(w){
+      return _sanscript.t(w.toLowerCase(), 'itrans', 'devanagari');
+    }).join(' ');
+  } catch(e) { return ''; }
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName };

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS, resolveSection } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { dbUpsert } from '../lib/db.js';
@@ -75,12 +75,25 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [selEmp,setSelEmp]       = useState(null);
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
-  const [newEmpForm,setNewEmpForm] = useState({name:"",section:"",role:"staff",pin:"0000",joining:TODAY,active:true});
+  const [newEmpForm,setNewEmpForm] = useState({name:"",name_hi:"",section:"",section_hi:"",role:"staff",pin:"0000",joining:TODAY,active:true});
   const [editPhotoFile,setEditPhotoFile] = useState(null);
   const [editPhotoPreview,setEditPhotoPreview] = useState(null);
   const [addPhotoFile,setAddPhotoFile] = useState(null);
   const [addPhotoPreview,setAddPhotoPreview] = useState(null);
   const [photoUploading,setPhotoUploading] = useState(false);
+  const [sectionHiMap,setSectionHiMap] = useState({});
+  useEffect(function(){
+    var mounted = true;
+    (async function(){
+      if (!supabase) return;
+      var res = await supabase.from('team_sections').select('name, label_hi');
+      if (res.error || !res.data || !mounted) return;
+      var map = {};
+      res.data.forEach(function(r){ if (r.name && r.label_hi) map[r.name] = r.label_hi; });
+      setSectionHiMap(map);
+    })();
+    return function(){ mounted = false; };
+  }, []);
 
   // Computed — filtered by active department. Supabase is the sole source of truth.
   const allEmpDb = safeArr(empDb).filter(function(s){
@@ -124,7 +137,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   // Employee helpers
   function openAddForm(){
     var defSec = (deptSections && deptSections.length>0 && deptSections.length===1) ? deptSections[0] : "";
-    setNewEmpForm({name:"",section:defSec,role:"staff",pin:"0000",joining:TODAY,active:true});
+    setNewEmpForm({name:"",name_hi:"",section:defSec,section_hi:(sectionHiMap[defSec]||""),role:"staff",pin:"0000",joining:TODAY,active:true});
     setAddPhotoFile(null);
     setAddPhotoPreview(null);
     setShowAddEmp(true);
@@ -145,7 +158,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     if (photo_url) record.photo_url = photo_url;
     setEmpDb(p=>[...p,record]);
     if(syncToServer) syncToServer('upsert',record);
-    setNewEmpForm({name:"",section:"",role:"staff",pin:"0000",joining:TODAY,active:true});
+    setNewEmpForm({name:"",name_hi:"",section:"",section_hi:"",role:"staff",pin:"0000",joining:TODAY,active:true});
     setAddPhotoFile(null);
     setAddPhotoPreview(null);
     setShowAddEmp(false);
@@ -842,19 +855,21 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:10}}>
                 {[
                   {l:"Full Name",k:"name",ph:"Full name"},
+                  {l:"Name (Hindi)",k:"name_hi",ph:"नाम",hint:"auto"},
                   {l:"Section",k:"section",type:"sel",opts:(deptSections&&deptSections.length>0)?deptSections:ALL_DEPARTMENTS,placeholder:"— Pick section —"},
+                  {l:"Section (Hindi)",k:"section_hi",ph:"विभाग",hint:"auto"},
                   {l:"Role",k:"role",type:"sel",opts:["staff","headchef","admin"]},
                   {l:"PIN (4 digits)",k:"pin",max:4,ph:"0000"},
                   {l:"Joining Date",k:"joining",dt:"date"}
                 ].map(f=>(
                   <div key={f.k}>
-                    <div style={{fontSize:11,color:C.muted,marginBottom:2}}>{f.l}</div>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:2}}>{f.l}{f.hint && <span style={{color:C.gold,marginLeft:4,fontSize:9}}>· {f.hint}</span>}</div>
                     {f.type==="sel"
-                      ? <select value={newEmpForm[f.k]||""} onChange={e=>setNewEmpForm(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                      ? <select value={newEmpForm[f.k]||""} onChange={e=>setNewEmpForm(p=>{var v=e.target.value;var next={...p,[f.k]:v};if(f.k==="section")next.section_hi=sectionHiMap[v]||v||"";return next;})} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
                           {f.placeholder && <option value="">{f.placeholder}</option>}
                           {f.opts.map(o=><option key={o} value={o}>{o}</option>)}
                         </select>
-                      : <input type={f.dt||"text"} value={newEmpForm[f.k]} onChange={e=>setNewEmpForm(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} maxLength={f.max} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                      : <input type={f.dt||"text"} value={newEmpForm[f.k]||""} onChange={e=>setNewEmpForm(p=>{var v=e.target.value;var next={...p,[f.k]:v};if(f.k==="name")next.name_hi=transliterateName(v);return next;})} placeholder={f.ph} maxLength={f.max} style={{width:"100%",padding:"6px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
                     }
                   </div>
                 ))}
