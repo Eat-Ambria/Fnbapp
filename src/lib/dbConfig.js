@@ -92,6 +92,7 @@ function transformRecipes(rows) {
     if (!byCat[r.category_id]) byCat[r.category_id] = [];
     byCat[r.category_id].push({
       n: r.dish_name,
+      n_hi: r.dish_name_hi || '',
       sub: r.sub || '',
       steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
       ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),

@@ -155,6 +155,13 @@ let _sanscript = null;
   }
 })();
 
+// Recipe display name — returns Hindi if lang=hi and available, else English.
+function recipeNameOf(r, lang){
+  if (!r) return '';
+  if (lang === 'hi' && r.n_hi) return r.n_hi;
+  return r.n || '';
+}
+
 function transliterateName(txt){
   if (!txt || typeof txt !== 'string' || !_sanscript) return '';
   try {
@@ -164,4 +171,4 @@ function transliterateName(txt){
   } catch(e) { return ''; }
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf };
