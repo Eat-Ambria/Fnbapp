@@ -4,7 +4,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, interpolatePax, hasIngredients } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -160,17 +160,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(sopRecipe&&sopRecipe.n===ingModal.recipeName) setSopRecipe(p=>({...p,ingredients:payload}));
     setIngModal(null);
   }
-  const [scaleDishSearch, setScaleDishSearch] = useState("");
-  const [scaleMode, setScaleMode] = useState("dish");
-  const [scalePkg, setScalePkg] = useState("");
-  const [scaleMultiSel, setScaleMultiSel] = useState({});
-  const [scalePercent, setScalePercent] = useState(100); // % multiplier
-  const [scaleEventId, setScaleEventId] = useState(null); // null | "manual" | eventId
-  const [openSections, setOpenSections] = useState({});
+  const [scaleEventId, setScaleEventId] = useState(null); // eventId | null — event whose planned yields drive the Scaling tab
+  const [yieldAdjustPct, setYieldAdjustPct] = useState(100); // global multiplier applied to planned yields (100 = exactly as planned)
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
+  const [scalePlanRows, setScalePlanRows] = useState({}); // {dishName: production_plans row} for scaleEventId — used to override pax scaling with yield-based scaling
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
   const [d1FnFilter, setD1FnFilter] = useState("combined"); // "combined" | eventId
   const [tick, setTick] = useState(0);
@@ -266,6 +262,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     }).catch(e=>{ if(!cancelled){ console.error('[production_plans load]', e); setPlanLoading(false);}});
     return ()=>{ cancelled=true; };
   },[planEvId]);
+
+  // Load production_plans for the Scaling tab's selected event.
+  // Refetches on scaleEventId change and on entering the Scaling tab (picks up edits from Planning).
+  useEffect(()=>{
+    if(!scaleEventId || scaleEventId==='manual'){ setScalePlanRows({}); return; }
+    if(tab!=='scaling'){ return; }
+    let cancelled=false;
+    import('../lib/supabase.js').then(mod=>{
+      return mod.supabase.from('production_plans').select('*').eq('event_id', scaleEventId);
+    }).then(({data,error})=>{
+      if(cancelled) return;
+      if(error){ console.error('[scale production_plans load]', error); setScalePlanRows({}); return; }
+      const map={};
+      (data||[]).forEach(row=>{ map[row.dish_name]=row; });
+      setScalePlanRows(map);
+    }).catch(e=>{ if(!cancelled) console.error('[scale production_plans load]', e); });
+    return ()=>{ cancelled=true; };
+  },[scaleEventId, tab]);
 
   // Save (upsert or delete) a single dish yield for the current event.
   // `ctx` = { evId, evDate, venue, recipe }.
@@ -1228,415 +1242,286 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         );
       })()}
 
-      {/* ═══ PAX SCALING LOGIC PANEL ═══ */}
+      {/* ═══ YIELD SCALING TAB ═══ */}
       {tab==="scaling"&&(()=>{
-        const MENU_APPLICABILITY={
-          "Magnum Veg":           {code:"MVM",  ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Veg"},
-          "Magnum Non-Veg":       {code:"MNVM", ranges:[{min:50,max:250}],label:"50–250 pax",  color:"#3EAA68",type:"Non-Veg"},
-          "Double Magnum Veg":    {code:"DMVM", ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Veg"},
-          "Double Magnum Non-Veg":{code:"DMNVM",ranges:[{min:100,max:250}],label:"100–250 pax", color:"#5B8FD0",type:"Non-Veg"},
-          "Multi-Cuisine Veg":    {code:"MCVM", ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Veg"},
-          "Multi-Cuisine Non-Veg":{code:"MCNVM",ranges:[{min:250,max:9999}],label:"250+ pax",  color:"#D4B44A",type:"Non-Veg"},
-          "Luxury Veg":           {code:"LVM",  ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Veg"},
-          "Luxury Non-Veg":       {code:"LNVM", ranges:[{min:300,max:9999}],label:"300+ pax",  color:"#C084FC",type:"Non-Veg"},
-        };
-        const PAX_BANDS=[{v:100},{v:200},{v:250},{v:300},{v:400},{v:500},{v:600},{v:700},{v:800},{v:900},{v:1000},{v:1100}];
-        const PAX_COLS=[100,200,300,400,500,600,700,800,900,1000,1100];
-        const BASE_PAX=400;
-        function isApplicable(pkg,pax){const m=MENU_APPLICABILITY[pkg];return m?m.ranges.some(r=>pax>=r.min&&pax<=r.max):false;}
-        function fmtScaled(q,u,pax,pct,isAbsolute){
-          if(!q||q===0) return "—";
-          const raw=isAbsolute?q:q*pax*((pct||100)/100);
-          if(u==="g"||u==="gm") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g";
-          if(u==="ml") return raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml";
+        const upcomingEvs = evList
+          .filter(e => e.date >= TODAY)
+          .sort((a,b)=>{
+            if(a.date!==b.date) return a.date.localeCompare(b.date);
+            return (a.time||"").localeCompare(b.time||"");
+          });
+        const selEv = scaleEventId ? upcomingEvs.find(e=>e.id===scaleEventId) : null;
+        const evDishes = selEv ? menuArr(selEv) : [];
+        const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
+        const fmtTime = t => (t||"").slice(0,5);
+
+        // Classify each dish into one of four states.
+        function dishState(name){
+          const rec = findRecipeForDish(name);
+          if(!rec) return { kind:"unmapped", rec:null, catId:null, baseYield:null, planKg:null };
+          const catId = rec.cat?.id || null;
+          const by = rec.ingredients?.base_yield?.kg;
+          const baseYield = (typeof by === "number" && by > 0) ? by : null;
+          const planKg = scalePlanRows[name]?.target_yield_kg || null;
+          const kind = !planKg ? "unplanned" : !baseYield ? "noBaseYield" : "ready";
+          return { kind, rec, catId, baseYield, planKg };
+        }
+
+        // Group by SOP category (RECIPE_DB.cats order); unmapped bucket at the end.
+        const grouped = new Map();
+        const unmapped = [];
+        evDishes.forEach(dish=>{
+          const st = dishState(dish);
+          if(!st.catId){ unmapped.push({dish,st}); return; }
+          if(!grouped.has(st.catId)){
+            const cat = RECIPE_DB.cats.find(c=>c.id===st.catId) || {id:st.catId,name:st.catId,icon:"🍽"};
+            grouped.set(st.catId,{cat,items:[]});
+          }
+          grouped.get(st.catId).items.push({dish,st});
+        });
+        const orderedGroups = RECIPE_DB.cats.filter(c=>grouped.has(c.id)).map(c=>grouped.get(c.id));
+
+        // Stats
+        const stats = evDishes.reduce((acc,d)=>{
+          const st = dishState(d);
+          if(st.kind==="unmapped") acc.unmapped++;
+          else if(st.kind==="unplanned") acc.unplanned++;
+          else if(st.kind==="noBaseYield") acc.noBaseYield++;
+          else { acc.ready++; acc.plannedKg += st.planKg; }
+          return acc;
+        },{ready:0,noBaseYield:0,unplanned:0,unmapped:0,plannedKg:0});
+        const adjustedTotal = Math.round(stats.plannedKg * yieldAdjustPct/100 * 10)/10;
+        const fmtKg = v => (v>=0.01 ? v.toFixed(1).replace(/\.0$/,"") : "0");
+
+        // Ingredient qty formatter for the yield-scaled table.
+        function fmtQty(raw,unit){
+          if(!(raw>0)) return "—";
+          const u = unit || "kg";
+          if(u==="g"||u==="gm") return raw>=1000 ? fmtKg(raw/1000)+" kg" : Math.round(raw)+" g";
+          if(u==="ml") return raw>=1000 ? fmtKg(raw/1000)+" L" : Math.round(raw)+" ml";
           if(u==="pcs") return Math.ceil(raw)+" pcs";
-          if(u==="kg") return raw>=0.01?(raw.toFixed(1).replace(/\.0$/,""))+" kg":"—";
-          if(u==="L") return raw>=0.01?(raw.toFixed(1).replace(/\.0$/,""))+" L":"—";
+          if(u==="kg") return fmtKg(raw)+" kg";
+          if(u==="L") return fmtKg(raw)+" L";
           return Math.round(raw)+" "+u;
-        }
-
-        // Effective % from selected event or manual
-        const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date===DAY_AFTER)];
-        const linkedEv = scaleEventId ? allEvs.find(e=>e.id===scaleEventId) : null;
-        const autoPercent = linkedEv ? Math.round((+linkedEv.pax/BASE_PAX)*100) : null;
-        const effectivePct = scaleEventId===null ? 100 : (scalePercent||100);
-        const pctLabel = `${effectivePct}%${linkedEv?" ("+linkedEv.guest+" · "+linkedEv.pax+" pax)":""}`;
-
-        const mode=scaleMode||"dish";
-        const pkgNames=Object.keys(MENU_PACKAGES);
-        const selPkg=scalePkg||pkgNames[0];
-        const pkgDishes=(MENU_PACKAGES[selPkg]||[]).filter(d=>hasIngredients(d));
-        const multiSel=scaleMultiSel||{};
-        const selectedDishes=Object.keys(multiSel).filter(d=>multiSel[d]);
-        const activeDishes=mode==="bulk"?pkgDishes:selectedDishes;
-
-        // step chip helper
-        const StepChip=(n,label)=>(
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,marginTop:n>1?20:0}}>
-            <div style={{width:22,height:22,borderRadius:"50%",background:C.gold,color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{n}</div>
-            <div style={{fontSize:13,fontWeight:700,color:C.text,textTransform:"uppercase",letterSpacing:.6}}>{label}</div>
-          </div>
-        );
-        // before/after diff formatter
-        function fmtDiff(q,u,pct){
-          if(!q||q===0) return "—";
-          const diff=(q*BASE_PAX*((pct||100)/100))-(q*BASE_PAX);
-          if(Math.abs(diff)<0.01) return "=";
-          const sign=diff>0?"+":"";
-          if(u==="g"){const d=Math.round(diff);return Math.abs(d)>=1000?sign+(d/1000).toFixed(1)+" kg":sign+d+" g";}
-          if(u==="ml"){const d=Math.round(diff);return Math.abs(d)>=1000?sign+(d/1000).toFixed(1)+" L":sign+d+" ml";}
-          if(u==="pcs") return sign+Math.ceil(diff)+" pcs";
-          return sign+Math.round(diff)+" "+(u||"");
-        }
-        function diffColor(q,pct){
-          if(!q||q===0) return C.faint;
-          const diff=(q*BASE_PAX*(pct/100))-(q*BASE_PAX);
-          return diff>0.01?C.green:diff<-0.01?C.red:C.faint;
-        }
-        // Ingredient table (handles both old per-serving and new absolute formats)
-        const reqPax = linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100));
-        function IngTable({ingr,dishName}){
-          const isNew = ingr.length>0 && ingr[0]._newFmt;
-          return(
-            <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
-              <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
-                <thead>
-                  <tr style={{background:C.darkCard}}>
-                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:130}}>Ingredient</th>
-                    <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>Unit</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Qty ({reqPax} pax)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ingr.map((ing,ii)=>{
-                    const isAcc=!ing.q||ing.q===0;
-                    const scaledFmt=isAcc?"acc. to taste":isNew?fmtScaled(ing.q,ing.u,0,0,true):fmtScaled(ing.q,ing.u,BASE_PAX,effectivePct);
-                    return(
-                      <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
-                        <td style={{padding:"7px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
-                          <div style={{fontWeight:600,color:C.text,fontSize:11}}>{ing.n}</div>
-                          {ing.h&&<div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
-                          {isAcc&&<div style={{fontSize:9,color:C.amber}}>acc. to taste</div>}
-                        </td>
-                        <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
-                        <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:isAcc?C.faint:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          );
         }
 
         return(
           <div>
-            <div style={{marginBottom:4}}>
-              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
-            </div>
-            <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,marginBottom:16}}>
-              <span style={{fontWeight:600}}>{T2("Base SOP")}: 400 pax</span>
-              <span style={{color:C.muted}}>— {T2("all recipe quantities are calibrated for this base")}</span>
+            {/* Header */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Yield Scaling")}</div>
+              <div style={{fontSize:12,color:C.muted}}>{T2("Ingredients scale from yields set in the Planning tab. Use the adjustment below to bump every planned yield up or down uniformly.")}</div>
             </div>
 
-            {/* ══ STEP 1: SELECT FUNCTION ══ */}
-            {StepChip(1,T2("Select Function"))}
-            <Card style={{marginBottom:0,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:10}}>
-                {allEvs.length>0?T2("Tap an upcoming event to begin scaling"):T2("No upcoming events found")}
-              </div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {allEvs.length===0&&<div style={{fontSize:12,color:C.faint,padding:"4px 0"}}>{T2("Add events in the Dashboard to enable scaling")}</div>}
-                {allEvs.map(ev=>{
-                  const autoPct=Math.round((+ev.pax/BASE_PAX)*100);
-                  const isSel=scaleEventId===ev.id;
-                  const evPkg=ev.menu_package||ev.package||"";
-                  return(
-                    <button key={ev.id} onClick={()=>{setScaleEventId(ev.id);setScalePercent(autoPct);}}
-                      style={{padding:"10px 16px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
-                      <div style={{fontWeight:isSel?800:600}}>{ev.guest}</div>
-                      <div style={{fontSize:10,opacity:.8}}>📅 {ev.date} · {ev.pax} pax{evPkg?" · "+evPkg:""}</div>
-                    </button>
-                  );
-                })}
-              </div>
-              {scaleEventId!==null&&linkedEv&&(
-                <div style={{marginTop:14}}>
-                  <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-                    <div style={{fontSize:11,color:C.muted}}>Auto-calculated</div>
-                    <div style={{fontSize:20,fontWeight:800,color:C.gold}}>{autoPercent}%</div>
-                    <div style={{fontSize:11,color:C.muted}}>({linkedEv.pax} pax ÷ 400)</div>
-                    {effectivePct!==autoPercent&&(
-                      <div style={{marginLeft:"auto",fontSize:11,color:C.amber,fontWeight:600}}>
-                        ⚙️ {T2("Overridden")} → {effectivePct}%
-                      </div>
-                    )}
-                    {effectivePct===autoPercent&&<div style={{marginLeft:"auto",fontSize:10,color:C.faint}}>{T2("Using auto")}</div>}
-                  </div>
-                  <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>⚙️ {T2("Override %")} <span style={{fontWeight:400,fontSize:10,textTransform:"none"}}>({T2("optional")})</span></div>
-                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
-                    <button onClick={()=>setScalePercent(autoPercent)}
-                      style={{padding:"6px 12px",borderRadius:10,fontSize:11,fontWeight:scalePercent===autoPercent?700:400,cursor:"pointer",background:scalePercent===autoPercent?C.goldBg:"transparent",color:scalePercent===autoPercent?C.gold:C.muted,border:`1.5px solid ${scalePercent===autoPercent?C.gold:C.border}`,minHeight:34}}>
-                      Auto ({autoPercent}%)
-                    </button>
-                    {[25,50,75,80,100,110,120,125,150].filter(p=>p!==autoPercent).map(p=>(
-                      <button key={p} onClick={()=>setScalePercent(p)}
-                        style={{padding:"6px 11px",borderRadius:10,fontSize:12,fontWeight:scalePercent===p?800:400,cursor:"pointer",background:scalePercent===p?(p<100?C.amberBg:p>100?C.greenBg:C.goldBg):"transparent",color:scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.muted,border:`1.5px solid ${scalePercent===p?(p<100?C.amber:p>100?C.green:C.gold):C.border}`,minHeight:34}}>
-                        {p}%
+            {/* Event picker */}
+            <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Select event")}</div>
+              {upcomingEvs.length===0 ? (
+                <div style={{padding:"8px 0",fontSize:12,color:C.faint}}>{T2("No upcoming events found.")}</div>
+              ) : (
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {upcomingEvs.map(ev=>{
+                    const isSel = scaleEventId===ev.id;
+                    return(
+                      <button key={ev.id} onClick={()=>setScaleEventId(ev.id)}
+                        style={{padding:"10px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:500,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
+                        <div style={{fontWeight:isSel?800:600}}>{ev.guest||"Function"}</div>
+                        <div style={{fontSize:10,opacity:.85}}>📅 {fmtDate(ev.date)}{ev.time?" · "+fmtTime(ev.time):""} · {ev.pax} pax{ev.venue?" · "+ev.venue:""}</div>
                       </button>
-                    ))}
-                    <input type="number" value={scalePercent} onChange={e=>setScalePercent(Math.max(1,Math.min(500,+e.target.value||100)))} min={1} max={500}
-                      style={{width:64,padding:"6px 8px",borderRadius:10,border:`1px solid ${C.gold}`,fontSize:13,fontWeight:700,color:C.gold,background:C.bg,textAlign:"center",minHeight:34}}/>
-                    <span style={{fontSize:12,color:C.muted}}>%</span>
-                  </div>
-                  <div style={{position:"relative",marginBottom:10}}>
-                    <input type="range" min={10} max={200} step={5} value={Math.min(200,scalePercent)}
-                      onChange={e=>setScalePercent(+e.target.value)}
-                      style={{width:"100%",accentColor:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,height:6,cursor:"pointer"}}/>
-                    <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:9,color:C.faint}}>
-                      <span>10%</span><span style={{color:C.gold,fontWeight:700}}>100%</span><span>200%</span>
-                    </div>
-                    <div style={{position:"absolute",left:"47.4%",top:0,width:2,height:14,background:C.gold+"60",borderRadius:1,pointerEvents:"none"}}/>
-                  </div>
-                  <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{fontSize:11,color:C.muted}}>{T2("Active scaling")}</div>
-                    <div style={{fontSize:18,fontWeight:800,color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold}}>{effectivePct}%</div>
-                    <div style={{fontSize:11,color:C.muted}}>← {linkedEv.guest} · {linkedEv.pax} pax</div>
-                  </div>
+                    );
+                  })}
                 </div>
               )}
             </Card>
 
-            {scaleEventId===null&&(
-              <Card style={{marginTop:16,padding:"20px",textAlign:"center"}}>
+            {/* Empty state */}
+            {!selEv && (
+              <Card style={{padding:"24px 20px",textAlign:"center"}}>
                 <div style={{fontSize:28,marginBottom:8}}>👆</div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:4}}>← {T2("Select an event above to enable ingredient scaling")}</div>
+                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event above to see its planned yields")}</div>
               </Card>
             )}
 
-            {scaleEventId!==null&&(
-              <div>
-                {/* ══ STEP 2: SELECT DISHES ══ */}
-                {StepChip(2,T2("Select Dishes"))}
-                <div style={{display:"flex",gap:0,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
-                  {[{v:"dish",l:T2("Search dishes")},{v:"bulk",l:T2("Full menu")}].map(m=>(
-                    <button key={m.v} onClick={()=>{setScaleMode(m.v);setScaleDishSearch("");if(m.v==="dish")setScaleMultiSel({});}}
-                      style={{flex:1,padding:"10px 8px",border:"none",cursor:"pointer",borderLeft:m.v!=="dish"?`1px solid ${C.border}`:"none",background:mode===m.v?C.goldBg:"transparent"}}>
-                      <div style={{fontSize:12,fontWeight:mode===m.v?500:400,color:mode===m.v?C.gold:C.muted}}>{m.l}</div>
+            {selEv && (<>
+              {/* Event summary */}
+              <Card style={{marginBottom:12,padding:"12px 16px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" · "+fmtTime(selEv.time):""}{selEv.venue?" · "+selEv.venue:""} · {selEv.pax} pax · {evDishes.length} {T2("dishes")}</div>
+                  </div>
+                  <div style={{display:"flex",gap:10,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{color:C.purple,fontWeight:700}}>📋 {stats.ready} {T2("ready")}</span>
+                    {stats.noBaseYield>0 && <span style={{color:C.amber,fontWeight:600}}>⚠ {stats.noBaseYield} {T2("no base yield")}</span>}
+                    {stats.unplanned>0 && <span style={{color:C.muted}}>⏳ {stats.unplanned} {T2("unplanned")}</span>}
+                    {unmapped.length>0 && <span style={{color:C.red}}>❌ {unmapped.length} {T2("unmapped")}</span>}
+                  </div>
+                </div>
+              </Card>
+
+              {/* Global yield adjustment slider */}
+              <Card style={{marginBottom:16,padding:"14px 16px",border:`1px solid ${C.purpleBorder}`,background:C.purpleBg}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.6}}>{T2("Yield adjustment")}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Uniform multiplier over every planned dish. 100% = exactly as planned.")}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                    <div style={{fontSize:28,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:C.purple}}>%</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                  {[50,75,90,100,110,125,150].map(p=>(
+                    <button key={p} onClick={()=>setYieldAdjustPct(p)}
+                      style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`,minHeight:34}}>
+                      {p}%
                     </button>
                   ))}
+                  <input type="number" value={yieldAdjustPct} onChange={e=>setYieldAdjustPct(Math.max(10,Math.min(300,+e.target.value||100)))} min={10} max={300}
+                    style={{width:64,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.purple}`,fontSize:13,fontWeight:700,color:C.purple,background:C.bg,textAlign:"center",minHeight:34}}/>
+                  <button onClick={()=>setYieldAdjustPct(100)} style={{padding:"6px 10px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,minHeight:34}}>{T2("Reset")}</button>
                 </div>
-                {mode==="dish"&&(
-                  <div style={{marginBottom:4}}>
-                    <div style={{position:"relative"}}>
-                      <input
-                        value={scaleDishSearch}
-                        onChange={e=>setScaleDishSearch(e.target.value)}
-                        placeholder={T2("Search dishes… e.g. Paneer, Dal, Biryani")}
-                        style={{width:"100%",padding:"12px 14px",borderRadius:scaleDishSearch?"12px 12px 0 0":"12px",border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,minHeight:46,boxSizing:"border-box"}}
-                      />
-                      {scaleDishSearch&&(()=>{
-                        const q=scaleDishSearch.toLowerCase();
-                        const matches=[];
-                        pkgNames.forEach(pkg=>{
-                          (MENU_PACKAGES[pkg]||[]).filter(d=>hasIngredients(d)&&d.toLowerCase().includes(q)&&!multiSel[d]).forEach(d=>{
-                            if(!matches.find(m=>m.name===d))matches.push({name:d,pkg,code:MENU_APPLICABILITY[pkg]?.code||""});
-                          });
-                        });
-                        if(matches.length===0) return <div style={{padding:"10px 14px",fontSize:12,color:C.muted,border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface}}>{T2("No dishes found for")} "{scaleDishSearch}"</div>;
+                <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
+                  onChange={e=>setYieldAdjustPct(+e.target.value)}
+                  style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer"}}/>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.faint,marginTop:2}}>
+                  <span>50%</span><span style={{color:C.purple,fontWeight:700}}>100%</span><span>200%</span>
+                </div>
+                {stats.ready>0 && (
+                  <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:C.bg,fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span>{T2("Total planned:")}</span>
+                    <b style={{color:C.text}}>{fmtKg(stats.plannedKg)} kg</b>
+                    {yieldAdjustPct!==100 && (<>
+                      <span style={{color:C.faint}}>→</span>
+                      <b style={{color:C.purple}}>{fmtKg(adjustedTotal)} kg</b>
+                      <span style={{fontSize:10,color:C.faint}}>({yieldAdjustPct}%)</span>
+                    </>)}
+                  </div>
+                )}
+              </Card>
+
+              {/* Dish groups */}
+              {evDishes.length===0 && (
+                <Card style={{padding:"20px",textAlign:"center"}}>
+                  <div style={{fontSize:12,color:C.muted}}>{T2("This event has no dishes on its menu.")}</div>
+                </Card>
+              )}
+
+              {orderedGroups.map(group=>{
+                const readyCount = group.items.filter(it=>it.st.kind==="ready").length;
+                return(
+                  <div key={group.cat.id} style={{marginBottom:16}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`}}>
+                      <span style={{fontSize:18}}>{group.cat.icon||"🍽"}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}{readyCount>0 && <span style={{color:C.purple,fontWeight:600,marginLeft:4}}>· 📋 {readyCount} {T2("ready")}</span>}</div>
+                      </div>
+                    </div>
+                    {group.items.map(({dish,st})=>{
+                      if(st.kind==="unplanned"){
                         return(
-                          <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 12px 12px",background:C.surface,maxHeight:200,overflowY:"auto"}}>
-                            {matches.slice(0,15).map(m=>(
-                              <div key={m.name} onClick={()=>{setScaleMultiSel(p=>({...p,[m.name]:true}));setScaleDishSearch("");}}
-                                style={{padding:"9px 14px",fontSize:13,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                                <span>{m.name}</span>
-                                <span style={{fontSize:10,color:C.faint,padding:"2px 8px",borderRadius:6,background:C.bg}}>{m.code}</span>
-                              </div>
-                            ))}
-                            {matches.length>15&&<div style={{padding:"6px 14px",fontSize:11,color:C.faint,textAlign:"center"}}>{matches.length-15} {T2("more — keep typing")}</div>}
+                          <div key={dish} style={{padding:"10px 14px",marginBottom:8,borderRadius:8,border:`1px dashed ${C.border}`,background:C.bg,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <div>
+                              <div style={{fontSize:13,fontWeight:600,color:C.text}}>{dish}</div>
+                              <div style={{fontSize:11,color:C.muted,marginTop:2}}>⏳ {T2("Not planned yet")}</div>
+                            </div>
+                            <button onClick={()=>{setPlanEvId(selEv.id);setTab("planning");}} style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer",minHeight:32}}>→ {T2("Go to Planning")}</button>
                           </div>
                         );
-                      })()}
-                    </div>
-                    {selectedDishes.length>0&&(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
-                        {selectedDishes.map(d=>(
-                          <div key={d} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 10px",borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:12,color:C.green}}>
-                            <span>{d}</span>
-                            <span onClick={()=>setScaleMultiSel(p=>{const n={...p};delete n[d];return n;})} style={{cursor:"pointer",fontWeight:600,fontSize:14,lineHeight:1,marginLeft:2,color:C.green}}>×</span>
-                          </div>
-                        ))}
-                        {selectedDishes.length>1&&(
-                          <button onClick={()=>setScaleMultiSel({})} style={{padding:"5px 10px",borderRadius:8,fontSize:11,color:C.red,background:C.redBg,border:`1px solid ${C.redBorder}`,cursor:"pointer"}}>{T2("Clear all")}</button>
-                        )}
-                      </div>
-                    )}
-                    {selectedDishes.length===0&&<div style={{fontSize:11,color:C.faint,marginTop:6}}>{T2("Search and tap dishes to add them")}</div>}
-                  </div>
-                )}
-                {mode==="bulk"&&(
-                  <div style={{marginBottom:4}}>
-                    <select value={scalePkg||pkgNames[0]} onChange={e=>{setScalePkg(e.target.value);setOpenSections({});}} style={{width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:46}}>
-                      {pkgNames.map(p=><option key={p} value={p}>{MENU_APPLICABILITY[p]?.code||p} — {p} · {MENU_APPLICABILITY[p]?.label} · {(MENU_PACKAGES[p]||[]).filter(d=>hasIngredients(d)).length} {T2("dishes")}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {/* ══ STEP 3: REVIEW & CUSTOMIZE ══ */}
-                {StepChip(3,T2("Review & Customize Scaling"))}
-                {mode==="bulk"?(()=>{
-                  if(pkgDishes.length===0) return <Card style={{padding:"20px",textAlign:"center"}}><div style={{fontSize:13,color:C.muted}}>{T2("Select a menu package in Step 2")}</div></Card>;
-                  const bySec={};
-                  pkgDishes.forEach(d=>{
-                    const cat=getCatForDish(d);
-                    const sec=cat.id;
-                    if(!bySec[sec])bySec[sec]={dishes:[],cat};
-                    bySec[sec].dishes.push(d);
-                  });
-                  return Object.entries(bySec).map(([sec,group])=>{
-                    const dishes=group.dishes;
-                    const smeta={color:group.cat.color||C.muted,icon:group.cat.icon||"🍽"};
-                    const isOpen=openSections[sec];
-                    const aggMap={};
-                    dishes.forEach(dish=>{
-                      const ingArr=getIngrForDish(dish,reqPax)||[];
-                      ingArr.forEach(ing=>{
-                        const k=ing.n+"|"+(ing.u||"");
-                        if(!aggMap[k])aggMap[k]={n:ing.n,h:ing.h||"",u:ing.u||"",q:0,isAcc:!ing.q||ing.q===0,_newFmt:!!ing._newFmt};
-                        if(ing.q)aggMap[k].q+=ing.q;
-                        if(!ing.q)aggMap[k].isAcc=true;
-                      });
-                    });
-                    const aggIngr=Object.values(aggMap);
-                    return(
-                      <div key={sec} style={{marginBottom:8}}>
-                        <button onClick={()=>setOpenSections(p=>({...p,[sec]:!p[sec]}))}
-                          style={{width:"100%",padding:"12px 14px",borderRadius:isOpen?"12px 12px 0 0":12,border:`1px solid ${isOpen?smeta.color:C.border}`,background:isOpen?smeta.color+"18":C.darkCard,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",textAlign:"left"}}>
-                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                            <span style={{fontSize:18}}>{smeta.icon}</span>
+                      }
+                      if(st.kind==="noBaseYield"){
+                        return(
+                          <div key={dish} style={{padding:"10px 14px",marginBottom:8,borderRadius:8,border:`1px solid ${C.amberBorder}`,background:C.amberBg,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                             <div>
-                              <div style={{fontSize:13,fontWeight:700,color:isOpen?smeta.color:C.text}}>{group.cat.name||sec}</div>
-                              <div style={{fontSize:10,color:C.muted}}>{dishes.length} {T2("dishes")} · {aggIngr.length} {T2("ingredients")}</div>
+                              <div style={{fontSize:13,fontWeight:600,color:C.text}}>{dish}</div>
+                              <div style={{fontSize:11,color:C.amber,marginTop:2}}>⚠️ {T2("Recipe missing base_yield.kg — can't scale by yield.")} <span style={{color:C.muted}}>{T2("Planned:")} {st.planKg} kg</span></div>
                             </div>
-                          </div>
-                          <span style={{fontSize:14,color:isOpen?smeta.color:C.muted}}>{isOpen?"▲":"▼"}</span>
-                        </button>
-                        {isOpen&&(
-                          <div style={{border:`1px solid ${smeta.color}`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden"}}>
-                            <div style={{padding:"6px 12px",background:smeta.color+"10",fontSize:10,color:smeta.color,fontWeight:600}}>
-                              {dishes.join(" · ")}
-                            </div>
-                            <IngTable ingr={aggIngr}/>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  });
-                })():(
-                  <>
-                    {activeDishes.map(dish=>{
-                      const ingr=getIngrForDish(dish,reqPax)||[];
-                      const rc=findRecipeAndCat(dish);
-                      return(
-                        <div key={dish} style={{marginBottom:18}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                            <div style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"var(--font-display)"}}>{dish}</div>
-                            {currentUser?.role==='admin'&&rc&&(
-                              <button onClick={()=>openIngEditor(rc.recipe,rc.catId)} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer",minHeight:24}}>✏️ Edit</button>
+                            {currentUser?.role==='admin' && st.rec && st.catId && (
+                              <button onClick={()=>openIngEditor(st.rec,st.catId)} style={{padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:600,background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,cursor:"pointer",minHeight:32}}>✏️ {T2("Set base yield")}</button>
                             )}
                           </div>
-                          {ingr.length>0?<IngTable ingr={ingr} dishName={dish}/>:<div style={{padding:"12px 14px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:11,color:C.faint,textAlign:"center"}}>{currentUser?.role==='admin'&&rc?"No ingredients — tap ✏️ Edit to add":"No ingredient data available"}</div>}
+                        );
+                      }
+                      // ready
+                      const adjKg = st.planKg * (yieldAdjustPct/100);
+                      const ingr = getIngrForYield(dish, adjKg) || [];
+                      return(
+                        <div key={dish} style={{marginBottom:14,borderRadius:10,border:`1px solid ${C.purpleBorder}`,overflow:"hidden"}}>
+                          <div style={{padding:"10px 14px",background:C.purpleBg,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <div>
+                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dish}</div>
+                              <div style={{fontSize:11,color:C.purple,marginTop:2,fontWeight:600}}>
+                                📋 {st.planKg} kg
+                                {yieldAdjustPct!==100 && <> → <b>{fmtKg(adjKg)} kg</b> <span style={{color:C.muted,fontWeight:400}}>({yieldAdjustPct}%)</span></>}
+                              </div>
+                            </div>
+                            {currentUser?.role==='admin' && st.rec && st.catId && (
+                              <button onClick={()=>openIngEditor(st.rec,st.catId)} style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,background:"transparent",border:`1px solid ${C.purpleBorder}`,color:C.purple,cursor:"pointer",minHeight:26}}>✏️ Edit</button>
+                            )}
+                          </div>
+                          {ingr.length>0 ? (
+                            <div style={{overflowX:"auto"}}>
+                              <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
+                                <thead>
+                                  <tr style={{background:C.darkCard}}>
+                                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.border}`,minWidth:130}}>{T2("Ingredient")}</th>
+                                    <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>{T2("Unit")}</th>
+                                    <th style={{padding:"8px 8px",textAlign:"right",color:C.purple,borderLeft:`1px solid ${C.border}`,minWidth:100}}>{T2("Qty")} ({fmtKg(adjKg)} kg)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {ingr.map((ing,ii)=>{
+                                    const isAcc=!ing.q||ing.q===0;
+                                    return(
+                                      <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                                        <td style={{padding:"7px 10px",borderRight:`1px solid ${C.border}`}}>
+                                          <div style={{fontWeight:600,color:C.text,fontSize:11}}>{ing.n}</div>
+                                          {ing.h && <div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
+                                          {isAcc && <div style={{fontSize:9,color:C.amber}}>acc. to taste</div>}
+                                        </td>
+                                        <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
+                                        <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:isAcc?C.faint:C.purple,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"acc. to taste":fmtQty(ing.q,ing.u)}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div style={{padding:"12px 14px",fontSize:11,color:C.faint,textAlign:"center"}}>{T2("No ingredients found in recipe")}</div>
+                          )}
                         </div>
                       );
                     })}
-                    {activeDishes.length===0&&<Card style={{padding:"24px",textAlign:"center",marginBottom:4}}><div style={{fontSize:28,marginBottom:8}}>⚖️</div><div style={{fontSize:13,color:C.muted}}>{T2("Search and select dishes in Step 2 above")}</div></Card>}
-                  </>
-                )}
-
-                {/* ══ STEP 4: APPLY ══ */}
-                {StepChip(4,T2("Apply"))}
-                <Card style={{padding:"14px 16px",marginBottom:4,border:`1px solid ${effectivePct!==100&&activeDishes.length>0?C.greenBorder:C.border}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:2}}>
-                        {effectivePct===100?T2("Quantities at 100% — no adjustment needed"):T2("Apply scaled quantities to D-1 & Event Day steps")}
-                      </div>
-                      <div style={{fontSize:11,color:C.muted}}>
-                        {activeDishes.length>0?`${activeDishes.length} ${T2("dish"+(activeDishes.length===1?"":"es"))} · ${effectivePct}% scaling`:T2("Select dishes in Step 2 first")}
-                        {linkedEv?` · ${linkedEv.guest} (${linkedEv.pax} pax)`:""}
-                      </div>
-                    </div>
-                    {effectivePct!==100&&activeDishes.length>0&&hasPermission(currentUser,"kitchen.scaling_apply")&&(
-                      <button onClick={()=>{
-                        const evId=scaleEventId==="manual"?null:scaleEventId;
-                        const entry={percent:effectivePct,appliedAt:fmtStamp(),dishes:activeDishes,eventId:evId,eventName:linkedEv?.guest||"Manual"};
-                        setAppliedScales(p=>({...p,[evId||"manual"]:entry}));
-                        if(evId&&setKitchenTracking){
-                          setKitchenTracking(p=>{const o=p&&typeof p==="object"?{...p}:{};o[evId]={...(o[evId]||{}),__scaling:{percent:effectivePct,dishes:activeDishes,appliedAt:entry.appliedAt}};return o;});
-                        }
-                      }} style={{padding:"12px 22px",borderRadius:10,background:`linear-gradient(135deg,${C.green},#147A54)`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44,whiteSpace:"nowrap"}}>
-                        ✅ {T2("Apply to D-1 & Event Day")}
-                      </button>
-                    )}
-                    {effectivePct===100&&<div style={{fontSize:11,color:C.faint}}>100% = SOP quantities</div>}
-                    {activeDishes.length===0&&effectivePct!==100&&<div style={{fontSize:11,color:C.faint}}>{T2("Select dishes first")}</div>}
                   </div>
-                  {Object.values(appliedScales).length>0&&(
-                    <div style={{marginTop:12,display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {Object.values(appliedScales).map((s,i)=>(
-                        <div key={i} style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:s.percent<100?C.amberBg:C.greenBg,border:`1px solid ${s.percent<100?C.amberBorder:C.greenBorder}`,color:s.percent<100?C.amber:C.green}}>
-                          ✅ {s.eventName} — {s.percent}% · {s.dishes.length} {T2("dishes")} · {s.appliedAt}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              </div>
-            )}
+                );
+              })}
 
-            {/* ══ MENU APPLICABILITY MATRIX ══ */}
-            <Card style={{marginTop:24,marginBottom:16,padding:0,overflow:"hidden"}}>
-              <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.text}}>📊 {T2("Menu Applicability by Pax")}</div>
-                <div style={{fontSize:10,color:C.muted}}>✅ {T2("Applicable")} · — {T2("Not recommended")}</div>
+              {/* Unmapped bucket */}
+              {unmapped.length>0 && (
+                <div style={{marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 12px",borderRadius:8,background:C.redBg,borderLeft:`3px solid ${C.red}`}}>
+                    <span style={{fontSize:18}}>❌</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:C.red}}>{T2("Unmapped")}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{unmapped.length} {T2("dishes with no matching recipe — fix via Dish Map")}</div>
+                    </div>
+                  </div>
+                  {unmapped.map(({dish})=>(
+                    <div key={dish} style={{padding:"8px 14px",marginBottom:6,borderRadius:8,border:`1px solid ${C.redBorder}`,background:C.bg,fontSize:12,color:C.text}}>
+                      {dish}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Footer note about scope */}
+              <div style={{marginTop:20,padding:"10px 14px",borderRadius:8,background:C.bg,fontSize:10,color:C.faint,textAlign:"center"}}>
+                {T2("Note: yields shown here don't yet auto-flow to Prep Day / Event Day ingredient lists. That's a coming step.")}
               </div>
-              <div style={{overflowX:"auto"}}>
-                <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
-                  <thead>
-                    <tr style={{background:C.darkCard}}>
-                      <th style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontWeight:700,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:150}}>{T2("Menu")}</th>
-                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:48}}>Code</th>
-                      <th style={{padding:"9px 8px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:42}}>V/NV</th>
-                      {PAX_BANDS.map(b=><th key={b.v} style={{padding:"9px 6px",textAlign:"center",color:C.muted,fontWeight:600,borderLeft:`1px solid ${C.border}`,minWidth:46}}>{b.v}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(MENU_APPLICABILITY).map(([pkg,meta],ri)=>(
-                      <tr key={pkg} style={{borderTop:`1px solid ${C.borderLight}`,background:ri%2===0?C.surface:C.darkCard}}>
-                        <td style={{padding:"9px 12px",position:"sticky",left:0,background:ri%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`,fontWeight:600,color:meta.color,fontSize:11}}>{pkg}</td>
-                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
-                          <span style={{fontSize:10,fontWeight:700,color:meta.color,background:meta.color+"15",padding:"2px 7px",borderRadius:6}}>{meta.code}</span>
-                        </td>
-                        <td style={{padding:"8px 6px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`}}>
-                          <span style={{fontSize:11,color:meta.type==="Veg"?C.green:C.amber}}>{meta.type==="Veg"?"🌿":"🍗"}</span>
-                        </td>
-                        {PAX_BANDS.map(b=>{
-                          const ok=isApplicable(pkg,b.v);
-                          return(
-                            <td key={b.v} onClick={ok?()=>{setScalePkg(pkg);setScaleMode("bulk");}:undefined}
-                              style={{padding:"8px 4px",textAlign:"center",borderLeft:`1px solid ${C.borderLight}`,cursor:ok?"pointer":"default",background:ok?meta.color+"12":"transparent"}}>
-                              {ok?<span style={{fontSize:14,color:meta.color}}>✅</span>:<span style={{color:C.faint}}>—</span>}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted}}>💡 {T2("Tap any ✅ to load that menu's scaling in Step 2")}</div>
-            </Card>
+            </>)}
           </div>
         );
       })()}
