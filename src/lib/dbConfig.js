@@ -91,6 +91,7 @@ function transformRecipes(rows) {
   rows.forEach(r => {
     if (!byCat[r.category_id]) byCat[r.category_id] = [];
     byCat[r.category_id].push({
+      id: r.id,
       n: r.dish_name,
       n_hi: r.dish_name_hi || '',
       sub: r.sub || '',
