@@ -345,18 +345,69 @@ function interpolatePax(qtyArr, sizes, targetPax) {
   return qtyArr[0] || 0;
 }
 
+// Field aliases for cross-schema compat:
+//   hi ↔ hindi (SQL rebuild uses `hi`, older UI writes `hindi`)
+//   qty_nv ↔ nv_qty (SQL rebuild uses `qty_nv`, older UI writes `nv_qty`)
+function readHi(it)    { return it.hi ?? it.hindi ?? ""; }
+function readNvQty(it) { return it.qty_nv ?? it.nv_qty ?? null; }
+
+// Scale by pax ratio from the recipe's base_pax anchor (default 300).
+// Used as the default until yield-based planning is active.
 function getIngrForDish(dishName, targetPax) {
   const rec = findRecipeForDish(dishName);
-  if (rec?.ingredients?.items?.length > 0 && rec.ingredients.pax_sizes?.length > 0) {
-    const sizes = rec.ingredients.pax_sizes;
-    const items = rec.ingredients.items;
-    return items.map(it => {
-      const qty = interpolatePax(it.qty, sizes, targetPax);
-      const nvQty = it.nv_qty ? interpolatePax(it.nv_qty, sizes, targetPax) : null;
-      return { n: it.name, h: it.hindi || "", q: qty, nv: nvQty, u: it.unit || "kg", _newFmt: true };
-    });
+  const items = rec?.ingredients?.items;
+  if (items?.length > 0) {
+    // NEW schema (post-V48): scalar qty at base_pax=300
+    if (typeof items[0]?.qty === 'number' || items[0]?.qty === null) {
+      const basePax = rec.ingredients.base_pax || 300;
+      const factor = (targetPax || basePax) / basePax;
+      return items.map(it => {
+        const nvRaw = readNvQty(it);
+        return {
+          n: it.name,
+          h: readHi(it),
+          q: (it.qty || 0) * factor,
+          nv: nvRaw != null ? nvRaw * factor : null,
+          u: it.unit || "kg",
+          _newFmt: true
+        };
+      });
+    }
+    // LEGACY schema (pre-V48): qty[] array indexed by pax_sizes
+    if (rec.ingredients.pax_sizes?.length > 0) {
+      const sizes = rec.ingredients.pax_sizes;
+      return items.map(it => {
+        const qty = interpolatePax(it.qty, sizes, targetPax);
+        const nvArr = readNvQty(it);
+        const nvQty = Array.isArray(nvArr) ? interpolatePax(nvArr, sizes, targetPax) : null;
+        return { n: it.name, h: readHi(it), q: qty, nv: nvQty, u: it.unit || "kg", _newFmt: true };
+      });
+    }
   }
   return RECIPE_INGREDIENTS[dishName] || null;
+}
+
+// Scale by target finished yield (kg). Requires base_yield.kg on the recipe.
+// Returns null if yield not configured — caller should fall back to getIngrForDish.
+function getIngrForYield(dishName, targetKg) {
+  const rec = findRecipeForDish(dishName);
+  const items = rec?.ingredients?.items;
+  if (!items?.length) return null;
+  const baseKg = rec.ingredients.base_yield?.kg;
+  if (!baseKg || !targetKg) return null;
+  const factor = targetKg / baseKg;
+  return items.map(it => {
+    const nvRaw = readNvQty(it);
+    return {
+      n: it.name,
+      h: readHi(it),
+      q: (it.qty || 0) * factor,
+      nv: nvRaw != null ? nvRaw * factor : null,
+      u: it.unit || "kg",
+      _newFmt: true,
+      _yieldBased: true
+    };
+  });
 }
 
 function hasIngredients(dishName) {
@@ -365,4 +416,4 @@ function hasIngredients(dishName) {
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, interpolatePax, hasIngredients };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients };
