@@ -64,18 +64,44 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [editingSteps, setEditingSteps] = useState(false);
 
   // ── Ingredient Matrix Editor ──
+  // New schema: {base_pax:300, base_yield:{kg,pcs}, items:[{name, hi, unit, qty:number, qty_nv?:number}]}
+  // Reads legacy field names (hindi, nv_qty, qty[]) for backward-compat.
   function openIngEditor(recipe, catId) {
     const ex = recipe.ingredients;
-    if (ex && ex.pax_sizes && Array.isArray(ex.items)) {
-      setIngForm({pax_sizes:[...ex.pax_sizes], items:ex.items.map(it=>({...it,qty:[...it.qty],nv_qty:it.nv_qty?[...it.nv_qty]:null}))});
+    if (ex && Array.isArray(ex.items) && ex.items.length > 0) {
+      const items = ex.items.map(it => {
+        // qty: scalar (new) or array (legacy — pick 500-pax value if present, else 0)
+        let qty = 0;
+        if (typeof it.qty === 'number') qty = it.qty;
+        else if (Array.isArray(it.qty)) {
+          const sizes = ex.pax_sizes || [200,500,1000];
+          const i500 = sizes.indexOf(500);
+          qty = i500 >= 0 ? (it.qty[i500] || 0) : (it.qty[0] || 0);
+        }
+        // qty_nv similar
+        let qty_nv = null;
+        const rawNv = it.qty_nv ?? it.nv_qty;
+        if (typeof rawNv === 'number') qty_nv = rawNv;
+        else if (Array.isArray(rawNv)) {
+          const sizes = ex.pax_sizes || [200,500,1000];
+          const i500 = sizes.indexOf(500);
+          qty_nv = i500 >= 0 ? (rawNv[i500] || 0) : (rawNv[0] || 0);
+        }
+        return { name: it.name || "", hi: it.hi ?? it.hindi ?? "", unit: it.unit || "kg", qty, qty_nv, notes: it.notes || "" };
+      });
+      setIngForm({
+        base_pax: ex.base_pax || 300,
+        base_yield: {kg: ex.base_yield?.kg ?? null, pcs: ex.base_yield?.pcs ?? null},
+        items
+      });
     } else {
-      setIngForm({pax_sizes:[200,500,1000],items:[]});
+      setIngForm({base_pax: 300, base_yield: {kg:null, pcs:null}, items: []});
     }
     setIngModal({recipeName:recipe.n, catId});
     setIngDirty(false);
   }
   function ingAddItem() {
-    setIngForm(f=>({...f,items:[...f.items,{name:"",hindi:"",unit:"kg",qty:f.pax_sizes.map(()=>0),nv_qty:null,notes:""}]}));
+    setIngForm(f=>({...f,items:[...f.items,{name:"",hi:"",unit:"kg",qty:0,qty_nv:null,notes:""}]}));
     setIngDirty(true);
   }
   function ingRemoveItem(idx) {
@@ -86,16 +112,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],[field]:val};return{...f,items};});
     setIngDirty(true);
   }
-  function ingUpdateQty(idx, pi, val) {
-    setIngForm(f=>{const items=[...f.items];const qty=[...items[idx].qty];qty[pi]=parseFloat(val)||0;items[idx]={...items[idx],qty};return{...f,items};});
+  function ingUpdateQty(idx, val) {
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty:parseFloat(val)||0};return{...f,items};});
     setIngDirty(true);
   }
-  function ingUpdateNvQty(idx, pi, val) {
-    setIngForm(f=>{const items=[...f.items];const nv=items[idx].nv_qty?[...items[idx].nv_qty]:f.pax_sizes.map(()=>0);nv[pi]=parseFloat(val)||0;items[idx]={...items[idx],nv_qty:nv};return{...f,items};});
+  function ingUpdateNvQty(idx, val) {
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty_nv:parseFloat(val)||0};return{...f,items};});
     setIngDirty(true);
   }
   function ingToggleNv(idx) {
-    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],nv_qty:items[idx].nv_qty?null:f.pax_sizes.map(()=>0)};return{...f,items};});
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty_nv:items[idx].qty_nv==null?0:null};return{...f,items};});
     setIngDirty(true);
   }
   function ingMoveItem(idx, dir) {
@@ -116,7 +142,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   async function saveIngredients() {
     if(!ingModal)return;
-    const payload={pax_sizes:ingForm.pax_sizes,items:ingForm.items.filter(it=>it.name.trim())};
+    // Build new-schema payload. Field names locked to `hi` and `qty_nv`.
+    const items = ingForm.items.filter(it=>(it.name||"").trim()).map(it => {
+      const row = {
+        name: it.name.trim(),
+        hi: (it.hi||"").trim(),
+        unit: it.unit || "kg",
+        qty: typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0,
+      };
+      if (it.qty_nv != null && it.qty_nv !== "") {
+        row.qty_nv = typeof it.qty_nv === 'number' ? it.qty_nv : parseFloat(it.qty_nv) || 0;
+      }
+      if (it.notes) row.notes = it.notes;
+      return row;
+    });
+    const payload = {
+      base_pax: ingForm.base_pax || 300,
+      base_yield: ingForm.base_yield || {kg:null, pcs:null},
+      items,
+    };
     // Update local RECIPE_DB
     const catRecipes=safeArr(RECIPE_DB.recipes[ingModal.catId]);
     const ri=catRecipes.findIndex(r=>r.n===ingModal.recipeName);
@@ -127,7 +171,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       if(mod.supabase){
         const {error}=await mod.supabase.from('recipes').update({ingredients:payload}).eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId);
         if(error) console.error('Ingredient save error:',error);
-        else console.log('✅ Ingredients saved for',ingModal.recipeName);
+        else console.log('✅ Ingredients saved for',ingModal.recipeName,'—',items.length,'items');
       }
     }catch(e){console.error('Ingredient save failed:',e);}
     setIngDirty(false);
@@ -143,7 +187,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [showNV, setShowNV] = useState(false);
   const [openSections, setOpenSections] = useState({});
   const [ingModal, setIngModal] = useState(null);
-  const [ingForm, setIngForm] = useState({pax_sizes:[200,500,1000],items:[]});
+  const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
@@ -1656,7 +1700,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 sb.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
                                   if (r.error) console.error('Yield save err:', r.error);
                                   else {
-                                    // Update local RECIPE_DB for immediate scaling changes
                                     const arr = RECIPE_DB.recipes[sopCat]||[];
                                     const ri = arr.findIndex(x=>x.n===sopRecipe.n);
                                     if (ri>=0) arr[ri] = {...arr[ri], ingredients: newIng};
@@ -1669,7 +1712,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             }} style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
                           </div>
                         </div>
-                        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Finished output weight in kg is used to scale ingredients when planning. Pieces are informational.</div>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Finished output in kg is used to scale ingredients when planning. Pieces are informational.</div>
                         <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
                           <div>
                             <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Kg (finished) *</div>
@@ -1733,7 +1776,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {(ingModal?.recipeName===sopRecipe.n)?(
                   <div style={{marginBottom:16,borderRadius:10,border:`2px solid ${C.gold}`,overflow:"hidden"}}>
                     <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <span>✏️ Editing — {ingForm.pax_sizes?.map(p=>p+" pax").join(" / ")}</span>
+                      <span>✏️ Editing — {ingForm.base_pax||300} pax anchor</span>
                       <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" · unsaved":""}</span>
                     </div>
                     <div style={{overflowX:"auto"}}>
@@ -1742,20 +1785,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <th style={{padding:"6px 8px",textAlign:"left",color:C.muted,minWidth:110}}>Name</th>
                           <th style={{padding:"6px 4px",textAlign:"left",color:C.muted,minWidth:60}}>Hindi</th>
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:42}}>Unit</th>
-                          {ingForm.pax_sizes.map((p,pi)=>(
-                            <th key={pi} style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:52}}>{p}</th>
-                          ))}
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>Qty @ {ingForm.base_pax||300}</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.amber,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>NV Qty</th>
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
                         </tr></thead>
                         <tbody>
                           {ingForm.items.map((item,idx)=>(
                             <tr key={idx} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard}}>
                               <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 4px"}}><input value={item.hindi||""} onChange={e=>ingUpdateItem(idx,"hindi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
-                              {ingForm.pax_sizes.map((p,pi)=>(
-                                <td key={pi} style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.1" value={item.qty[pi]||""} onChange={e=>ingUpdateQty(idx,pi,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              ))}
+                              <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}>
+                                {item.qty_nv==null
+                                  ?<button onClick={()=>ingToggleNv(idx)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px dashed ${C.amberBorder}`,background:"transparent",fontSize:10,color:C.amber,cursor:"pointer",minHeight:28}}>+ NV</button>
+                                  :<div style={{display:"flex",gap:2}}>
+                                    <input type="number" step="0.01" value={item.qty_nv||""} onChange={e=>ingUpdateNvQty(idx,e.target.value)} style={{flex:1,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:11,textAlign:"right",color:C.amber,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
+                                    <button onClick={()=>ingToggleNv(idx)} style={{width:20,borderRadius:5,border:`1px solid ${C.amberBorder}`,background:C.amberBg,color:C.amber,fontSize:9,cursor:"pointer",padding:0}}>✕</button>
+                                  </div>}
+                              </td>
                               <td style={{padding:"3px 2px",textAlign:"center"}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
                             </tr>
                           ))}
@@ -2467,11 +2515,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <button onClick={()=>{if(ingDirty&&!confirm("Discard unsaved changes?"))return;setIngModal(null);}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>✕</button>
                 </div>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:11,color:C.muted}}>
-                <span style={{flexShrink:0}}>Batch sizes:</span>
-                {ingForm.pax_sizes.map((p,pi)=>(
-                  <span key={pi} style={{padding:"3px 10px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontWeight:700,fontSize:12}}>{p} pax</span>
-                ))}
+              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
+                <span style={{flexShrink:0}}>Anchor:</span>
+                <span style={{padding:"3px 10px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontWeight:700,fontSize:12}}>{ingForm.base_pax||300} pax</span>
+                {ingForm.base_yield?.kg
+                  ?<span style={{padding:"3px 10px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:700,fontSize:12}}>Yield: {ingForm.base_yield.kg} kg{ingForm.base_yield.pcs?` (${ingForm.base_yield.pcs} pcs)`:''}</span>
+                  :<span style={{fontSize:10,color:C.amber}}>⚠ Yield not set — edit from SOP view</span>}
               </div>
             </div>
             {/* Ingredient rows */}
@@ -2484,7 +2533,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   {/* Row header */}
                   <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
                     <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
-                    <input value={item.hindi||""} onChange={e=>ingUpdateItem(idx,"hindi",e.target.value)} placeholder="हिंदी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
+                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
                       {["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
                     </select>
@@ -2494,30 +2543,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                     <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>✕</button>
                   </div>
-                  {/* Quantity inputs */}
-                  <div style={{padding:"8px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                    {ingForm.pax_sizes.map((p,pi)=>(
-                      <div key={pi} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                        <span style={{fontSize:9,color:C.faint}}>{p}</span>
-                        <input type="number" step="0.1" value={item.qty[pi]||""} onChange={e=>ingUpdateQty(idx,pi,e.target.value)} style={{width:60,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,textAlign:"center",color:C.text,background:"transparent"}}/>
-                      </div>
-                    ))}
-                    <span style={{fontSize:10,color:C.faint,marginLeft:4}}>{item.unit}</span>
-                    <button onClick={()=>ingToggleNv(idx)} style={{marginLeft:"auto",padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:600,border:`1px solid ${item.nv_qty?C.amberBorder:C.border}`,background:item.nv_qty?C.amberBg:C.surface,color:item.nv_qty?C.amber:C.faint,cursor:"pointer"}}>
-                      {item.nv_qty?"NV ✓":"+ NV"}
+                  {/* Quantity input */}
+                  <div style={{padding:"8px 12px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <span style={{fontSize:9,color:C.faint}}>Qty @ {ingForm.base_pax||300} pax</span>
+                      <input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:100,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.text,background:"transparent"}}/>
+                    </div>
+                    <span style={{fontSize:11,color:C.faint,marginTop:14}}>{item.unit}</span>
+                    <button onClick={()=>ingToggleNv(idx)} style={{marginLeft:"auto",marginTop:14,padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,border:`1px solid ${item.qty_nv!=null?C.amberBorder:C.border}`,background:item.qty_nv!=null?C.amberBg:C.surface,color:item.qty_nv!=null?C.amber:C.faint,cursor:"pointer"}}>
+                      {item.qty_nv!=null?"NV ✓":"+ NV"}
                     </button>
                   </div>
                   {/* NV row */}
-                  {item.nv_qty&&(
-                    <div style={{padding:"6px 12px 10px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderTop:`1px dashed ${C.amberBorder}`,background:C.amberBg+"40"}}>
-                      <span style={{fontSize:10,color:C.amber,fontWeight:600,width:50}}>NV:</span>
-                      {ingForm.pax_sizes.map((p,pi)=>(
-                        <div key={pi} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                          <span style={{fontSize:9,color:C.amber}}>{p}</span>
-                          <input type="number" step="0.1" value={item.nv_qty[pi]||""} onChange={e=>ingUpdateNvQty(idx,pi,e.target.value)} style={{width:60,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:12,textAlign:"center",color:C.amber,background:"transparent"}}/>
-                        </div>
-                      ))}
-                      <span style={{fontSize:10,color:C.amber,marginLeft:4}}>{item.unit}</span>
+                  {item.qty_nv!=null&&(
+                    <div style={{padding:"6px 12px 10px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",borderTop:`1px dashed ${C.amberBorder}`,background:C.amberBg+"40"}}>
+                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                        <span style={{fontSize:9,color:C.amber}}>NV Qty @ {ingForm.base_pax||300} pax</span>
+                        <input type="number" step="0.01" value={item.qty_nv||""} onChange={e=>ingUpdateNvQty(idx,e.target.value)} style={{width:100,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent"}}/>
+                      </div>
+                      <span style={{fontSize:11,color:C.amber,marginTop:14}}>{item.unit}</span>
                     </div>
                   )}
                   {/* Notes */}
