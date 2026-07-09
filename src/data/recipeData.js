@@ -345,11 +345,8 @@ function interpolatePax(qtyArr, sizes, targetPax) {
   return qtyArr[0] || 0;
 }
 
-// Field aliases for cross-schema compat:
-//   hi ↔ hindi (SQL rebuild uses `hi`, older UI writes `hindi`)
-//   qty_nv ↔ nv_qty (SQL rebuild uses `qty_nv`, older UI writes `nv_qty`)
-function readHi(it)    { return it.hi ?? it.hindi ?? ""; }
-function readNvQty(it) { return it.qty_nv ?? it.nv_qty ?? null; }
+// hi ↔ hindi (SQL rebuild uses `hi`, older UI writes `hindi`)
+function readHi(it) { return it.hi ?? it.hindi ?? ""; }
 
 // Scale by pax ratio from the recipe's base_pax anchor (default 300).
 // Used as the default until yield-based planning is active.
@@ -361,26 +358,20 @@ function getIngrForDish(dishName, targetPax) {
     if (typeof items[0]?.qty === 'number' || items[0]?.qty === null) {
       const basePax = rec.ingredients.base_pax || 300;
       const factor = (targetPax || basePax) / basePax;
-      return items.map(it => {
-        const nvRaw = readNvQty(it);
-        return {
-          n: it.name,
-          h: readHi(it),
-          q: (it.qty || 0) * factor,
-          nv: nvRaw != null ? nvRaw * factor : null,
-          u: it.unit || "kg",
-          _newFmt: true
-        };
-      });
+      return items.map(it => ({
+        n: it.name,
+        h: readHi(it),
+        q: (it.qty || 0) * factor,
+        u: it.unit || "kg",
+        _newFmt: true
+      }));
     }
     // LEGACY schema (pre-V48): qty[] array indexed by pax_sizes
     if (rec.ingredients.pax_sizes?.length > 0) {
       const sizes = rec.ingredients.pax_sizes;
       return items.map(it => {
         const qty = interpolatePax(it.qty, sizes, targetPax);
-        const nvArr = readNvQty(it);
-        const nvQty = Array.isArray(nvArr) ? interpolatePax(nvArr, sizes, targetPax) : null;
-        return { n: it.name, h: readHi(it), q: qty, nv: nvQty, u: it.unit || "kg", _newFmt: true };
+        return { n: it.name, h: readHi(it), q: qty, u: it.unit || "kg", _newFmt: true };
       });
     }
   }
@@ -396,18 +387,14 @@ function getIngrForYield(dishName, targetKg) {
   const baseKg = rec.ingredients.base_yield?.kg;
   if (!baseKg || !targetKg) return null;
   const factor = targetKg / baseKg;
-  return items.map(it => {
-    const nvRaw = readNvQty(it);
-    return {
-      n: it.name,
-      h: readHi(it),
-      q: (it.qty || 0) * factor,
-      nv: nvRaw != null ? nvRaw * factor : null,
-      u: it.unit || "kg",
-      _newFmt: true,
-      _yieldBased: true
-    };
-  });
+  return items.map(it => ({
+    n: it.name,
+    h: readHi(it),
+    q: (it.qty || 0) * factor,
+    u: it.unit || "kg",
+    _newFmt: true,
+    _yieldBased: true
+  }));
 }
 
 function hasIngredients(dishName) {

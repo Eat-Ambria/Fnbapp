@@ -78,16 +78,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const i500 = sizes.indexOf(500);
           qty = i500 >= 0 ? (it.qty[i500] || 0) : (it.qty[0] || 0);
         }
-        // qty_nv similar
-        let qty_nv = null;
-        const rawNv = it.qty_nv ?? it.nv_qty;
-        if (typeof rawNv === 'number') qty_nv = rawNv;
-        else if (Array.isArray(rawNv)) {
-          const sizes = ex.pax_sizes || [200,500,1000];
-          const i500 = sizes.indexOf(500);
-          qty_nv = i500 >= 0 ? (rawNv[i500] || 0) : (rawNv[0] || 0);
-        }
-        return { name: it.name || "", hi: it.hi ?? it.hindi ?? "", unit: it.unit || "kg", qty, qty_nv, notes: it.notes || "" };
+        return { name: it.name || "", hi: it.hi ?? it.hindi ?? "", unit: it.unit || "kg", qty, notes: it.notes || "" };
       });
       setIngForm({
         base_pax: ex.base_pax || 300,
@@ -101,7 +92,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngDirty(false);
   }
   function ingAddItem() {
-    setIngForm(f=>({...f,items:[...f.items,{name:"",hi:"",unit:"kg",qty:0,qty_nv:null,notes:""}]}));
+    setIngForm(f=>({...f,items:[...f.items,{name:"",hi:"",unit:"kg",qty:0,notes:""}]}));
     setIngDirty(true);
   }
   function ingRemoveItem(idx) {
@@ -116,14 +107,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty:parseFloat(val)||0};return{...f,items};});
     setIngDirty(true);
   }
-  function ingUpdateNvQty(idx, val) {
-    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty_nv:parseFloat(val)||0};return{...f,items};});
-    setIngDirty(true);
-  }
-  function ingToggleNv(idx) {
-    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty_nv:items[idx].qty_nv==null?0:null};return{...f,items};});
-    setIngDirty(true);
-  }
+  
   function ingMoveItem(idx, dir) {
     setIngForm(f=>{const items=[...f.items];const t2=idx+dir;if(t2<0||t2>=items.length)return f;[items[idx],items[t2]]=[items[t2],items[idx]];return{...f,items};});
     setIngDirty(true);
@@ -150,9 +134,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         unit: it.unit || "kg",
         qty: typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0,
       };
-      if (it.qty_nv != null && it.qty_nv !== "") {
-        row.qty_nv = typeof it.qty_nv === 'number' ? it.qty_nv : parseFloat(it.qty_nv) || 0;
-      }
+      
       if (it.notes) row.notes = it.notes;
       return row;
     });
@@ -184,7 +166,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [scaleMultiSel, setScaleMultiSel] = useState({});
   const [scalePercent, setScalePercent] = useState(100); // % multiplier
   const [scaleEventId, setScaleEventId] = useState(null); // null | "manual" | eventId
-  const [showNV, setShowNV] = useState(false);
   const [openSections, setOpenSections] = useState({});
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
@@ -1241,10 +1222,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
         // Ingredient table (handles both old per-serving and new absolute formats)
         const reqPax = linkedEv?.pax||Math.round(BASE_PAX*(effectivePct/100));
-        const hasAnyNV = (arr) => arr.some(i=>i.nv!==null&&i.nv!==undefined);
         function IngTable({ingr,dishName}){
           const isNew = ingr.length>0 && ingr[0]._newFmt;
-          const showNVCol = showNV && hasAnyNV(ingr);
           return(
             <div style={{overflowX:"auto",borderRadius:10,border:`1px solid ${C.border}`}}>
               <table style={{borderCollapse:"collapse",fontSize:11,minWidth:"100%"}}>
@@ -1252,15 +1231,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <tr style={{background:C.darkCard}}>
                     <th style={{padding:"8px 10px",textAlign:"left",color:C.muted,position:"sticky",left:0,background:C.darkCard,borderRight:`1px solid ${C.border}`,minWidth:130}}>Ingredient</th>
                     <th style={{padding:"8px 6px",textAlign:"center",color:C.muted,borderLeft:`1px solid ${C.border}`,minWidth:40}}>Unit</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Veg ({reqPax} pax)</th>
-                    {showNVCol&&<th style={{padding:"8px 8px",textAlign:"right",color:C.red,borderLeft:`1px solid ${C.border}`,minWidth:90}}>NV ({reqPax} pax)</th>}
+                    <th style={{padding:"8px 8px",textAlign:"right",color:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,borderLeft:`1px solid ${C.border}`,minWidth:90}}>Qty ({reqPax} pax)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ingr.map((ing,ii)=>{
                     const isAcc=!ing.q||ing.q===0;
                     const scaledFmt=isAcc?"acc. to taste":isNew?fmtScaled(ing.q,ing.u,0,0,true):fmtScaled(ing.q,ing.u,BASE_PAX,effectivePct);
-                    const nvFmt=showNVCol&&ing.nv!=null?(isAcc?"—":isNew?fmtScaled(ing.nv,ing.u,0,0,true):fmtScaled(ing.nv,ing.u,BASE_PAX,effectivePct)):"";
                     return(
                       <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
                         <td style={{padding:"7px 10px",position:"sticky",left:0,background:ii%2===0?C.surface:C.darkCard,borderRight:`1px solid ${C.border}`}}>
@@ -1270,7 +1247,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </td>
                         <td style={{padding:"7px 6px",textAlign:"center",color:C.faint,fontSize:10,borderLeft:`1px solid ${C.borderLight}`}}>{isAcc?"—":ing.u}</td>
                         <td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:isAcc?C.faint:effectivePct<100?C.amber:effectivePct>100?C.green:C.gold,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{scaledFmt}</td>
-                        {showNVCol&&<td style={{padding:"7px 8px",textAlign:"right",fontWeight:700,color:ing.nv!=null?C.red:C.faint,fontSize:11,borderLeft:`1px solid ${C.borderLight}`}}>{nvFmt||"—"}</td>}
                       </tr>
                     );
                   })}
@@ -1282,16 +1258,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-              <div>
-                <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
-              </div>
-              <button onClick={()=>setShowNV(p=>!p)}
-                style={{padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0,minHeight:32,
-                  background:showNV?C.redBg:"transparent",color:showNV?C.red:C.muted,border:`1px solid ${showNV?C.red:C.border}`}}>
-                {showNV?"🟥 NV ON":"⬜ NV"}
-              </button>
+            <div style={{marginBottom:4}}>
+              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>⚖️ {T2("Pax Scaling")}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{T2("Scale ingredient quantities to any function's pax count.")}</div>
             </div>
             <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,marginBottom:16}}>
               <span style={{fontWeight:600}}>{T2("Base SOP")}: 400 pax</span>
@@ -1786,7 +1755,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <th style={{padding:"6px 4px",textAlign:"left",color:C.muted,minWidth:60}}>Hindi</th>
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:42}}>Unit</th>
                           <th style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>Qty @ {ingForm.base_pax||300}</th>
-                          <th style={{padding:"6px 6px",textAlign:"center",color:C.amber,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>NV Qty</th>
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
                         </tr></thead>
                         <tbody>
@@ -1796,14 +1764,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                               <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}>
-                                {item.qty_nv==null
-                                  ?<button onClick={()=>ingToggleNv(idx)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px dashed ${C.amberBorder}`,background:"transparent",fontSize:10,color:C.amber,cursor:"pointer",minHeight:28}}>+ NV</button>
-                                  :<div style={{display:"flex",gap:2}}>
-                                    <input type="number" step="0.01" value={item.qty_nv||""} onChange={e=>ingUpdateNvQty(idx,e.target.value)} style={{flex:1,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:11,textAlign:"right",color:C.amber,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
-                                    <button onClick={()=>ingToggleNv(idx)} style={{width:20,borderRadius:5,border:`1px solid ${C.amberBorder}`,background:C.amberBg,color:C.amber,fontSize:9,cursor:"pointer",padding:0}}>✕</button>
-                                  </div>}
-                              </td>
                               <td style={{padding:"3px 2px",textAlign:"center"}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
                             </tr>
                           ))}
@@ -2550,20 +2510,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:100,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.text,background:"transparent"}}/>
                     </div>
                     <span style={{fontSize:11,color:C.faint,marginTop:14}}>{item.unit}</span>
-                    <button onClick={()=>ingToggleNv(idx)} style={{marginLeft:"auto",marginTop:14,padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,border:`1px solid ${item.qty_nv!=null?C.amberBorder:C.border}`,background:item.qty_nv!=null?C.amberBg:C.surface,color:item.qty_nv!=null?C.amber:C.faint,cursor:"pointer"}}>
-                      {item.qty_nv!=null?"NV ✓":"+ NV"}
-                    </button>
                   </div>
-                  {/* NV row */}
-                  {item.qty_nv!=null&&(
-                    <div style={{padding:"6px 12px 10px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",borderTop:`1px dashed ${C.amberBorder}`,background:C.amberBg+"40"}}>
-                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                        <span style={{fontSize:9,color:C.amber}}>NV Qty @ {ingForm.base_pax||300} pax</span>
-                        <input type="number" step="0.01" value={item.qty_nv||""} onChange={e=>ingUpdateNvQty(idx,e.target.value)} style={{width:100,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent"}}/>
-                      </div>
-                      <span style={{fontSize:11,color:C.amber,marginTop:14}}>{item.unit}</span>
-                    </div>
-                  )}
                   {/* Notes */}
                   <div style={{padding:"4px 12px 8px"}}>
                     <input value={item.notes||""} onChange={e=>ingUpdateItem(idx,"notes",e.target.value)} placeholder="Notes (optional)" style={{width:"100%",padding:"4px 8px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box"}}/>
