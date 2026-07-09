@@ -1754,38 +1754,55 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
                     </div>}
                   </div>
-                ):sopRecipe.ingredients?.items?.length>0?(
+                ):sopRecipe.ingredients?.items?.length>0?(()=>{
+                  const ing2=sopRecipe.ingredients;
+                  const isNewSchema=typeof ing2.items[0]?.qty==='number'||ing2.items[0]?.qty===null;
+                  const basePax=ing2.base_pax||300;
+                  const yKg=ing2.base_yield?.kg;
+                  const yPcs=ing2.base_yield?.pcs;
+                  const yieldLabel=yKg?`${yKg} kg${yPcs?` (~${yPcs} pcs)`:''}`:null;
+                  return (
                   <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`}}>
-                      Ingredients — {sopRecipe.ingredients.pax_sizes?.map(p=>p+" pax").join(" / ")}
+                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                      <span>Ingredients — {isNewSchema?`${basePax} pax anchor`:(ing2.pax_sizes?.map(p=>p+" pax").join(" / ")||"legacy")}</span>
+                      {isNewSchema&&(yieldLabel
+                        ?<span style={{fontSize:10,color:C.green}}>Yield: {yieldLabel}</span>
+                        :<span style={{fontSize:10,color:C.amber}}>⚠ Yield not set</span>)}
                     </div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
                         <thead><tr style={{background:C.surface}}>
                           <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
                           <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
-                          {sopRecipe.ingredients.pax_sizes?.map((p,pi)=>(
-                            <th key={pi} style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:55}}>{p}</th>
-                          ))}
+                          {isNewSchema
+                            ?<th style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>{basePax} pax</th>
+                            :ing2.pax_sizes?.map((p,pi)=>(
+                              <th key={pi} style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:55}}>{p}</th>
+                            ))}
                         </tr></thead>
                         <tbody>
-                          {sopRecipe.ingredients.items.map((ing,ii)=>(
+                          {ing2.items.map((ing,ii)=>{
+                            const hi=ing.hi??ing.hindi;
+                            return(
                             <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
                               <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
                                 <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
-                                {ing.hindi&&<div style={{fontSize:9,color:C.faint}}>{ing.hindi}</div>}
+                                {hi&&<div style={{fontSize:9,color:C.faint}}>{hi}</div>}
                               </td>
                               <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.unit}</td>
-                              {ing.qty?.map((q,qi)=>(
-                                <td key={qi} style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{q||"—"}</td>
-                              ))}
+                              {isNewSchema
+                                ?<td style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{ing.qty??"—"}</td>
+                                :Array.isArray(ing.qty)?ing.qty.map((q,qi)=>(
+                                  <td key={qi} style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{q||"—"}</td>
+                                )):null}
                             </tr>
-                          ))}
+                          );})}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                ):fallbackIng?(
+                  );})()
+                :fallbackIng?(
                   <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                     <div style={{padding:"8px 12px",background:C.amberBg,fontSize:11,fontWeight:700,color:C.amber,borderBottom:`1px solid ${C.amberBorder}`}}>
                       Ingredients (legacy per-serving @ 500 pax)
