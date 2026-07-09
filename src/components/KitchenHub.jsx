@@ -238,6 +238,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // ── Planning (Phase 4) ──
   const [planEvId, setPlanEvId] = useState(null);
+  const [planSelDate, setPlanSelDate] = useState(null);
+  const [planCalMo, setPlanCalMo] = useState(()=>new Date().getMonth());
+  const [planCalYr, setPlanCalYr] = useState(()=>new Date().getFullYear());
   const [planRows, setPlanRows] = useState({});          // {dishName: row}
   const [planDrafts, setPlanDrafts] = useState({});      // {dishName: string being edited}
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
@@ -2449,37 +2452,98 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            {/* Header + compact event picker on same row */}
-            <div style={{display:"flex",alignItems:"flex-end",gap:16,marginBottom:16,flexWrap:"wrap"}}>
-              <div style={{flex:"0 0 auto"}}>
-                <div style={{fontSize:15,fontWeight:600,color:C.text}}>📋 {T2("Production Planning")}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Enter target yield (kg) per dish. Auto-saves as draft on blur.")}</div>
-              </div>
-              <div style={{flex:"1 1 320px",minWidth:280,maxWidth:520}}>
-                <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{T2("Event")}</div>
-                {upcomingEvs.length===0 ? (
-                  <div style={{padding:"10px 12px",fontSize:12,color:C.faint,borderRadius:8,border:`1px dashed ${C.border}`,background:C.bg}}>{T2("No upcoming events. Events sync from LMS.")}</div>
-                ) : (
-                  <select value={planEvId||""} onChange={e=>setPlanEvId(e.target.value||null)}
-                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:13,cursor:"pointer",appearance:"none",backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",paddingRight:32}}>
-                    <option value="">— {T2("Choose an event")} —</option>
-                    {evDates.map(d=>(
-                      <optgroup key={d} label={fmtDate(d)}>
-                        {evsByDate[d].map(ev=>{
-                          const mc = menuArr(ev).length;
-                          const vCode = anaGp(ev.venue).code;
-                          return(
-                            <option key={ev.id} value={ev.id}>
-                              {fmtTime(ev.time)||"—"} · {vCode} · {ev.guest||"Function"} · {ev.pax}pax · {mc}d
-                            </option>
-                          );
-                        })}
-                      </optgroup>
-                    ))}
-                  </select>
-                )}
-              </div>
+            {/* Header */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:15,fontWeight:600,color:C.text}}>📋 {T2("Production Planning")}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick a date, then an event. Enter target yield (kg) per dish. Auto-saves as draft on blur.")}</div>
             </div>
+
+            {/* Calendar */}
+            {(()=>{
+              const MO_FULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
+              const DY_NAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+              const pad = n => String(n).padStart(2,"0");
+              const first = new Date(planCalYr,planCalMo,1).getDay();
+              const dim = new Date(planCalYr,planCalMo+1,0).getDate();
+              const prevDim = new Date(planCalYr,planCalMo,0).getDate();
+              const cells = [];
+              for(let i=first-1;i>=0;i--) cells.push({d:prevDim-i,c:false});
+              for(let i=1;i<=dim;i++) cells.push({d:i,c:true});
+              while(cells.length<42) cells.push({d:cells.length-first-dim+1,c:false});
+              const cellDate = cell => cell.c?`${planCalYr}-${pad(planCalMo+1)}-${pad(cell.d)}`:null;
+              const evsOnDate = d => upcomingEvs.filter(e=>e.date===d);
+              const prevMo = ()=>{if(planCalMo===0){setPlanCalMo(11);setPlanCalYr(y=>y-1);}else setPlanCalMo(m=>m-1);};
+              const nextMo = ()=>{if(planCalMo===11){setPlanCalMo(0);setPlanCalYr(y=>y+1);}else setPlanCalMo(m=>m+1);};
+              return(
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                      <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:160,textAlign:"center"}}>{MO_FULL[planCalMo]} {planCalYr}</div>
+                      <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                    </div>
+                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {cells.map((cell,i)=>{
+                      const dt = cellDate(cell);
+                      const evs2 = dt ? evsOnDate(dt) : [];
+                      const isToday = dt === TODAY;
+                      const isSel = dt === planSelDate;
+                      const vCols = [...new Set(evs2.map(e=>anaGp(e.venue).c))];
+                      return(
+                        <div key={i} onClick={()=>{if(!dt)return;setPlanSelDate(isSel?null:dt);setPlanEvId(null);}}
+                          style={{height:56,padding:"5px 6px",cursor:dt?"pointer":"default",
+                            borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
+                            background:isSel?C.goldBg:isToday?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
+                          <div style={{fontSize:12,fontWeight:isToday||isSel?600:400,color:isSel?C.gold:isToday?"#BA7517":C.text}}>{cell.d}</div>
+                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:3}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:12,padding:"8px 16px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Selected date → event cards */}
+            {planSelDate && (()=>{
+              const dateEvs = upcomingEvs.filter(e=>e.date===planSelDate);
+              if(dateEvs.length===0) return(
+                <div style={{padding:"14px 16px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.bg,fontSize:12,color:C.faint,marginBottom:16,textAlign:"center"}}>
+                  {T2("No upcoming events on")} {fmtDate(planSelDate)}
+                </div>
+              );
+              return(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>
+                    {fmtDate(planSelDate)} · {dateEvs.length} {T2("event")}{dateEvs.length!==1?"s":""}
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {dateEvs.map(ev=>{
+                      const isSel = planEvId===ev.id;
+                      const vc = anaGp(ev.venue);
+                      const mc = menuArr(ev).length;
+                      return(
+                        <button key={ev.id} onClick={()=>setPlanEvId(isSel?null:ev.id)}
+                          style={{padding:"10px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?600:400,cursor:"pointer",
+                            background:isSel?vc.c:"transparent",color:isSel?"#fff":C.text,
+                            border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:44,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
+                          <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                          <div style={{fontSize:10,opacity:.85,marginTop:2}}>{fmtTime(ev.time)||"—"} · {ev.pax} pax · {mc} dishes · {ev.venue||""}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Selected event summary + grouped dish list */}
             {selEv && (()=>{
