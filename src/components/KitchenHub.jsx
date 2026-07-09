@@ -162,7 +162,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // ── Yield editing ──
   const YIELD_UNITS = ["kg","gm","ltr","ml","piece","chafing dish"];
   const [editingYield, setEditingYield] = useState(false);
-  const [yieldForm, setYieldForm] = useState([]);
+  const [yieldForm, setYieldForm] = useState({kg:"", pcs:""});
 
   // ── Yield Capture + Ingredient Usage Modal ──
   const [yieldModal, setYieldModal] = useState(null);
@@ -1633,61 +1633,75 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>
-                {/* ── Yield table ── */}
+                {/* ── Yield anchor (base_yield @ base_pax) ── */}
                 {(()=>{
-                  const PAX_SIZES = sopRecipe.ingredients?.pax_sizes || [200,500,1000];
-                  const yData = sopRecipe.yield || [];
-                  const hasYield = yData.length > 0;
+                  const basePax = sopRecipe.ingredients?.base_pax || 300;
+                  const by = sopRecipe.ingredients?.base_yield || {};
+                  const kg = by.kg;
+                  const pcs = by.pcs;
+                  const hasYield = kg != null && kg !== "" && +kg > 0;
                   if (editingYield) {
                     return (
-                      <div style={{margin:"10px 0",padding:"12px 14px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                          <span style={{fontSize:12,fontWeight:700,color:C.amber}}>📦 Yield per pax</span>
+                      <div style={{margin:"10px 0",padding:"14px 16px",borderRadius:10,background:C.amberBg,border:`1px solid ${C.amberBorder}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                          <span style={{fontSize:12,fontWeight:700,color:C.amber}}>📦 Base yield at {basePax} pax</span>
                           <div style={{display:"flex",gap:6}}>
                             <button onClick={()=>setEditingYield(false)} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer"}}>Cancel</button>
                             <button onClick={()=>{
-                              const cleaned = yieldForm.filter(y => y.qty > 0);
+                              const newKg = yieldForm.kg==="" || yieldForm.kg==null ? null : parseFloat(yieldForm.kg) || null;
+                              const newPcs = yieldForm.pcs==="" || yieldForm.pcs==null ? null : parseFloat(yieldForm.pcs) || null;
+                              const newIng = {...(sopRecipe.ingredients||{}), base_pax: basePax, base_yield: {kg: newKg, pcs: newPcs}};
                               import('../lib/supabase.js').then(mod => {
                                 const sb = mod.supabase; if (!sb) return;
-                                sb.from('recipes').update({ yield: cleaned }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
+                                sb.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
                                   if (r.error) console.error('Yield save err:', r.error);
-                                  else { setSopRecipe(p => ({...p, yield: cleaned})); console.log('✅ Yield saved'); }
+                                  else {
+                                    // Update local RECIPE_DB for immediate scaling changes
+                                    const arr = RECIPE_DB.recipes[sopCat]||[];
+                                    const ri = arr.findIndex(x=>x.n===sopRecipe.n);
+                                    if (ri>=0) arr[ri] = {...arr[ri], ingredients: newIng};
+                                    setSopRecipe(p => ({...p, ingredients: newIng}));
+                                    console.log('✅ Yield saved:', newKg, 'kg /', newPcs, 'pcs');
+                                  }
                                 });
                               });
                               setEditingYield(false);
                             }} style={{fontSize:11,padding:"4px 12px",borderRadius:6,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:600}}>Save</button>
                           </div>
                         </div>
-                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                          <thead><tr style={{borderBottom:`1.5px solid ${C.border}`}}>
-                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Pax</th>
-                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Quantity</th>
-                            <th style={{textAlign:"left",padding:"4px 8px",color:C.muted,fontWeight:600}}>Unit</th>
-                          </tr></thead>
-                          <tbody>{yieldForm.map((y,i) => (
-                            <tr key={y.pax} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                              <td style={{padding:"6px 8px",fontWeight:600,color:C.text}}>{y.pax}</td>
-                              <td style={{padding:"4px 8px"}}><input type="number" value={y.qty||""} onChange={e=>setYieldForm(p=>p.map((r,j)=>j===i?{...r,qty:parseFloat(e.target.value)||0}:r))} style={{width:80,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/></td>
-                              <td style={{padding:"4px 8px"}}><select value={y.unit||"kg"} onChange={e=>setYieldForm(p=>p.map((r,j)=>j===i?{...r,unit:e.target.value}:r))} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
-                                {YIELD_UNITS.map(u=><option key={u} value={u}>{u}</option>)}
-                              </select></td>
-                            </tr>
-                          ))}</tbody>
-                        </table>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:10}}>Finished output weight in kg is used to scale ingredients when planning. Pieces are informational.</div>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div>
+                            <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Kg (finished) *</div>
+                            <input type="number" step="0.1" inputMode="decimal" autoFocus
+                              value={yieldForm.kg ?? ""}
+                              onChange={e=>setYieldForm(p=>({...p, kg: e.target.value}))}
+                              placeholder="e.g. 20"
+                              style={{width:110,padding:"10px 12px",borderRadius:8,border:`2px solid ${C.amberBorder}`,fontSize:15,fontWeight:600,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Pieces (optional)</div>
+                            <input type="number" step="1" inputMode="decimal"
+                              value={yieldForm.pcs ?? ""}
+                              onChange={e=>setYieldForm(p=>({...p, pcs: e.target.value}))}
+                              placeholder="e.g. 400"
+                              style={{width:110,padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:15,fontWeight:600,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div style={{fontSize:11,color:C.muted,paddingBottom:10}}>@ {basePax} pax</div>
+                        </div>
                       </div>
                     );
                   }
                   return (
                     <div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 0"}}>
                       {hasYield ? (
-                        <span style={{fontSize:11,color:C.muted}}>📦 Yield: {yData.map(y => y.pax+"pax → "+y.qty+" "+y.unit).join(" · ")}</span>
+                        <span style={{fontSize:11,color:C.muted}}>📦 Yield @ {basePax} pax: <b style={{color:C.text}}>{kg} kg</b>{pcs?<span> ({pcs} pcs)</span>:null}</span>
                       ) : (
-                        <span style={{fontSize:11,color:C.faint}}>📦 No yield data</span>
+                        <span style={{fontSize:11,color:C.amber}}>⚠ Yield not set — required for kg-based scaling</span>
                       )}
                       {currentUser?.role==='admin' && !editingSteps && (
                         <button onClick={()=>{
-                          const PAX = sopRecipe.ingredients?.pax_sizes || [200,500,1000];
-                          setYieldForm(PAX.map(p => {const existing = yData.find(y=>y.pax===p); return existing ? {...existing} : {pax:p,qty:0,unit:"kg"};}));
+                          setYieldForm({kg: kg ?? "", pcs: pcs ?? ""});
                           setEditingYield(true);
                         }} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,cursor:"pointer"}}>{hasYield?"✏️ Edit":"+ Add"}</button>
                       )}
