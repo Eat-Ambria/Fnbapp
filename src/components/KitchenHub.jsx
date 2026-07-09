@@ -2334,15 +2334,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         },{});
         const evDates = Object.keys(evsByDate).sort();
 
+        // Use the canonical resolver (Tier 0: DISH_NAME_MAP, Tier 1: exact, Tier 2: substring, Tier 3: normDish)
+        // — same resolver Menu Packages uses, so mappings shown there apply here too.
         function dishStatus(lmsName) {
-          const direct = findRecipeAndCat(lmsName);
-          const mapped = DISH_NAME_MAP[lmsName];
-          const viaMap = mapped ? findRecipeAndCat(mapped) : null;
-          const found = direct || viaMap;
+          const found = findRecipeForDish(lmsName);
           if(!found) return { state:"missing", label:T2("No recipe"), color:C.red, catId:null };
-          const y = found.recipe.ingredients?.base_yield?.kg;
-          if(!y || y<=0) return { state:"noyield", label:T2("Yield not set"), color:C.amber, recipe:found.recipe, catId:found.catId };
-          return { state:"ready", label:`${y} kg`, color:C.green, recipe:found.recipe, catId:found.catId };
+          const catId = found.cat?.id || null;
+          const y = found.ingredients?.base_yield?.kg;
+          if(!y || y<=0) return { state:"noyield", label:T2("Yield not set"), color:C.amber, recipe:found, catId };
+          return { state:"ready", label:`${y} kg`, color:C.green, recipe:found, catId };
         }
 
         // Group dishes by section (RECIPE_DB.cats order), unmapped last
