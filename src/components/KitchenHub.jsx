@@ -236,6 +236,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>{mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds).then(({data})=>{setUsageLogs(data||[]);});}).catch(()=>setUsageLogs([]));}
   useEffect(()=>{if(tab!=="analytics"||!analyticsEvId)return;const aEvs=safeArr(events);const evIds=analyticsEvId==="__combined"?aEvs.map(e=>e.id):[analyticsEvId];if(evIds.length>0)fetchUsageLogs(evIds);},[tab,analyticsEvId]);
 
+  // ── Planning (Phase 4) ──
+  const [planEvId, setPlanEvId] = useState(null);
+
   // ── SOP Add/Edit Modal ──
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
   const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
@@ -503,6 +506,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     {v:"d1",      l:T2("Prep day")},
     {v:"scaling", l:T2("Scaling")},
     {v:"sops",    l:T2("SOPs")},
+    {v:"planning",l:"📋 "+T2("Planning")},
     {v:"analytics",l:"📊 "+T2("Analytics")},
   ];
   const TABS_FILTERED = isSectionUser
@@ -2305,6 +2309,108 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>
             </>)}
             </>)}
+          </div>
+        );
+      })()}
+
+      {/* ═══ PLANNING TAB — production_plans (Phase 4) ═══ */}
+      {tab==="planning"&&(()=>{
+        const upcomingEvs = evList
+          .filter(e => e.date >= TODAY)
+          .sort((a,b)=>{
+            if(a.date!==b.date) return a.date.localeCompare(b.date);
+            return (a.time||"").localeCompare(b.time||"");
+          });
+        const selEv = planEvId ? upcomingEvs.find(e=>e.id===planEvId) : null;
+        const dishes = selEv ? menuArr(selEv) : [];
+        const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
+
+        function dishStatus(lmsName) {
+          const direct = findRecipeAndCat(lmsName);
+          const mapped = DISH_NAME_MAP[lmsName];
+          const viaMap = mapped ? findRecipeAndCat(mapped) : null;
+          const found = direct || viaMap;
+          if(!found) return { state:"missing", label:T2("No recipe"), color:C.red };
+          const y = found.recipe.ingredients?.base_yield?.kg;
+          if(!y || y<=0) return { state:"noyield", label:T2("Yield not set"), color:C.amber, recipe:found.recipe };
+          return { state:"ready", label:`${y} kg @ 300 pax`, color:C.green, recipe:found.recipe };
+        }
+
+        return(
+          <div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:15,fontWeight:600,color:C.text,marginBottom:4}}>📋 {T2("Production Planning")}</div>
+              <div style={{fontSize:11,color:C.muted}}>{T2("Pick an upcoming event to plan yields per dish. Confirmed plans feed Store issue slips.")}</div>
+            </div>
+
+            {/* Event picker */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>{T2("Upcoming events")}</div>
+              {upcomingEvs.length===0 ? (
+                <div style={{padding:"16px",fontSize:12,color:C.faint,textAlign:"center",borderRadius:10,border:`1px dashed ${C.border}`}}>{T2("No upcoming events. Events sync from LMS.")}</div>
+              ) : (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {upcomingEvs.map(ev=>{
+                    const isSel = planEvId===ev.id;
+                    const vc = anaGp(ev.venue);
+                    const mc = menuArr(ev).length;
+                    return(
+                      <button key={ev.id} onClick={()=>setPlanEvId(isSel?null:ev.id)}
+                        style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",
+                          background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,
+                          border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:44,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
+                        <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                        <div style={{fontSize:10,opacity:.85}}>{fmtDate(ev.date)}{ev.time?" · "+ev.time:""} · {ev.pax} pax · {mc} dishes · {ev.venue||""}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Dish list */}
+            {selEv && (
+              <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text}}>{selEv.guest||"Function"} · {fmtDate(selEv.date)}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{selEv.venue||""} · {selEv.pax} pax · {dishes.length} dishes</div>
+                  </div>
+                  <div style={{fontSize:10,color:C.faint,fontStyle:"italic"}}>{T2("Read-only preview — yield inputs coming next")}</div>
+                </div>
+                {dishes.length===0 ? (
+                  <div style={{padding:"24px",textAlign:"center",fontSize:12,color:C.faint}}>{T2("No menu confirmed for this event")}</div>
+                ) : (
+                  <div>
+                    {dishes.map((dish,i)=>{
+                      const st = dishStatus(dish);
+                      const mappedName = st.recipe && st.recipe.n && st.recipe.n.toLowerCase()!==(dish||"").toLowerCase().trim() ? st.recipe.n : null;
+                      return(
+                        <div key={i} style={{padding:"10px 14px",borderBottom:i<dishes.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,color:C.text,fontWeight:500}}>{dish}</div>
+                            {mappedName && (
+                              <div style={{fontSize:10,color:C.muted,marginTop:2}}>→ {mappedName}</div>
+                            )}
+                          </div>
+                          <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:st.color,background:st.color+"15",border:`1px solid ${st.color}30`,whiteSpace:"nowrap"}}>{st.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {dishes.length>0 && (()=>{
+                  const stats = dishes.reduce((acc,d)=>{const s=dishStatus(d).state;acc[s]=(acc[s]||0)+1;return acc;},{});
+                  return(
+                    <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,display:"flex",gap:14,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
+                      <span>✅ {stats.ready||0} {T2("with yield")}</span>
+                      <span>⚠️ {stats.noyield||0} {T2("no yield")}</span>
+                      <span>❌ {stats.missing||0} {T2("no recipe")}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         );
       })()}
