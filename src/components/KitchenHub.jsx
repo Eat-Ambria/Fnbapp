@@ -2324,93 +2324,161 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const selEv = planEvId ? upcomingEvs.find(e=>e.id===planEvId) : null;
         const dishes = selEv ? menuArr(selEv) : [];
         const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
+        const fmtTime = t => (t||"").slice(0,5);
+
+        // Group upcoming events by date for the <select> optgroups
+        const evsByDate = upcomingEvs.reduce((acc,ev)=>{
+          if(!acc[ev.date]) acc[ev.date] = [];
+          acc[ev.date].push(ev);
+          return acc;
+        },{});
+        const evDates = Object.keys(evsByDate).sort();
 
         function dishStatus(lmsName) {
           const direct = findRecipeAndCat(lmsName);
           const mapped = DISH_NAME_MAP[lmsName];
           const viaMap = mapped ? findRecipeAndCat(mapped) : null;
           const found = direct || viaMap;
-          if(!found) return { state:"missing", label:T2("No recipe"), color:C.red };
+          if(!found) return { state:"missing", label:T2("No recipe"), color:C.red, catId:null };
           const y = found.recipe.ingredients?.base_yield?.kg;
-          if(!y || y<=0) return { state:"noyield", label:T2("Yield not set"), color:C.amber, recipe:found.recipe };
-          return { state:"ready", label:`${y} kg @ 300 pax`, color:C.green, recipe:found.recipe };
+          if(!y || y<=0) return { state:"noyield", label:T2("Yield not set"), color:C.amber, recipe:found.recipe, catId:found.catId };
+          return { state:"ready", label:`${y} kg`, color:C.green, recipe:found.recipe, catId:found.catId };
         }
+
+        // Group dishes by section (RECIPE_DB.cats order), unmapped last
+        const grouped = new Map();
+        const unmapped = [];
+        dishes.forEach((dish,idx)=>{
+          const st = dishStatus(dish);
+          if(!st.catId){ unmapped.push({dish,st,idx}); return; }
+          if(!grouped.has(st.catId)){
+            const cat = RECIPE_DB.cats.find(c=>c.id===st.catId) || {id:st.catId,name:st.catId,icon:"🍽"};
+            grouped.set(st.catId,{cat,items:[]});
+          }
+          grouped.get(st.catId).items.push({dish,st,idx});
+        });
+        const orderedGroups = RECIPE_DB.cats
+          .filter(c=>grouped.has(c.id))
+          .map(c=>grouped.get(c.id));
+
+        // Overall stats
+        const stats = dishes.reduce((acc,d)=>{const s=dishStatus(d).state;acc[s]=(acc[s]||0)+1;return acc;},{});
 
         return(
           <div>
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:15,fontWeight:600,color:C.text,marginBottom:4}}>📋 {T2("Production Planning")}</div>
-              <div style={{fontSize:11,color:C.muted}}>{T2("Pick an upcoming event to plan yields per dish. Confirmed plans feed Store issue slips.")}</div>
-            </div>
-
-            {/* Event picker */}
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>{T2("Upcoming events")}</div>
-              {upcomingEvs.length===0 ? (
-                <div style={{padding:"16px",fontSize:12,color:C.faint,textAlign:"center",borderRadius:10,border:`1px dashed ${C.border}`}}>{T2("No upcoming events. Events sync from LMS.")}</div>
-              ) : (
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {upcomingEvs.map(ev=>{
-                    const isSel = planEvId===ev.id;
-                    const vc = anaGp(ev.venue);
-                    const mc = menuArr(ev).length;
-                    return(
-                      <button key={ev.id} onClick={()=>setPlanEvId(isSel?null:ev.id)}
-                        style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",
-                          background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,
-                          border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:44,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
-                        <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                        <div style={{fontSize:10,opacity:.85}}>{fmtDate(ev.date)}{ev.time?" · "+ev.time:""} · {ev.pax} pax · {mc} dishes · {ev.venue||""}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Dish list */}
-            {selEv && (
-              <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
-                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:600,color:C.text}}>{selEv.guest||"Function"} · {fmtDate(selEv.date)}</div>
-                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{selEv.venue||""} · {selEv.pax} pax · {dishes.length} dishes</div>
-                  </div>
-                  <div style={{fontSize:10,color:C.faint,fontStyle:"italic"}}>{T2("Read-only preview — yield inputs coming next")}</div>
-                </div>
-                {dishes.length===0 ? (
-                  <div style={{padding:"24px",textAlign:"center",fontSize:12,color:C.faint}}>{T2("No menu confirmed for this event")}</div>
+            {/* Header + compact event picker on same row */}
+            <div style={{display:"flex",alignItems:"flex-end",gap:16,marginBottom:16,flexWrap:"wrap"}}>
+              <div style={{flex:"0 0 auto"}}>
+                <div style={{fontSize:15,fontWeight:600,color:C.text}}>📋 {T2("Production Planning")}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick an upcoming event to plan yields per dish.")}</div>
+              </div>
+              <div style={{flex:"1 1 320px",minWidth:280,maxWidth:520}}>
+                <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{T2("Event")}</div>
+                {upcomingEvs.length===0 ? (
+                  <div style={{padding:"10px 12px",fontSize:12,color:C.faint,borderRadius:8,border:`1px dashed ${C.border}`,background:C.bg}}>{T2("No upcoming events. Events sync from LMS.")}</div>
                 ) : (
-                  <div>
-                    {dishes.map((dish,i)=>{
-                      const st = dishStatus(dish);
-                      const mappedName = st.recipe && st.recipe.n && st.recipe.n.toLowerCase()!==(dish||"").toLowerCase().trim() ? st.recipe.n : null;
-                      return(
-                        <div key={i} style={{padding:"10px 14px",borderBottom:i<dishes.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,color:C.text,fontWeight:500}}>{dish}</div>
-                            {mappedName && (
-                              <div style={{fontSize:10,color:C.muted,marginTop:2}}>→ {mappedName}</div>
-                            )}
-                          </div>
-                          <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:st.color,background:st.color+"15",border:`1px solid ${st.color}30`,whiteSpace:"nowrap"}}>{st.label}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <select value={planEvId||""} onChange={e=>setPlanEvId(e.target.value||null)}
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontSize:13,cursor:"pointer",appearance:"none",backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>")`,backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",paddingRight:32}}>
+                    <option value="">— {T2("Choose an event")} —</option>
+                    {evDates.map(d=>(
+                      <optgroup key={d} label={fmtDate(d)}>
+                        {evsByDate[d].map(ev=>{
+                          const mc = menuArr(ev).length;
+                          const vCode = anaGp(ev.venue).code;
+                          return(
+                            <option key={ev.id} value={ev.id}>
+                              {fmtTime(ev.time)||"—"} · {vCode} · {ev.guest||"Function"} · {ev.pax}pax · {mc}d
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    ))}
+                  </select>
                 )}
-                {dishes.length>0 && (()=>{
-                  const stats = dishes.reduce((acc,d)=>{const s=dishStatus(d).state;acc[s]=(acc[s]||0)+1;return acc;},{});
+              </div>
+            </div>
+
+            {/* Selected event summary + grouped dish list */}
+            {selEv && (()=>{
+              const vc = anaGp(selEv.venue);
+              return(
+              <div>
+                {/* Event summary card */}
+                <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,borderLeft:`4px solid ${vc.c}`,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" · "+fmtTime(selEv.time):""} · {selEv.venue||""} · {selEv.pax} pax · {dishes.length} dishes</div>
+                  </div>
+                  <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
+                    <span style={{color:C.green,fontWeight:600}}>✅ {stats.ready||0}</span>
+                    <span style={{color:C.amber,fontWeight:600}}>⚠️ {stats.noyield||0}</span>
+                    <span style={{color:C.red,fontWeight:600}}>❌ {stats.missing||0}</span>
+                  </div>
+                </div>
+
+                {dishes.length===0 && (
+                  <div style={{padding:"24px",textAlign:"center",fontSize:12,color:C.faint,borderRadius:10,border:`1px dashed ${C.border}`}}>{T2("No menu confirmed for this event")}</div>
+                )}
+
+                {/* Grouped sections */}
+                {orderedGroups.map(g=>{
+                  const readyCount = g.items.filter(it=>it.st.state==="ready").length;
                   return(
-                    <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}`,background:C.bg,display:"flex",gap:14,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
-                      <span>✅ {stats.ready||0} {T2("with yield")}</span>
-                      <span>⚠️ {stats.noyield||0} {T2("no yield")}</span>
-                      <span>❌ {stats.missing||0} {T2("no recipe")}</span>
+                    <div key={g.cat.id} style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
+                      <div style={{padding:"8px 12px",background:C.bg,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{fontSize:12,fontWeight:600,color:C.text,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:14}}>{g.cat.icon}</span>
+                          <span>{g.cat.name}</span>
+                          <span style={{fontSize:10,color:C.muted,fontWeight:400}}>({g.items.length})</span>
+                        </div>
+                        <div style={{fontSize:10,color:readyCount===g.items.length?C.green:C.muted,fontWeight:500}}>
+                          {readyCount}/{g.items.length} {T2("with yield")}
+                        </div>
+                      </div>
+                      <div>
+                        {g.items.map((it,i)=>{
+                          const st = it.st;
+                          const mappedName = st.recipe && st.recipe.n && st.recipe.n.toLowerCase()!==(it.dish||"").toLowerCase().trim() ? st.recipe.n : null;
+                          return(
+                            <div key={i} style={{padding:"8px 12px",borderBottom:i<g.items.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish}</div>
+                                {mappedName && (
+                                  <div style={{fontSize:10,color:C.muted,marginTop:1}}>→ {mappedName}</div>
+                                )}
+                              </div>
+                              <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:st.color,background:st.color+"15",border:`1px solid ${st.color}30`,whiteSpace:"nowrap"}}>{st.label}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
-                })()}
-              </div>
-            )}
+                })}
+
+                {/* Unmapped bucket */}
+                {unmapped.length>0 && (
+                  <div style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.red}30`,background:C.surface,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.red+"08",borderBottom:`1px solid ${C.red}20`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.red,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:14}}>❓</span>
+                        <span>{T2("Unmapped")}</span>
+                        <span style={{fontSize:10,color:C.muted,fontWeight:400}}>({unmapped.length})</span>
+                      </div>
+                      <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>{T2("Fix via Dish Map")}</div>
+                    </div>
+                    <div>
+                      {unmapped.map((it,i)=>(
+                        <div key={i} style={{padding:"8px 12px",borderBottom:i<unmapped.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+                          <div style={{flex:1,minWidth:0,fontSize:12,color:C.text}}>{it.dish}</div>
+                          <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.red,background:C.red+"15",border:`1px solid ${C.red}30`,whiteSpace:"nowrap"}}>{T2("No recipe")}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>);
+            })()}
           </div>
         );
       })()}
