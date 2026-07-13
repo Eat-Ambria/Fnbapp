@@ -165,6 +165,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [closeEventId, setCloseEventId] = useState(null); // eventId whose closing is being edited
   const [closeRows, setCloseRows] = useState({}); // {dishName: production_closings row} for closeEventId
   const [closeSaving, setCloseSaving] = useState(new Set()); // dish names currently saving
+  const [closeCalYr, setCloseCalYr] = useState(()=>new Date().getFullYear()); // Closing calendar cursor year
+  const [closeCalMo, setCloseCalMo] = useState(()=>new Date().getMonth()); // Closing calendar cursor month (0-based)
+  const [closeSelDate, setCloseSelDate] = useState(null); // selected date on the calendar ("YYYY-MM-DD")
+  const [closeSectionOpen, setCloseSectionOpen] = useState({}); // {catId: bool} — collapsible section state, default collapsed
+  const [closeExcludeUI, setCloseExcludeUI] = useState(false); // event-level "don't affect ordering" toggle (derived from any row on load)
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
@@ -285,18 +290,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   },[scaleEventId, tab]);
 
   // Load production_closings for the Closing tab's selected event.
+  // Also initializes the event-level exclude toggle from any row's value.
   useEffect(()=>{
-    if(!closeEventId){ setCloseRows({}); return; }
+    if(!closeEventId){ setCloseRows({}); setCloseExcludeUI(false); return; }
     if(tab!=='closing'){ return; }
     let cancelled=false;
     import('../lib/supabase.js').then(mod=>{
       return mod.supabase.from('production_closings').select('*').eq('event_id', closeEventId);
     }).then(({data,error})=>{
       if(cancelled) return;
-      if(error){ console.error('[production_closings load]', error); setCloseRows({}); return; }
+      if(error){ console.error('[production_closings load]', error); setCloseRows({}); setCloseExcludeUI(false); return; }
       const map={};
       (data||[]).forEach(row=>{ map[row.dish_name]=row; });
       setCloseRows(map);
+      setCloseExcludeUI((data||[]).some(r => r.exclude_from_ordering));
     }).catch(e=>{ if(!cancelled) console.error('[production_closings load]', e); });
     return ()=>{ cancelled=true; };
   },[closeEventId, tab]);
@@ -324,7 +331,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         leftover_kg: 'leftover_kg' in patch ? (normNum(patch.leftover_kg) ?? 0) : (existing?.leftover_kg ?? 0),
         leftover_pcs: 'leftover_pcs' in patch ? normNum(patch.leftover_pcs) : (existing?.leftover_pcs ?? null),
         notes: 'notes' in patch ? (String(patch.notes||'').trim() || null) : (existing?.notes ?? null),
-        exclude_from_ordering: 'exclude_from_ordering' in patch ? !!patch.exclude_from_ordering : !!existing?.exclude_from_ordering,
+        // exclude flag is event-level now — new rows inherit closeExcludeUI, existing rows keep their value
+        exclude_from_ordering: existing?.exclude_from_ordering ?? closeExcludeUI ?? false,
         closed_by: currentUser?.name || currentUser?.id || 'Unknown'
       };
       if(existing?.id) merged.id = existing.id;
@@ -340,6 +348,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       alert('Failed to save closing for '+dish+': '+(e.message||e));
     } finally {
       setCloseSaving(p=>{const s=new Set(p);s.delete(dish);return s;});
+    }
+  }
+
+  // Toggle the event-level "don't affect ordering" flag.
+  // Bulk-updates every existing closing row for the event so schema stays per-dish while UI is event-level.
+  // If no rows exist yet, only local state is updated — new rows created via saveClosing will inherit it.
+  async function toggleEventExclude(newVal, ctx){
+    if(!ctx) return;
+    setCloseExcludeUI(newVal);
+    const dishesWithRows = Object.keys(closeRows);
+    if(dishesWithRows.length === 0) return;
+    try {
+      const mod = await import('../lib/supabase.js');
+      const {error} = await mod.supabase
+        .from('production_closings')
+        .update({ exclude_from_ordering: newVal })
+        .eq('event_id', ctx.evId);
+      if(error) throw error;
+      setCloseRows(p => {
+        const next = {};
+        Object.entries(p).forEach(([k,v]) => { next[k] = {...v, exclude_from_ordering: newVal}; });
+        return next;
+      });
+    } catch(e){
+      console.error('[toggleEventExclude]', e);
+      alert('Failed to update event flag: '+(e.message||e));
+      setCloseExcludeUI(!newVal);
     }
   }
 
@@ -2368,14 +2403,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const closableEvs = evList
           .filter(e => e.date <= TODAY)
           .sort((a,b)=>{
-            if(a.date!==b.date) return b.date.localeCompare(a.date); // newest first
+            if(a.date!==b.date) return b.date.localeCompare(a.date);
             return (b.time||"").localeCompare(a.time||"");
           });
+        const uniqueDates = [...new Set(closableEvs.map(e=>e.date))].sort().reverse();
+        const selDate = closeSelDate || uniqueDates[0] || TODAY;
+        const dateEvs = closableEvs.filter(e=>e.date===selDate);
         const selEv = closeEventId ? closableEvs.find(e=>e.id===closeEventId) : null;
         const evDishes = selEv ? menuArr(selEv) : [];
         const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
         const fmtTime = t => (t||"").slice(0,5);
         const ctx = selEv ? {evId:selEv.id, evDate:selEv.date, venue:selEv.venue||""} : null;
+
+        // Calendar cell math (mirrors Analytics)
+        const pad2 = n => String(n).padStart(2,"0");
+        const MO_N = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const DY = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+        const first = new Date(closeCalYr,closeCalMo,1).getDay();
+        const dim = new Date(closeCalYr,closeCalMo+1,0).getDate();
+        const prevDim = new Date(closeCalYr,closeCalMo,0).getDate();
+        const cells = [];
+        for(let i=first-1;i>=0;i--) cells.push({d:prevDim-i,c:false});
+        for(let i=1;i<=dim;i++) cells.push({d:i,c:true});
+        while(cells.length<42) cells.push({d:cells.length-first-dim+1,c:false});
+        const cDate = cell => cell.c?`${closeCalYr}-${pad2(closeCalMo+1)}-${pad2(cell.d)}`:null;
+        const eod = d => closableEvs.filter(e=>e.date===d);
+        const prevMo = ()=>{if(closeCalMo===0){setCloseCalMo(11);setCloseCalYr(y=>y-1);}else setCloseCalMo(m=>m-1);};
+        const nextMo = ()=>{if(closeCalMo===11){setCloseCalMo(0);setCloseCalYr(y=>y+1);}else setCloseCalMo(m=>m+1);};
+        const todayS = TODAY;
 
         // Section-scoped filter for chef users
         const allowedCats = allowedCatIds;
@@ -2400,7 +2455,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         // Stats
         const closedCount = filteredDishes.filter(d => closeRows[d]).length;
-        const excludedCount = filteredDishes.filter(d => closeRows[d]?.exclude_from_ordering).length;
         const totalLeftoverKg = filteredDishes.reduce((n, d) => n + (parseFloat(closeRows[d]?.leftover_kg) || 0), 0);
         const fmtKg = v => (v>=0.01 ? v.toFixed(1).replace(/\.0$/,"") : "0");
 
@@ -2409,51 +2463,94 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             {/* Header */}
             <div style={{marginBottom:12}}>
               <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍲 {T2("Event Closing")}</div>
-              <div style={{fontSize:12,color:C.muted}}>{T2("Record leftover quantities per dish after the event. Marks with ⛔ won't affect future order suggestions.")}</div>
+              <div style={{fontSize:12,color:C.muted}}>{T2("Record leftover quantities per dish after the event. Toggle ⛔ to keep this event's leftovers out of future order suggestions.")}</div>
             </div>
 
-            {/* Event picker */}
-            <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Select event to close")}</div>
-              {closableEvs.length===0 ? (
-                <div style={{padding:"8px 0",fontSize:12,color:C.faint}}>{T2("No past or current events found.")}</div>
-              ) : (
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {closableEvs.slice(0,30).map(ev=>{
+            {/* Calendar picker */}
+            <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                  <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[closeCalMo]} {closeCalYr}</div>
+                  <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                </div>
+                <button onClick={()=>{setCloseCalYr(new Date().getFullYear());setCloseCalMo(new Date().getMonth());setCloseSelDate(todayS);setCloseEventId(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                {cells.map((cell,i)=>{
+                  const dt = cDate(cell);
+                  const evs = dt?eod(dt):[];
+                  const isT = dt===todayS;
+                  const isS = dt===selDate;
+                  const isFuture = dt && dt > todayS;
+                  const clickable = dt && !isFuture;
+                  return(
+                    <div key={i} onClick={()=>{if(!clickable)return;setCloseSelDate(dt);setCloseEventId(null);}}
+                      style={{height:52,padding:"5px 6px",cursor:clickable?"pointer":"default",
+                        borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
+                        background:isS?C.goldBg:isT?"#FAEEDA":"transparent",opacity:cell.c&&!isFuture?1:.35}}>
+                      <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":C.text}}>{cell.d}</div>
+                      {evs.length>0 && !isFuture && <div style={{display:"flex",gap:2,marginTop:2}}>{evs.slice(0,4).map((ev,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:anaGp(ev.venue).c||C.muted}}/>)}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+              </div>
+            </div>
+
+            {/* Events on selected date */}
+            {selDate && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} · {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {dateEvs.map(ev=>{
                     const isSel = closeEventId===ev.id;
-                    return(
-                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)}
-                        style={{padding:"10px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:500,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
-                        <div style={{fontWeight:isSel?800:600}}>{ev.guest||"Function"}</div>
-                        <div style={{fontSize:10,opacity:.85}}>📅 {fmtDate(ev.date)}{ev.time?" · "+fmtTime(ev.time):""} · {ev.pax} pax{ev.venue?" · "+ev.venue:""}</div>
+                    const mc = menuArr(ev).length;
+                    const vc = anaGp(ev.venue);
+                    return (
+                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
+                        <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                        <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax · {mc} dishes{ev.venue?" · "+ev.venue:""}</div>
                       </button>
                     );
                   })}
+                  {dateEvs.length===0 && <div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
                 </div>
-              )}
-            </Card>
+              </div>
+            )}
 
             {!selEv && (
               <Card style={{padding:"24px 20px",textAlign:"center"}}>
                 <div style={{fontSize:28,marginBottom:8}}>👆</div>
-                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event to record its closing")}</div>
+                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event above to record its closing")}</div>
               </Card>
             )}
 
             {selEv && (<>
-              {/* Event summary */}
+              {/* Event summary + event-level exclude toggle */}
               <Card style={{marginBottom:12,padding:"12px 16px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:10}}>
                   <div>
                     <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
                     <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" · "+fmtTime(selEv.time):""}{selEv.venue?" · "+selEv.venue:""} · {selEv.pax} pax · {filteredDishes.length}{allowedCats?"/"+evDishes.length:""} {T2("dishes")}</div>
                   </div>
                   <div style={{display:"flex",gap:12,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
                     <span style={{color:closedCount===filteredDishes.length&&filteredDishes.length>0?C.green:C.gold,fontWeight:700}}>✓ {closedCount}/{filteredDishes.length} {T2("closed")}</span>
-                    {excludedCount>0 && <span style={{color:C.muted,fontWeight:600}}>⛔ {excludedCount} {T2("excluded")}</span>}
                     {totalLeftoverKg>0 && <span style={{color:C.amber,fontWeight:600}}>📦 {fmtKg(totalLeftoverKg)} kg {T2("leftover")}</span>}
                   </div>
                 </div>
+                <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:closeExcludeUI?C.amberBg:C.bg,border:`1.5px solid ${closeExcludeUI?C.amberBorder:C.border}`,cursor:"pointer"}}>
+                  <input type="checkbox" checked={closeExcludeUI} onChange={e=>toggleEventExclude(e.target.checked, ctx)} style={{width:18,height:18,accentColor:C.amber,cursor:"pointer"}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:closeExcludeUI?C.amber:C.text}}>⛔ {T2("Don't affect future ordering")}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{T2("Use for daily / repeat functions where a slight over-order is fine. Applies to every dish in this event.")}</div>
+                  </div>
+                </label>
               </Card>
 
               {filteredDishes.length===0 && (
@@ -2462,75 +2559,74 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </Card>
               )}
 
-              {orderedGroups.map(group=>(
-                <div key={group.cat.id} style={{marginBottom:16}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`}}>
-                    <span style={{fontSize:18}}>{group.cat.icon||"🍽"}</span>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
-                      <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}</div>
-                    </div>
-                  </div>
-                  {group.items.map(dish=>{
-                    const row = closeRows[dish];
-                    const planKg = scalePlanRows[dish]?.target_yield_kg || null;
-                    const lkg = row?.leftover_kg;
-                    const lpcs = row?.leftover_pcs;
-                    const notes = row?.notes || "";
-                    const excluded = !!row?.exclude_from_ordering;
-                    const isSaving = closeSaving.has(dish);
-                    const isClosed = !!row;
-                    return(
-                      <div key={dish} style={{marginBottom:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
-                        <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                          <div style={{flex:1,minWidth:180}}>
-                            <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dish}</div>
-                            {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>📋 {T2("Planned")}: {planKg} kg</div>}
-                          </div>
-                          <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✓ "+T2("Closed"):""}</div>
-                        </div>
-                        <div style={{padding:"0 14px 12px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-                          <div>
-                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Leftover kg")}</div>
-                            <input type="number" step="0.1" inputMode="decimal"
-                              defaultValue={lkg??""}
-                              key={"lkg-"+dish+"-"+(row?.id||"new")}
-                              onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
-                              placeholder="0"
-                              style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
-                          </div>
-                          <div>
-                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Pcs (opt.)")}</div>
-                            <input type="number" step="1" inputMode="numeric"
-                              defaultValue={lpcs??""}
-                              key={"lpcs-"+dish+"-"+(row?.id||"new")}
-                              onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
-                              placeholder="0"
-                              style={{width:80,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
-                          </div>
-                          <div style={{flex:1,minWidth:180}}>
-                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Notes")}</div>
-                            <input type="text"
-                              defaultValue={notes}
-                              key={"nts-"+dish+"-"+(row?.id||"new")}
-                              onBlur={e=>saveClosing(dish, {notes:e.target.value}, ctx)}
-                              placeholder={T2("optional")}
-                              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
-                          </div>
-                          <label style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,background:excluded?C.amberBg:"transparent",border:`1.5px solid ${excluded?C.amberBorder:C.border}`,cursor:"pointer",minHeight:38}}>
-                            <input type="checkbox" checked={excluded}
-                              onChange={e=>saveClosing(dish, {exclude_from_ordering:e.target.checked}, ctx)}
-                              style={{width:16,height:16,accentColor:C.amber,cursor:"pointer"}}/>
-                            <span style={{fontSize:11,fontWeight:600,color:excluded?C.amber:C.muted}}>⛔ {T2("Don't affect ordering")}</span>
-                          </label>
-                        </div>
+              {/* Collapsible sections (default collapsed) */}
+              {orderedGroups.map(group=>{
+                const isOpen = !!closeSectionOpen[group.cat.id];
+                const secClosed = group.items.filter(d=>closeRows[d]).length;
+                return(
+                  <div key={group.cat.id} style={{marginBottom:10}}>
+                    <button onClick={()=>setCloseSectionOpen(p=>({...p,[group.cat.id]:!p[group.cat.id]}))}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`,borderTop:"none",borderRight:"none",borderBottom:"none",cursor:"pointer",textAlign:"left"}}>
+                      <span style={{fontSize:12,color:group.cat.color||C.muted,transition:"transform 0.15s",transform:isOpen?"rotate(90deg)":"rotate(0)",display:"inline-block"}}>▸</span>
+                      <span style={{fontSize:18}}>{group.cat.icon||"🍽"}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
+                        <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}{secClosed>0?` · ${secClosed} ${T2("closed")}`:""}</div>
                       </div>
-                    );
-                  })}
-                </div>
-              ))}
+                    </button>
+                    {isOpen && group.items.map(dish=>{
+                      const row = closeRows[dish];
+                      const planKg = scalePlanRows[dish]?.target_yield_kg || null;
+                      const lkg = row?.leftover_kg;
+                      const lpcs = row?.leftover_pcs;
+                      const notes = row?.notes || "";
+                      const isSaving = closeSaving.has(dish);
+                      const isClosed = !!row;
+                      return(
+                        <div key={dish} style={{marginTop:6,marginLeft:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
+                          <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <div style={{flex:1,minWidth:180}}>
+                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dish}</div>
+                              {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>📋 {T2("Planned")}: {planKg} kg</div>}
+                            </div>
+                            <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✓ "+T2("Closed"):""}</div>
+                          </div>
+                          <div style={{padding:"0 14px 12px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                            <div>
+                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Leftover kg")}</div>
+                              <input type="number" step="0.1" inputMode="decimal"
+                                defaultValue={lkg??""}
+                                key={"lkg-"+dish+"-"+(row?.id||"new")}
+                                onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
+                                placeholder="0"
+                                style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                            </div>
+                            <div>
+                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Pcs (opt.)")}</div>
+                              <input type="number" step="1" inputMode="numeric"
+                                defaultValue={lpcs??""}
+                                key={"lpcs-"+dish+"-"+(row?.id||"new")}
+                                onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
+                                placeholder="0"
+                                style={{width:80,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                            </div>
+                            <div style={{flex:1,minWidth:180}}>
+                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Notes")}</div>
+                              <input type="text"
+                                defaultValue={notes}
+                                key={"nts-"+dish+"-"+(row?.id||"new")}
+                                onBlur={e=>saveClosing(dish, {notes:e.target.value}, ctx)}
+                                placeholder={T2("optional")}
+                                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
 
-              {/* Footer note */}
               <div style={{marginTop:20,padding:"10px 14px",borderRadius:8,background:C.bg,fontSize:10,color:C.faint,textAlign:"center"}}>
                 {T2("Auto-saves on blur. The ⛔ flag will be honored once order-suggestion is wired to this data.")}
               </div>
