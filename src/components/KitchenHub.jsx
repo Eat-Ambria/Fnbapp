@@ -162,6 +162,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   }
   const [scaleEventId, setScaleEventId] = useState(null); // eventId | null — event whose planned yields drive the Scaling tab
   const [yieldAdjustPct, setYieldAdjustPct] = useState(100); // global multiplier applied to planned yields (100 = exactly as planned)
+  const [closeEventId, setCloseEventId] = useState(null); // eventId whose closing is being edited
+  const [closeRows, setCloseRows] = useState({}); // {dishName: production_closings row} for closeEventId
+  const [closeSaving, setCloseSaving] = useState(new Set()); // dish names currently saving
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
@@ -280,6 +283,65 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     }).catch(e=>{ if(!cancelled) console.error('[scale production_plans load]', e); });
     return ()=>{ cancelled=true; };
   },[scaleEventId, tab]);
+
+  // Load production_closings for the Closing tab's selected event.
+  useEffect(()=>{
+    if(!closeEventId){ setCloseRows({}); return; }
+    if(tab!=='closing'){ return; }
+    let cancelled=false;
+    import('../lib/supabase.js').then(mod=>{
+      return mod.supabase.from('production_closings').select('*').eq('event_id', closeEventId);
+    }).then(({data,error})=>{
+      if(cancelled) return;
+      if(error){ console.error('[production_closings load]', error); setCloseRows({}); return; }
+      const map={};
+      (data||[]).forEach(row=>{ map[row.dish_name]=row; });
+      setCloseRows(map);
+    }).catch(e=>{ if(!cancelled) console.error('[production_closings load]', e); });
+    return ()=>{ cancelled=true; };
+  },[closeEventId, tab]);
+
+  // Save (upsert) a single field patch for a dish's closing row.
+  // `patch` = one of {leftover_kg, leftover_pcs, notes, exclude_from_ordering}.
+  // Bails out on empty writes when no row exists to avoid creating noise rows on tab-through.
+  async function saveClosing(dish, patch, ctx){
+    if(!ctx) return;
+    const existing = closeRows[dish];
+    if(!existing){
+      const val = patch[Object.keys(patch)[0]];
+      if(val==='' || val==null || val===false) return;
+    }
+    setCloseSaving(p=>{const s=new Set(p);s.add(dish);return s;});
+    try{
+      const mod = await import('../lib/supabase.js');
+      const normNum = v => (v===''||v==null) ? null : (parseFloat(v)||0);
+      const merged = {
+        event_id: ctx.evId,
+        event_date: ctx.evDate,
+        venue: ctx.venue,
+        dish_name: dish,
+        planned_kg: scalePlanRows[dish]?.target_yield_kg || existing?.planned_kg || null,
+        leftover_kg: 'leftover_kg' in patch ? (normNum(patch.leftover_kg) ?? 0) : (existing?.leftover_kg ?? 0),
+        leftover_pcs: 'leftover_pcs' in patch ? normNum(patch.leftover_pcs) : (existing?.leftover_pcs ?? null),
+        notes: 'notes' in patch ? (String(patch.notes||'').trim() || null) : (existing?.notes ?? null),
+        exclude_from_ordering: 'exclude_from_ordering' in patch ? !!patch.exclude_from_ordering : !!existing?.exclude_from_ordering,
+        closed_by: currentUser?.name || currentUser?.id || 'Unknown'
+      };
+      if(existing?.id) merged.id = existing.id;
+      if(merged.leftover_kg==null) merged.leftover_kg = 0;
+      const {data, error} = await mod.supabase
+        .from('production_closings')
+        .upsert(merged, {onConflict:'event_id,dish_name'})
+        .select();
+      if(error) throw error;
+      if(data && data[0]) setCloseRows(p=>({...p,[dish]:data[0]}));
+    } catch(e){
+      console.error('[saveClosing]', dish, e);
+      alert('Failed to save closing for '+dish+': '+(e.message||e));
+    } finally {
+      setCloseSaving(p=>{const s=new Set(p);s.delete(dish);return s;});
+    }
+  }
 
   // Save (upsert or delete) a single dish yield for the current event.
   // `ctx` = { evId, evDate, venue, recipe }.
@@ -591,9 +653,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     {v:"sops",    l:T2("SOPs")},
     {v:"planning",l:"📋 "+T2("Planning")},
     {v:"analytics",l:"📊 "+T2("Analytics")},
+    {v:"closing", l:"🍲 "+T2("Closing")},
   ];
   const TABS_FILTERED = isSectionUser
-    ? TABS.filter(t => ['today','d1','sops'].includes(t.v))
+    ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v))
     : TABS;
 
   // ── Inline dish card (shows live progress) ──
@@ -2295,6 +2358,182 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </table>
               </div>
             </>)}
+            </>)}
+          </div>
+        );
+      })()}
+
+      {/* ═══ CLOSING TAB — production_closings ═══ */}
+      {tab==="closing"&&(()=>{
+        const closableEvs = evList
+          .filter(e => e.date <= TODAY)
+          .sort((a,b)=>{
+            if(a.date!==b.date) return b.date.localeCompare(a.date); // newest first
+            return (b.time||"").localeCompare(a.time||"");
+          });
+        const selEv = closeEventId ? closableEvs.find(e=>e.id===closeEventId) : null;
+        const evDishes = selEv ? menuArr(selEv) : [];
+        const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
+        const fmtTime = t => (t||"").slice(0,5);
+        const ctx = selEv ? {evId:selEv.id, evDate:selEv.date, venue:selEv.venue||""} : null;
+
+        // Section-scoped filter for chef users
+        const allowedCats = allowedCatIds;
+        const filteredDishes = allowedCats
+          ? evDishes.filter(d => { const cid = getCatIdForDish(d); return cid && allowedCats.includes(cid); })
+          : evDishes;
+
+        // Group by SOP category
+        const grouped = new Map();
+        filteredDishes.forEach(dish => {
+          const cid = getCatIdForDish(dish) || '__unmapped';
+          if(!grouped.has(cid)){
+            const cat = RECIPE_DB.cats.find(c=>c.id===cid) || {id:cid, name:cid==='__unmapped'?'Unmapped':cid, icon:'🍽'};
+            grouped.set(cid, {cat, items:[]});
+          }
+          grouped.get(cid).items.push(dish);
+        });
+        const orderedGroups = [
+          ...RECIPE_DB.cats.filter(c=>grouped.has(c.id)).map(c=>grouped.get(c.id)),
+          ...(grouped.has('__unmapped') ? [grouped.get('__unmapped')] : [])
+        ];
+
+        // Stats
+        const closedCount = filteredDishes.filter(d => closeRows[d]).length;
+        const excludedCount = filteredDishes.filter(d => closeRows[d]?.exclude_from_ordering).length;
+        const totalLeftoverKg = filteredDishes.reduce((n, d) => n + (parseFloat(closeRows[d]?.leftover_kg) || 0), 0);
+        const fmtKg = v => (v>=0.01 ? v.toFixed(1).replace(/\.0$/,"") : "0");
+
+        return (
+          <div>
+            {/* Header */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍲 {T2("Event Closing")}</div>
+              <div style={{fontSize:12,color:C.muted}}>{T2("Record leftover quantities per dish after the event. Marks with ⛔ won't affect future order suggestions.")}</div>
+            </div>
+
+            {/* Event picker */}
+            <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${C.goldBorder}`,background:C.goldBg}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Select event to close")}</div>
+              {closableEvs.length===0 ? (
+                <div style={{padding:"8px 0",fontSize:12,color:C.faint}}>{T2("No past or current events found.")}</div>
+              ) : (
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {closableEvs.slice(0,30).map(ev=>{
+                    const isSel = closeEventId===ev.id;
+                    return(
+                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)}
+                        style={{padding:"10px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:500,cursor:"pointer",background:isSel?C.gold:C.surface,color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?C.gold:C.border}`,minHeight:44,textAlign:"left"}}>
+                        <div style={{fontWeight:isSel?800:600}}>{ev.guest||"Function"}</div>
+                        <div style={{fontSize:10,opacity:.85}}>📅 {fmtDate(ev.date)}{ev.time?" · "+fmtTime(ev.time):""} · {ev.pax} pax{ev.venue?" · "+ev.venue:""}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {!selEv && (
+              <Card style={{padding:"24px 20px",textAlign:"center"}}>
+                <div style={{fontSize:28,marginBottom:8}}>👆</div>
+                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event to record its closing")}</div>
+              </Card>
+            )}
+
+            {selEv && (<>
+              {/* Event summary */}
+              <Card style={{marginBottom:12,padding:"12px 16px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" · "+fmtTime(selEv.time):""}{selEv.venue?" · "+selEv.venue:""} · {selEv.pax} pax · {filteredDishes.length}{allowedCats?"/"+evDishes.length:""} {T2("dishes")}</div>
+                  </div>
+                  <div style={{display:"flex",gap:12,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{color:closedCount===filteredDishes.length&&filteredDishes.length>0?C.green:C.gold,fontWeight:700}}>✓ {closedCount}/{filteredDishes.length} {T2("closed")}</span>
+                    {excludedCount>0 && <span style={{color:C.muted,fontWeight:600}}>⛔ {excludedCount} {T2("excluded")}</span>}
+                    {totalLeftoverKg>0 && <span style={{color:C.amber,fontWeight:600}}>📦 {fmtKg(totalLeftoverKg)} kg {T2("leftover")}</span>}
+                  </div>
+                </div>
+              </Card>
+
+              {filteredDishes.length===0 && (
+                <Card style={{padding:"20px",textAlign:"center"}}>
+                  <div style={{fontSize:12,color:C.muted}}>{allowedCats?T2("No dishes in your section for this event."):T2("This event has no dishes on its menu.")}</div>
+                </Card>
+              )}
+
+              {orderedGroups.map(group=>(
+                <div key={group.cat.id} style={{marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`}}>
+                    <span style={{fontSize:18}}>{group.cat.icon||"🍽"}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}</div>
+                    </div>
+                  </div>
+                  {group.items.map(dish=>{
+                    const row = closeRows[dish];
+                    const planKg = scalePlanRows[dish]?.target_yield_kg || null;
+                    const lkg = row?.leftover_kg;
+                    const lpcs = row?.leftover_pcs;
+                    const notes = row?.notes || "";
+                    const excluded = !!row?.exclude_from_ordering;
+                    const isSaving = closeSaving.has(dish);
+                    const isClosed = !!row;
+                    return(
+                      <div key={dish} style={{marginBottom:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
+                        <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <div style={{flex:1,minWidth:180}}>
+                            <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dish}</div>
+                            {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>📋 {T2("Planned")}: {planKg} kg</div>}
+                          </div>
+                          <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✓ "+T2("Closed"):""}</div>
+                        </div>
+                        <div style={{padding:"0 14px 12px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div>
+                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Leftover kg")}</div>
+                            <input type="number" step="0.1" inputMode="decimal"
+                              defaultValue={lkg??""}
+                              key={"lkg-"+dish+"-"+(row?.id||"new")}
+                              onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
+                              placeholder="0"
+                              style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Pcs (opt.)")}</div>
+                            <input type="number" step="1" inputMode="numeric"
+                              defaultValue={lpcs??""}
+                              key={"lpcs-"+dish+"-"+(row?.id||"new")}
+                              onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
+                              placeholder="0"
+                              style={{width:80,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                          </div>
+                          <div style={{flex:1,minWidth:180}}>
+                            <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Notes")}</div>
+                            <input type="text"
+                              defaultValue={notes}
+                              key={"nts-"+dish+"-"+(row?.id||"new")}
+                              onBlur={e=>saveClosing(dish, {notes:e.target.value}, ctx)}
+                              placeholder={T2("optional")}
+                              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                          </div>
+                          <label style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,background:excluded?C.amberBg:"transparent",border:`1.5px solid ${excluded?C.amberBorder:C.border}`,cursor:"pointer",minHeight:38}}>
+                            <input type="checkbox" checked={excluded}
+                              onChange={e=>saveClosing(dish, {exclude_from_ordering:e.target.checked}, ctx)}
+                              style={{width:16,height:16,accentColor:C.amber,cursor:"pointer"}}/>
+                            <span style={{fontSize:11,fontWeight:600,color:excluded?C.amber:C.muted}}>⛔ {T2("Don't affect ordering")}</span>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* Footer note */}
+              <div style={{marginTop:20,padding:"10px 14px",borderRadius:8,background:C.bg,fontSize:10,color:C.faint,textAlign:"center"}}>
+                {T2("Auto-saves on blur. The ⛔ flag will be honored once order-suggestion is wired to this data.")}
+              </div>
             </>)}
           </div>
         );
