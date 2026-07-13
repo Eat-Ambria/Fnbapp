@@ -779,20 +779,42 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         ))}
         {currentUser&&currentUser.role==='admin'&&(
           <button onClick={function(){
-            if(!window.confirm('Reset ALL dish progress? This clears store sourcing, step timers, selfies, completion status for ALL dishes. Cannot undo.'))return;
-            setKitchenTracking({});
-            try{localStorage.removeItem('ambria_kt');}catch(e){}
+            const todayIds = todayEvs.map(e=>e.id);
+            const tomorrowIds = tomorrowEvs.map(e=>e.id);
+            const evIds = [...todayIds, ...tomorrowIds];
+            const combKeys = ["__combined_"+TODAY, "__combined_"+TOMORROW];
+            const targetIds = [...evIds, ...combKeys];
+            if(evIds.length === 0){
+              alert("No events today or tomorrow — nothing to reset.");
+              return;
+            }
+            const totalDishes = evIds.reduce((n, id)=>{
+              const evObj = evList.find(e=>e.id===id);
+              return n + (evObj ? menuArr(evObj).length : 0);
+            }, 0);
+            const scopeLabel = `${todayEvs.length} event${todayEvs.length!==1?"s":""} today + ${tomorrowEvs.length} tomorrow`;
+            if(!window.confirm(
+              `Reset dish progress for CURRENT prep only?\n\n`+
+              `Scope: ${scopeLabel} (~${totalDishes} dishes).\n\n`+
+              `Clears store sourcing, step timers, selfies, and completion status for these events.\n\n`+
+              `Historical events (past dates) are NOT touched. Cannot undo.`
+            )) return;
+            setKitchenTracking(p=>{
+              const o = (p&&typeof p==="object") ? {...p} : {};
+              targetIds.forEach(id => { delete o[id]; });
+              return o;
+            });
             try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
-            // Also clear from Supabase
+            try{localStorage.removeItem('ambria_kt');}catch(e){}
             import('../lib/supabase.js').then(function(mod){
-              mod.supabase.from('kitchen_tracking').delete().neq('ev_id','__never__').then(function(r){
-                if(r.error)console.error('KT clear error:',r.error);
-                else console.log('✅ Supabase kitchen_tracking cleared');
+              mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
+                if(r.error) console.error('KT scoped clear error:', r.error);
+                else console.log('✅ Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids (today + tomorrow + combined keys)');
               });
-            }).catch(function(e){console.error('KT clear import error:',e);});
-            alert('✅ All dishes reset to fresh state');
+            }).catch(function(e){console.error('KT clear import error:', e);});
+            alert(`✅ Reset ${scopeLabel}. Historical data preserved.`);
           }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
-            ↺ {T2("Reset all")}
+            ↺ {T2("Reset current")}
           </button>
         )}
         {currentUser&&currentUser.role==='admin'&&(

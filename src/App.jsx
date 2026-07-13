@@ -303,12 +303,6 @@ export default function App() {
         const ktObj={};
         ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data||{};});
         setKitchenTracking_raw(ktObj);
-        console.log("[KT load]", ktData.length, "rows across", Object.keys(ktObj).length, "distinct ev_ids");
-        if(ktData.length>=1000) console.warn("[KT load] ⚠ Hit Supabase default 1000-row cap — older kitchen_tracking data may be silently truncated. Fix: add .limit(50000) in db.js dbLoad, or paginate.");
-        const junJyotsna = Object.keys(ktObj).filter(k => /2026-06-29|Jyotsna/i.test(k));
-        console.log("[KT load] keys matching 2026-06-29 or Jyotsna:", junJyotsna);
-      } else {
-        console.warn("[KT load] 0 rows returned from Supabase");
       }
       if(tqData.length>0){
         setTransportQueue_raw(tqData.map(q=>({id:q.id,dishName:q.dish_name,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined})));
