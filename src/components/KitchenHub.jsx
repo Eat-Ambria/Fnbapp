@@ -185,6 +185,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
+  const [ingDragIdx, setIngDragIdx] = useState(null);
+  function ingReorderTo(target) {
+    if (ingDragIdx===null || ingDragIdx===target) return;
+    setIngForm(f => {
+      const items=[...f.items];
+      const [moved]=items.splice(ingDragIdx,1);
+      items.splice(target,0,moved);
+      return {...f, items};
+    });
+    setIngDirty(true);
+    setIngDragIdx(null);
+  }
   const [appliedScales, setAppliedScales] = useState({}); // {evId: {percent, appliedAt, dishes[]}}
   const [scalePlanRows, setScalePlanRows] = useState({}); // {dishName: production_plans row} for scaleEventId — used to override pax scaling with yield-based scaling
   const [d1View, setD1View] = useState("all"); // "all" | "cont" | "new"
@@ -1775,7 +1787,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </tr></thead>
                         <tbody>
                           {ingForm.items.map((item,idx)=>item.isSection?(
-                            <tr key={idx} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
+                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
                               <td colSpan={4} style={{padding:"4px 6px"}}>
                                 <div style={{display:"flex",gap:4}}>
                                   <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section heading —" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
@@ -1783,20 +1795,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </div>
                               </td>
                               <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
-                                <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:10,color:C.gold,padding:0,marginRight:2}}>↑</button>
-                                <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:10,color:C.gold,padding:0,marginRight:2}}>↓</button>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
                                 <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button>
                               </td>
                             </tr>
                           ):(
-                            <tr key={idx} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard}}>
+                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard,opacity:ingDragIdx===idx?0.4:1}}>
                               <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                               <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
-                                <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.borderLight}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:10,color:C.muted,padding:0,marginRight:2}}>↑</button>
-                                <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.borderLight}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:10,color:C.muted,padding:0,marginRight:2}}>↓</button>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
                                 <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button>
                               </td>
                             </tr>
@@ -3137,29 +3147,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div style={{textAlign:"center",padding:"30px 20px",color:C.faint,fontSize:13}}>No ingredients yet. Tap "+ Add Ingredient" below.</div>
               )}
               {ingForm.items.map((item,idx)=>item.isSection?(
-                <div key={idx} style={{marginBottom:10,borderRadius:12,border:`2px solid ${C.goldBorder}`,background:C.goldBg,overflow:"hidden",padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                  <span style={{fontSize:14,color:C.gold,fontWeight:700,flexShrink:0}}>▸</span>
+                <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`2px solid ${C.goldBorder}`,background:C.goldBg,overflow:"hidden",padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",opacity:ingDragIdx===idx?0.4:1}}>
+                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.gold,fontWeight:700,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
                   <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Section heading" style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
                   <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:90,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
-                  <div style={{display:"flex",gap:2}}>
-                    <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:11,color:C.muted}}>↑</button>
-                    <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:11,color:C.muted}}>↓</button>
-                  </div>
                   <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>✕</button>
                 </div>
               ):(
-                <div key={idx} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden"}}>
+                <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden",opacity:ingDragIdx===idx?0.4:1}}>
                   {/* Row header */}
                   <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
+                    <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.muted,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
                     <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
                       {["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
                     </select>
-                    <div style={{display:"flex",gap:2}}>
-                      <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:11,color:C.muted}}>↑</button>
-                      <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:11,color:C.muted}}>↓</button>
-                    </div>
                     <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>✕</button>
                   </div>
                   {/* Quantity input */}
