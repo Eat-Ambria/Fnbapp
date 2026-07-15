@@ -70,6 +70,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const ex = recipe.ingredients;
     if (ex && Array.isArray(ex.items) && ex.items.length > 0) {
       const items = ex.items.map(it => {
+        if (it.isSection) {
+          return { isSection: true, name: it.name || "", hi: it.hi ?? "" };
+        }
         // qty: scalar (new) or array (legacy — pick 500-pax value if present, else 0)
         let qty = 0;
         if (typeof it.qty === 'number') qty = it.qty;
@@ -1779,7 +1782,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
                                 </div>
                               </td>
-                              <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
+                              <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
+                                <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:10,color:C.gold,padding:0,marginRight:2}}>↑</button>
+                                <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.goldBorder}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:10,color:C.gold,padding:0,marginRight:2}}>↓</button>
+                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button>
+                              </td>
                             </tr>
                           ):(
                             <tr key={idx} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard}}>
@@ -1787,7 +1794,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                               <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 2px",textAlign:"center"}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
+                              <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
+                                <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.borderLight}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:10,color:C.muted,padding:0,marginRight:2}}>↑</button>
+                                <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:18,height:22,borderRadius:4,border:`1px solid ${C.borderLight}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:10,color:C.muted,padding:0,marginRight:2}}>↓</button>
+                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
