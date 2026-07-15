@@ -95,6 +95,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>({...f,items:[...f.items,{name:"",hi:"",unit:"kg",qty:0,notes:""}]}));
     setIngDirty(true);
   }
+  function ingAddSection() {
+    setIngForm(f=>({...f,items:[...f.items,{isSection:true,name:"",hi:""}]}));
+    setIngDirty(true);
+  }
   function ingRemoveItem(idx) {
     setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)}));
     setIngDirty(true);
@@ -128,6 +132,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!ingModal)return;
     // Build new-schema payload. Field names locked to `hi` and `qty_nv`.
     const items = ingForm.items.filter(it=>(it.name||"").trim()).map(it => {
+      if (it.isSection) {
+        const row = { isSection: true, name: it.name.trim() };
+        if (it.hi) row.hi = (it.hi||"").trim();
+        return row;
+      }
       const row = {
         name: it.name.trim(),
         hi: (it.hi||"").trim(),
@@ -1729,7 +1738,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                   <span style={{fontSize:11,color:C.muted}}>
                     {sopRecipe.ingredients?.items?.length>0
-                      ?"🧂 "+sopRecipe.ingredients.items.length+" ingredients"
+                      ?"🧂 "+sopRecipe.ingredients.items.filter(i=>!i.isSection).length+" ingredients"
                       :fallbackIng?"🧂 "+fallbackIng.length+" ingredients (legacy)"
                       :"🧂 No ingredients added"}
                   </span>
@@ -1762,11 +1771,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
                         </tr></thead>
                         <tbody>
-                          {ingForm.items.map((item,idx)=>(
+                          {ingForm.items.map((item,idx)=>item.isSection?(
+                            <tr key={idx} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
+                              <td colSpan={4} style={{padding:"4px 6px"}}>
+                                <div style={{display:"flex",gap:4}}>
+                                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section heading —" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                  <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                </div>
+                              </td>
+                              <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
+                            </tr>
+                          ):(
                             <tr key={idx} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard}}>
                               <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+                              <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                               <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px",textAlign:"center"}}><button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>✕</button></td>
                             </tr>
@@ -1774,7 +1793,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </tbody>
                       </table>
                     </div>
-                    <button onClick={ingAddItem} style={{width:"100%",padding:"8px",borderTop:`1px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRadius:"0 0 8px 8px",minHeight:34}}>+ Add Ingredient</button>
+                    <div style={{display:"flex",borderTop:`1px dashed ${C.goldBorder}`}}>
+                      <button onClick={ingAddItem} style={{flex:1,padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRight:`1px dashed ${C.goldBorder}`,borderRadius:"0 0 0 8px",minHeight:34}}>+ Add Ingredient</button>
+                      <button onClick={ingAddSection} style={{flex:"0 0 40%",padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRadius:"0 0 8px 0",minHeight:34}}>+ Section</button>
+                    </div>
                     {ingDirty&&<div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
                       <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
                       <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
@@ -1808,6 +1830,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </tr></thead>
                         <tbody>
                           {ing2.items.map((ing,ii)=>{
+                            if(ing.isSection){
+                              const colCount=isNewSchema?3:(2+(ing2.pax_sizes?.length||0));
+                              return(
+                              <tr key={ii} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
+                                <td colSpan={colCount} style={{padding:"6px 10px",textAlign:"center",fontWeight:700,color:C.gold,fontSize:11}}>
+                                  — {ing.name}{ing.hi?` / ${ing.hi}`:""} —
+                                </td>
+                              </tr>);
+                            }
                             const hi=ing.hi??ing.hindi;
                             return(
                             <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
@@ -3094,14 +3125,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               {ingForm.items.length===0&&(
                 <div style={{textAlign:"center",padding:"30px 20px",color:C.faint,fontSize:13}}>No ingredients yet. Tap "+ Add Ingredient" below.</div>
               )}
-              {ingForm.items.map((item,idx)=>(
+              {ingForm.items.map((item,idx)=>item.isSection?(
+                <div key={idx} style={{marginBottom:10,borderRadius:12,border:`2px solid ${C.goldBorder}`,background:C.goldBg,overflow:"hidden",padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:14,color:C.gold,fontWeight:700,flexShrink:0}}>▸</span>
+                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Section heading" style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
+                  <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:90,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
+                  <div style={{display:"flex",gap:2}}>
+                    <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:11,color:C.muted}}>↑</button>
+                    <button onClick={()=>ingMoveItem(idx,1)} disabled={idx===ingForm.items.length-1} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx<ingForm.items.length-1?"pointer":"default",opacity:idx<ingForm.items.length-1?1:.3,fontSize:11,color:C.muted}}>↓</button>
+                  </div>
+                  <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>✕</button>
+                </div>
+              ):(
                 <div key={idx} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden"}}>
                   {/* Row header */}
                   <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
                     <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिंदी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
-                      {["kg","gm","L","ml","pcs","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
+                      {["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
                     </select>
                     <div style={{display:"flex",gap:2}}>
                       <button onClick={()=>ingMoveItem(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,cursor:idx>0?"pointer":"default",opacity:idx>0?1:.3,fontSize:11,color:C.muted}}>↑</button>
@@ -3123,7 +3165,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 </div>
               ))}
-              <button onClick={ingAddItem} style={{width:"100%",padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:44}}>+ Add Ingredient</button>
+              <div style={{display:"flex",gap:8,marginTop:8}}>
+                <button onClick={ingAddItem} style={{flex:1,padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Ingredient</button>
+                <button onClick={ingAddSection} style={{flex:"0 0 40%",padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Section</button>
+              </div>
             </div>
             {/* Footer */}
             <div style={{position:"sticky",bottom:0,padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.surface,borderRadius:"0 0 16px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
