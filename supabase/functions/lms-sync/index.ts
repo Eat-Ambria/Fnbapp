@@ -382,6 +382,39 @@ Deno.serve(async (req) => {
 
     console.log(`Events to upsert: ${finalEvents.length} (skipped: ${skipped})`);
 
+    // ── Preserve admin-customized menus ──
+    // If an existing row has menu_package=null (admin explicitly cleared it) and a
+    // non-empty menu array, that means the admin hand-built the menu in FnB app.
+    // Do NOT overwrite those with LMS defaults.
+    const idsToCheck = finalEvents.map(e => e.id);
+    const preserved = new Map<string, { menu: any; menu_package: string | null }>();
+    for (let i = 0; i < idsToCheck.length; i += 200) {
+      const chunk = idsToCheck.slice(i, i + 200);
+      const { data: existing, error: exErr } = await sb
+        .from("events")
+        .select("id, menu, menu_package")
+        .in("id", chunk);
+      if (exErr) { console.error(`Preserve fetch batch ${i} error:`, exErr); continue; }
+      (existing || []).forEach((ex: any) => {
+        const hasCustomMenu =
+          (ex.menu_package === null || ex.menu_package === "") &&
+          Array.isArray(ex.menu) && ex.menu.length > 0;
+        if (hasCustomMenu) {
+          preserved.set(ex.id, { menu: ex.menu, menu_package: ex.menu_package });
+        }
+      });
+    }
+    let preservedCount = 0;
+    finalEvents.forEach((ev) => {
+      const p = preserved.get(ev.id);
+      if (p) {
+        ev.menu = p.menu;
+        ev.menu_package = p.menu_package;
+        preservedCount++;
+      }
+    });
+    if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
+
     // ── Upsert in batches of 50 ──
     let upserted = 0;
     for (let i = 0; i < finalEvents.length; i += 50) {
