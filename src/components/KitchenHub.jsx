@@ -356,7 +356,29 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
   function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>{mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds).then(({data})=>{setUsageLogs(data||[]);});}).catch(()=>setUsageLogs([]));}
-  useEffect(()=>{if(tab!=="analytics"||!analyticsEvId)return;const aEvs=safeArr(events);const evIds=analyticsEvId==="__combined"?aEvs.map(e=>e.id):[analyticsEvId];if(evIds.length>0)fetchUsageLogs(evIds);},[tab,analyticsEvId]);
+  useEffect(()=>{
+    if(tab!=="analytics"||!analyticsEvId) return;
+    const aEvs=safeArr(events);
+    const evIds=analyticsEvId==="__combined"?aEvs.map(e=>e.id):[analyticsEvId];
+    if(evIds.length===0) return;
+    fetchUsageLogs(evIds);
+    // Live subscribe: refetch on any insert/update/delete for these event_ids
+    let channel=null, mounted=true;
+    import('../lib/supabase.js').then(mod=>{
+      if(!mounted||!mod.supabase) return;
+      channel=mod.supabase
+        .channel('ing_usage_'+analyticsEvId)
+        .on('postgres_changes',{event:'*',schema:'public',table:'ingredient_usage_log'},(payload)=>{
+          const evId=payload.new?.event_id||payload.old?.event_id;
+          if(evIds.includes(evId)) fetchUsageLogs(evIds);
+        })
+        .subscribe();
+    });
+    return ()=>{
+      mounted=false;
+      if(channel) import('../lib/supabase.js').then(mod=>{ if(mod.supabase) mod.supabase.removeChannel(channel); });
+    };
+  },[tab,analyticsEvId]);
 
   // ── Planning (Phase 4) ──
   const [planEvId, setPlanEvId] = useState(null);
