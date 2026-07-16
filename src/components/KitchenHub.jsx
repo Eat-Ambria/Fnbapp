@@ -172,6 +172,99 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(sopRecipe&&sopRecipe.n===ingModal.recipeName) setSopRecipe(p=>({...p,ingredients:payload}));
     setIngModal(null);
   }
+
+  // ── CSV Import/Export for Ingredients ──
+  function csvEscape(v){const s=v==null?"":String(v);return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+  function csvBuildFromRecipe(rec){
+    const items=rec.ingredients?.items||[];
+    const lines=["name,hi,unit,qty,isSection,notes"];
+    for(const it of items){
+      if(it.isSection) lines.push([csvEscape(it.name),csvEscape(it.hi||""),"","","true",""].join(","));
+      else lines.push([csvEscape(it.name),csvEscape(it.hi||""),csvEscape(it.unit||"kg"),csvEscape(it.qty??""),"",csvEscape(it.notes||"")].join(","));
+    }
+    return "\uFEFF"+lines.join("\r\n");
+  }
+  function csvDownloadFromRecipe(rec){
+    const text=csvBuildFromRecipe(rec);
+    const pax=rec.ingredients?.base_pax||300;
+    const fn=(rec.n||"recipe").replace(/[^\w\-]+/g,"_")+"_"+pax+"pax_ingredients.csv";
+    const blob=new Blob([text],{type:"text/csv;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=fn;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function csvParseText(text){
+    if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+    const rows=[]; let cur=[],field="",inQ=false;
+    for(let i=0;i<text.length;i++){
+      const c=text[i];
+      if(inQ){
+        if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;} else inQ=false; }
+        else field+=c;
+      } else {
+        if(c==='"') inQ=true;
+        else if(c===',') { cur.push(field); field=""; }
+        else if(c==='\r') { /* skip */ }
+        else if(c==='\n') { cur.push(field); rows.push(cur); cur=[]; field=""; }
+        else field+=c;
+      }
+    }
+    if(field!==""||cur.length){ cur.push(field); rows.push(cur); }
+    return rows;
+  }
+  function csvImportParse(text){
+    const rows=csvParseText(text);
+    if(rows.length===0) return {items:[],warnings:["Empty file"]};
+    const header=rows[0].map(h=>(h||"").trim().toLowerCase());
+    const ix={name:header.indexOf("name"),hi:header.indexOf("hi"),unit:header.indexOf("unit"),qty:header.indexOf("qty"),isSection:header.indexOf("issection"),notes:header.indexOf("notes")};
+    if(ix.name<0) return {items:[],warnings:["CSV must have a 'name' column in row 1"]};
+    const validUnits=["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
+    const items=[],warnings=[];
+    for(let r=1;r<rows.length;r++){
+      const row=rows[r];
+      if(!row||row.every(c=>(c||"").trim()==="")) continue;
+      const name=(row[ix.name]||"").trim();
+      if(!name){warnings.push(`Row ${r+1}: no name, skipped`);continue;}
+      const hi=ix.hi>=0?(row[ix.hi]||"").trim():"";
+      const isSec=ix.isSection>=0&&/^(true|1|yes|y)$/i.test((row[ix.isSection]||"").trim());
+      if(isSec){ const it={isSection:true,name}; if(hi) it.hi=hi; items.push(it); continue; }
+      let unit=ix.unit>=0?(row[ix.unit]||"").trim():"kg";
+      if(!unit) unit="kg";
+      if(!validUnits.includes(unit)) warnings.push(`Row ${r+1}: unknown unit '${unit}', kept as-is`);
+      const qtyRaw=ix.qty>=0?(row[ix.qty]||"").trim():"";
+      let qty=0;
+      if(qtyRaw!==""){ const p=parseFloat(qtyRaw); if(isNaN(p)) warnings.push(`Row ${r+1}: qty '${qtyRaw}' not numeric, defaulted to 0`); else qty=p; }
+      const notes=ix.notes>=0?(row[ix.notes]||"").trim():"";
+      const it={name,hi,unit,qty};
+      if(notes) it.notes=notes;
+      items.push(it);
+    }
+    return {items,warnings};
+  }
+  async function csvImportSave(){
+    if(!csvImport?.parsedItems) return;
+    const {recipe,catId,parsedItems}=csvImport;
+    const payload={
+      base_pax: recipe.ingredients?.base_pax||300,
+      base_yield: recipe.ingredients?.base_yield||{kg:null,pcs:null},
+      items: parsedItems,
+    };
+    const catRecipes=safeArr(RECIPE_DB.recipes[catId]);
+    const ri=catRecipes.findIndex(r=>r.n===recipe.n);
+    if(ri>=0) catRecipes[ri].ingredients=payload;
+    try{
+      const mod=await import('../lib/supabase.js');
+      if(mod.supabase){
+        const {error}=await mod.supabase.from('recipes').update({ingredients:payload}).eq('dish_name',recipe.n).eq('category_id',catId);
+        if(error){ console.error('CSV import save error:',error); alert('Save failed: '+error.message); return; }
+        console.log('✅ CSV imported for',recipe.n,'—',parsedItems.length,'items');
+      }
+    }catch(e){ console.error('CSV import save failed:',e); alert('Save failed: '+e.message); return; }
+    if(sopRecipe&&sopRecipe.n===recipe.n) setSopRecipe(p=>({...p,ingredients:payload}));
+    setCsvImport(null);
+  }
+
   const [scaleEventId, setScaleEventId] = useState(null); // eventId | null — event whose planned yields drive the Scaling tab
   const [yieldAdjustPct, setYieldAdjustPct] = useState(100); // global multiplier applied to planned yields (100 = exactly as planned)
   const [closeEventId, setCloseEventId] = useState(null); // eventId whose closing is being edited
@@ -185,6 +278,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   const [ingDirty, setIngDirty] = useState(false);
+  const [csvImport, setCsvImport] = useState(null); // {recipe, catId, recipeName, basePax, currentCount, parsedItems, warnings} | null
   const [ingDragIdx, setIngDragIdx] = useState(null);
   function ingReorderTo(target) {
     if (ingDragIdx===null || ingDragIdx===target) return;
@@ -874,6 +968,59 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {sopModal.mode==="edit"?"💾 Update Recipe":"➕ Save Recipe"}
               </button>
               <button onClick={()=>setSopModal(null)} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:48}}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CSV IMPORT MODAL ── */}
+      {csvImport&&(
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
+          <div style={{background:C.card,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`}}>
+            <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📥 Import Ingredients CSV</div>
+              <button onClick={()=>setCsvImport(null)} style={{padding:"4px 10px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{padding:16}}>
+              <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.5}}>
+                <b style={{color:C.text}}>{csvImport.recipeName}</b> · currently {csvImport.currentCount} items<br/>
+                Download the current ingredients, edit in Excel or Sheets, then upload to <b>replace all ingredients</b> for this recipe.
+                <br/><span style={{color:C.faint,fontSize:11}}>Quantities are at {csvImport.basePax} pax anchor.</span>
+              </div>
+              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} style={{width:"100%",padding:"10px",borderRadius:10,border:`1.5px solid ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12,minHeight:40}}>⬇ Download current CSV</button>
+              <div style={{padding:"10px 12px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.border}`,marginBottom:10}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>Upload edited CSV:</div>
+                <input type="file" accept=".csv,text/csv" onChange={e=>{
+                  const f=e.target.files?.[0]; if(!f) return;
+                  const rd=new FileReader();
+                  rd.onload=()=>{ const {items,warnings}=csvImportParse(rd.result); setCsvImport(p=>({...p,parsedItems:items,warnings})); };
+                  rd.readAsText(f,'utf-8');
+                }} style={{fontSize:12,color:C.text,width:"100%"}}/>
+              </div>
+              {csvImport.parsedItems&&(
+                <div style={{padding:"10px 12px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,marginBottom:10}}>
+                  <div style={{fontSize:12,color:C.text,fontWeight:700,marginBottom:6}}>
+                    Found {csvImport.parsedItems.length} rows: {csvImport.parsedItems.filter(i=>!i.isSection).length} ingredients + {csvImport.parsedItems.filter(i=>i.isSection).length} sections
+                  </div>
+                  {csvImport.warnings?.length>0&&(
+                    <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,maxHeight:120,overflowY:"auto"}}>
+                      <div style={{fontWeight:700,marginBottom:4}}>⚠ Warnings ({csvImport.warnings.length}):</div>
+                      {csvImport.warnings.map((w,i)=>(<div key={i}>• {w}</div>))}
+                    </div>
+                  )}
+                  <div style={{fontSize:11,color:C.muted,marginTop:8}}>
+                    Replace current <b>{csvImport.currentCount}</b> items with these <b>{csvImport.parsedItems.length}</b>?
+                  </div>
+                </div>
+              )}
+              <div style={{display:"flex",gap:8,marginTop:14}}>
+                {csvImport.parsedItems&&csvImport.parsedItems.length>0&&(
+                  <button onClick={csvImportSave} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
+                    ✓ Replace with {csvImport.parsedItems.length} items
+                  </button>
+                )}
+                <button onClick={()=>setCsvImport(null)} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1757,11 +1904,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       :fallbackIng?"🧂 "+fallbackIng.length+" ingredients (legacy)"
                       :"🧂 No ingredients added"}
                   </span>
-                  {currentUser?.role==='admin'&&!ingModal&&(
+                  {currentUser?.role==='admin'&&!ingModal&&(<>
                     <button onClick={()=>{openIngEditor(sopRecipe,sopCat);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:ingModal?.recipeName===sopRecipe.n?C.green:C.goldBg,border:`1px solid ${ingModal?.recipeName===sopRecipe.n?C.greenBorder:C.goldBorder}`,color:ingModal?.recipeName===sopRecipe.n?"#fff":C.gold,cursor:"pointer",minHeight:28}}>
                       {sopRecipe.ingredients?.items?.length>0?"✏️ Edit":"+ Add Ingredients"}
                     </button>
-                  )}
+                    <button onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>📥 Import CSV</button>
+                  </>)}
                   {currentUser?.role==='admin'&&ingModal?.recipeName===sopRecipe.n&&(
                     <div style={{display:"flex",gap:6}}>
                       {ingDirty&&<button onClick={saveIngredients} style={{padding:"4px 12px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:28}}>💾 Save</button>}
