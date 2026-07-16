@@ -2320,11 +2320,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const fS=s=>{if(s==null)return"—";const m=Math.floor(Math.abs(s)/60);const sc=Math.abs(s)%60;return m+"m"+(sc>0?" "+sc+"s":"");};
         const dC=d=>d==null?C.faint:d>5?C.red:d<-5?C.green:C.muted;
         const dBadge=d=>d==null?"—":d>0?"+"+fS(d):d<0?fS(Math.abs(d))+" under":"on time";
-        // Ingredient deltas
-        const deltas=[];(usageLogs||[]).forEach(log=>{(log.ingredients||[]).forEach(ing=>{
-          if(ing.actual_qty!=null&&Math.abs(ing.actual_qty-ing.scaled_qty)>0.01)
-            deltas.push({dish:log.dish_name,n:ing.name,scaled:ing.scaled_qty,actual:ing.actual_qty,u:ing.unit,d:ing.actual_qty-ing.scaled_qty,pct:ing.scaled_qty>0?Math.round((ing.actual_qty-ing.scaled_qty)/ing.scaled_qty*100):0});
-        });});
+        // Per-recipe stats: one row per completion log with ingredient-variance rollup + chef-entered yield
+        const recStats=(usageLogs||[]).map(log=>{
+          const ings=log.ingredients||[];
+          const varIngs=ings.filter(ing=>ing.actual_qty!=null&&ing.scaled_qty!=null&&Math.abs(ing.actual_qty-ing.scaled_qty)>0.01);
+          const pcts=varIngs.map(ing=>({name:ing.name,pct:ing.scaled_qty>0?Math.round((ing.actual_qty-ing.scaled_qty)/ing.scaled_qty*100):0}));
+          const absPcts=pcts.map(p=>Math.abs(p.pct));
+          const avgAbs=absPcts.length?Math.round(absPcts.reduce((s,x)=>s+x,0)/absPcts.length):0;
+          const worst=pcts.reduce((w,p)=>Math.abs(p.pct)>Math.abs(w?.pct||0)?p:w,null);
+          return {dish:log.dish_name,pax:log.pax,total:ings.length,withVar:varIngs.length,avgAbs,worst,yieldQty:log.yield_qty,yieldUnit:log.yield_unit,isPrepDay:log.is_prep_day};
+        }).sort((a,b)=>Math.abs(b.worst?.pct||0)-Math.abs(a.worst?.pct||0)||a.dish.localeCompare(b.dish));
         const selEv=selId&&selId!=="__combined"?allEvs.find(e=>e.id===selId):null;
         return(
           <div>
@@ -2567,27 +2572,44 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>}
               </div>
             );})}
-            {/* ── Ingredient Variance Summary ── */}
-            {deltas.length===0&&usageLogs.length>0&&<div style={{marginTop:20,padding:"16px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:11,color:C.muted}}>📊 All ingredients used at scaled quantities — no variances recorded</div></div>}
-            {deltas.length===0&&usageLogs.length===0&&perfs.length>0&&<div style={{marginTop:20,padding:"16px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:11,color:C.faint}}>📊 No ingredient usage data yet — data appears when chefs log actual quantities on "Mark prep done"</div></div>}
-            {deltas.length>0&&(<>
-              <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,marginTop:20,textTransform:"uppercase",letterSpacing:.5}}>Ingredient Variance</div>
+            {/* ── Recipe Variance & Yield ── */}
+            {recStats.length===0&&perfs.length>0&&<div style={{marginTop:20,padding:"16px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,textAlign:"center"}}><div style={{fontSize:11,color:C.faint}}>📊 No completion data yet — data appears when chefs log actuals and yield on "Mark prep done"</div></div>}
+            {recStats.length>0&&(<>
+              <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,marginTop:20,textTransform:"uppercase",letterSpacing:.5}}>Recipe Variance & Yield</div>
               <div style={{borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
                 <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
                   <thead><tr style={{background:C.darkCard}}>
                     <th style={{padding:"8px 10px",textAlign:"left",color:C.muted}}>Dish</th>
-                    <th style={{padding:"8px 10px",textAlign:"left",color:C.muted}}>Ingredient</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Scaled</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Actual</th>
-                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Δ</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Pax</th>
+                    <th style={{padding:"8px 8px",textAlign:"center",color:C.muted}}>Ingredients w/ Δ</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Avg |Δ%|</th>
+                    <th style={{padding:"8px 8px",textAlign:"right",color:C.muted}}>Worst Δ%</th>
+                    <th style={{padding:"8px 10px",textAlign:"right",color:C.muted}}>Yield Output</th>
                   </tr></thead>
-                  <tbody>{deltas.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct)).map((d,i)=>(
+                  <tbody>{recStats.map((r,i)=>(
                     <tr key={i} style={{borderTop:`1px solid ${C.borderLight}`,background:i%2===0?C.surface:C.darkCard}}>
-                      <td style={{padding:"6px 10px",fontSize:11,color:C.text}}>{d.dish}</td>
-                      <td style={{padding:"6px 10px",fontSize:11,color:C.text,fontWeight:500}}>{d.n}</td>
-                      <td style={{padding:"6px 8px",textAlign:"right",color:C.faint}}>{d.scaled} {d.u}</td>
-                      <td style={{padding:"6px 8px",textAlign:"right",color:C.text,fontWeight:600}}>{d.actual} {d.u}</td>
-                      <td style={{padding:"6px 8px",textAlign:"right"}}><span style={{fontWeight:700,color:d.d>0?C.red:C.green,padding:"2px 6px",borderRadius:4,background:d.d>0?C.redBg:C.greenBg}}>{d.d>0?"+":""}{d.pct}%</span></td>
+                      <td style={{padding:"6px 10px",fontSize:11,color:C.text,fontWeight:600}}>
+                        {r.dish}
+                        {r.isPrepDay&&<span style={{marginLeft:6,fontSize:9,padding:"1px 5px",borderRadius:3,background:C.blueBg,color:C.blue,fontWeight:600}}>D-1</span>}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:C.muted}}>{r.pax}</td>
+                      <td style={{padding:"6px 8px",textAlign:"center",color:r.withVar>0?C.text:C.faint}}>
+                        {r.withVar} / {r.total}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",color:r.avgAbs>10?C.amber:r.avgAbs>0?C.muted:C.faint,fontWeight:r.avgAbs>0?600:400}}>
+                        {r.avgAbs>0?r.avgAbs+"%":"—"}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right"}}>
+                        {r.worst?(
+                          <div>
+                            <span style={{fontWeight:700,color:r.worst.pct>0?C.red:C.green,padding:"2px 6px",borderRadius:4,background:r.worst.pct>0?C.redBg:C.greenBg}}>{r.worst.pct>0?"+":""}{r.worst.pct}%</span>
+                            <div style={{fontSize:9,color:C.faint,marginTop:2}}>{r.worst.name}</div>
+                          </div>
+                        ):<span style={{color:C.faint}}>—</span>}
+                      </td>
+                      <td style={{padding:"6px 10px",textAlign:"right",color:r.yieldQty!=null?C.text:C.faint,fontWeight:r.yieldQty!=null?700:400}}>
+                        {r.yieldQty!=null?r.yieldQty+" "+(r.yieldUnit||""):"— not recorded"}
+                      </td>
                     </tr>
                   ))}</tbody>
                 </table>
