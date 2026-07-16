@@ -976,7 +976,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       {/* ── CSV IMPORT MODAL ── */}
       {csvImport&&(
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
-          <div style={{background:C.card,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`}}>
+          <div style={{background:C.surface,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`,boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
             <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📥 Import Ingredients CSV</div>
               <button onClick={()=>setCsvImport(null)} style={{padding:"4px 10px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>✕</button>
