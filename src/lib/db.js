@@ -14,7 +14,7 @@ export async function dbLoad(table, fallback = []) {
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
-  const { data, error } = await supabase.from(table).select('*');
+  const { data, error } = await supabase.from(table).select('*').range(0, 49999);
   if (error || !data) {
     try {
       const cached = localStorage.getItem(key);
