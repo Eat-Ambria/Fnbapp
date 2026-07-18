@@ -14,7 +14,18 @@ export async function dbLoad(table, fallback = []) {
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
-  const { data, error } = await supabase.from(table).select('*').range(0, 49999);
+  // Date-scoping for high-growth tables: newest first, last 90 days (attendance)
+  // or last 180 days for events. Older data fetched on demand.
+  let q = supabase.from(table).select('*').range(0, 49999);
+  if (table === 'attendance') {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString().slice(0,10);
+    q = supabase.from(table).select('*').gte('date', cutoffStr).order('date', { ascending: false }).range(0, 49999);
+  } else if (table === 'ingredient_usage_log') {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+    q = supabase.from(table).select('*').gte('created_at', cutoff.toISOString()).order('created_at', { ascending: false }).range(0, 49999);
+  }
+  const { data, error } = await q;
   if (error || !data) {
     try {
       const cached = localStorage.getItem(key);
