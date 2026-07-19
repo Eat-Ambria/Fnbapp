@@ -178,6 +178,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueLoading, setIssueLoading] = useState(false);
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_item_name, ops_item_unit, unit_conversion}}
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
+  const [recipesModalIng, setRecipesModalIng] = useState(null); // {name,hindi,unit,dishes:[]} — showing which recipes use this ingredient
   const [mapSearch, setMapSearch] = useState("");
   const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
   const [mapTabSearch, setMapTabSearch] = useState("");
@@ -1716,7 +1717,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ing.name}</div>
                       {ing.hindi&&<div style={{fontSize:11,color:C.muted}}>{ing.hindi}</div>}
                       <div style={{fontSize:10,color:C.faint,marginTop:2}}>
-                        {T2("Used in")} {ing.dishes.length} {T2("recipes")} · {T2("unit")}: {ing.unit}
+                        <span onClick={e=>{e.stopPropagation();setRecipesModalIng(ing);}}
+                          style={{cursor:"pointer",color:C.gold,textDecoration:"underline",fontWeight:600}}
+                          title={T2("Click to see which recipes use this ingredient")}>
+                          {T2("Used in")} {ing.dishes.length} {T2("recipes")}
+                        </span> · {T2("unit")}: {ing.unit}
                       </div>
 
                       {/* Mapped — show linked item */}
@@ -1828,6 +1833,40 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
               <button onClick={()=>{setMapModalIng(null);setMapSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recipe list modal — shows which SOP recipes use this ingredient ── */}
+      {recipesModalIng&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setRecipesModalIng(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:480,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>📖 {T2("Recipes using this ingredient")}</div>
+              <div style={{fontSize:12,color:C.muted}}>
+                {recipesModalIng.name}{recipesModalIng.hindi?` (${recipesModalIng.hindi})`:""} · {T2("unit")}: {recipesModalIng.unit}
+              </div>
+              <div style={{fontSize:11,color:C.faint,marginTop:4}}>
+                {T2("Used in")} <b style={{color:C.gold}}>{recipesModalIng.dishes.length}</b> {T2("recipes")}
+              </div>
+            </div>
+            <div style={{overflow:"auto",flex:1,padding:"10px 14px"}}>
+              {recipesModalIng.dishes.length===0
+                ?<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("No recipes found")}</div>
+                :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {[...recipesModalIng.dishes].sort((a,b)=>a.localeCompare(b)).map((dishName,i)=>(
+                    <div key={i} style={{padding:"8px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.borderLight}`,fontSize:12,color:C.text,display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:10,color:C.faint,minWidth:22}}>{i+1}.</span>
+                      <span>{dishName}</span>
+                    </div>
+                  ))}
+                </div>
+              }
+            </div>
+            <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`}}>
+              <button onClick={()=>setRecipesModalIng(null)} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Close")}</button>
             </div>
           </div>
         </div>
