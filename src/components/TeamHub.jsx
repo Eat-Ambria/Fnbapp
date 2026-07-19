@@ -57,6 +57,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [monthStr,setMonthStr] = useState(TODAY.slice(0,7));
   const [monthData,setMonthData] = useState(null);
   const [monthLoading,setMonthLoading] = useState(false);
+  const [monthDetailEmp,setMonthDetailEmp] = useState(null);
   function fetchMonthData(m){
     if(!m||!supabase){setMonthData(null);return;}
     setMonthLoading(true);
@@ -371,7 +372,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             })}
           </div>
           {/* Table header */}
-          <div style={{display:'grid',gridTemplateColumns:'60px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
+          <div style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
             <div>Code</div><div></div><div>Name</div><div>Dept</div><div>IN</div><div>OUT</div><div>Status</div><div>Hrs</div><div>Venue</div>
           </div>
           {/* Table rows */}
@@ -379,8 +380,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No records match filters</div>
             :rows.map(function(r,ri){
               var sc = attStatusColors[r.status]||C.muted;
-              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'60px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
-                <div style={{color:C.muted,fontSize:11}}>{r.code}</div>
+              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
+                <div title={r.code} style={{color:C.muted,fontSize:11,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{/^STF-\d{8,}$/.test(r.code)?'STF·'+r.code.slice(-4):r.code}</div>
                 <div>{r.photo?<img src={r.photo} style={{width:28,height:28,borderRadius:'50%',objectFit:'cover'}}/>:<Avatar name={r.name} size={28} index={ri}/>}</div>
                 <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
                 <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept||r.section}</div>
@@ -478,7 +479,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
               {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No data for this month</div>
               :rows.map(function(r,ri){
-                return <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
+                var _rowBg = ri%2===0?C.bg:C.surface;
+                return <div key={r.id} onClick={function(){setMonthDetailEmp(r);}} onMouseEnter={function(e){e.currentTarget.style.background=C.goldBg;}} onMouseLeave={function(e){e.currentTarget.style.background=_rowBg;}} style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'10px 12px',alignItems:'center',background:_rowBg,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12,cursor:'pointer',transition:'background .15s'}}>
                   <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
                   <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept}</div>
                   <div style={{color:C.green,fontWeight:700,textAlign:'center'}}>{r.present}</div>
@@ -491,6 +493,60 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               })}
             </div>
           </div>}
+          {monthDetailEmp && (
+            <div onClick={function(){setMonthDetailEmp(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+              <div onClick={function(e){e.stopPropagation();}} style={{background:C.surface,borderRadius:14,padding:'20px 24px',maxWidth:560,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,paddingBottom:12,borderBottom:'1px solid '+C.border}}>
+                  <div>
+                    <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>{monthDetailEmp.name}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{monthDetailEmp.dept} · {monthLabel}</div>
+                  </div>
+                  <button onClick={function(){setMonthDetailEmp(null);}} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:8,width:28,height:28,cursor:'pointer',color:C.muted,fontSize:16,lineHeight:1,padding:0}}>×</button>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginBottom:14}}>
+                  <div style={{background:C.greenBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Present</div><div style={{fontSize:20,color:C.green,fontWeight:700}}>{monthDetailEmp.present}</div></div>
+                  <div style={{background:C.amberBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Half</div><div style={{fontSize:20,color:C.amber,fontWeight:700}}>{monthDetailEmp.halfDay}</div></div>
+                  <div style={{background:'#F5E7DE',borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Inc.</div><div style={{fontSize:20,color:'#E67E22',fontWeight:700}}>{monthDetailEmp.incomplete}</div></div>
+                  <div style={{background:C.redBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Absent</div><div style={{fontSize:20,color:C.red,fontWeight:700}}>{monthDetailEmp.absent}</div></div>
+                </div>
+                <div style={{flex:1,overflow:'auto',border:'1px solid '+C.border,borderRadius:8}}>
+                  <div style={{display:'grid',gridTemplateColumns:'90px 1fr 1fr 65px 90px',gap:4,padding:'8px 12px',background:C.bg,fontSize:9,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5,borderBottom:'1px solid '+C.border,position:'sticky',top:0}}>
+                    <div>Date</div><div>In</div><div>Out</div><div>Hrs</div><div>Status</div>
+                  </div>
+                  {(function(){
+                    var myRecs = recs.filter(function(a){return String(a.staff_id||a.staffId)===monthDetailEmp.id;});
+                    var days=[];
+                    for(var d=1; d<=daysInRange; d++){
+                      var ds = monthStr+'-'+String(d).padStart(2,'0');
+                      var rec = myRecs.find(function(a){return a.date===ds;});
+                      days.push({date:ds, rec:rec});
+                    }
+                    return days.map(function(dd,di){
+                      var r=dd.rec;
+                      var stColor=C.muted, stText='ABSENT', hrsStr='—';
+                      if(r&&r.in_time){
+                        if(!r.out_time){stText='INCOMPLETE'; stColor='#E67E22';}
+                        else{
+                          var cl=classifyDay(r.in_time,r.out_time);
+                          stText=(cl.status||'—').toUpperCase();
+                          stColor=cl.status==='Present'?C.green:cl.status==='Half Day'?C.amber:C.muted;
+                          if(cl.hours) hrsStr=fmtHours(cl.hours);
+                        }
+                      }
+                      var dow=new Date(dd.date+'T00:00').toLocaleDateString('en-IN',{weekday:'short'});
+                      return <div key={dd.date} style={{display:'grid',gridTemplateColumns:'90px 1fr 1fr 65px 90px',gap:4,padding:'9px 12px',alignItems:'center',background:di%2===0?C.bg:C.surface,borderTop:di>0?'1px solid '+C.border:'none',fontSize:12}}>
+                        <div style={{color:C.text,fontWeight:600}}><span style={{color:C.muted,fontSize:10,marginRight:4}}>{dow}</span>{dd.date.slice(-2)}</div>
+                        <div style={{color:r&&r.in_time?C.green:C.muted,fontWeight:600,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{r&&r.in_time?r.in_time.slice(0,5):'—'}</div>
+                        <div style={{color:r&&r.out_time?C.red:C.muted,fontWeight:600,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{r&&r.out_time?r.out_time.slice(0,5):'—'}</div>
+                        <div style={{color:C.text,fontWeight:600}}>{hrsStr}</div>
+                        <div><span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:5,background:stColor+'22',color:stColor}}>{stText}</span></div>
+                      </div>;
+                    });
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
         </div>);
       })()}
 
