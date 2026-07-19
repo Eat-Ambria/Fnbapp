@@ -72,21 +72,25 @@ function EventDayTab({
   // ── State helpers (combined cooking keys) ──
   function dk(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
+  // Fresh TODAY re-derived on every call — module-load TODAY goes stale on tabs open across midnight
+  function _freshToday(){ return localDateStr(new Date()); }
   function ds(evId, idx, dishName) {
-    if (isCombined && dishName) return kt["__combined_"+TODAY]?.[ck(dishName)] || {};
+    const _TOD = _freshToday();
+    if (isCombined && dishName) return kt["__combined_"+_TOD]?.[ck(dishName)] || {};
     var perEv = kt[evId]?.[dk(evId, idx)] || {};
     if (dishName && !Object.keys(perEv).length) {
-      var cb = kt["__combined_"+TODAY]?.[ck(dishName)] || {};
+      var cb = kt["__combined_"+_TOD]?.[ck(dishName)] || {};
       if (Object.keys(cb).length) { var r = Object.assign({}, cb); delete r.mesaDone; return r; }
     }
     return perEv;
   } 
   function setDs(evId, idx, upd, dishInfo) {
+    const _TOD = _freshToday();
     setKitchenTracking(p => {
       const o = p && typeof p === "object" ? { ...p } : {};
       if (isCombined && dishInfo?.name) {
         const cKey = ck(dishInfo.name);
-        var _ck = "__combined_" + TODAY; o[_ck] = { ...(o[_ck] || {}), [cKey]: { ...(o[_ck]?.[cKey] || {}), ...upd } };
+        var _ck = "__combined_" + _TOD; o[_ck] = { ...(o[_ck] || {}), [cKey]: { ...(o[_ck]?.[cKey] || {}), ...upd } };
         // Propagate cooking progress to per-function keys (except mesaDone — transport is per-event)
         var propUpd = Object.assign({}, upd); delete propUpd.mesaDone;
         if (Object.keys(propUpd).length > 0) {

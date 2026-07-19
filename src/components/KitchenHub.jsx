@@ -746,21 +746,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // ── State helpers (auto-save to kitchenTracking — combined cooking keys) ──
   function dk(evId,idx){return evId+"|"+idx;}
   function ck(dishName){return "dish|"+dishName;}
+  // Fresh TOMORROW re-derived on every call — module-load TOMORROW goes stale on tabs open across midnight
+  function _freshTomorrow(){ const _d=new Date();_d.setDate(_d.getDate()+1);return localDateStr(_d); }
   function ds(evId,idx,dishName){
-    if(d1FnFilter==="combined" && dishName) return kt["__combined_"+TOMORROW]?.[ck(dishName)]||{};
+    const _TOM=_freshTomorrow();
+    if(d1FnFilter==="combined" && dishName) return kt["__combined_"+_TOM]?.[ck(dishName)]||{};
     var perEv=kt[evId]?.[dk(evId,idx)]||{};
     if(dishName && !Object.keys(perEv).length){
-      var cb=kt["__combined_"+TOMORROW]?.[ck(dishName)]||{};
+      var cb=kt["__combined_"+_TOM]?.[ck(dishName)]||{};
       if(Object.keys(cb).length){var r=Object.assign({},cb);delete r.mesaDone;return r;}
     }
     return perEv;
   }
   function setDs(evId,idx,upd,dishInfo){
+    const _TOM=_freshTomorrow();
     setKitchenTracking(p=>{
       const o=p&&typeof p==="object"?{...p}:{};
       if(d1FnFilter==="combined" && dishInfo?.name){
         const cKey=ck(dishInfo.name);
-        var _ck="__combined_"+TOMORROW;o[_ck]={...(o[_ck]||{}),[cKey]:{...(o[_ck]?.[cKey]||{}),...upd}};
+        var _ck="__combined_"+_TOM;o[_ck]={...(o[_ck]||{}),[cKey]:{...(o[_ck]?.[cKey]||{}),...upd}};
         var propUpd=Object.assign({},upd); delete propUpd.mesaDone;
         if(Object.keys(propUpd).length>0){
           (dishInfo.fns||[]).forEach(fn=>{

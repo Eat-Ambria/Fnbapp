@@ -16,7 +16,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr } from './utils/helpers.js';
 
 // Components
 import { ErrorBoundary, Avatar } from './components/SharedUI.jsx';
@@ -190,6 +190,20 @@ export default function App() {
   const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
+  const [dateDrift, setDateDrift]     = useState(false);
+
+  // ── Stale-session detector: TODAY is module-load frozen, so a tab open across midnight
+  //    silently reads/writes/deletes rows keyed to yesterday. Poll every 5 min and surface a banner.
+  useEffect(() => {
+    const check = () => {
+      try {
+        if (localDateStr(new Date()) !== TODAY) setDateDrift(true);
+      } catch(e) {}
+    };
+    check();
+    const iv = setInterval(check, 5*60*1000);
+    return () => clearInterval(iv);
+  }, []);
 
   // ── Master load: session + all data ──
   useEffect(() => {
@@ -678,6 +692,13 @@ export default function App() {
         <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
           <span>🔄 New version available</span>
           <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
+        </div>
+      )}
+      {/* ── Stale-session banner: tab crossed midnight, module-load TODAY is stale ── */}
+      {dateDrift&&(
+        <div style={{flexShrink:0,background:C.red||"#B12A2A",color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
+          <span>⚠ This tab was opened on {TODAY} — the date has changed. Reload to prevent data going to the wrong day.</span>
+          <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Reload Now</button>
         </div>
       )}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
