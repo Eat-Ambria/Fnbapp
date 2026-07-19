@@ -1070,25 +1070,52 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         ))}
         {currentUser&&currentUser.role==='admin'&&(
           <button onClick={function(){
-            const todayIds = todayEvs.map(e=>e.id);
-            const tomorrowIds = tomorrowEvs.map(e=>e.id);
+            // Recompute TODAY/TOMORROW FRESH at click time.
+            // The module-load constants become stale if this tab has been open across midnight —
+            // that is how July 15/16 kitchen_tracking data got nuked in one accidental Reset click.
+            const _nowD = new Date();
+            const TODAY_NOW = localDateStr(_nowD);
+            const _tomD = new Date(_nowD); _tomD.setDate(_tomD.getDate()+1);
+            const TOMORROW_NOW = localDateStr(_tomD);
+
+            // Hard block: if module-load TODAY differs from real today, the whole session is
+            // stale. Force reload rather than delete data belonging to yesterday.
+            if(TODAY_NOW !== TODAY){
+              alert(
+                "⚠ This tab was opened on "+TODAY+" but today is "+TODAY_NOW+".\n\n"+
+                "The app's date has drifted across midnight. Reloading now to prevent "+
+                "accidental deletion of past data. Try Reset again after reload."
+              );
+              window.location.reload();
+              return;
+            }
+
+            // Refilter events using fresh dates (defensive against any state drift)
+            const _all = safeArr(events);
+            const todayEvs2 = _all.filter(e=>e.date===TODAY_NOW);
+            const tomorrowEvs2 = _all.filter(e=>e.date===TOMORROW_NOW);
+            const todayIds = todayEvs2.map(e=>e.id);
+            const tomorrowIds = tomorrowEvs2.map(e=>e.id);
             const evIds = [...todayIds, ...tomorrowIds];
-            const combKeys = ["__combined_"+TODAY, "__combined_"+TOMORROW];
+            const combKeys = ["__combined_"+TODAY_NOW, "__combined_"+TOMORROW_NOW];
             const targetIds = [...evIds, ...combKeys];
             if(evIds.length === 0){
-              alert("No events today or tomorrow — nothing to reset.");
+              alert("No events on "+TODAY_NOW+" or "+TOMORROW_NOW+" — nothing to reset.");
               return;
             }
             const totalDishes = evIds.reduce((n, id)=>{
-              const evObj = evList.find(e=>e.id===id);
+              const evObj = _all.find(e=>e.id===id);
               return n + (evObj ? menuArr(evObj).length : 0);
             }, 0);
-            const scopeLabel = `${todayEvs.length} event${todayEvs.length!==1?"s":""} today + ${tomorrowEvs.length} tomorrow`;
+
+            // Confirmation shows the ACTUAL DATES so admin can spot a stale session before wiping
             if(!window.confirm(
-              `Reset dish progress for CURRENT prep only?\n\n`+
-              `Scope: ${scopeLabel} (~${totalDishes} dishes).\n\n`+
-              `Clears store sourcing, step timers, selfies, and completion status for these events.\n\n`+
-              `Historical events (past dates) are NOT touched. Cannot undo.`
+              "⚠ DELETE kitchen tracking rows from database?\n\n"+
+              "Today ("+TODAY_NOW+"): "+todayEvs2.length+" event"+(todayEvs2.length!==1?"s":"")+"\n"+
+              "Tomorrow ("+TOMORROW_NOW+"): "+tomorrowEvs2.length+" event"+(tomorrowEvs2.length!==1?"s":"")+"\n"+
+              "Total: ~"+totalDishes+" dishes across "+targetIds.length+" ev_id(s).\n\n"+
+              "PERMANENTLY deletes step timers, selfies, completion status for these dates.\n"+
+              "Other dates are NOT touched. Cannot undo."
             )) return;
             setKitchenTracking(p=>{
               const o = (p&&typeof p==="object") ? {...p} : {};
@@ -1100,10 +1127,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             import('../lib/supabase.js').then(function(mod){
               mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
                 if(r.error) console.error('KT scoped clear error:', r.error);
-                else console.log('✅ Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids (today + tomorrow + combined keys)');
+                else console.log('✅ Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids ('+TODAY_NOW+' + '+TOMORROW_NOW+')');
               });
             }).catch(function(e){console.error('KT clear import error:', e);});
-            alert(`✅ Reset ${scopeLabel}. Historical data preserved.`);
+            alert("✅ Reset complete. Deleted "+targetIds.length+" ev_id row(s) for "+TODAY_NOW+" + "+TOMORROW_NOW+".");
           }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
             ↺ {T2("Reset current")}
           </button>
