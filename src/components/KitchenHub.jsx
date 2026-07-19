@@ -1052,22 +1052,38 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         </div>
       )}
 
-      {/* ── ODC MENU NOT CONFIRMED WARNING ── */}
+      {/* ── CUSTOM MENU NOT CONFIRMED WARNING ── */}
       {(()=>{
-        const odcUnconfirmed = [...todayEvs,...tomorrowEvs].filter(ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed);
-        if(odcUnconfirmed.length===0) return null;
-        return odcUnconfirmed.map(ev=>(
-          <div key={"odc-warn-"+ev.id} style={{marginBottom:10,padding:"10px 14px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:18,flexShrink:0}}>🏕</span>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.amber}}>ODC menu not confirmed — {ev.guest}</div>
-              <div style={{fontSize:11,color:C.muted}}>{ev.odc_location||ev.venue} · {ev.date} · {ev.pax} pax — {T2("Dish list may be inaccurate. Ask admin to confirm menu in Dashboard before prepping.")}</div>
+        const customUnset = [...todayEvs,...tomorrowEvs].filter(ev=>{
+          const pkg = (ev.menuPackage||ev.menu_package||"");
+          return /custom/i.test(pkg) && !ev.custom_menu_confirmed;
+        });
+        if(customUnset.length===0) return null;
+        return customUnset.map(ev=>{
+          const isToday = ev.date===TODAY;
+          const menuLen = Array.isArray(ev.menu) ? ev.menu.length : 0;
+          return (
+            <div key={"custom-warn-"+ev.id} style={{marginBottom:12,padding:"14px 18px",borderRadius:12,background:C.redBg,border:`2px solid ${C.red}`,display:"flex",alignItems:"flex-start",gap:12}}>
+              <span style={{fontSize:24,flexShrink:0,lineHeight:1}}>🚨</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:4}}>{T2("Custom menu — needs to be built")} — {ev.guest||T2("Function")} ({isToday?T2("today"):T2("tomorrow")})</div>
+                <div style={{fontSize:12,color:C.red,lineHeight:1.5}}>{ev.venue||""} · {ev.date} · {ev.pax} {T2("pax")} · {ev.time||"TBD"} — {menuLen>0?T2("LMS marked this as a Custom menu. It currently has")+" "+menuLen+" "+T2("dish(es) — verify with admin that the menu is complete before cooking.")
+                  :T2("LMS marked this as a Custom menu. Admin must build the menu in Menu Editor before cooking can start.")}</div>
+              </div>
+              {currentUser&&currentUser.role==='admin'&&(
+                <button onClick={function(){
+                  if(!window.confirm("Mark this custom menu as built for '"+(ev.guest||"function")+"'?\n\nThis clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor.")) return;
+                  import('../lib/supabase.js').then(function(mod){
+                    mod.supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
+                      if(r.error){alert('Failed to save: '+r.error.message);console.error(r.error);}
+                    });
+                  });
+                }} style={{padding:'8px 14px',borderRadius:8,background:C.surface,border:`1.5px solid ${C.red}`,color:C.red,fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>✓ {T2("Menu built")}</button>
+              )}
             </div>
-          </div>
-        ));
+          );
+        });
       })()}
-
-      {/* TABS — underline style */}
       <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,marginBottom:20,gap:0}}>
         {TABS_FILTERED.map(t=>(
           <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1")){setD1View("all");setD1FnFilter("combined");}return t.v;})} style={{padding:"10px 18px",fontSize:13,fontWeight:tab===t.v?500:400,cursor:"pointer",background:"none",color:tab===t.v?C.gold:C.muted,border:"none",borderBottom:`2px solid ${tab===t.v?C.gold:"transparent"}`,whiteSpace:"nowrap"}}>{t.l}</button>
