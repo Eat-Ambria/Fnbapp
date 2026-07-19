@@ -1052,27 +1052,35 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         </div>
       )}
 
-      {/* ── CUSTOM MENU NOT CONFIRMED WARNING ── */}
+      {/* ── MENU NOT BUILT WARNING (empty menu OR custom package unconfirmed) ── */}
       {(()=>{
-        const customUnset = [...todayEvs,...tomorrowEvs].filter(ev=>{
+        const menuIssues = [...todayEvs,...tomorrowEvs].filter(ev=>{
+          if(ev.custom_menu_confirmed) return false;
           const pkg = (ev.menuPackage||ev.menu_package||"");
-          return /custom/i.test(pkg) && !ev.custom_menu_confirmed;
+          const menuLen = Array.isArray(ev.menu) ? ev.menu.length : 0;
+          return menuLen === 0 || /custom/i.test(pkg);
         });
-        if(customUnset.length===0) return null;
-        return customUnset.map(ev=>{
+        if(menuIssues.length===0) return null;
+        return menuIssues.map(ev=>{
           const isToday = ev.date===TODAY;
           const menuLen = Array.isArray(ev.menu) ? ev.menu.length : 0;
+          const pkg = (ev.menuPackage||ev.menu_package||"");
+          const isCustom = /custom/i.test(pkg);
+          const heading = menuLen===0 ? T2("No menu set — chef has nothing to prep") : T2("Custom menu — verify it's complete");
+          const body = menuLen===0
+            ? T2("Admin must build the menu in Menu Editor before any prep or cooking can start.")
+            : T2("LMS marked this as a Custom menu with")+" "+menuLen+" "+T2("dish(es) — verify with admin that all dishes are correctly listed before cooking.");
+          const pkgNote = (isCustom||!pkg) ? "" : " · "+T2("Package")+": "+pkg;
           return (
-            <div key={"custom-warn-"+ev.id} style={{marginBottom:12,padding:"14px 18px",borderRadius:12,background:C.redBg,border:`2px solid ${C.red}`,display:"flex",alignItems:"flex-start",gap:12}}>
+            <div key={"menu-warn-"+ev.id} style={{marginBottom:12,padding:"14px 18px",borderRadius:12,background:C.redBg,border:`2px solid ${C.red}`,display:"flex",alignItems:"flex-start",gap:12}}>
               <span style={{fontSize:24,flexShrink:0,lineHeight:1}}>🚨</span>
               <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:4}}>{T2("Custom menu — needs to be built")} — {ev.guest||T2("Function")} ({isToday?T2("today"):T2("tomorrow")})</div>
-                <div style={{fontSize:12,color:C.red,lineHeight:1.5}}>{ev.venue||""} · {ev.date} · {ev.pax} {T2("pax")} · {ev.time||"TBD"} — {menuLen>0?T2("LMS marked this as a Custom menu. It currently has")+" "+menuLen+" "+T2("dish(es) — verify with admin that the menu is complete before cooking.")
-                  :T2("LMS marked this as a Custom menu. Admin must build the menu in Menu Editor before cooking can start.")}</div>
+                <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:4}}>{heading} — {ev.guest||T2("Function")} ({isToday?T2("today"):T2("tomorrow")})</div>
+                <div style={{fontSize:12,color:C.red,lineHeight:1.5}}>{ev.venue||""} · {ev.date} · {ev.pax} {T2("pax")} · {ev.time||"TBD"}{pkgNote} — {body}</div>
               </div>
               {currentUser&&currentUser.role==='admin'&&(
                 <button onClick={function(){
-                  if(!window.confirm("Mark this custom menu as built for '"+(ev.guest||"function")+"'?\n\nThis clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor.")) return;
+                  if(!window.confirm("Mark menu as built for '"+(ev.guest||"function")+"'?\n\nThis clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor.")) return;
                   import('../lib/supabase.js').then(function(mod){
                     mod.supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
                       if(r.error){alert('Failed to save: '+r.error.message);console.error(r.error);}

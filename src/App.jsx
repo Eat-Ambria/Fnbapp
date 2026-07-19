@@ -43,7 +43,7 @@ function matchMenuPackage(rawName) {
   if (!rawName) return "";
   if (MENU_PACKAGES[rawName]) return rawName; // exact match
   // Normalize: strip dashes, collapse spaces, lowercase compare
-  const norm = s => s.replace(/[-–—]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const norm = s => s.replace(/[-–—]/g, " ").replace(/\s+menu\s*$/i, "").replace(/\s+/g, " ").trim().toLowerCase();
   const target = norm(rawName);
   const match = Object.keys(MENU_PACKAGES).find(k => norm(k) === target);
   return match || rawName; // return matched key or original (will fall through as custom)
