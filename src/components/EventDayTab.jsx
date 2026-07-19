@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp } from '../utils/helpers.js';
-import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish } from '../data/recipeData.js';
+import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, findRecipeForDish } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -62,7 +62,7 @@ function EventDayTab({
   transportQueue = [], setTransportQueue,
   dishSignoff, setDishSignoff,
   openCam, capturePhoto, stopCam, camOn, camRef, capRef, camStreamRef,
-  appliedScales = {}, effectiveScales = {}, tick, setTab, onBeforeDishDone,
+  evPlanRows = {}, tick, setTab, onBeforeDishDone,
 }) {
   const T2 = s => T(s, lang);
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -392,30 +392,43 @@ function EventDayTab({
                             large={isSectionUser}
                           />
 
-                          {/* Ingredient list */}
+                          {/* Ingredient list (Path B: yield-based scaling, mirrors KitchenHub getScaledIngredients logic) */}
                           {(() => {
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
-                            const pax = evObj ? +evObj.pax : 0;
-                            if (pax <= 0) return null;
-                            const ing = getIngrForDish(dish.name, pax);
+                            if (!evObj) return null;
+                            const pax = +evObj.pax || 0;
+                            const rec = findRecipeForDish(dish.name);
+                            const baseKg = rec?.ingredients?.base_yield?.kg || null;
+                            const basePax = rec?.ingredients?.base_pax || 300;
+                            const mult = Number(evObj.yield_multiplier) || 1.0;
+
+                            let ing = null, effKg = null, warn = null, planned = false;
+                            if (baseKg) {
+                              const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+                              const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+                              effKg = (plannedKg || defaultYield) * mult;
+                              ing = getIngrForYield(dish.name, effKg);
+                              planned = !!plannedKg;
+                            }
+                            if (!ing || ing.length === 0) {
+                              const adjPax = Math.round(pax * mult);
+                              ing = getIngrForDish(dish.name, adjPax || pax);
+                              if (!baseKg) warn = 'no_base_yield';
+                              effKg = null;
+                            }
                             if (!ing || ing.length === 0) return null;
-                            const isNew = ing[0]?._newFmt;
-                            const eff = effectiveScales[dish.fEvId];
-                            const isOverridden = eff?.isOverride || false;
+
+                            const yieldLbl = effKg ? `${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg` : `${pax} pax`;
                             return (
-                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 5 }}>
+                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${warn?C.redBorder:C.border}`, position: "sticky", top: 0, zIndex: 5 }}>
+                                {warn === 'no_base_yield' && <div style={{ fontSize: 9, fontWeight: 700, color: C.red, marginBottom: 5, padding: "3px 6px", background: C.redBg, borderRadius: 5, border: `1px solid ${C.redBorder}` }}>⚠ {T2("Missing base_yield in SOP")}</div>}
                                 <div style={{ fontSize: 11, fontWeight: 700, color: storeDone ? C.green : C.gold, marginBottom: 5 }}>
-                                  {storeDone ? "📊" : "🧺"} {storeDone ? T2("Ingredients") : T2("Items to collect")} — {pax} pax
-                                  {isNew
-                                    ? <span style={{ fontSize: 10, color: C.green, marginLeft: 6 }}>📊 {T2("scaled from DB")}</span>
-                                    : isOverridden
-                                      ? <span style={{ fontSize: 10, color: C.amber, marginLeft: 6 }}>⚙️ {T2("override")}</span>
-                                      : <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>{T2("auto-scaled")}</span>
-                                  }
+                                  {storeDone ? "📊" : "🧺"} {storeDone ? T2("Ingredients") : T2("Items to collect")} — {yieldLbl}
+                                  {planned ? <span style={{ fontSize: 10, color: C.purple, marginLeft: 6 }}>· {T2("planned")}</span> : effKg ? <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>· {T2("auto")}</span> : null}
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
                                   {ing.filter(i => i.q > 0).map((i, ii) => {
-                                    const raw = isNew ? i.q : i.q * pax;
+                                    const raw = i.q;
                                     const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
                                       i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
                                         i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;
