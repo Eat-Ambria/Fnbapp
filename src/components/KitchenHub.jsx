@@ -1659,6 +1659,453 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         );
       })()}
 
+      {tab==="sops"&&(()=>{
+        // Map section filter to relevant SOP category IDs
+        const allowedCats = allowedCatIds;
+        const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
+        const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
+
+        return(
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>≡ƒôû {T2("Recipe SOPs")}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} ┬╖ {filteredCats.length} {T2("categories")} ┬╖ {T2("Procedures in Hindi")}</div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipesΓÇª")} style={{flex:1,padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:48}}/>
+            {currentUser?.role==='admin'&&<button onClick={()=>openSopAdd(sopCat)} style={{padding:"10px 16px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",minHeight:48}}>+ {T2("Add Recipe")}</button>}
+          </div>
+          {!sopRecipe?(
+            !sopCat?(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
+                {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;return(
+                  <div key={cat.id} style={{position:"relative"}}>
+                    <button onClick={()=>setSopCat(cat.id)} style={{width:"100%",background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
+                      <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
+                    </button>
+                    {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>Γ£ò</button>}
+                  </div>);})}
+              </div>
+            ):(
+              <div>
+                <button onClick={()=>{setSopCat(null);setSopSearch("");}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>ΓåÉ {T2("All Categories")}</button>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).map((recipe,ri)=>(
+                    <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div><div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} ┬╖ {safeArr(recipe.steps).length} {T2("steps")}</div>
+                    </button>))}
+                </div>
+              </div>
+            )
+          ):(
+            <div>
+              <button onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>ΓåÉ {T2("Back")}</button>
+              <Card style={{padding:"20px 24px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    {editingSteps?(
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                        <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))} placeholder="Recipe name" style={{flex:1,minWidth:140,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.gold}`,fontSize:15,fontWeight:700,color:C.text,background:"transparent",fontFamily:"var(--font-display)"}}/>
+                        <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))} placeholder="Sub (Hot/Cold)" style={{width:100,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
+                        <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:30}}>
+                          {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                        </select>
+                      </div>
+                    ):(
+                      <>
+                        <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{recipeNameOf(sopRecipe, lang)}</div>
+                        <div style={{fontSize:12,color:C.gold,marginTop:4}}>{sopRecipe.sub} ┬╖ {safeArr(sopRecipe.steps).length} {T2("steps")}</div>
+                      </>
+                    )}
+                  </div>
+                  {currentUser?.role==='admin'&&(
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      {!editingSteps?(
+                        <>
+                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>Γ£Å∩╕Å Edit</button>
+                          <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>≡ƒùæ Delete</button>
+                          <select defaultValue="" onChange={e=>{if(e.target.value)moveRecipe(sopRecipe,sopCat,e.target.value);e.target.value="";}} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:C.surface,cursor:"pointer",minHeight:32}}>
+                            <option value="" disabled>≡ƒôü Move toΓÇª</option>
+                            {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                          </select>
+                        </>
+                      ):(
+                        <>
+                          <button onClick={()=>{saveSop();setEditingSteps(false);}} style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:32}}>≡ƒÆ╛ Save</button>
+                          <button onClick={()=>{setEditingSteps(false);setSopModal(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>Γ£ò Cancel</button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {/* Ingredient count + Edit button */}
+                {(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{fontSize:11,color:C.muted}}>
+                    {sopRecipe.ingredients?.items?.length>0
+                      ?"≡ƒºé "+sopRecipe.ingredients.items.filter(i=>!i.isSection).length+" ingredients"
+                      :fallbackIng?"≡ƒºé "+fallbackIng.length+" ingredients (legacy)"
+                      :"≡ƒºé No ingredients added"}
+                  </span>
+                  {currentUser?.role==='admin'&&!ingModal&&(<>
+                    <button onClick={()=>{openIngEditor(sopRecipe,sopCat);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:ingModal?.recipeName===sopRecipe.n?C.green:C.goldBg,border:`1px solid ${ingModal?.recipeName===sopRecipe.n?C.greenBorder:C.goldBorder}`,color:ingModal?.recipeName===sopRecipe.n?"#fff":C.gold,cursor:"pointer",minHeight:28}}>
+                      {sopRecipe.ingredients?.items?.length>0?"Γ£Å∩╕Å Edit":"+ Add Ingredients"}
+                    </button>
+                    <button onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>≡ƒôÑ Import CSV</button>
+                  </>)}
+                  {currentUser?.role==='admin'&&ingModal?.recipeName===sopRecipe.n&&(
+                    <div style={{display:"flex",gap:6}}>
+                      {ingDirty&&<button onClick={saveIngredients} style={{padding:"4px 12px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:28}}>≡ƒÆ╛ Save</button>}
+                      <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>Γ£ò Cancel</button>
+                    </div>
+                  )}
+                </div>
+                {/* Inline ingredient table (read-only) */}
+                {(ingModal?.recipeName===sopRecipe.n)?(
+                  <div style={{marginBottom:16,borderRadius:10,border:`2px solid ${C.gold}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>Γ£Å∩╕Å Editing ΓÇö {ingForm.base_pax||300} pax anchor</span>
+                      <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" ┬╖ unsaved":""}</span>
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 8px",textAlign:"left",color:C.muted,minWidth:110}}>Name</th>
+                          <th style={{padding:"6px 4px",textAlign:"left",color:C.muted,minWidth:60}}>Hindi</th>
+                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:42}}>Unit</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>Qty @ {ingForm.base_pax||300}</th>
+                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
+                        </tr></thead>
+                        <tbody>
+                          {ingForm.items.map((item,idx)=>item.isSection?(
+                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
+                              <td colSpan={4} style={{padding:"4px 6px"}}>
+                                <div style={{display:"flex",gap:4}}>
+                                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="ΓÇö Section heading ΓÇö" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                  <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="αñ╣αñ┐αñéαñªαÑÇ" style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                </div>
+                              </td>
+                              <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>Γï«Γï«</span>
+                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>Γ£ò</button>
+                              </td>
+                            </tr>
+                          ):(
+                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard,opacity:ingDragIdx===idx?0.4:1}}>
+                              <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="αñ╣αñ┐αñéαñªαÑÇ" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
+                              <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
+                              <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>Γï«Γï«</span>
+                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>Γ£ò</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{display:"flex",borderTop:`1px dashed ${C.goldBorder}`}}>
+                      <button onClick={ingAddItem} style={{flex:1,padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRight:`1px dashed ${C.goldBorder}`,borderRadius:"0 0 0 8px",minHeight:34}}>+ Add Ingredient</button>
+                      <button onClick={ingAddSection} style={{flex:"0 0 40%",padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRadius:"0 0 8px 0",minHeight:34}}>+ Section</button>
+                    </div>
+                    {ingDirty&&<div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
+                      <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
+                      <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>≡ƒÆ╛ Save</button>
+                    </div>}
+                  </div>
+                ):sopRecipe.ingredients?.items?.length>0?(()=>{
+                  const ing2=sopRecipe.ingredients;
+                  const isNewSchema=typeof ing2.items[0]?.qty==='number'||ing2.items[0]?.qty===null;
+                  const basePax=ing2.base_pax||300;
+                  const yKg=ing2.base_yield?.kg;
+                  const yPcs=ing2.base_yield?.pcs;
+                  const yieldLabel=yKg?`${yKg} kg${yPcs?` (~${yPcs} pcs)`:''}`:null;
+                  return (
+                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                      <span>Ingredients ΓÇö {isNewSchema?`${basePax} pax anchor`:(ing2.pax_sizes?.map(p=>p+" pax").join(" / ")||"legacy")}</span>
+                      {isNewSchema&&(yieldLabel
+                        ?<span style={{fontSize:10,color:C.green}}>Yield: {yieldLabel}</span>
+                        :<span style={{fontSize:10,color:C.amber}}>ΓÜá Yield not set</span>)}
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
+                          {isNewSchema
+                            ?<th style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>{basePax} pax</th>
+                            :ing2.pax_sizes?.map((p,pi)=>(
+                              <th key={pi} style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:55}}>{p}</th>
+                            ))}
+                        </tr></thead>
+                        <tbody>
+                          {ing2.items.map((ing,ii)=>{
+                            if(ing.isSection){
+                              const colCount=isNewSchema?3:(2+(ing2.pax_sizes?.length||0));
+                              return(
+                              <tr key={ii} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
+                                <td colSpan={colCount} style={{padding:"6px 10px",textAlign:"center",fontWeight:700,color:C.gold,fontSize:11}}>
+                                  ΓÇö {ing.name}{ing.hi?` / ${ing.hi}`:""} ΓÇö
+                                </td>
+                              </tr>);
+                            }
+                            const hi=ing.hi??ing.hindi;
+                            return(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
+                                {hi&&<div style={{fontSize:9,color:C.faint}}>{hi}</div>}
+                              </td>
+                              <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.unit}</td>
+                              {isNewSchema
+                                ?<td style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{ing.qty??"ΓÇö"}</td>
+                                :Array.isArray(ing.qty)?ing.qty.map((q,qi)=>(
+                                  <td key={qi} style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{q||"ΓÇö"}</td>
+                                )):null}
+                            </tr>
+                          );})}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  );})()
+                :fallbackIng?(
+                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                    <div style={{padding:"8px 12px",background:C.amberBg,fontSize:11,fontWeight:700,color:C.amber,borderBottom:`1px solid ${C.amberBorder}`}}>
+                      Ingredients (legacy per-serving @ 500 pax)
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                        <thead><tr style={{background:C.surface}}>
+                          <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
+                          <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
+                          <th style={{padding:"6px 8px",textAlign:"right",color:C.amber,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>500 pax</th>
+                        </tr></thead>
+                        <tbody>
+                          {fallbackIng.filter(ig=>ig.q>0).map((ing,ii)=>{
+                            const raw=ing._newFmt?ing.q:ing.q*500;
+                            const fmt=ing.u==="g"||ing.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):ing.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):ing.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+ing.u;
+                            return(
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                              <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontWeight:600,color:C.text}}>{ing.n}</div>
+                                {ing.h&&<div style={{fontSize:9,color:C.faint}}>{ing.h}</div>}
+                              </td>
+                              <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.u}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:C.amber,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{fmt}</td>
+                            </tr>);
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ):<div style={{marginBottom:16}}/>}
+                </>);})()}
+                {/* ΓöÇΓöÇ Yield anchor (base_yield @ base_pax) ΓÇö moved below ingredient table ΓöÇΓöÇ */}
+                {(()=>{
+                  const basePax = sopRecipe.ingredients?.base_pax || 300;
+                  const by = sopRecipe.ingredients?.base_yield || {};
+                  const kg = by.kg;
+                  const pcs = by.pcs;
+                  const hasYield = kg != null && kg !== "" && +kg > 0;
+                  if (editingYield) {
+                    return (
+                      <div style={{margin:"14px 0 20px",padding:"14px 18px",borderRadius:12,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                          <span style={{fontSize:14,fontWeight:800,color:C.amber}}>≡ƒôª Base yield at {basePax} pax</span>
+                          <div style={{display:"flex",gap:6}}>
+                            <button onClick={()=>setEditingYield(false)} style={{fontSize:12,padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer",minHeight:34}}>Cancel</button>
+                            <button onClick={()=>{
+                              const newKg = yieldForm.kg==="" || yieldForm.kg==null ? null : parseFloat(yieldForm.kg) || null;
+                              const newPcs = yieldForm.pcs==="" || yieldForm.pcs==null ? null : parseFloat(yieldForm.pcs) || null;
+                              const newIng = {...(sopRecipe.ingredients||{}), base_pax: basePax, base_yield: {kg: newKg, pcs: newPcs}};
+                              import('../lib/supabase.js').then(mod => {
+                                const sb = mod.supabase; if (!sb) return;
+                                sb.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
+                                  if (r.error) console.error('Yield save err:', r.error);
+                                  else {
+                                    const arr = RECIPE_DB.recipes[sopCat]||[];
+                                    const ri = arr.findIndex(x=>x.n===sopRecipe.n);
+                                    if (ri>=0) arr[ri] = {...arr[ri], ingredients: newIng};
+                                    setSopRecipe(p => ({...p, ingredients: newIng}));
+                                    console.log('Γ£à Yield saved:', newKg, 'kg /', newPcs, 'pcs');
+                                  }
+                                });
+                              });
+                              setEditingYield(false);
+                            }} style={{fontSize:12,padding:"6px 14px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:700,minHeight:34}}>Save</button>
+                          </div>
+                        </div>
+                        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Finished output in kg is used to scale ingredients when planning. Pieces are informational.</div>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div>
+                            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Kg (finished) *</div>
+                            <input type="number" step="0.1" inputMode="decimal" autoFocus
+                              value={yieldForm.kg ?? ""}
+                              onChange={e=>setYieldForm(p=>({...p, kg: e.target.value}))}
+                              placeholder="e.g. 20"
+                              style={{width:120,padding:"10px 12px",borderRadius:8,border:`2px solid ${C.amberBorder}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Pieces (optional)</div>
+                            <input type="number" step="1" inputMode="decimal"
+                              value={yieldForm.pcs ?? ""}
+                              onChange={e=>setYieldForm(p=>({...p, pcs: e.target.value}))}
+                              placeholder="e.g. 400"
+                              style={{width:120,padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div style={{fontSize:12,color:C.muted,paddingBottom:12}}>@ {basePax} pax</div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div style={{margin:"14px 0 20px",padding:"14px 18px",borderRadius:12,background:hasYield?C.goldBg:C.amberBg,border:`1.5px solid ${hasYield?C.goldBorder:C.amberBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:14}}>
+                        <div style={{fontSize:32,lineHeight:1}}>≡ƒôª</div>
+                        <div>
+                          {hasYield ? (
+                            <>
+                              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.6,marginBottom:2}}>Base yield @ {basePax} pax</div>
+                              <div style={{fontSize:20,fontWeight:800,color:C.text}}>{kg} kg{pcs?<span style={{fontSize:14,fontWeight:600,color:C.muted,marginLeft:8}}>┬╖ ~{pcs} pcs</span>:null}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{fontSize:15,fontWeight:800,color:C.amber,marginBottom:3}}>ΓÜá Yield not set</div>
+                              <div style={{fontSize:12,color:C.muted}}>Required for kg-based scaling. Set the finished output at {basePax} pax.</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {currentUser?.role==='admin' && !editingSteps && (
+                        <button onClick={()=>{
+                          setYieldForm({kg: kg ?? "", pcs: pcs ?? ""});
+                          setEditingYield(true);
+                        }} style={{padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:700,background:hasYield?C.gold:C.amber,color:"#fff",border:"none",cursor:"pointer",minHeight:40,boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>{hasYield?"Γ£Å∩╕Å Edit yield":"+ Add yield"}</button>
+                      )}
+                    </div>
+                  );
+                })()}
+                {editingSteps?(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>Steps ({sopForm.steps.length})</div>
+                    {sopForm.steps.map((step,si)=>(
+                      <div key={si} style={{display:"flex",gap:8,padding:"10px 0",borderBottom:si<sopForm.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center",flexShrink:0,paddingTop:6}}>
+                          <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{si+1}</span>
+                          <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si>0?C.muted:C.faint,cursor:si>0?"pointer":"default",padding:0}}>Γåæ</button>
+                          <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si<sopForm.steps.length-1?C.muted:C.faint,cursor:si<sopForm.steps.length-1?"pointer":"default",padding:0}}>Γåô</button>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,color:C.text,background:"transparent",boxSizing:"border-box",marginBottom:4,minHeight:32}}/>
+                          <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:40,marginBottom:4}}/>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                            {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:3}}>
+                              <span style={{fontSize:10,color:C.muted}}>ΓÅ▒</span>
+                              <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
+                              <span style={{fontSize:9,color:C.faint}}>min</span>
+                            </div>}
+                            <div style={{display:"flex",alignItems:"center",gap:3}}>
+                              <span style={{fontSize:10,color:C.muted}}>CCP</span>
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:110,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
+                            </div>
+                            <label style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",fontSize:10,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
+                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
+                              D-1   
+                            </label>
+                          </div>
+                          {(step.subs&&step.subs.length>0)&&(
+                            <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:2,marginTop:8,paddingLeft:12}}>
+                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
+                              {step.subs.map((sb,sbi)=>(
+                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
+                                    <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent",minHeight:28}}/>
+                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:22,height:22,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",padding:0,flexShrink:0}}>Γ£ò</button>
+                                  </div>
+                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:28,marginBottom:4}}/>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${C.borderLight}`}}>
+                                    <span style={{fontSize:10,color:C.amber,fontWeight:600}}>ΓÅ▒ Timer</span>
+                                    <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:50,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.amberBorder}`,fontSize:12,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:26}}/>
+                                    <span style={{fontSize:10,color:C.faint}}>min</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
+                        </div>
+                        <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>Γ£ò</button>
+                      </div>
+                    ))}
+                    <button onClick={sopAddStep} style={{width:"100%",padding:"10px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:8,minHeight:36}}>+ Add Step</button>
+                    <div style={{display:"flex",gap:8,marginTop:12}}>
+                      <button onClick={()=>{saveSop();setEditingSteps(false);}} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>≡ƒÆ╛ Save Recipe</button>
+                      <button onClick={()=>{setEditingSteps(false);setSopModal(null);}} style={{padding:"12px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:42}}>Cancel</button>
+                    </div>
+                  </div>
+                ):(
+                  safeArr(sopRecipe.steps).map((step,si)=>(
+                    <div key={si} style={{padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-12,paddingLeft:12,borderRadius:6}:{})}}>
+                      <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:step.ccp?C.red:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:step.ccp?"#fff":C.gold,flexShrink:0}}>{si+1}</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}{Array.isArray(step.subs)&&step.subs.length>0&&<span style={{fontSize:11,color:C.muted,fontWeight:400,marginLeft:8}}>({step.subs.length} sub-steps)</span>}</div>
+                          <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
+                          {step.tm&&<span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6}}>ΓÅ▒ {fmtT(step.tm)}</span>}
+                          {step.ccp&&<span style={{fontSize:12,color:C.red,background:C.redBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6,marginLeft:6}}>≡ƒö┤ CCP: {step.ccp}</span>}
+                        </div>
+                      </div>
+                      {Array.isArray(step.subs)&&step.subs.length>0&&(
+                        <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:16,marginTop:8,paddingLeft:12}}>
+                          {step.subs.map((sb,sbi)=>(
+                            <div key={sbi} style={{padding:"6px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                <div>
+                                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{sb.t}</div>
+                                  {sb.i&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sb.i}</div>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                {/* ΓòÉΓòÉΓòÉ CCP Summary Table ΓòÉΓòÉΓòÉ */}
+                {(()=>{const ccpSteps=safeArr(sopRecipe.steps).map((s,i)=>({...s,_si:i})).filter(s=>s.ccp);if(!ccpSteps.length)return null;return(
+                  <div style={{marginTop:16,padding:"14px 16px",background:C.redBg,borderRadius:12,border:`1px solid ${C.redBorder}`}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>≡ƒö┤ Critical Control Points ({ccpSteps.length})</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`1px solid ${C.redBorder}`}}>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red,width:40}}>Step</th>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red}}>Process</th>
+                          <th style={{textAlign:"left",padding:"6px 8px",fontWeight:700,color:C.red}}>CCP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ccpSteps.map(s=>(
+                          <tr key={s._si} style={{borderBottom:`1px solid ${C.redBorder}22`}}>
+                            <td style={{padding:"6px 8px",fontWeight:700,color:C.text}}>{s._si+1}</td>
+                            <td style={{padding:"6px 8px",color:C.text,lineHeight:1.4}}>{cleanStepText(s.t)}</td>
+                            <td style={{padding:"6px 8px",color:C.red,fontWeight:600,lineHeight:1.4}}>{s.ccp}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );})()}
+              </Card>
+            </div>
+          )}
+        </div>
+        );
+      })()}
+
       {/* ═══ CLOSING TAB — production_closings ═══ */}
       {tab==="closing"&&(()=>{
         const closableEvs = evList
@@ -2220,6 +2667,330 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 )}
               </div>);
             })()}
+          </div>
+        );
+      })()}
+
+      {tab==="analytics"&&(()=>{
+        const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date!==TODAY&&e.date!==TOMORROW)];
+        const uniqueDates=[...new Set(allEvs.map(e=>e.date))].sort().reverse();
+        const selDate=analyticsDate||uniqueDates[0]||TODAY;
+        const combKey="__combined_"+selDate;
+        const hasCombined=kt[combKey]&&Object.keys(kt[combKey]).length>0;
+        const dateEvs=allEvs.filter(e=>e.date===selDate);
+        const fmtDate=d=>{try{return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"});}catch(e){return d;}};
+        const selId=analyticsEvId||(dateEvs[0]?.id||null);
+        function buildPerf(dishName,d2s){
+          const allSt=getStepsForDish(dishName);const d1St=allSt.filter(s=>s.d1);
+          const steps=d1St.length>0?d1St:allSt;
+          const catId=getCatIdForDish(dishName);const cat=getCatForDish(dishName);
+          const hasData=Object.keys(d2s).length>0;
+          const storeT=d2s.storeEnd&&d2s.storeStart?Math.floor((d2s.storeEnd-d2s.storeStart)/1000):null;
+          const totalT=d2s.dishCompletedAt&&d2s.dishStartedAt?Math.floor((d2s.dishCompletedAt-d2s.dishStartedAt)/1000):null;
+          let expT=0,actT=0,overC=0,underC=0;
+          const sPerfs=steps.map((step,si)=>{
+            const sk="step_"+si;const hs=Array.isArray(step.subs)&&step.subs.length>0;
+            if(hs){
+              const subs=step.subs.map((sb,sbi)=>{
+                const sbk=sk+"_sub_"+sbi;const exp=sb.tm||0;const act=d2s.doneElapsed?.[sbk];
+                const done=!!(d2s.manual?.[sbk]);const delta=act!=null&&exp?act-exp:null;
+                if(exp)expT+=exp;if(act!=null)actT+=act;
+                if(delta!=null){if(delta>0)overC++;if(delta<0)underC++;}
+                return{l:sb.t,exp,act,done,delta};
+              });
+              return{l:step.t,hs:true,subs,done:subs.every(s=>s.done)};
+            }
+            const exp=step.tm||0;const act=d2s.doneElapsed?.[sk];
+            const done=!!(d2s.manual?.[sk]);const delta=act!=null&&exp?act-exp:null;
+            if(exp)expT+=exp;if(act!=null)actT+=act;
+            if(delta!=null){if(delta>0)overC++;if(delta<0)underC++;}
+            return{l:step.t,hs:false,exp,act,done,delta};
+          });
+          const status=d2s.mesaDone?"done":hasData?"in_progress":"not_started";
+          return{name:dishName,catId,catName:cat.name||"",catIcon:cat.icon||"≡ƒì╜",catColor:cat.color||C.muted,isDone:status==="done",status,hasData,storeT,totalT,expT,actT,overC,underC,delta:hasData?actT-expT:0,sPerfs};
+        }
+        const perfs=[];const seen=new Set();
+        if(selId==="__combined"){
+          Object.entries(kt[combKey]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|")){const n=k.slice(5);perfs.push(buildPerf(n,d2s));seen.add(n);}});
+          allEvs.forEach(ev=>{menuArr(ev).forEach(name=>{if(!seen.has(name)){perfs.push(buildPerf(name,{}));seen.add(name);}});});
+        } else if(selId){
+          const ev=allEvs.find(e=>e.id===selId);
+          if(ev)menuArr(ev).forEach((name,idx)=>{if(!seen.has(name)){const d2s=kt[combKey]?.["dish|"+name]||kt[selId]?.[selId+"|"+idx]||{};perfs.push(buildPerf(name,d2s));seen.add(name);}});
+        }
+        const done=perfs.filter(p=>p.isDone);const started=perfs.filter(p=>!p.isDone&&p.actT>0);
+        const byS={};perfs.forEach(p=>{if(!byS[p.catId])byS[p.catId]={n:p.catName,ic:p.catIcon,co:p.catColor,ds:[]};byS[p.catId].ds.push(p);});
+        const avgDelta=done.length?Math.round(done.reduce((s,p)=>s+p.delta,0)/done.length):0;
+        const avgStoreArr=done.filter(p=>p.storeT!=null);const avgStoreT=avgStoreArr.length?Math.round(avgStoreArr.reduce((s,p)=>s+p.storeT,0)/avgStoreArr.length):null;
+        const totalOver=done.reduce((s,p)=>s+p.overC,0);const totalUnder=done.reduce((s,p)=>s+p.underC,0);
+        const fS=s=>{if(s==null)return"ΓÇö";const m=Math.floor(Math.abs(s)/60);const sc=Math.abs(s)%60;return m+"m"+(sc>0?" "+sc+"s":"");};
+        const dC=d=>d==null?C.faint:d>5?C.red:d<-5?C.green:C.muted;
+        const dBadge=d=>d==null?"ΓÇö":d>0?"+"+fS(d):d<0?fS(Math.abs(d))+" under":"on time";
+        
+        const selEv=selId&&selId!=="__combined"?allEvs.find(e=>e.id===selId):null;
+        return(
+          <div>
+            <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>≡ƒôè {T2("Kitchen Analytics")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Performance analysis ΓÇö timing, efficiency, ingredient variance")}</div>
+            {/* ΓöÇΓöÇ Calendar Date Picker ΓöÇΓöÇ */}
+            <div style={{marginBottom:16}}>
+              {(()=>{
+                const pad2=n=>String(n).padStart(2,"0");
+                const MO_N=["January","February","March","April","May","June","July","August","September","October","November","December"];
+                const DY=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+                const first=new Date(calYr,calMo,1).getDay();
+                const dim=new Date(calYr,calMo+1,0).getDate();
+                const prevDim=new Date(calYr,calMo,0).getDate();
+                const cells2=[];
+                for(let i=first-1;i>=0;i--) cells2.push({d:prevDim-i,c:false});
+                for(let i=1;i<=dim;i++) cells2.push({d:i,c:true});
+                while(cells2.length<42) cells2.push({d:cells2.length-first-dim+1,c:false});
+                const cDate=cell=>cell.c?`${calYr}-${pad2(calMo+1)}-${pad2(cell.d)}`:null;
+                const eod2=d=>allEvs.filter(e=>e.date===d);
+                const prevMo=()=>{if(calMo===0){setCalMo(11);setCalYr(y=>y-1);}else setCalMo(m=>m-1);};
+                const nextMo=()=>{if(calMo===11){setCalMo(0);setCalYr(y=>y+1);}else setCalMo(m=>m+1);};
+                const todayS=TODAY;
+                return(
+                <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>ΓÇ╣</button>
+                      <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[calMo]} {calYr}</div>
+                      <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>ΓÇ║</button>
+                    </div>
+                    <button onClick={()=>{setCalYr(new Date().getFullYear());setCalMo(new Date().getMonth());setAnalyticsDate(todayS);setAnalyticsEvId(null);setAnalyticsExp(new Set());}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                    {cells2.map((cell,i)=>{const dt=cDate(cell);const evs2=dt?eod2(dt):[];const isT=dt===todayS;const isS=dt===selDate;
+                      const vCols=[...new Set(evs2.map(e=>anaGp(e.venue).c))];
+                      const hasTracked=evs2.some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);
+                      return(
+                        <div key={i} onClick={()=>{if(!dt)return;setAnalyticsDate(dt);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
+                          style={{height:52,padding:"5px 6px",cursor:dt?"pointer":"default",
+                            borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
+                            background:isS?C.goldBg:isT?"#FAEEDA":hasTracked?"rgba(29,158,117,0.07)":"transparent",opacity:cell.c?1:.2}}>
+                          <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":hasTracked?C.green:C.text}}>{cell.d}{hasTracked&&<span style={{fontSize:8,marginLeft:1,verticalAlign:"super"}}>Γ£ô</span>}</div>
+                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+                    <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:14,height:14,borderRadius:3,background:"rgba(29,158,117,0.08)",border:"1px solid rgba(29,158,117,0.18)"}}><span style={{fontSize:7,color:C.green,display:"flex",alignItems:"center",justifyContent:"center",height:"100%"}}>Γ£ô</span></div><span style={{fontSize:10,color:C.muted}}>Tracked</span></div>
+                  </div>
+                </div>);
+              })()}
+              {/* ΓöÇΓöÇ Event cards for selected date ΓöÇΓöÇ */}
+              <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} ┬╖ {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold+"20":"transparent",color:selId==="__combined"?C.gold:C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:40}}>≡ƒì│ Combined</button>}
+                {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
+                  <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
+                    <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
+                    <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax ┬╖ {mc} dishes{tracked>0?" ┬╖ "+tracked+" tracked":""} ┬╖ {ev.venue||""}</div>
+                  </button>
+                );})}
+                {dateEvs.length===0&&<div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
+              </div>
+            </div>
+            {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>≡ƒôè</div><div style={{fontSize:14,color:C.muted}}>{T2("Select an event above. Complete dishes in Prep Day or Event Day to see full analytics.")}</div></div>}
+            {perfs.length>0&&(<>
+            {/* ΓöÇΓöÇ Summary Cards ΓöÇΓöÇ */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+              <div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:C.text}}>{done.length}<span style={{fontSize:13,color:C.muted,fontWeight:400}}>/{perfs.length}</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Dishes done</div>
+                {started.length>0&&<div style={{fontSize:10,color:C.amber,marginTop:2}}>{started.length} in progress</div>}
+                {perfs.filter(p=>p.status==="not_started").length>0&&<div style={{fontSize:10,color:C.faint,marginTop:1}}>{perfs.filter(p=>p.status==="not_started").length} not started</div>}
+              </div>
+              {done.length>0&&<div style={{padding:"14px 16px",borderRadius:12,background:avgDelta>0?C.redBg:C.greenBg,border:`1.5px solid ${avgDelta>0?C.redBorder:C.greenBorder}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:avgDelta>0?C.red:C.green}}>{avgDelta>0?"+":""}{fS(avgDelta)}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Avg step delta</div>
+              </div>}
+              {(totalOver>0||totalUnder>0)&&<div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"baseline"}}><span style={{fontSize:20,fontWeight:700,color:C.green}}>{totalUnder}</span><span style={{fontSize:11,color:C.muted}}>under</span><span style={{fontSize:20,fontWeight:700,color:C.red}}>{totalOver}</span><span style={{fontSize:11,color:C.muted}}>over</span></div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Step timing</div>
+              </div>}
+              {avgStoreT!=null&&<div style={{padding:"14px 16px",borderRadius:12,background:C.surface,border:`1.5px solid ${C.border}`}}>
+                <div style={{fontSize:24,fontWeight:700,color:C.gold}}>{fS(avgStoreT)}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Avg store collection</div>
+              </div>}
+            </div>
+            {/* ΓöÇΓöÇ Section Breakdown ΓöÇΓöÇ */}
+            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Dishes by Section</div>
+            <div style={{marginBottom:20}}>
+              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;const secOpen=analyticsExp.has("sec_"+cid);return(
+                <div key={cid} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
+                  <div onClick={()=>{setAnalyticsExp(p=>{const s=new Set(p);s.has("sec_"+cid)?s.delete("sec_"+cid):s.add("sec_"+cid);return s;});}} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:20}}>{sec.ic}</span>
+                      <div><div style={{fontSize:13,fontWeight:600,color:sec.co}}>{sec.n}</div><div style={{fontSize:11,color:C.muted}}>{dn}/{sec.ds.length} done</div></div>
+                    </div>
+                    <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                      <div style={{width:60,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:3}}/></div>
+                      <span style={{fontSize:11,color:C.green,fontWeight:600}}>Γ¼ç{un}</span>
+                      <span style={{fontSize:11,color:C.red,fontWeight:600}}>Γ¼å{ov}</span>
+                      <span style={{fontSize:14,color:C.faint}}>{secOpen?"Γû╝":"Γû╢"}</span>
+                    </div>
+                  </div>
+                  {secOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${C.borderLight}`}}>
+                    {sec.ds.sort((a,b)=>{const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"Γ£à":p.status==="in_progress"?"ΓÅ│":"Γ¼£";return(
+                      <div key={p.name} style={{marginTop:6,borderRadius:8,border:`1px solid ${p.status==="not_started"?C.borderLight:C.border}`,background:p.status==="not_started"?C.bg:C.surface,opacity:p.status==="not_started"?.6:1}}>
+                        <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"10px 12px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div style={{minWidth:0,flex:1}}>
+                            <div style={{fontSize:12,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{stLabel} {p.name}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" ┬╖ ":""}Expected: {fS(p.expT)||"ΓÇö"}</div>
+                            {usageLog&&(()=>{
+                              const ings=usageLog.ingredients||[];
+                              const varIngs=ings.filter(i=>i.actual_qty!=null&&i.scaled_qty!=null&&Math.abs(i.actual_qty-i.scaled_qty)>0.01);
+                              const pcts=varIngs.map(i=>({name:i.name,pct:i.scaled_qty>0?Math.round((i.actual_qty-i.scaled_qty)/i.scaled_qty*100):0}));
+                              const absPcts=pcts.map(x=>Math.abs(x.pct));
+                              const avgAbs=absPcts.length?Math.round(absPcts.reduce((s,x)=>s+x,0)/absPcts.length):0;
+                              const worst=pcts.reduce((w,x)=>Math.abs(x.pct)>Math.abs(w?.pct||0)?x:w,null);
+                              const hasYield=usageLog.yield_qty!=null;
+                              const hasVar=varIngs.length>0;
+                              if(!hasVar&&!hasYield&&ings.length===0) return null;
+                              return(
+                                <div style={{fontSize:10,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                  {hasVar?(<>
+                                    <span>≡ƒôè <b style={{color:C.text}}>{varIngs.length}</b>/{ings.length} ╬ö</span>
+                                    <span>avg <b style={{color:avgAbs>10?C.amber:C.text}}>{avgAbs}%</b></span>
+                                    {worst&&<span>worst <span style={{fontWeight:700,color:worst.pct>0?C.red:C.green,padding:"1px 5px",borderRadius:3,background:worst.pct>0?C.redBg:C.greenBg}}>{worst.pct>0?"+":""}{worst.pct}%</span> <span style={{color:C.faint}}>{worst.name}</span></span>}
+                                  </>):ings.length>0?<span style={{color:C.faint}}>≡ƒôè all ingredients on target</span>:null}
+                                  {hasYield&&<span>┬╖ yield <b style={{color:C.gold}}>{usageLog.yield_qty} {usageLog.yield_unit||""}</b></span>}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            {p.isDone&&p.hasData&&<div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:700,background:p.delta>5?C.redBg:p.delta<-5?C.greenBg:C.surface,border:`1px solid ${p.delta>5?C.redBorder:p.delta<-5?C.greenBorder:C.border}`,color:p.delta>5?C.red:p.delta<-5?C.green:C.muted}}>{p.delta>0?"+":""}{fS(p.delta)}</div>}
+                            {p.hasData&&<span style={{fontSize:12,color:C.faint}}>{isOpen?"Γû╝":"Γû╢"}</span>}
+                          </div>
+                        </div>
+                        {isOpen&&<div style={{padding:"0 12px 10px",borderTop:`1px solid ${C.borderLight}`}}>
+                          {p.storeT!=null&&<div style={{padding:"6px 0",fontSize:11,color:C.muted}}>≡ƒÅ¬ Store: <b style={{color:C.gold}}>{fS(p.storeT)}</b></div>}
+                          {p.sPerfs.map((sp,si)=>{
+                            if(sp.hs){return(
+                              <div key={si} style={{padding:"4px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+                                <div style={{fontSize:11,fontWeight:600,color:sp.done?C.green:C.text,marginBottom:3}}>{si+1}. {sp.l} {sp.done&&"Γ£à"}</div>
+                                <div style={{marginLeft:14}}>
+                                  {sp.subs.map((sub,sbi)=>{const dc=sub.delta!=null?(sub.delta>0?C.red:sub.delta<0?C.green:C.muted):C.faint;return(
+                                    <div key={sbi} style={{display:"flex",justifyContent:"space-between",padding:"2px 0",fontSize:10}}>
+                                      <span style={{color:sub.done?C.green:C.text}}>{si+1}{String.fromCharCode(97+sbi)}. {sub.l}</span>
+                                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                                        <span style={{color:C.faint}}>SOP {sub.exp?fS(sub.exp):"ΓÇö"}</span>
+                                        <span style={{fontWeight:600,color:sub.done?dc:C.faint}}>{sub.act!=null?fS(sub.act):"ΓÇö"}</span>
+                                        {sub.delta!=null&&<span style={{fontWeight:700,color:dc,fontSize:9}}>{sub.delta>0?"≡ƒö┤+":"≡ƒƒó"}{fS(Math.abs(sub.delta))}</span>}
+                                      </div>
+                                    </div>
+                                  );})}
+                                </div>
+                              </div>
+                            );}
+                            const dc=sp.delta!=null?(sp.delta>0?C.red:sp.delta<0?C.green:C.muted):C.faint;
+                            return(
+                              <div key={si} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:11}}>
+                                <span style={{color:sp.done?C.green:C.text}}>{si+1}. {sp.l} {sp.done&&"Γ£à"}</span>
+                                <div style={{display:"flex",gap:8,flexShrink:0}}>
+                                  <span style={{color:C.faint,fontSize:10}}>SOP {sp.exp?fS(sp.exp):"ΓÇö"}</span>
+                                  <span style={{fontWeight:600,color:sp.done?dc:C.faint,fontSize:10}}>{sp.act!=null?fS(sp.act):"ΓÇö"}</span>
+                                  {sp.delta!=null&&<span style={{fontSize:9,fontWeight:700,color:dc,padding:"1px 4px",borderRadius:4,background:sp.delta>0?C.redBg:C.greenBg}}>{sp.delta>0?"+":""}{fS(sp.delta)}</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {usageLog&&(()=>{const dts=(usageLog.ingredients||[]).filter(i=>i.actual_qty!=null);if(dts.length===0)return null;return(
+                            <div style={{marginTop:8,padding:"8px 10px",borderRadius:6,background:C.bg,border:`1px solid ${C.border}`}}>
+                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:4}}>≡ƒôè Ingredients</div>
+                              {dts.map((ing,ii)=>{const diff=ing.actual_qty-ing.scaled_qty;const pct=ing.scaled_qty>0?Math.round(diff/ing.scaled_qty*100):0;return(
+                                <div key={ii} style={{display:"flex",justifyContent:"space-between",padding:"2px 0",fontSize:10,borderBottom:ii<dts.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                                  <span style={{color:C.text}}>{ing.name}</span>
+                                  <span><span style={{color:C.faint}}>{ing.scaled_qty}{ing.unit}</span> ΓåÆ <b style={{color:C.text}}>{ing.actual_qty}{ing.unit}</b> <span style={{fontWeight:700,color:diff>0?C.red:C.green}}>{diff>0?"+":""}{pct}%</span></span>
+                                </div>
+                              );})}
+                            </div>
+                          );})()}
+                        </div>}
+                      </div>
+                    );})}
+                  </div>}
+                </div>
+              );})}
+            </div>
+            {/* ΓöÇΓöÇ Dish Performance ΓöÇΓöÇ */}
+            
+            {false&&perfs.sort((a,b)=>{if(a.status!==b.status){const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}if(a.isDone&&b.isDone)return b.delta-a.delta;return 0;}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"Γ£à Done":p.status==="in_progress"?"ΓÅ│ In progress":"Γ¼£ Not started";return(
+              <div key={p.name} style={{marginBottom:6,borderRadius:10,border:`1px solid ${p.status==="not_started"?C.borderLight:C.border}`,background:p.status==="not_started"?C.bg:C.surface,opacity:p.status==="not_started"?.7:1}}>
+                <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"12px 16px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:14}}>{p.catIcon}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{p.name}<span style={{marginLeft:8,fontSize:10,color:stColor,fontWeight:500}}>{stLabel}</span></div>
+                      <div style={{fontSize:11,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" ┬╖ ":""}Expected: {fS(p.expT)||"ΓÇö"}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    {p.isDone&&p.hasData&&<div style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:700,background:p.delta>5?C.redBg:p.delta<-5?C.greenBg:C.surface,border:`1px solid ${p.delta>5?C.redBorder:p.delta<-5?C.greenBorder:C.border}`,color:p.delta>5?C.red:p.delta<-5?C.green:C.muted}}>{p.delta>0?"+":""}{fS(p.delta)}</div>}
+                    {p.hasData&&<span style={{fontSize:14,color:C.faint}}>{isOpen?"Γû╝":"Γû╢"}</span>}
+                  </div>
+                </div>
+                {isOpen&&<div style={{padding:"0 16px 14px",borderTop:`1px solid ${C.borderLight}`}}>
+                  {p.storeT!=null&&<div style={{padding:"8px 0",fontSize:12,color:C.muted}}>≡ƒÅ¬ Store collection: <b style={{color:C.gold}}>{fS(p.storeT)}</b></div>}
+                  {p.sPerfs.map((sp,si)=>{
+                    if(sp.hs){return(
+                      <div key={si} style={{padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`}}>
+                        <div style={{fontSize:12,fontWeight:600,color:sp.done?C.green:C.text,marginBottom:4}}>{si+1}. {sp.l} {sp.done&&"Γ£à"}</div>
+                        <div style={{marginLeft:16}}>
+                          {sp.subs.map((sub,sbi)=>{const dc=sub.delta!=null?(sub.delta>0?C.red:sub.delta<0?C.green:C.muted):C.faint;return(
+                            <div key={sbi} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:11}}>
+                              <span style={{color:sub.done?C.green:C.text}}>{si+1}{String.fromCharCode(97+sbi)}. {sub.l}</span>
+                              <div style={{display:"flex",gap:8,flexShrink:0}}>
+                                <span style={{color:C.faint}}>{sub.exp?fS(sub.exp):"ΓÇö"}</span>
+                                <span style={{fontWeight:600,color:sub.done?dc:C.faint}}>{sub.act!=null?fS(sub.act):"ΓÇö"}</span>
+                                {sub.delta!=null&&<span style={{fontSize:10,fontWeight:700,color:dc,minWidth:50,textAlign:"right"}}>{sub.delta>0?"≡ƒö┤ +":"≡ƒƒó "}{fS(Math.abs(sub.delta))}</span>}
+                              </div>
+                            </div>
+                          );})}
+                        </div>
+                      </div>
+                    );}
+                    const dc=sp.delta!=null?(sp.delta>0?C.red:sp.delta<0?C.green:C.muted):C.faint;
+                    return(
+                      <div key={si} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.borderLight}`,fontSize:12}}>
+                        <span style={{color:sp.done?C.green:C.text,fontWeight:500}}>{si+1}. {sp.l} {sp.done&&"Γ£à"}</span>
+                        <div style={{display:"flex",gap:10,flexShrink:0,alignItems:"center"}}>
+                          <span style={{color:C.faint,fontSize:11}}>SOP: {sp.exp?fS(sp.exp):"ΓÇö"}</span>
+                          <span style={{fontWeight:600,color:sp.done?dc:C.faint,fontSize:11}}>Actual: {sp.act!=null?fS(sp.act):"ΓÇö"}</span>
+                          {sp.delta!=null&&<span style={{fontSize:10,fontWeight:700,color:dc,padding:"2px 6px",borderRadius:6,background:sp.delta>0?C.redBg:C.greenBg}}>{sp.delta>0?"+":" "}{fS(sp.delta)}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Ingredient deltas for this dish */}
+                  {usageLog&&(()=>{const dts=(usageLog.ingredients||[]).filter(i=>i.actual_qty!=null);if(dts.length===0)return null;return(
+                    <div style={{marginTop:10,padding:"10px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.gold,marginBottom:6}}>≡ƒôè Ingredient Usage</div>
+                      {dts.map((ing,ii)=>{const diff=ing.actual_qty-ing.scaled_qty;const pct=ing.scaled_qty>0?Math.round(diff/ing.scaled_qty*100):0;const isOver=diff>0.01;const isUnder=diff<-0.01;return(
+                        <div key={ii} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:11,borderBottom:ii<dts.length-1?`1px solid ${C.borderLight}`:"none"}}>
+                          <span style={{color:C.text}}>{ing.name}</span>
+                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                            <span style={{color:C.faint}}>{ing.scaled_qty} {ing.unit}</span>
+                            <span style={{color:C.text,fontWeight:600}}>ΓåÆ {ing.actual_qty} {ing.unit}</span>
+                            {(isOver||isUnder)&&<span style={{fontSize:10,fontWeight:700,color:isOver?C.red:C.green,padding:"1px 6px",borderRadius:4,background:isOver?C.redBg:C.greenBg}}>{isOver?"+":""}{pct}%</span>}
+                            {!isOver&&!isUnder&&<span style={{fontSize:10,color:C.green}}>Γ£ô</span>}
+                          </div>
+                        </div>
+                      );})}
+                    </div>
+                  );})()}
+                </div>}
+              </div>
+            );})}
+            
+            </>)}
           </div>
         );
       })()}
