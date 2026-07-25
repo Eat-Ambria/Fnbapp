@@ -9,7 +9,6 @@ import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './S
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
-import INGREDIENT_HINDI from '../data/ingredientHindi.js';
 
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
@@ -132,42 +131,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return null;
   }
 
-  // Cross-recipe Hindi lookup: name (lowercased+trimmed) -> most-common hi
-  function buildHindiLookup() {
-    const tally = {};
-    for (const cat of safeArr(RECIPE_DB.cats)) {
-      const list = safeArr(RECIPE_DB.recipes[cat.id]);
-      for (const rec of list) {
-        const items = safeArr(rec.ingredients?.items);
-        for (const it of items) {
-          if (it.isSection) continue;
-          const name = (it.name || "").trim().toLowerCase();
-          const hi = (it.hi || it.hindi || "").trim();
-          if (!name || !hi) continue;
-          if (!tally[name]) tally[name] = {};
-          tally[name][hi] = (tally[name][hi] || 0) + 1;
-        }
-      }
-    }
-    const map = {};
-    for (const name of Object.keys(tally)) {
-      map[name] = Object.entries(tally[name]).sort((a,b)=>b[1]-a[1])[0][0];
-    }
-    return map;
-  }
-
-  // Two-tier Hindi resolution: existing recipes first, then seed dictionary
-  function resolveHindi(name, recipeMap) {
-    const key = (name || "").trim().toLowerCase();
-    if (!key) return "";
-    return recipeMap[key] || INGREDIENT_HINDI[key] || "";
-  }
-
   async function saveIngredients() {
     if(!ingModal)return;
-    const hiLookup = buildHindiLookup();
-    let autofilledCount = 0;
-    const missingHi = [];
     // Build new-schema payload. Field names locked to `hi` and `qty_nv`.
     const items = ingForm.items.filter(it=>(it.name||"").trim()).map(it => {
       if (it.isSection) {
@@ -175,15 +140,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         if (it.hi) row.hi = (it.hi||"").trim();
         return row;
       }
-      let hi = (it.hi||"").trim();
-      if (!hi) {
-        const looked = resolveHindi(it.name, hiLookup);
-        if (looked) { hi = looked; autofilledCount++; }
-        else missingHi.push(it.name.trim());
-      }
       const row = {
         name: it.name.trim(),
-        hi,
+        hi: (it.hi||"").trim(),
         unit: it.unit || "kg",
         qty: typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0,
       };
@@ -191,8 +150,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       if (it.notes) row.notes = it.notes;
       return row;
     });
-    if (autofilledCount > 0) console.log(`🔤 Auto-filled Hindi for ${autofilledCount} ingredient(s)`);
-    if (missingHi.length > 0) console.warn(`⚠️ No Hindi found for: ${missingHi.join(', ')} — add manually to help the dictionary grow`);
     const payload = {
       base_pax: ingForm.base_pax || 300,
       base_yield: ingForm.base_yield || {kg:null, pcs:null},
@@ -956,7 +913,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"}}>
           <div style={{background:C.surface,borderRadius:20,padding:"22px 20px",maxWidth:420,width:"100%",border:`2px solid ${C.greenBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
             <div style={{textAlign:"center",marginBottom:14}}>
-              <div style={{fontSize:28,marginBottom:6}}>??</div>
+              <div style={{fontSize:28,marginBottom:6}}>🎉</div>
               <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2("Dish Ready!")}</div>
               <div style={{fontSize:13,color:C.gold,marginTop:3,fontWeight:600}}>{readyModal.dishName}</div>
             </div>
@@ -1164,7 +1121,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const pkgNote = (isCustom||!pkg) ? "" : " — "+T2("Package")+": "+pkg;
           return (
             <div key={"menu-warn-"+ev.id} style={{marginBottom:12,padding:"14px 18px",borderRadius:12,background:C.redBg,border:`2px solid ${C.red}`,display:"flex",alignItems:"flex-start",gap:12}}>
-              <span style={{fontSize:24,flexShrink:0,lineHeight:1}}>??</span>
+              <span style={{fontSize:24,flexShrink:0,lineHeight:1}}>⚠️</span>
               <div style={{flex:1}}>
                 <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:4}}>{heading} — {ev.guest||T2("Function")} ({isToday?T2("today"):T2("tomorrow")})</div>
                 <div style={{fontSize:12,color:C.red,lineHeight:1.5}}>{ev.venue||""} — {ev.date} — {ev.pax} {T2("pax")} — {ev.time||"TBD"}{pkgNote} — {body}</div>
@@ -1295,7 +1252,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             <div style={{fontSize:13,color:C.muted,marginBottom:20}}>{T2("Event day cooking tasks will appear here when there's a function scheduled for today.")}</div>
             {tomorrowEvs.length>0&&(
               <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.border}`,fontSize:13,color:C.gold}}>
-                <span>??</span>
+                <span>📅</span>
                 <span>{T2("Next up")}: {tomorrowLabel} — {tomorrowEvs.map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ")}</span>
               </div>
             )}
@@ -1711,7 +1668,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         return(
         <div>
           <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>📋 {T2("Recipe SOPs")}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} -+ {filteredCats.length} {T2("categories")} -+ {T2("Procedures in Hindi")}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} · {filteredCats.length} {T2("categories")} · {T2("Procedures in Hindi")}</div>
           <div style={{display:"flex",gap:8,marginBottom:16}}>
             <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipes…")} style={{flex:1,padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:48}}/>
             {currentUser?.role==='admin'&&<button onClick={()=>openSopAdd(sopCat)} style={{padding:"10px 16px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",minHeight:48}}>+ {T2("Add Recipe")}</button>}
@@ -1733,7 +1690,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   {safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).map((recipe,ri)=>(
                     <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
-                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div><div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} -+ {safeArr(recipe.steps).length} {T2("steps")}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div><div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
                     </button>))}
                 </div>
               </div>
@@ -1755,7 +1712,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     ):(
                       <>
                         <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{recipeNameOf(sopRecipe, lang)}</div>
-                        <div style={{fontSize:12,color:C.gold,marginTop:4}}>{sopRecipe.sub} -+ {safeArr(sopRecipe.steps).length} {T2("steps")}</div>
+                        <div style={{fontSize:12,color:C.gold,marginTop:4}}>{sopRecipe.sub} · {safeArr(sopRecipe.steps).length} {T2("steps")}</div>
                       </>
                     )}
                   </div>
@@ -1806,7 +1763,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{marginBottom:16,borderRadius:10,border:`2px solid ${C.gold}`,overflow:"hidden"}}>
                     <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span>✏️ Editing · {ingForm.base_pax||300} pax anchor</span>
-                      <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" -+ unsaved":""}</span>
+                      <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" · unsaved":""}</span>
                     </div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
@@ -1827,7 +1784,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </div>
                               </td>
                               <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
-                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>G—G—</span>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
                                 <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
                               </td>
                             </tr>
@@ -1838,7 +1795,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
                               <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
                               <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
-                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>G—G—</span>
+                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
                                 <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
                               </td>
                             </tr>
@@ -2277,7 +2234,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
             {!selEv && (
               <Card style={{padding:"24px 20px",textAlign:"center"}}>
-                <div style={{fontSize:28,marginBottom:8}}>??</div>
+                <div style={{fontSize:28,marginBottom:8}}>🍲</div>
                 <div style={{fontSize:12,color:C.muted}}>{T2("Select an event above to record its closing")}</div>
               </Card>
             )}
@@ -2827,13 +2784,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>);
               })()}
               {/* —— Event cards for selected date —— */}
-              <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} -+ {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
+              <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} · {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
                 {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold+"20":"transparent",color:selId==="__combined"?C.gold:C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:40}}>👥 Combined</button>}
                 {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
                   <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
                     <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                    <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax -+ {mc} dishes{tracked>0?" -+ "+tracked+" tracked":""} -+ {ev.venue||""}</div>
+                    <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax · {mc} dishes{tracked>0?" · "+tracked+" tracked":""} · {ev.venue||""}</div>
                   </button>
                 );})}
                 {dateEvs.length===0&&<div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
@@ -2885,7 +2842,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"10px 12px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                           <div style={{minWidth:0,flex:1}}>
                             <div style={{fontSize:12,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{stLabel} {p.name}</div>
-                            <div style={{fontSize:10,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" -+ ":""}Expected: {fS(p.expT)||"—"}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)||"—"}</div>
                             {usageLog&&(()=>{
                               const ings=usageLog.ingredients||[];
                               const varIngs=ings.filter(i=>i.actual_qty!=null&&i.scaled_qty!=null&&Math.abs(i.actual_qty-i.scaled_qty)>0.01);
@@ -2972,7 +2929,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{fontSize:14}}>{p.catIcon}</span>
                     <div>
                       <div style={{fontSize:13,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{p.name}<span style={{marginLeft:8,fontSize:10,color:stColor,fontWeight:500}}>{stLabel}</span></div>
-                      <div style={{fontSize:11,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" -+ ":""}Expected: {fS(p.expT)||"—"}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)||"—"}</div>
                     </div>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -3219,7 +3176,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               )}
               {ingForm.items.map((item,idx)=>item.isSection?(
                 <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`2px solid ${C.goldBorder}`,background:C.goldBg,overflow:"hidden",padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",opacity:ingDragIdx===idx?0.4:1}}>
-                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.gold,fontWeight:700,flexShrink:0,userSelect:"none",padding:"0 4px"}}>??</span>
+                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.gold,fontWeight:700,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
                   <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Section heading" style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
                   <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:90,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
                   <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>?</button>
@@ -3228,7 +3185,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden",opacity:ingDragIdx===idx?0.4:1}}>
                   {/* Row header */}
                   <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
-                    <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.muted,flexShrink:0,userSelect:"none",padding:"0 4px"}}>??</span>
+                    <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.muted,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
                     <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
                     <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
