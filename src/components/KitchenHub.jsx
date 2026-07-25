@@ -9,6 +9,7 @@ import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './S
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
+import INGREDIENT_HINDI from '../data/ingredientHindi.js';
 
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
@@ -131,8 +132,42 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return null;
   }
 
+  // Cross-recipe Hindi lookup: name (lowercased+trimmed) -> most-common hi
+  function buildHindiLookup() {
+    const tally = {};
+    for (const cat of safeArr(RECIPE_DB.cats)) {
+      const list = safeArr(RECIPE_DB.recipes[cat.id]);
+      for (const rec of list) {
+        const items = safeArr(rec.ingredients?.items);
+        for (const it of items) {
+          if (it.isSection) continue;
+          const name = (it.name || "").trim().toLowerCase();
+          const hi = (it.hi || it.hindi || "").trim();
+          if (!name || !hi) continue;
+          if (!tally[name]) tally[name] = {};
+          tally[name][hi] = (tally[name][hi] || 0) + 1;
+        }
+      }
+    }
+    const map = {};
+    for (const name of Object.keys(tally)) {
+      map[name] = Object.entries(tally[name]).sort((a,b)=>b[1]-a[1])[0][0];
+    }
+    return map;
+  }
+
+  // Two-tier Hindi resolution: existing recipes first, then seed dictionary
+  function resolveHindi(name, recipeMap) {
+    const key = (name || "").trim().toLowerCase();
+    if (!key) return "";
+    return recipeMap[key] || INGREDIENT_HINDI[key] || "";
+  }
+
   async function saveIngredients() {
     if(!ingModal)return;
+    const hiLookup = buildHindiLookup();
+    let autofilledCount = 0;
+    const missingHi = [];
     // Build new-schema payload. Field names locked to `hi` and `qty_nv`.
     const items = ingForm.items.filter(it=>(it.name||"").trim()).map(it => {
       if (it.isSection) {
@@ -140,9 +175,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         if (it.hi) row.hi = (it.hi||"").trim();
         return row;
       }
+      let hi = (it.hi||"").trim();
+      if (!hi) {
+        const looked = resolveHindi(it.name, hiLookup);
+        if (looked) { hi = looked; autofilledCount++; }
+        else missingHi.push(it.name.trim());
+      }
       const row = {
         name: it.name.trim(),
-        hi: (it.hi||"").trim(),
+        hi,
         unit: it.unit || "kg",
         qty: typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0,
       };
@@ -150,6 +191,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       if (it.notes) row.notes = it.notes;
       return row;
     });
+    if (autofilledCount > 0) console.log(`🔤 Auto-filled Hindi for ${autofilledCount} ingredient(s)`);
+    if (missingHi.length > 0) console.warn(`⚠️ No Hindi found for: ${missingHi.join(', ')} — add manually to help the dictionary grow`);
     const payload = {
       base_pax: ingForm.base_pax || 300,
       base_yield: ingForm.base_yield || {kg:null, pcs:null},
