@@ -4,6 +4,14 @@
 
 import { MENU_PACKAGES } from './menuPackages.js';
 import INGREDIENT_HINDI from './ingredientHindi.js';
+   
+   let DISH_HINDI_MAP = {};
+   function setDishHindiMap(m) { DISH_HINDI_MAP = m || {}; }
+   function upsertDishHindi(dishName, hi) {
+     if (!dishName) return;
+     if (hi) DISH_HINDI_MAP[dishName] = hi;
+     else delete DISH_HINDI_MAP[dishName];
+   }
 
 function guessSectionForDish(name) {
   const n = (name||"").toLowerCase().trim();
@@ -430,10 +438,31 @@ function getIngrForYield(dishName, targetKg) {
   }));
 }
 
+function resolveDishHindi(dishName) {
+  if (!dishName) return '';
+  const key = typeof dishName === 'string' ? dishName : (dishName.name || dishName.n || '');
+  if (!key) return '';
+  if (DISH_HINDI_MAP[key]) return DISH_HINDI_MAP[key];
+  const keyL = key.toLowerCase().trim();
+  const mk = Object.keys(DISH_HINDI_MAP).find(k => k.toLowerCase().trim() === keyL);
+  if (mk && DISH_HINDI_MAP[mk]) return DISH_HINDI_MAP[mk];
+  try { const rec = findRecipeForDish(key); if (rec && rec.n_hi) return rec.n_hi; } catch (e) {}
+  if (INGREDIENT_HINDI && INGREDIENT_HINDI[key]) return INGREDIENT_HINDI[key];
+  if (INGREDIENT_HINDI && INGREDIENT_HINDI[keyL]) return INGREDIENT_HINDI[keyL];
+  return '';
+}
+
+function dishLabel(dishName, lang) {
+  const en = typeof dishName === 'string' ? dishName : (dishName && (dishName.name || dishName.n)) || '';
+  if (lang !== 'hi') return en;
+  const hi = resolveDishHindi(en);
+  return hi || en;
+}
+
 function hasIngredients(dishName) {
   const rec = findRecipeForDish(dishName);
   if (rec?.ingredients?.items?.length > 0) return true;
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, dishLabel, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi };
