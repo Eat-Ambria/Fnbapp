@@ -113,6 +113,57 @@ function EventDayTab({
       return o;
     });
   }
+  // ── Section-level "Collect from store" (scope: combined vs per-function) ──
+  function ssKey(catId) { return "__sec_" + catId; }
+  function ssRead(catId) {
+    const _TOD = _freshToday();
+    if (isCombined) return kt["__combined_"+_TOD]?.[ssKey(catId)] || {};
+    return activeEv ? (kt[activeEv.id]?.[ssKey(catId)] || {}) : {};
+  }
+  function ssWrite(catId, upd) {
+    const _TOD = _freshToday();
+    setKitchenTracking(p => {
+      const o = p && typeof p === "object" ? { ...p } : {};
+      const scope = isCombined ? ("__combined_" + _TOD) : (activeEv ? activeEv.id : null);
+      if (!scope) return o;
+      const sK = ssKey(catId);
+      o[scope] = { ...(o[scope] || {}), [sK]: { ...(o[scope]?.[sK] || {}), ...upd } };
+      return o;
+    });
+  }
+  // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
+  function aggSecIngredients(dishes) {
+    const bucket = {}; let totalKg = 0;
+    dishes.forEach(dish => {
+      const evObj = todayEvs.find(e => e.id === dish.fEvId);
+      if (!evObj) return;
+      const pax = +evObj.pax || 0;
+      const rec = findRecipeForDish(dish.name);
+      const baseKg = rec?.ingredients?.base_yield?.kg || null;
+      const basePax = rec?.ingredients?.base_pax || 300;
+      const mult = Number(evObj.yield_multiplier) || 1.0;
+      let ing = null, effKg = null;
+      if (baseKg) {
+        const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+        const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+        effKg = (plannedKg || defaultYield) * mult;
+        ing = getIngrForYield(dish.name, effKg);
+      }
+      if (!ing || ing.length === 0) {
+        const adjPax = Math.round(pax * mult);
+        ing = getIngrForDish(dish.name, adjPax || pax);
+        effKg = null;
+      }
+      if (effKg) totalKg += effKg;
+      if (!ing) return;
+      ing.filter(i => i.q > 0).forEach(i => {
+        const k = (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
+        if (!bucket[k]) bucket[k] = { n: i.n, u: i.u, q: 0 };
+        bucket[k].q += Number(i.q) || 0;
+      });
+    });
+    return { items: Object.values(bucket).sort((a,b) => (a.n || "").localeCompare(b.n || "")), totalKg: totalKg };
+  }
   function markManual(evId, idx, si, dishInfo) {
     const d = ds(evId, idx, dishInfo?.name);
     const now = fmtStamp();
@@ -192,7 +243,7 @@ function EventDayTab({
   const inProgressDishes = Object.values(byDish).filter(d => {
     const dd = ds(d.fEvId, d.fIdx, d.name);
     if (dd.ready) return false;
-    return dd.storeStart || Object.keys(dd.starts || {}).length > 0;
+    return Object.keys(dd.starts || {}).length > 0;
   }).length;
   const d1PrepDone = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx, d.name).mesaDone).length;
   const pendingDishes = totalDishes - readyDishes - inProgressDishes;
@@ -313,6 +364,56 @@ function EventDayTab({
               </div>
             )}
 
+            {/* Section-level Collect from store + aggregated ingredients */}
+            {secOpen && (() => {
+              const secStore2 = ssRead(sec);
+              const ssStarted = !!secStore2.start; const ssDone = !!secStore2.end;
+              const ssEl = ssStarted && !ssDone ? Math.floor((Date.now() - secStore2.start) / 1000) : 0;
+              const ssOverdue = ssStarted && !ssDone && ssEl >= 1800;
+              const agg = aggSecIngredients(items);
+              const yieldLbl = agg.totalKg > 0 ? `${T2("target")} ${agg.totalKg.toFixed(1).replace(/\.0$/,"")} kg` : `${items.length} ${T2("dishes")}`;
+              return (
+                <div style={{ borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, background: C.surface, padding: "10px 12px 4px" }}>
+                  <div style={{ padding: 12, borderRadius: 10, border: `2px solid ${ssDone?C.greenBorder:ssStarted?C.amberBorder:C.gold+"60"}`, background: ssDone?C.greenBg:ssStarted?C.amberBg:C.bg, marginBottom: 8 }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 9, background: ssDone?C.green:ssStarted?C.amber:C.gold, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{ssDone?"✓":"🏪"}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: isTablet?15:13, fontWeight: 700, color: ssDone?C.green:ssStarted?C.amber:C.text }}>{T2("Collect from store")} — {T2(m.color ? (RECIPE_DB.cats.find(c=>c.id===sec)?.name || sec) : sec)}</div>
+                        <div style={{ fontSize: isTablet?12:11, color: C.muted }}>{T2("One lot for all")} {items.length} {T2("dishes")} · 30m</div>
+                      </div>
+                      {!ssStarted && !ssDone && <button onClick={() => ssWrite(sec, { start: Date.now() })} style={{ padding: "10px 16px", borderRadius: 10, background: C.gold, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 40, flexShrink: 0 }}>▶️ {T2("Go Collect")}</button>}
+                      {ssStarted && !ssDone && <button onClick={() => ssWrite(sec, { end: Date.now() })} style={{ padding: "10px 16px", borderRadius: 10, background: C.green, color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 40, flexShrink: 0 }}>✓ {T2("Done")}</button>}
+                    </div>
+                    {ssStarted && !ssDone && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(100, Math.round(ssEl/1800*100)) + "%", background: ssOverdue?C.red:C.amber, borderRadius: 3, transition: "width 1s" }}/></div>
+                        <div style={{ fontSize: 11, color: ssOverdue?C.red:C.amber, fontWeight: 700, marginTop: 3 }}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m{ssOverdue?` — ${T2("Overdue")}`:""}</div>
+                      </div>
+                    )}
+                    {agg.items.length > 0 && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: ssDone?C.green:C.gold, marginBottom: 5 }}>
+                          {ssDone?"📊":"🧺"} {ssDone?T2("Ingredients"):T2("Items to collect")} — {yieldLbl}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
+                          {agg.items.map((i, ii) => {
+                            const raw = i.q;
+                            const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
+                              i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
+                                i.u === "pcs" ? Math.ceil(raw) + " pcs" :
+                                  i.u === "kg" ? (raw.toFixed(1).replace(/\.0$/,"")) + " kg" :
+                                    i.u === "L" ? (raw.toFixed(1).replace(/\.0$/,"")) + " L" :
+                                      Math.round(raw) + " " + i.u;
+                            return <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n}: <b style={{ color: C.gold }}>{qty}</b></span>;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Dish rows */}
             {secOpen && (
               <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 12px 12px", padding: "6px 10px 10px" }}>
@@ -322,14 +423,14 @@ function EventDayTab({
                   const isReady = !!d.ready;
                   const steps = getFullSteps(dish.name);
                   const nonStore = steps.filter(s => !s.store).map((s, i) => ({ step: s, origIdx: i }));
-                  const storeStarted = !!d.storeStart;
-                  const storeDone = !!d.storeEnd;
-                  const storeEl = storeStarted && !storeDone ? Math.floor((Date.now() - d.storeStart) / 1000) : 0;
-                  const storeOverdue = storeStarted && !storeDone && storeEl >= 1800;
-                  const doneCount = nonStore.filter(x => stepDone(d, x.origIdx, x.step)).length + (storeDone ? 1 : 0);
-                  const totalSteps = nonStore.length + 1;
+                  // Store is now section-level; individual dish store flags are legacy/vestigial
+                  const secStore = ssRead(sec);
+                  const secStoreStarted = !!secStore.start;
+                  const secStoreDone = !!secStore.end;
+                  const doneCount = nonStore.filter(x => stepDone(d, x.origIdx, x.step)).length;
+                  const totalSteps = nonStore.length;
                   const runIdx = nonStore.findIndex(x => d.starts?.[x.origIdx] && !stepDone(d, x.origIdx, x.step));
-                  const anyRunning = runIdx >= 0 || (storeStarted && !storeDone);
+                  const anyRunning = runIdx >= 0;
 
                   // Timer for dish row
                   let timerDisplay = null;
@@ -337,8 +438,6 @@ function EventDayTab({
                     const el = elapsed(d, nonStore[runIdx].origIdx);
                     const tm = d.stepTm?.[nonStore[runIdx].origIdx] || nonStore[runIdx].step.tm || 0;
                     if (tm > 0) timerDisplay = <span style={{ fontSize: 12, fontWeight: 700, color: el >= tm ? C.red : C.amber }}>{fmtTimer(tm - el)}</span>;
-                  } else if (!isReady && storeStarted && !storeDone) {
-                    timerDisplay = <span style={{ fontSize: 12, fontWeight: 700, color: storeOverdue ? C.red : C.amber }}>{fmtTimer(1800 - storeEl)}</span>;
                   }
 
                   return (
@@ -381,18 +480,7 @@ function EventDayTab({
                             </span>
                           </div>
 
-                          {/* Step 0: Store */}
-                          <StepRow
-                            num={0} title={`🏪 ${T2("Collect from store")}`}
-                            desc={T2("Source all ingredients") + " · 30m"}
-                            done={storeDone} running={storeStarted && !storeDone} overdue={storeOverdue}
-                            elapsedSec={storeEl} timerSec={1800} locked={false}
-                            onStart={() => setDs(dish.fEvId, dish.fIdx, { storeStart: Date.now() }, dish)}
-                            onDone={() => setDs(dish.fEvId, dish.fIdx, { storeEnd: Date.now() }, dish)}
-                            large={isSectionUser}
-                          />
-
-                          {/* Ingredient list (Path B: yield-based scaling, mirrors KitchenHub getScaledIngredients logic) */}
+                          {/* Per-dish ingredient list — READ-ONLY reference (section-level collect now gates the flow) */}
                           {(() => {
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             if (!evObj) return null;
@@ -420,10 +508,10 @@ function EventDayTab({
 
                             const yieldLbl = effKg ? `${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg` : `${pax} pax`;
                             return (
-                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${warn?C.redBorder:C.border}`, position: "sticky", top: 0, zIndex: 5 }}>
+                              <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${warn?C.redBorder:C.borderLight}`, opacity: 0.85 }}>
                                 {warn === 'no_base_yield' && <div style={{ fontSize: 9, fontWeight: 700, color: C.red, marginBottom: 5, padding: "3px 6px", background: C.redBg, borderRadius: 5, border: `1px solid ${C.redBorder}` }}>⚠ {T2("Missing base_yield in SOP")}</div>}
-                                <div style={{ fontSize: 11, fontWeight: 700, color: storeDone ? C.green : C.gold, marginBottom: 5 }}>
-                                  {storeDone ? "📊" : "🧺"} {storeDone ? T2("Ingredients") : T2("Items to collect")} — {yieldLbl}
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 5 }}>
+                                  📋 {T2("Ingredients for this dish")} — {yieldLbl}
                                   {planned ? <span style={{ fontSize: 10, color: C.purple, marginLeft: 6 }}>· {T2("planned")}</span> : effKg ? <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>· {T2("auto")}</span> : null}
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
@@ -432,7 +520,7 @@ function EventDayTab({
                                     const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
                                       i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
                                         i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;
-                                    return <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n}: <b style={{ color: C.gold }}>{qty}</b></span>;
+                                    return <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n}: <b style={{ color: C.gold + "cc" }}>{qty}</b></span>;
                                   })}
                                 </div>
                               </div>
@@ -458,7 +546,7 @@ function EventDayTab({
                                   const d1Done = isD1Step(d, si);
                                   const gIdx = gi;
                                   const prevItem = gi > 0 ? prePrep[gi - 1] : null;
-                                  const prevDone = gIdx === 0 ? storeDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
+                                  const prevDone = gIdx === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
@@ -484,7 +572,7 @@ function EventDayTab({
                                   const el = elapsed(d, si); const tm = d.stepTm?.[si] || step.tm || 0;
                                   const allPrev = nonStore.slice(0, nonStore.indexOf(item));
                                   const prevItem = allPrev.length > 0 ? allPrev[allPrev.length - 1] : null;
-                                  const prevDone = allPrev.length === 0 ? storeDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
+                                  const prevDone = allPrev.length === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
@@ -502,7 +590,7 @@ function EventDayTab({
                           })()}
 
                           {/* All done → sign off (venue-aware) */}
-                          {storeDone && nonStore.every(x => stepDone(d, x.origIdx, x.step) || isD1Step(d, x.origIdx)) && !isReady && (()=>{
+                          {secStoreDone && nonStore.every(x => stepDone(d, x.origIdx, x.step) || isD1Step(d, x.origIdx)) && !isReady && (()=>{
                             const tev = todayEvs.find(e => e.id === dish.fEvId);
                             const tabVenue = (currentUser?.venue||"").toLowerCase().trim();
                             const evVenue = (tev?.venue||"").toLowerCase().trim();
