@@ -2117,9 +2117,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div key={sbi} style={{padding:"6px 0",borderBottom:sbi<step.subs.length-1?`1px solid ${C.borderLight}`:"none"}}>
                               <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                                 <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                                <div>
+                                <div style={{flex:1}}>
                                   <div style={{fontSize:12,fontWeight:600,color:C.text}}>{sb.t}</div>
                                   {sb.i&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sb.i}</div>}
+                                  {sb.tm&&<span style={{fontSize:11,color:C.amber,background:C.amberBg,padding:"3px 8px",borderRadius:6,display:"inline-block",marginTop:4}}>⏱ {fmtT(sb.tm)}</span>}
                                 </div>
                               </div>
                             </div>
