@@ -360,7 +360,7 @@ function EventDayTab({
                           {!isReady && anyRunning && <span style={{ color: C.amber, fontSize: 8 }}>▶</span>}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: isTablet?18:13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dish.name}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
+                          <div style={{ fontSize: isTablet?18:13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dishLabel(dish.name, lang)}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
                           <div style={{ fontSize: isTablet?14:11, color: C.muted }}>
                             {dish.totalPax} {T2("pax")} · {doneCount}/{totalSteps} {T2("steps")}
                             {d.mesaDone && <span style={{ color: C.green }}> · D-1 ✅</span>}

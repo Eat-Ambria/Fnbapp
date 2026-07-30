@@ -3,6 +3,7 @@
 // ALL RECIPE DATA NOW LIVES IN SUPABASE — this file provides structure + helper functions only
 
 import { MENU_PACKAGES } from './menuPackages.js';
+import INGREDIENT_HINDI from './ingredientHindi.js';
 
 function guessSectionForDish(name) {
   const n = (name||"").toLowerCase().trim();
@@ -272,7 +273,38 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishNameMap) {
     DISH_NAME_MAP = cfg.dishNameMap;
   }
-  
+  // Hydrate dish → Hindi override map
+  if (cfg.dishHindiMap) {
+    DISH_HINDI_MAP = cfg.dishHindiMap;
+  }
+}
+
+// Language-aware display label for a dish string.
+// Returns Hindi when lang==='hi' AND a Hindi rendering is resolvable; falls back to English.
+function dishLabel(dishName, lang) {
+  if (!dishName) return '';
+  if (lang === 'hi') { var hi = resolveDishHindi(dishName); if (hi) return hi; }
+  return dishName;
+}
+
+// Resolve Hindi label for any dish string.
+// Priority: user override (DISH_HINDI_MAP) → matched SOP recipe.n_hi → ingredient dict → ''
+function resolveDishHindi(dishName) {
+  if (!dishName) return '';
+  var key = String(dishName).trim();
+  var keyL = key.toLowerCase();
+  // 1. Explicit user override
+  if (DISH_HINDI_MAP[key]) return DISH_HINDI_MAP[key];
+  var mk = Object.keys(DISH_HINDI_MAP).find(function(k) { return k.toLowerCase().trim() === keyL; });
+  if (mk && DISH_HINDI_MAP[mk]) return DISH_HINDI_MAP[mk];
+  // 2. Matched SOP recipe's dish_name_hi
+  try {
+    var rec = findRecipeForDish(key);
+    if (rec && rec.n_hi) return rec.n_hi;
+  } catch (e) {}
+  // 3. Ingredient Hindi dictionary (catches Papad, Chutney, Yogurt, Boondi, etc.)
+  if (INGREDIENT_HINDI && INGREDIENT_HINDI[keyL]) return INGREDIENT_HINDI[keyL];
+  return '';
 }
 
 // ─── DISH → CATEGORY RESOLVER ───────────────────────────────────
@@ -280,6 +312,7 @@ function hydrateRecipeData(cfg) {
 // Priority: dish_categories table → recipes table → regex guess → fallback
 let DISH_CAT_MAP = {};  // hydrated on boot
 let DISH_NAME_MAP = {}; // LMS menu name → SOP recipe dish_name
+let DISH_HINDI_MAP = {}; // dish_name → Hindi override (menu-package dishes)
 
 function getCatIdForDish(dishName) {
   if (!dishName) return null;
@@ -403,4 +436,4 @@ function hasIngredients(dishName) {
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, dishLabel, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients };

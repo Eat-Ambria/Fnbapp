@@ -4,7 +4,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -915,7 +915,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             <div style={{textAlign:"center",marginBottom:14}}>
               <div style={{fontSize:28,marginBottom:6}}>🎉</div>
               <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2("Dish Ready!")}</div>
-              <div style={{fontSize:13,color:C.gold,marginTop:3,fontWeight:600}}>{readyModal.dishName}</div>
+              <div style={{fontSize:13,color:C.gold,marginTop:3,fontWeight:600}}>{dishLabel(readyModal.dishName, lang)}</div>
             </div>
             {/* Selfie section */}
             <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>📷 {T2("Dish Photo")} <span style={{color:C.red}}>*</span></div>
@@ -1393,7 +1393,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:evOnly?C.amberBg+"40":isDone?C.greenBg+"60":"transparent"}}>
                               <div style={{width:36,height:36,borderRadius:10,background:evOnly?C.amberBg:isDone?C.green:C.border,border:evOnly?`1px solid ${C.amberBorder}`:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:evOnly?C.amber:isDone?"#fff":C.muted}}>{evOnly?"?":isDone?"?":di+1}</div>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dish.name}</div>
+                                <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dish.name, lang)}</div>
                                 <div style={{fontSize:14,color:C.muted,marginTop:2}}>{dish.fns.length} {T2("event")}{dish.fns.length>1?"s":""}{evOnly&&<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:12,color:C.amber,fontWeight:600}}>? {T2("Event day only")}</span>}{sp?<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,fontSize:12,color:C.red}}>? {sp}</span>:null}</div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:20,fontWeight:700,color:isDone?C.green:m2.color}}>{dish.totalPax}</div><div style={{fontSize:12,color:C.muted}}>pax</div></div>
@@ -1548,7 +1548,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div style={{padding:"10px 14px",background:isDone?C.greenBg:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8}}>
                                 <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>?</span>}</div>
-                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishName}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax — {d1Label}</div></div>
+                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dishName, lang)}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax — {d1Label}</div></div>
                               </div>
                               <span style={{fontSize:12,color:C.muted}}>{isExp?"?":"?"}</span>
                             </div>
@@ -2294,7 +2294,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <div key={dish} style={{marginTop:6,marginLeft:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
                           <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                             <div style={{flex:1,minWidth:180}}>
-                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dish}</div>
+                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dishLabel(dish, lang)}</div>
                               {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
                             </div>
                             <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✅ "+T2("Closed"):""}</div>

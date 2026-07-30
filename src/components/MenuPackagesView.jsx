@@ -5,7 +5,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -168,36 +168,48 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (pm && pm[2].includes('/')) return true;
     return (dish.match(/\//g) || []).length >= 1;
   }
+  function normDishItem(it) {
+    if (typeof it === 'string') return { en: it, hi: '' };
+    return { en: (it && it.en) || '', hi: (it && it.hi) || '' };
+  }
   function cloneES(obj) {
-    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = [].concat(obj[k]); }); return out;
+    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = (obj[k]||[]).map(normDishItem); }); return out;
   }
   function cloneEG(obj) {
-    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = { section: obj[k].section, items: [].concat(obj[k].items) }; }); return out;
+    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = { section: obj[k].section, items: (obj[k].items||[]).map(normDishItem) }; }); return out;
   }
   function enterDishEdit() {
     var pkgGroups = DISH_GROUPS[selPkg] || {};
     var groupedSet = {};
     Object.values(pkgGroups).forEach(function(items) { (items||[]).forEach(function(d) { groupedSet[d] = true; }); });
-    var bySec = {};
+    var wrap = function(d) { return { en: d, hi: resolveDishHindi(d) || '' }; };
+    var bySec = {}; var missing = [];
     (MENU_PACKAGES[selPkg] || []).forEach(function(d) {
       if (groupedSet[d]) return;
       var sec = getSectionForDish(d);
       if (!bySec[sec]) bySec[sec] = [];
-      bySec[sec].push(d);
+      var w = wrap(d); if (!w.hi) missing.push(d);
+      bySec[sec].push(w);
     });
     setEditSections(bySec);
     var eg = {};
     Object.entries(pkgGroups).forEach(function(entry) {
       var items = entry[1] || [];
       var sec = items.length > 0 ? getSectionForDish(items[0]) : "Other";
-      eg[entry[0]] = { section: sec, items: [].concat(items) };
+      eg[entry[0]] = { section: sec, items: items.map(function(d) { var w = wrap(d); if (!w.hi) missing.push(d); return w; }) };
     });
     setEditGroups(eg);
+    if (missing.length) console.log('[dishHindi] no auto-fill for:', missing);
     setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
   }
   function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); }
-  function renameDishInSec(sec, idx, val) {
-    var upd = cloneES(editSections); upd[sec][idx] = val; setEditSections(upd);
+  function renameDishInSec(sec, idx, field, val) {
+    var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], [field]: val }; setEditSections(upd);
+  }
+  function autofillDishHiInSec(sec, idx) {
+    var cur = (editSections[sec] || [])[idx]; if (!cur || !cur.en || cur.hi) return;
+    var hi = resolveDishHindi(cur.en); if (!hi) return;
+    var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], hi: hi }; setEditSections(upd);
   }
   function deleteDishInSec(sec, idx) {
     var upd = cloneES(editSections);
@@ -206,26 +218,33 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setEditSections(upd);
   }
   function addDishInSec(sec) {
-    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = []; upd[sec].push(""); setEditSections(upd);
+    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = []; upd[sec].push({ en: "", hi: "" }); setEditSections(upd);
   }
   function splitDishInSec(sec, idx) {
-    var dish = editSections[sec][idx]; var parts = []; var label = '';
+    var dishObj = editSections[sec][idx]; var dish = (dishObj && dishObj.en) || '';
+    var parts = []; var label = '';
     var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
     if (pm) { label = pm[1].trim(); parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
     else if (dish.includes('/')) { parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
     if (parts.length < 2) return;
+    var partsObj = parts.map(function(p) { return { en: p, hi: resolveDishHindi(p) || '' }; });
     var updSec = cloneES(editSections); updSec[sec].splice(idx, 1);
     if (label) {
       var updGrp = cloneEG(editGroups);
-      updGrp[label] = { section: sec, items: parts };
+      updGrp[label] = { section: sec, items: partsObj };
       setEditGroups(updGrp);
     } else {
-      for (var i = parts.length - 1; i >= 0; i--) updSec[sec].splice(idx, 0, parts[i]);
+      for (var i = partsObj.length - 1; i >= 0; i--) updSec[sec].splice(idx, 0, partsObj[i]);
     }
     setEditSections(updSec);
   }
-  function renameDishInGrp(grp, idx, val) {
-    var upd = cloneEG(editGroups); upd[grp].items[idx] = val; setEditGroups(upd);
+  function renameDishInGrp(grp, idx, field, val) {
+    var upd = cloneEG(editGroups); upd[grp].items[idx] = { ...upd[grp].items[idx], [field]: val }; setEditGroups(upd);
+  }
+  function autofillDishHiInGrp(grp, idx) {
+    var cur = (editGroups[grp] && editGroups[grp].items || [])[idx]; if (!cur || !cur.en || cur.hi) return;
+    var hi = resolveDishHindi(cur.en); if (!hi) return;
+    var upd = cloneEG(editGroups); upd[grp].items[idx] = { ...upd[grp].items[idx], hi: hi }; setEditGroups(upd);
   }
   function deleteDishInGrp(grp, idx) {
     var upd = cloneEG(editGroups); upd[grp].items = upd[grp].items.filter(function(_, i) { return i !== idx; });
@@ -233,20 +252,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setEditGroups(upd);
   }
   function addDishToGrp(grp) {
-    var upd = cloneEG(editGroups); upd[grp].items.push(""); setEditGroups(upd);
+    var upd = cloneEG(editGroups); upd[grp].items.push({ en: "", hi: "" }); setEditGroups(upd);
   }
   function deleteGroup(grp) {
     var g = editGroups[grp]; if (!g) return;
     var updSec = cloneES(editSections);
     if (!updSec[g.section]) updSec[g.section] = [];
-    g.items.forEach(function(d) { if (d.trim()) updSec[g.section].push(d); });
+    g.items.forEach(function(d) { var en = (d && d.en) ? d.en.trim() : ''; if (en) updSec[g.section].push({ en: en, hi: (d && d.hi) || '' }); });
     setEditSections(updSec);
     var updGrp = cloneEG(editGroups); delete updGrp[grp]; setEditGroups(updGrp);
   }
   function createGroup(sec) {
     if (!addGrpName.trim()) return;
     var upd = cloneEG(editGroups);
-    upd[addGrpName.trim()] = { section: sec, items: [""] };
+    upd[addGrpName.trim()] = { section: sec, items: [{ en: "", hi: "" }] };
     setEditGroups(upd); setAddGrpName(""); setAddGrpSec("");
   }
   var editDishTotal = Object.values(editSections).reduce(function(s, a) { return s + a.length; }, 0)
@@ -260,33 +279,47 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var origSet = {};
       (MENU_PACKAGES[selPkg] || []).forEach(function(d) { origSet[d] = true; });
       var filtered = [];
+      var hindiRows = [];
+      var pushDish = function(obj) {
+        var en = (obj && obj.en) ? obj.en.trim() : '';
+        var hi = (obj && obj.hi) ? obj.hi.trim() : '';
+        if (!en) return;
+        filtered.push(en);
+        if (hi) hindiRows.push({ dish_name: en, hi: hi });
+      };
       editSecNames.forEach(function(sec) {
-        (editSections[sec] || []).forEach(function(d) { if (d.trim()) filtered.push(d.trim()); });
+        (editSections[sec] || []).forEach(pushDish);
         Object.entries(editGroups).forEach(function(ge) {
-          if (ge[1].section === sec) (ge[1].items||[]).forEach(function(d) { if (d.trim()) filtered.push(d.trim()); });
+          if (ge[1].section === sec) (ge[1].items||[]).forEach(pushDish);
         });
       });
       var dg = {};
       Object.entries(editGroups).forEach(function(ge) {
-        var items = (ge[1].items||[]).filter(function(d) { return d.trim(); }).map(function(d) { return d.trim(); });
+        var items = (ge[1].items||[]).map(function(d) { return (d && d.en) ? d.en.trim() : ''; }).filter(Boolean);
         if (items.length > 0) dg[ge[0]] = items;
       });
       var res = await supabase.from('menu_packages').update({ dishes: filtered, dish_groups: dg }).eq('name', selPkg);
       if (res.error) throw res.error;
       MENU_PACKAGES[selPkg] = filtered;
       DISH_GROUPS[selPkg] = dg;
+      // Upsert Hindi overrides in one batch
+      if (hindiRows.length > 0) {
+        var resHi = await supabase.from('dish_hindi_map').upsert(hindiRows, { onConflict: 'dish_name' });
+        if (resHi.error) throw resHi.error;
+        hindiRows.forEach(function(r) { DISH_HINDI_MAP[r.dish_name] = r.hi; });
+      }
       for (var si = 0; si < editSecNames.length; si++) {
         var sec = editSecNames[si]; var catId = secToCatId(sec);
         var allInSec = [].concat(editSections[sec] || []);
         Object.entries(editGroups).forEach(function(ge) { if (ge[1].section === sec) allInSec = allInSec.concat(ge[1].items||[]); });
         for (var di = 0; di < allInSec.length; di++) {
-          var d = allInSec[di].trim();
+          var d = (allInSec[di] && allInSec[di].en) ? allInSec[di].en.trim() : '';
           if (d && !origSet[d]) {
             await supabase.from('dish_categories').upsert({ dish_name: d, category_id: catId }, { onConflict: 'dish_name' });
           }
         }
       }
-      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}
+      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); localStorage.removeItem('ambria_cfg_dish_hindi_map'); } catch(e2) {}
       setDishEditMode(false); setEditSections({}); setEditGroups({});
     } catch(e) { alert('Error saving dishes: ' + e.message); }
     setDishSaving(false);
@@ -566,11 +599,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         </div>
                         <div style={{ padding: "6px 12px 10px" }}>
                           {secDishes.map(function(d, i) {
+                            var enVal = (d && d.en) || ''; var hiVal = (d && d.hi) || '';
                             return (
                               <div key={'d-'+i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + C.borderLight }}>
-                                <input value={d} onChange={function(e) { renameDishInSec(sec, i, e.target.value); }}
-                                  style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
-                                {isSplittable(d) && (
+                                <input value={enVal} onChange={function(e) { renameDishInSec(sec, i, 'en', e.target.value); }}
+                                  onBlur={function() { autofillDishHiInSec(sec, i); }}
+                                  style={{ flex: 1.3, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
+                                <input value={hiVal} onChange={function(e) { renameDishInSec(sec, i, 'hi', e.target.value); }}
+                                  lang="hi"
+                                  style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + (hiVal ? C.border : C.borderLight), fontSize: 12, background: hiVal ? C.surface : C.bg, color: C.text }} placeholder="हिन्दी नाम" />
+                                {isSplittable(enVal) && (
                                   <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
                                 )}
                                 <button onClick={function() { deleteDishInSec(sec, i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
@@ -587,10 +625,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 </div>
                                 <div style={{ padding: "4px 10px 8px" }}>
                                   {grpItems.map(function(gd, gi) {
+                                    var gEn = (gd && gd.en) || ''; var gHi = (gd && gd.hi) || '';
                                     return (
                                       <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", borderBottom: gi < grpItems.length - 1 ? "1px solid " + C.borderLight : "none" }}>
-                                        <input value={gd} onChange={function(e) { renameDishInGrp(grpName, gi, e.target.value); }}
-                                          style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish in group" />
+                                        <input value={gEn} onChange={function(e) { renameDishInGrp(grpName, gi, 'en', e.target.value); }}
+                                          onBlur={function() { autofillDishHiInGrp(grpName, gi); }}
+                                          style={{ flex: 1.3, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish in group" />
+                                        <input value={gHi} onChange={function(e) { renameDishInGrp(grpName, gi, 'hi', e.target.value); }}
+                                          lang="hi"
+                                          style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + (gHi ? C.border : C.borderLight), fontSize: 12, background: gHi ? C.surface : C.bg, color: C.text }} placeholder="हिन्दी" />
                                         <button onClick={function() { deleteDishInGrp(grpName, gi); }} style={{ width: 22, height: 22, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
                                       </div>
                                     );

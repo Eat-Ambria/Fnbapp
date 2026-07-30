@@ -167,6 +167,7 @@ export async function loadAllConfig() {
     vendorCategoriesRaw,
     dishCategoriesRaw,
     dishNameMapRaw,
+    dishHindiMapRaw,
     teamDeptsRaw,
     teamSectionsRaw,
   ] = await Promise.all([
@@ -182,6 +183,7 @@ export async function loadAllConfig() {
     loadTable('vendor_categories',     [], null),
     loadTable('dish_categories',       [], null),
     loadTable('dish_name_map',         [], null),
+    loadTable('dish_hindi_map',        [], null),
     loadTable('team_departments',      [], null),
     loadTable('team_sections',         [], null),
   ]);
@@ -207,6 +209,10 @@ export async function loadAllConfig() {
   const dishNameMap = {};
   (dishNameMapRaw || []).forEach(r => { dishNameMap[r.lms_name] = r.recipe_dish_name; });
 
+  // Build dish → Hindi override lookup (Menu Packages)
+  const dishHindiMap = {};
+  (dishHindiMapRaw || []).forEach(r => { if (r.dish_name && r.hi) dishHindiMap[r.dish_name] = r.hi; });
+
   return {
     vehicles,
     coldItems,
@@ -222,6 +228,7 @@ export async function loadAllConfig() {
     vendorCategories:   transformVendorCategories(vendorCategoriesRaw),
     dishCategories:     dishCatMap,
     dishNameMap,
+    dishHindiMap,
     teamDepts,
   };
 }
