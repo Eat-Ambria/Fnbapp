@@ -563,7 +563,7 @@ export default function App() {
       <div style={{minHeight:'100vh',background:C.bg,padding:20}}>
         <GateKiosk empDb={empDb} attendance={attendance}
           setAttendance={setAttendance} currentUser={currentUser}
-          setCurrentUser={setCurrentUser} lang={lang} setLang={setLang}/>
+          setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
       </div>
     );
   }
