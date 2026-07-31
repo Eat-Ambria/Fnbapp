@@ -1939,7 +1939,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 ):sopRecipe.ingredients?.items?.length>0?(()=>{
                   const ing2=sopRecipe.ingredients;
-                  const isNewSchema=typeof ing2.items[0]?.qty==='number'||ing2.items[0]?.qty===null;
+                  const firstIng=ing2.items.find(it=>!it.isSection);
+                  const isNewSchema=firstIng?(typeof firstIng.qty==='number'||firstIng.qty===null):true;
                   const basePax=ing2.base_pax||300;
                   const yKg=ing2.base_yield?.kg;
                   const yPcs=ing2.base_yield?.pcs;
