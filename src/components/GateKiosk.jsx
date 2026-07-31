@@ -328,7 +328,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             React.createElement('div',{style:{fontSize:32,marginBottom:6}},d.icon),
             React.createElement('div',{style:{fontSize:14,fontWeight:700,
               color:C.text}},deptOf(d)),
-            React.createElement('div',{style:{fontSize:11,color:deptIn>0?C.green:C.muted,
+            React.createElement('div',{style:{fontSize:13,fontWeight:600,color:deptIn>0?C.green:C.muted,
               marginTop:4}},d.id==='vendor'?T2('Entry Form'):(deptIn>0?deptIn+' '+T2('in')+' · ':'')+count+' '+T2('staff'))
           );
         })
@@ -393,7 +393,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
                 React.createElement('div',{style:{flex:1,minWidth:0}},
                   React.createElement('div',{style:{fontSize:14,fontWeight:700,
                     color:C.text}},nameOf(s)),
-                  React.createElement('div',{style:{fontSize:11,
+                  React.createElement('div',{style:{fontSize:13,fontWeight:600,
                     color:statusColor,marginTop:2}}, statusText)
                 )
               );
