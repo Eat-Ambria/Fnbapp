@@ -235,6 +235,22 @@ function EventDayTab({
     if (!bySec[groupKey]) bySec[groupKey] = [];
     bySec[groupKey].push({ name: n, ...info });
   });
+  // Inject base-gravy recipes at the front of each section that has bookings
+  Object.keys(bySec).forEach(catId => {
+    const bgRecipes = (RECIPE_DB.recipes[catId] || []).filter(r => r.bg);
+    if (bgRecipes.length === 0) return;
+    const secDishes = bySec[catId];
+    const seenEv = new Set(); const fnsUnion = [];
+    secDishes.forEach(d => (d.fns || []).forEach(fn => { if (!seenEv.has(fn.evId)) { seenEv.add(fn.evId); fnsUnion.push(fn); } }));
+    const bgPax = fnsUnion.reduce((s, fn) => s + (+fn.p || 0), 0);
+    const anchor = secDishes[0];
+    const bgEntries = bgRecipes.map((r, i) => ({
+      name: r.n, catId, totalPax: bgPax,
+      fns: fnsUnion, fEvId: anchor.fEvId, fIdx: 9000 + i,
+      specials: [], isBaseGravy: true,
+    }));
+    bySec[catId] = [...bgEntries, ...secDishes];
+  });
   const secKeys = Object.keys(bySec).sort();
   const totalDishes = Object.keys(byDish).length;
 
@@ -499,7 +515,7 @@ function EventDayTab({
                           {!isReady && anyRunning && <span style={{ color: C.amber, fontSize: 8 }}>▶</span>}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: isTablet?18:13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dishLabel(dish.name, lang)}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
+                          <div style={{ fontSize: isTablet?18:13, fontWeight: 700, color: isReady ? C.green : C.text }}>{dishLabel(dish.name, lang)}{dish.isBaseGravy && <span style={{marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.goldBg,border:`1px solid ${C.goldBorder}`,fontSize:isTablet?11:9,color:C.gold,fontWeight:700}}>🥘 Base</span>}{isCombined && dish.fns.some(fn => { const tv=(fn.v||"").toLowerCase().trim(); const uv=(currentUser?.venue||"").toLowerCase().trim(); return uv && tv && !tv.includes(uv) && !uv.includes(tv); }) && <span style={{fontSize:10,color:C.amber,marginLeft:4}}>🚛</span>}</div>
                           <div style={{ fontSize: isTablet?14:11, color: C.muted }}>
                             {dish.totalPax} {T2("pax")} · {doneCount}/{totalSteps} {T2("steps")}
                             {d.mesaDone && <span style={{ color: C.green }}> · D-1 ✅</span>}

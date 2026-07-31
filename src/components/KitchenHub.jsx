@@ -1423,6 +1423,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           if(!bySecD1[groupKey])bySecD1[groupKey]=[];
           bySecD1[groupKey].push({name:n,...info});
         });
+        // Inject base-gravy recipes at the front of each section that has bookings
+        Object.keys(bySecD1).forEach(catId=>{
+          const bgRecipes = safeArr(RECIPE_DB.recipes[catId]).filter(r=>r.bg);
+          if(bgRecipes.length===0) return;
+          const secDishes = bySecD1[catId];
+          const seenEv = new Set(); const fnsUnion = [];
+          secDishes.forEach(d=>(d.fns||[]).forEach(fn=>{ if(!seenEv.has(fn.evId)){seenEv.add(fn.evId);fnsUnion.push(fn);} }));
+          const bgPax = fnsUnion.reduce((s,fn)=>s+(+fn.p||0),0);
+          const anchor = secDishes[0];
+          const bgEntries = bgRecipes.map((r,i)=>({
+            name:r.n, sec:anchor.sec, catId, totalPax:bgPax,
+            fns:fnsUnion, fEvId:anchor.fEvId, fIdx:9000+i,
+            specials:[], isBaseGravy:true,
+          }));
+          bySecD1[catId] = [...bgEntries, ...secDishes];
+        });
         const allSecs = Object.keys(bySecD1).sort();
 
         const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
@@ -1525,7 +1541,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div onClick={()=>toggleDish(cKey)} style={{padding:"16px 20px",cursor:"pointer",display:"flex",alignItems:"center",gap:16,minHeight:64,background:evOnly?C.amberBg+"40":isDone?C.greenBg+"60":"transparent"}}>
                               <div style={{width:36,height:36,borderRadius:10,background:evOnly?C.amberBg:isDone?C.green:C.border,border:evOnly?`1px solid ${C.amberBorder}`:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16,fontWeight:700,color:evOnly?C.amber:isDone?"#fff":C.muted}}>{evOnly?"?":isDone?"?":di+1}</div>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dish.name, lang)}</div>
+                                <div style={{fontSize:18,fontWeight:600,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dish.name, lang)}{dish.isBaseGravy&&<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,fontSize:12,color:C.gold,fontWeight:700}}>🥘 Base Gravy</span>}</div>
                                 <div style={{fontSize:14,color:C.muted,marginTop:2}}>{dish.fns.length} {T2("event")}{dish.fns.length>1?"s":""}{evOnly&&<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:12,color:C.amber,fontWeight:600}}>? {T2("Event day only")}</span>}{sp?<span style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,fontSize:12,color:C.red}}>? {sp}</span>:null}</div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:20,fontWeight:700,color:isDone?C.green:m2.color}}>{dish.totalPax}</div><div style={{fontSize:12,color:C.muted}}>pax</div></div>
@@ -1667,7 +1683,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <div style={{padding:"10px 14px",background:isDone?C.greenBg:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8}}>
                                 <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>?</span>}</div>
-                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dishName, lang)}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax — {d1Label}</div></div>
+                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dishName, lang)}{dish.isBaseGravy&&<span style={{marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.goldBg,border:`1px solid ${C.goldBorder}`,fontSize:9,color:C.gold,fontWeight:700}}>🥘 Base</span>}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax — {d1Label}</div></div>
                               </div>
                               <span style={{fontSize:12,color:C.muted}}>{isExp?"?":"?"}</span>
                             </div>
