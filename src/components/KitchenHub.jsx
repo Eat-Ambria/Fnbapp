@@ -1331,25 +1331,65 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{ fontSize: 11, color: ssOverdue?C.red:C.amber, fontWeight: 700, marginTop: 3 }}>⏱ {Math.floor(ssEl/60)}m {ssEl%60}s / 30m{ssOverdue?` — ${T2("Overdue")}`:""}</div>
                 </div>
               )}
-              {agg.items.length > 0 && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
-                  <div style={{ fontSize: large?12:11, fontWeight: 700, color: ssDone?C.green:C.gold, marginBottom: 5 }}>
-                    {ssDone?"📊":"🧺"} {ssDone?T2("Ingredients"):T2("Items to collect")} — {yieldLbl}
+              {agg.items.length > 0 && (() => {
+                const itemsDone = secStore.items_done || {};
+                const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
+                const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
+                const total = agg.items.length;
+                const pct = total > 0 ? Math.round(collected / total * 100) : 0;
+                const toggle = (i) => {
+                  const k = itemKey(i);
+                  const cur = ssReadD1(catId).items_done || {};
+                  ssWriteD1(catId, { items_done: { ...cur, [k]: !cur[k] } });
+                };
+                const fmtQty = (i) => {
+                  const raw = i.q;
+                  return (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
+                    i.u === "ml" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " L" : Math.round(raw) + " ml") :
+                    i.u === "pcs" ? Math.ceil(raw) + " pcs" :
+                    i.u === "kg" ? (raw.toFixed(1).replace(/\.0$/,"")) + " kg" :
+                    i.u === "L" ? (raw.toFixed(1).replace(/\.0$/,"")) + " L" :
+                    Math.round(raw) + " " + i.u;
+                };
+                return (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <div style={{ fontSize: large?13:12, fontWeight: 700, color: ssDone?C.green:C.gold, whiteSpace: "nowrap" }}>
+                        {ssDone?"📊":"🧺"} {collected} / {total} {T2("collected")}
+                      </div>
+                      <div style={{ flex: 1, height: 5, background: C.border, borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? C.green : C.gold, borderRadius: 3, transition: "width .3s" }}/>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.muted, minWidth: 30, textAlign: "right" }}>{pct}%</div>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: .5 }}>{yieldLbl}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${large?180:150}px, 1fr))`, gap: 6 }}>
+                      {agg.items.map((i, ii) => {
+                        const done = !!itemsDone[itemKey(i)];
+                        return (
+                          <div key={ii} onClick={() => toggle(i)} style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "7px 10px", borderRadius: 8, cursor: "pointer",
+                            background: done ? C.greenBg : C.surface,
+                            border: `1px solid ${done ? C.greenBorder : C.border}`,
+                            transition: "background .15s"
+                          }}>
+                            <div style={{
+                              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                              background: done ? C.green : "transparent",
+                              border: `1.5px solid ${done ? C.green : C.faint}`,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, color: "#fff", fontWeight: 700
+                            }}>{done ? "✓" : ""}</div>
+                            <div style={{ flex: 1, fontSize: large?13:12, color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
+                            <div style={{ fontSize: large?13:12, fontWeight: 700, color: done ? C.green : C.gold, whiteSpace: "nowrap" }}>{fmtQty(i)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: large?"5px 14px":"3px 10px" }}>
-                    {agg.items.map((i, ii) => {
-                      const raw = i.q;
-                      const qty = (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
-                        i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
-                          i.u === "pcs" ? Math.ceil(raw) + " pcs" :
-                            i.u === "kg" ? (raw.toFixed(1).replace(/\.0$/,"")) + " kg" :
-                              i.u === "L" ? (raw.toFixed(1).replace(/\.0$/,"")) + " L" :
-                                Math.round(raw) + " " + i.u;
-                      return <span key={ii} style={{ fontSize: large?13:11, color: C.text }}>{i.n}: <b style={{ color: C.gold }}>{qty}</b></span>;
-                    })}
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         }
