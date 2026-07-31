@@ -100,7 +100,6 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
             onKeyDown={e=>e.key==="Enter"&&handleLogin()}
             placeholder={T2("e.g. AM001")}
             style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${error?C.red:C.border}`,fontSize:15,color:C.text,background:C.bg,outline:"none",boxSizing:"border-box"}}
-            autoFocus
           />
         </div>
         <div style={{marginBottom:22}}>

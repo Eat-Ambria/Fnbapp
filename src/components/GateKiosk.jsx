@@ -269,7 +269,19 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
     },
       React.createElement('span',{style:{fontSize:14}},'🌐'),
       React.createElement('span',null, isHi ? 'हिंदी' : 'EN')
-    ) : null
+    ) : null,
+    React.createElement('button', {
+      onClick: function(){ setCurrentUser(null); },
+      style:{position:'absolute',top:12,left:12,padding:'8px 14px',
+        borderRadius:20,background:C.surface,
+        border:'1.5px solid '+C.border,
+        color:C.muted,fontSize:13,fontWeight:600,
+        cursor:'pointer',minHeight:38,
+        display:'flex',alignItems:'center',gap:6}
+    },
+      React.createElement('span',{style:{fontSize:14}},'🚪'),
+      React.createElement('span',null, T2('Sign Out'))
+    )
   );
 
   // ── STEP 1: SELECT DEPARTMENT ──
@@ -319,14 +331,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
           );
         })
       ),
-      React.createElement('div', {style:{position:'fixed',bottom:10,right:10}},
-        React.createElement('button', {
-          onClick: function() { setCurrentUser(null); },
-          style:{padding:'6px 14px',borderRadius:8,background:C.surface,
-            border:'1px solid '+C.border,color:C.muted,fontSize:10,
-            cursor:'pointer'}
-        }, T2('Sign Out'))
-      )
+      
     );
   }
 
