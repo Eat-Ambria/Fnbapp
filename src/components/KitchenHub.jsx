@@ -1809,7 +1809,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               <div>
                 <button onClick={()=>{setSopCat(null);setSopSearch("");}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("All Categories")}</button>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).map((recipe,ri)=>(
+                  {safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).sort((a,b)=>(a.n||"").localeCompare(b.n||"")).map((recipe,ri)=>(
                     <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
                       <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div><div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
                     </button>))}
