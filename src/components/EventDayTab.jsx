@@ -318,7 +318,7 @@ function EventDayTab({
 
       {/* ── Category list ── */}
       {secKeys.map(sec => {
-        const items = bySec[sec];
+        const items = [...(bySec[sec]||[])].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;});
         const catObj = RECIPE_DB.cats.find(c => c.id === sec);
         const secDisplayName = catObj ? catObj.name : sec;
         const m = { color: catObj?.color || C.muted, icon: catObj?.icon || "🍽" };

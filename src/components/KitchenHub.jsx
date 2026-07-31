@@ -598,13 +598,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // -- SOP Add/Edit Modal --
   const [sopModal, setSopModal] = useState(null); // null | {mode:'add'|'edit', catId, origName}
   const emptySopStep = ()=>({t:"",i:"",tm:0,ccp:"",d1:false,subs:[]});
-  const [sopForm, setSopForm] = useState({name:"",sub:"",catId:"",steps:[emptySopStep()]});
+  const [sopForm, setSopForm] = useState({name:"",sub:"",catId:"",bg:false,steps:[emptySopStep()]});
   function openSopAdd(catId){
-    setSopForm({name:"",sub:"",catId:catId||safeArr(RECIPE_DB.cats)[0]?.id||"",steps:[emptySopStep()]});
+    setSopForm({name:"",sub:"",catId:catId||safeArr(RECIPE_DB.cats)[0]?.id||"",bg:false,steps:[emptySopStep()]});
     setSopModal({mode:"add",catId:catId||""});
   }
   function openSopEdit(recipe,catId){
-    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});
+    setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",bg:!!recipe.bg,steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});
     setSopModal({mode:"edit",catId:catId||sopCat||"",origName:recipe.n});
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
@@ -617,7 +617,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function saveSop(){
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
-    const recObj={n:f.name.trim(),sub:f.sub.trim(),steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0}))}:{})};})};
+    const recObj={n:f.name.trim(),sub:f.sub.trim(),bg:!!f.bg,steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0}))}:{})};})};
     // Update local RECIPE_DB — preserve ingredients from old recipe
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
     if(sopModal.mode==="edit"&&sopModal.origName){
@@ -637,17 +637,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const nameUnchanged=sopModal.origName===recObj.n&&sopModal.catId===f.catId;
         if(nameUnchanged){
           // Same name+category ? UPDATE in place, ingredients untouched
-          sb.from('recipes').update({sub:recObj.sub,steps:recObj.steps}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP updated (in-place)');});
+          sb.from('recipes').update({sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP updated (in-place)');});
         }else{
           // Name or category changed ? fetch ingredients, then delete+insert with them
           sb.from('recipes').select('ingredients').eq('dish_name',sopModal.origName).single().then(({data})=>{
             sb.from('recipes').delete().eq('dish_name',sopModal.origName).then(()=>{
-              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,ingredients:data?.ingredients||null}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP updated (renamed)');});
+              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,ingredients:data?.ingredients||null,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP updated (renamed)');});
             });
           });
         }
       }else{
-        sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP saved');});
+        sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP saved');});
       }
     }).catch(e=>console.error('SOP supabase err:',e));
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
@@ -985,6 +985,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
               </select>
             </div>
+            <label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:sopForm.bg?C.goldBg:C.bg,border:`1.5px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",marginBottom:14}}>
+              <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:18,height:18,accentColor:C.gold,cursor:"pointer"}}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:sopForm.bg?C.gold:C.text}}>🥘 Base Gravy</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Mark this recipe as a base gravy — it will be listed first in each section on Event Day and D-1 prep, right after ingredient collection.</div>
+              </div>
+            </label>
             <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Steps ({sopForm.steps.length})</div>
             <div style={{maxHeight:340,overflowY:"auto",marginBottom:12,border:`1px solid ${C.border}`,borderRadius:12,padding:8,background:C.bg}}>
               {sopForm.steps.map((step,si)=>(
@@ -1507,7 +1514,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                     {secOpen&&<div style={{padding:"10px 14px 14px"}}>
                       {renderSecStoreCardD1(sec, secItems, catObj2?.name || sec, true)}
-                      {secItems.map((dish,di)=>{
+                      {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map((dish,di)=>{
                         const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name).mesaDone;
                         const cKey = `d1dish_${dish.name.replace(/\s/g,"_")}`;
                         const isExp = expandedDishes.has(cKey);
@@ -1646,7 +1653,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                   {secOpen&&<div style={{padding:"8px 12px"}}>
                     {renderSecStoreCardD1(sec, secItems, catObj?.name || sec, false)}
-                    {secItems.map(dish=>{
+                    {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map(dish=>{
                       const dishName = dish.name;
                       const cKey = `d1dish_${dishName.replace(/\s/g,"_")}`;
                       const isExp = expandedDishes.has(cKey);
@@ -1806,6 +1813,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:30}}>
                           {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                         </select>
+                        <label style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,background:sopForm.bg?C.goldBg:C.surface,border:`1px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",minHeight:30}}>
+                          <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:14,height:14,accentColor:C.gold,cursor:"pointer"}}/>
+                          <span style={{fontSize:11,fontWeight:700,color:sopForm.bg?C.gold:C.muted}}>🥘 Base Gravy</span>
+                        </label>
                       </div>
                     ):(
                       <>
@@ -1818,7 +1829,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",gap:6,flexShrink:0}}>
                       {!editingSteps?(
                         <>
-                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
+                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",bg:!!sopRecipe.bg,steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
                           <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
                           <select defaultValue="" onChange={e=>{if(e.target.value)moveRecipe(sopRecipe,sopCat,e.target.value);e.target.value="";}} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:C.surface,cursor:"pointer",minHeight:32}}>
                             <option value="" disabled>📋 Move to…</option>
