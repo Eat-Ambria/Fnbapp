@@ -71,7 +71,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if (ex && Array.isArray(ex.items) && ex.items.length > 0) {
       const items = ex.items.map(it => {
         if (it.isSection) {
-          return { isSection: true, name: it.name || "", hi: it.hi ?? "" };
+          return { isSection: true, name: it.name || "", hi: it.hi ?? "", yield: {kg: it.yield?.kg ?? null, pcs: it.yield?.pcs ?? null} };
         }
         // qty: scalar (new) or array (legacy — pick 500-pax value if present, else 0)
         let qty = 0;
@@ -99,7 +99,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngDirty(true);
   }
   function ingAddSection() {
-    setIngForm(f=>({...f,items:[...f.items,{isSection:true,name:"",hi:""}]}));
+    setIngForm(f=>({...f,items:[...f.items,{isSection:true,name:"",hi:"",yield:{kg:null,pcs:null}}]}));
     setIngDirty(true);
   }
   function ingRemoveItem(idx) {
@@ -138,6 +138,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       if (it.isSection) {
         const row = { isSection: true, name: it.name.trim() };
         if (it.hi) row.hi = (it.hi||"").trim();
+        const yKg = it.yield?.kg==null||it.yield?.kg===""?null:Number(it.yield.kg);
+        const yPcs = it.yield?.pcs==null||it.yield?.pcs===""?null:Number(it.yield.pcs);
+        if((yKg&&yKg>0)||(yPcs&&yPcs>0)) row.yield = {kg:yKg||null, pcs:yPcs||null};
         return row;
       }
       const row = {
@@ -556,13 +559,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // Save (upsert or delete) a single dish yield for the current event.
   // `ctx` = { evId, evDate, venue, recipe }.
-  async function savePlanYield(dish, rawVal, ctx){
+  async function savePlanYield(dish, rawVal, ctx, section){
+    // If section given → merge into section_yields blob and recompute target_yield_kg = sum
+    // If section null → treat rawVal as whole-dish target_yield_kg (legacy path)
     const trimmed = (rawVal==null?"":String(rawVal)).trim();
     const num = trimmed==="" ? null : parseFloat(trimmed);
-    setPlanSaving(p=>{const s=new Set(p);s.add(dish);return s;});
+    const draftKey = section ? (dish+"|"+section) : dish;
+    const savingKey = draftKey;
+    setPlanSaving(p=>{const s=new Set(p);s.add(savingKey);return s;});
     try{
       const mod = await import('../lib/supabase.js');
-      if(num===null || isNaN(num) || num<=0){
+      if(section){
+        // Section update: merge into existing section_yields; delete key if empty
+        const existing = planRows[dish] || {};
+        const existSY = existing.section_yields || {};
+        const nextSY = {...existSY};
+        if(num===null || isNaN(num) || num<=0) delete nextSY[section];
+        else nextSY[section] = num;
+        const anyLeft = Object.keys(nextSY).length>0;
+        if(!anyLeft && !existing.id){
+          setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});
+          return;
+        }
+        const sumKg = Object.values(nextSY).reduce((s,v)=>s+(Number(v)||0),0);
+        const payload = {
+          event_id: ctx.evId, event_date: ctx.evDate, venue: ctx.venue,
+          dish_name: dish, recipe_id: ctx.recipe?.id || null,
+          target_yield_kg: sumKg>0?sumKg:null,
+          section_yields: anyLeft?nextSY:null,
+          planned_by: currentUser?.name || currentUser?.id || 'Unknown',
+          status: 'draft'
+        };
+        const {data, error} = await mod.supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
+        if(error) throw error;
+        if(data && data[0]) setPlanRows(p=>({...p,[dish]:data[0]}));
+      } else if(num===null || isNaN(num) || num<=0){
         if(planRows[dish]){
           const {error} = await mod.supabase.from('production_plans').delete().eq('event_id',ctx.evId).eq('dish_name',dish);
           if(error) throw error;
@@ -570,28 +601,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
       } else {
         const payload = {
-          event_id: ctx.evId,
-          event_date: ctx.evDate,
-          venue: ctx.venue,
-          dish_name: dish,
-          recipe_id: ctx.recipe?.id || null,
-          target_yield_kg: num,
+          event_id: ctx.evId, event_date: ctx.evDate, venue: ctx.venue,
+          dish_name: dish, recipe_id: ctx.recipe?.id || null,
+          target_yield_kg: num, section_yields: null,
           planned_by: currentUser?.name || currentUser?.id || 'Unknown',
           status: 'draft'
         };
-        const {data, error} = await mod.supabase
-          .from('production_plans')
-          .upsert(payload, {onConflict:'event_id,dish_name'})
-          .select();
+        const {data, error} = await mod.supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
         if(error) throw error;
         if(data && data[0]) setPlanRows(p=>({...p,[dish]:data[0]}));
       }
-      setPlanDrafts(p=>{const c={...p};delete c[dish];return c;});
+      setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});
     } catch(e){
-      console.error('[savePlanYield]', dish, e);
-      alert('Failed to save yield for '+dish+': '+(e.message||e));
+      console.error('[savePlanYield]', dish, section, e);
+      alert('Failed to save yield for '+dish+(section?` (${section})`:'')+': '+(e.message||e));
     } finally {
-      setPlanSaving(p=>{const s=new Set(p);s.delete(dish);return s;});
+      setPlanSaving(p=>{const s=new Set(p);s.delete(savingKey);return s;});
     }
   }
 
@@ -859,11 +884,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const evPax = Number(ev?.pax) || 0;
     // Yield-based path (preferred): base_yield.kg is set on the recipe
     if(baseKg){
-      const planned = Number(evPlanRows?.[ev?.id]?.[dishName]?.target_yield_kg) || null;
+      const planRow = evPlanRows?.[ev?.id]?.[dishName] || null;
+      const planned = Number(planRow?.target_yield_kg) || null;
+      const sectionYieldsPlan = planRow?.section_yields || null;
       // Default when chef hasn't planned: base_yield — pax ratio (preserves prior auto-pax behavior)
       const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
       const effKg = (planned || defaultYield) * mult;
-      const ing = getIngrForYield(dishName, effKg);
+      // Build per-section factors when both SOP and plan define section yields
+      let sectionFactors = null;
+      if(sectionYieldsPlan){
+        const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+        const acc = {};
+        recSections.forEach(sec=>{
+          const planKg = Number(sectionYieldsPlan[sec.name]);
+          if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
+        });
+        if(Object.keys(acc).length>0) sectionFactors = acc;
+      }
+      const ing = getIngrForYield(dishName, effKg, sectionFactors);
       if(ing && ing.length) return {ing, effKg, warn:null, planned:!!planned};
     }
     // Fallback: no base_yield configured — legacy pax-based scaling, multiplier applied as pax bump
@@ -1968,10 +2006,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {ing2.items.map((ing,ii)=>{
                             if(ing.isSection){
                               const colCount=isNewSchema?3:(2+(ing2.pax_sizes?.length||0));
+                              const secYk=ing.yield?.kg,secYp=ing.yield?.pcs;
+                              const secYldLbl=secYk?`${secYk} kg${secYp?` (~${secYp} pcs)`:''}`:(secYp?`${secYp} pcs`:null);
                               return(
                               <tr key={ii} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
                                 <td colSpan={colCount} style={{padding:"6px 10px",textAlign:"center",fontWeight:700,color:C.gold,fontSize:11}}>
-                                  · {ing.name}{ing.hi?` / ${ing.hi}`:""} ·
+                                  · {ing.name}{ing.hi?` / ${ing.hi}`:""} ·{secYldLbl&&<span style={{marginLeft:8,fontSize:10,fontWeight:600,color:C.green}}>Yield: {secYldLbl}</span>}
                                 </td>
                               </tr>);
                             }
@@ -2736,16 +2776,69 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </div>
                       </div>
                       <div>
-                        {g.items.map((it,i)=>{
+                        {g.items.flatMap((it,i)=>{
                           const st = it.st;
                           const mappedName = st.recipe && st.recipe.n && st.recipe.n.toLowerCase()!==(it.dish||"").toLowerCase().trim() ? st.recipe.n : null;
-                          const suggested = st.baseYield ? Math.round(selEv.pax/300 * st.baseYield * 10)/10 : null;
+                          const rowCtx = {...ctx, recipe:st.recipe};
+                          const basePax = st.recipe?.ingredients?.base_pax || 300;
+                          const recSections = (st.recipe?.ingredients?.items||[]).filter(x=>x.isSection && x.yield?.kg>0);
+                          const useSections = recSections.length>0;
+                          const rowStyle = (isLast)=>({padding:"10px 12px",borderBottom:!isLast?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"});
+                          const isLastGroupRow = i===g.items.length-1;
+                          if(useSections){
+                            // Expand into N sub-rows, one per section
+                            return recSections.map((sec,si)=>{
+                              const sectionSuggested = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const draftKey = it.dish+"|"+sec.name;
+                              const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                              const currentVal = planDrafts[draftKey] ?? (savedVal!=null?savedVal:"");
+                              const isSaving = planSaving.has(draftKey);
+                              const isSaved = savedVal!=null && savedVal!=="";
+                              const isLast = isLastGroupRow && si===recSections.length-1;
+                              return(
+                                <div key={i+"-"+si} style={rowStyle(isLast)}>
+                                  <div style={{flex:"1 1 200px",minWidth:0}}>
+                                    <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish} <span style={{color:C.gold,fontWeight:600}}>→ {sec.name}</span></div>
+                                    <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
+                                      {mappedName && si===0 && <span>? {mappedName}</span>}
+                                      <span style={{color:C.gold}}>💡 {T2("suggest")} {sectionSuggested} kg</span>
+                                    </div>
+                                  </div>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                                    {String(currentVal)==="" && (
+                                      <button onClick={()=>{setPlanDrafts(p=>({...p,[draftKey]:String(sectionSuggested)}));savePlanYield(it.dish, sectionSuggested, rowCtx, sec.name);}}
+                                        style={{fontSize:10,padding:"5px 8px",border:`1px dashed ${C.gold}`,color:C.gold,borderRadius:6,background:"transparent",cursor:"pointer",whiteSpace:"nowrap"}}>
+                                        {T2("Use")} {sectionSuggested}
+                                      </button>
+                                    )}
+                                    <input type="number" step="any" inputMode="decimal" min="0"
+                                      value={currentVal}
+                                      onChange={e=>setPlanDrafts(p=>({...p,[draftKey]:e.target.value}))}
+                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;savePlanYield(it.dish, d, rowCtx, sec.name);}}
+                                      onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                                      placeholder={String(sectionSuggested)}
+                                      disabled={isSaving}
+                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:`1px solid ${isSaved?C.green+"60":C.border}`,fontSize:12,textAlign:"right",background:isSaved?C.green+"08":C.bg,color:C.text,opacity:isSaving?0.6:1}} />
+                                    <span style={{fontSize:10,color:C.muted}}>kg</span>
+                                    {isSaving ? (
+                                      <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:52}}>{T2("Saving")}...</span>
+                                    ) : isSaved ? (
+                                      <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.amber,background:C.amber+"15",border:`1px solid ${C.amber}30`,whiteSpace:"nowrap"}}>{T2("Draft")}</div>
+                                    ) : (
+                                      <div style={{width:52}}></div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            });
+                          }
+                          // Single row (legacy path)
+                          const suggested = st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null;
                           const currentVal = planDrafts[it.dish] ?? (planRows[it.dish]?.target_yield_kg ?? "");
                           const isSaving = planSaving.has(it.dish);
                           const isSaved = !!planRows[it.dish];
-                          const rowCtx = {...ctx, recipe:st.recipe};
-                          return(
-                            <div key={i} style={{padding:"10px 12px",borderBottom:i<g.items.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                          return [(
+                            <div key={i} style={rowStyle(isLastGroupRow)}>
                               <div style={{flex:"1 1 200px",minWidth:0}}>
                                 <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish}</div>
                                 {(mappedName||suggested) && (
@@ -2780,7 +2873,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 )}
                               </div>
                             </div>
-                          );
+                          )];
                         })}
                       </div>
                     </div>
@@ -3322,6 +3415,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.gold,fontWeight:700,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
                   <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Section heading" style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
                   <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:90,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,background:C.surface,border:`1px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ base pax (optional)">
+                    <span style={{fontSize:9,color:C.gold,fontWeight:700}}>Yld</span>
+                    <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:44,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
+                    <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:40,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:11,color:C.gold,background:"transparent",textAlign:"center"}}/>
+                  </div>
                   <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>?</button>
                 </div>
               ):(

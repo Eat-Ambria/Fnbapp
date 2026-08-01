@@ -395,21 +395,30 @@ function getIngrForDish(dishName, targetPax) {
 
 // Scale by target finished yield (kg). Requires base_yield.kg on the recipe.
 // Returns null if yield not configured — caller should fall back to getIngrForDish.
-function getIngrForYield(dishName, targetKg) {
+function getIngrForYield(dishName, targetKg, sectionFactors) {
   const rec = findRecipeForDish(dishName);
   const items = rec?.ingredients?.items;
   if (!items?.length) return null;
   const baseKg = rec.ingredients.base_yield?.kg;
-  if (!baseKg || !targetKg) return null;
-  const factor = targetKg / baseKg;
-  return items.map(it => ({
-    n: it.name,
-    h: readHi(it),
-    q: (it.qty || 0) * factor,
-    u: it.unit || "kg",
-    _newFmt: true,
-    _yieldBased: true
-  }));
+  const globalFactor = (baseKg && targetKg) ? targetKg / baseKg : null;
+  if (globalFactor == null && !sectionFactors) return null;
+  let currentSectionFactor = globalFactor;
+  return items.map(it => {
+    if (it.isSection) {
+      if (sectionFactors && sectionFactors[it.name] != null) currentSectionFactor = sectionFactors[it.name];
+      else currentSectionFactor = globalFactor;
+      return { n: it.name, h: readHi(it), q: 0, u: '', _newFmt: true, _yieldBased: true, _isSection: true };
+    }
+    const f = currentSectionFactor;
+    return {
+      n: it.name,
+      h: readHi(it),
+      q: f == null ? 0 : (it.qty || 0) * f,
+      u: it.unit || "kg",
+      _newFmt: true,
+      _yieldBased: true
+    };
+  });
 }
 
 function resolveDishHindi(dishName) {
