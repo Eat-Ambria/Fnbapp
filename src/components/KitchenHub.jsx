@@ -1941,9 +1941,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {ingForm.items.map((item,idx)=>item.isSection?(
                             <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
                               <td colSpan={4} style={{padding:"4px 6px"}}>
-                                <div style={{display:"flex",gap:4}}>
-                                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section heading —" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section heading —" style={{flex:1,minWidth:120,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
                                   <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:80,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:28,textAlign:"center"}}/>
+                                  <div style={{display:"flex",alignItems:"center",gap:3,padding:"2px 6px",borderRadius:6,background:C.surface,border:`1px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ base pax (optional)">
+                                    <span style={{fontSize:9,color:C.gold,fontWeight:700}}>Yld</span>
+                                    <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:44,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:10,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center",minHeight:24}}/>
+                                    <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:40,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:10,color:C.gold,background:"transparent",textAlign:"center",minHeight:24}}/>
+                                  </div>
                                 </div>
                               </td>
                               <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
@@ -3380,90 +3385,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* --- MENU TAB --- */}
       
-
-      {/* --- INGREDIENT MATRIX EDITOR MODAL --- */}
-      {ingModal&&tab!=="sops"&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 0",overflowY:"auto"}}>
-          <div style={{background:C.surface,borderRadius:16,width:"min(96vw,600px)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)"}}>
-            {/* Header */}
-            <div style={{position:"sticky",top:0,zIndex:2,background:C.surface,padding:"18px 20px 12px",borderBottom:`1px solid ${C.border}`,borderRadius:"16px 16px 0 0"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🧂 Ingredient Matrix</div>
-                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{ingModal.recipeName}</div>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  {ingDirty&&<button onClick={saveIngredients} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:36}}>💾 Save</button>}
-                  <button onClick={()=>{if(ingDirty&&!confirm("Discard unsaved changes?"))return;setIngModal(null);}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>?</button>
-                </div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:12,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
-                <span style={{flexShrink:0}}>Anchor:</span>
-                <span style={{padding:"3px 10px",borderRadius:6,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontWeight:700,fontSize:12}}>{ingForm.base_pax||300} pax</span>
-                {ingForm.base_yield?.kg
-                  ?<span style={{padding:"3px 10px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green,fontWeight:700,fontSize:12}}>Yield: {ingForm.base_yield.kg} kg{ingForm.base_yield.pcs?` (${ingForm.base_yield.pcs} pcs)`:''}</span>
-                  :<span style={{fontSize:10,color:C.amber}}>⚠ Yield not set — edit from SOP view</span>}
-              </div>
-            </div>
-            {/* Ingredient rows */}
-            <div style={{padding:"12px 16px"}}>
-              {ingForm.items.length===0&&(
-                <div style={{textAlign:"center",padding:"30px 20px",color:C.faint,fontSize:13}}>No ingredients yet. Tap "+ Add Ingredient" below.</div>
-              )}
-              {ingForm.items.map((item,idx)=>item.isSection?(
-                <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`2px solid ${C.goldBorder}`,background:C.goldBg,overflow:"hidden",padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",opacity:ingDragIdx===idx?0.4:1}}>
-                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.gold,fontWeight:700,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
-                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Section heading" style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
-                  <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:90,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
-                  <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,background:C.surface,border:`1px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ base pax (optional)">
-                    <span style={{fontSize:9,color:C.gold,fontWeight:700}}>Yld</span>
-                    <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:44,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:11,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center"}}/>
-                    <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:40,padding:"3px 4px",borderRadius:4,border:`1px solid ${C.goldBorder}`,fontSize:11,color:C.gold,background:"transparent",textAlign:"center"}}/>
-                  </div>
-                  <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>?</button>
-                </div>
-              ):(
-                <div key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{marginBottom:10,borderRadius:12,border:`1px solid ${C.border}`,background:idx%2===0?C.surface:C.darkCard,overflow:"hidden",opacity:ingDragIdx===idx?0.4:1}}>
-                  {/* Row header */}
-                  <div style={{padding:"10px 12px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.borderLight}`}}>
-                    <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",fontSize:16,color:C.muted,flexShrink:0,userSelect:"none",padding:"0 4px"}}>⋮⋮</span>
-                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Ingredient name" style={{flex:1,minWidth:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
-                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:75,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
-                    <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:32}}>
-                      {["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}
-                    </select>
-                    <button onClick={()=>ingRemoveItem(idx)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:12,color:C.red}}>?</button>
-                  </div>
-                  {/* Quantity input */}
-                  <div style={{padding:"8px 12px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                      <span style={{fontSize:9,color:C.faint}}>Qty @ {ingForm.base_pax||300} pax</span>
-                      <input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:100,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.text,background:"transparent"}}/>
-                    </div>
-                    <span style={{fontSize:11,color:C.faint,marginTop:14}}>{item.unit}</span>
-                  </div>
-                  {/* Notes */}
-                  <div style={{padding:"4px 12px 8px"}}>
-                    <input value={item.notes||""} onChange={e=>ingUpdateItem(idx,"notes",e.target.value)} placeholder="Notes (optional)" style={{width:"100%",padding:"4px 8px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box"}}/>
-                  </div>
-                </div>
-              ))}
-              <div style={{display:"flex",gap:8,marginTop:8}}>
-                <button onClick={ingAddItem} style={{flex:1,padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Add Ingredient</button>
-                <button onClick={ingAddSection} style={{flex:"0 0 40%",padding:"12px",borderRadius:10,border:`2px dashed ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>+ Section</button>
-              </div>
-            </div>
-            {/* Footer */}
-            <div style={{position:"sticky",bottom:0,padding:"12px 16px",borderTop:`1px solid ${C.border}`,background:C.surface,borderRadius:"0 0 16px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:11,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} ingredient{ingForm.items.length!==1?"s":""}{ingDirty?" — unsaved":""}</span>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,fontSize:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:36}}>Cancel</button>
-                <button onClick={saveIngredients} disabled={!ingDirty} style={{padding:"8px 20px",borderRadius:10,fontSize:12,fontWeight:700,background:ingDirty?C.green:C.faint,color:"#fff",border:"none",cursor:ingDirty?"pointer":"default",opacity:ingDirty?1:.5,minHeight:36}}>💾 Save</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* --- Ingredient Usage Modal --- */}
       {yieldModal && (
