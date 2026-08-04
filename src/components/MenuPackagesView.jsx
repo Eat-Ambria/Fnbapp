@@ -87,6 +87,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [addGrpName, setAddGrpName] = useState("");
   var [mapDropOpen, setMapDropOpen] = useState(null);
   var [mapSearch, setMapSearch] = useState("");
+  var [quickAddSec, setQuickAddSec] = useState(null);
+  var [quickAddVal, setQuickAddVal] = useState("");
+  var [quickAddSaving, setQuickAddSaving] = useState(false);
+  var [refreshTick, setRefreshTick] = useState(0);
 
   var allSections = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
 
@@ -333,6 +337,33 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var recipe = findRecipeForDish(dish);
     if (recipe) return { status: 'auto', recipe: recipe.n };
     return { status: 'unmapped', recipe: null };
+  }
+  async function quickAddDish(sec) {
+    var name = quickAddVal.trim();
+    if (!name) return;
+    var current = (MENU_PACKAGES[selPkg] || []).slice();
+    if (current.some(function(d) { return d.toLowerCase() === name.toLowerCase(); })) {
+      alert('"' + name + '" already exists in this package.');
+      return;
+    }
+    setQuickAddSaving(true);
+    try {
+      var next = current.concat([name]);
+      var res = await supabase.from('menu_packages').update({ dishes: next }).eq('name', selPkg);
+      if (res.error) throw res.error;
+      var catId = secToCatId(sec);
+      if (catId) {
+        await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+      }
+      MENU_PACKAGES[selPkg] = next;
+      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}
+      setQuickAddVal("");
+      setQuickAddSec(null);
+      setRefreshTick(function(t) { return t + 1; });
+    } catch(e) {
+      alert('Error adding dish: ' + e.message);
+    }
+    setQuickAddSaving(false);
   }
   async function saveOneMapping(lmsName, recipeName) {
     try {
@@ -702,6 +733,23 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   </button>
                   {isOpen && (
                     <div style={{ padding: "8px 14px 12px" }}>
+                      {isAdmin && !editMode && !dishEditMode && (
+                        quickAddSec === sec ? (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "6px 0 10px", borderBottom: "1px dashed " + C.borderLight, marginBottom: 6 }}>
+                            <input autoFocus value={quickAddVal} onChange={function(e) { setQuickAddVal(e.target.value); }}
+                              onKeyDown={function(e) { if (e.key === 'Enter') quickAddDish(sec); if (e.key === 'Escape') { setQuickAddSec(null); setQuickAddVal(""); } }}
+                              placeholder={"Add dish to " + sec + "…"} disabled={quickAddSaving}
+                              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid " + m2.color, fontSize: 12, background: C.surface, color: C.text, outline: "none" }} />
+                            <button onClick={function() { quickAddDish(sec); }} disabled={!quickAddVal.trim() || quickAddSaving}
+                              style={{ padding: "6px 14px", borderRadius: 6, background: quickAddVal.trim() && !quickAddSaving ? C.green : C.faint, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: quickAddVal.trim() && !quickAddSaving ? "pointer" : "not-allowed", flexShrink: 0 }}>{quickAddSaving ? "..." : "Add"}</button>
+                            <button onClick={function() { setQuickAddSec(null); setQuickAddVal(""); }} disabled={quickAddSaving}
+                              style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer", flexShrink: 0 }}>✕</button>
+                          </div>
+                        ) : (
+                          <button onClick={function() { setQuickAddSec(sec); setQuickAddVal(""); }}
+                            style={{ width: "100%", padding: "6px 0", marginBottom: 6, background: "transparent", border: "1px dashed " + m2.color, borderRadius: 6, color: m2.color, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>+ Add dish to {sec}</button>
+                        )
+                      )}
                       {editMode && (
                         <div onClick={function() { selectAllInSec(dishes); }} style={{ padding: "6px 0 8px", borderBottom: "1px solid " + C.borderLight, fontSize: 11, color: C.amber, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
                           <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (allSelected ? C.green : C.border), background: allSelected ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{allSelected ? "✓" : ""}</span>
