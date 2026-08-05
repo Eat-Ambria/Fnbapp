@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase.js';
 function DishLibrary(props) {
   var activeSection      = props.activeSection || '';
   var setActiveSection   = props.setActiveSection || function() {};
-  var sectionOptions     = props.sectionOptions || [];  // array of section names (excl. Beverages)
+  var sectionOptions     = props.sectionOptions || [];  // array of section names
   var existingInSection  = props.existingInSection || new Set();
   var onAdd              = props.onAdd || function() {};
   var T2                 = props.T2 || function(s) { return s; };

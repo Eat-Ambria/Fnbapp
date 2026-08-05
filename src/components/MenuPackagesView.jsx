@@ -195,7 +195,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (missing.length) console.log('[dishHindi] no auto-fill for:', missing);
     setDishEditMode(true); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
     setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
-    var firstSec = Object.keys(bySec).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+    var firstSec = Object.keys(bySec).sort()[0] || '';
     setActiveLibrarySection(firstSec);
   }
   function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null); setDishSel({}); }
@@ -498,7 +498,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var upd = cloneES(editSections); delete upd[sec]; setEditSections(upd);
     var updG = cloneEG(editGroups); Object.keys(updG).forEach(function(k) { if (updG[k].section === sec) delete updG[k]; }); setEditGroups(updG);
     if (activeLibrarySection === sec) {
-      var next = Object.keys(upd).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+      var next = Object.keys(upd).sort()[0] || '';
       setActiveLibrarySection(next);
     }
     setSecMenuOpen(null);
@@ -567,7 +567,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSecOrder(Array.isArray(data.sec_order) ? data.sec_order : []);
     setSectionRenames(data.section_renames || {});
     setDishSel({});
-    var firstSec = Object.keys(data.sections || {}).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+    var firstSec = Object.keys(data.sections || {}).sort()[0] || '';
     if (firstSec) setActiveLibrarySection(firstSec);
     alert(T2('Import loaded. Review changes and click Save to commit.'));
   }
@@ -766,7 +766,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           bySection[sec].push(d);
         });
         var pm = PKG_META[selPkg] || { icon: "📋", c: C.gold, bg: C.goldBg };
-        var nonBevDishes = allDishes.filter(function(d) { return getSectionForDish(d) !== "Beverages"; });
+        var nonBevDishes = allDishes;
 
         return (
           <div>
@@ -783,7 +783,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 <div style={{ fontSize: 40 }}>{pm.icon}</div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
-                  <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(function(s) { return s !== "Beverages"; }).length} {T2("sections")}</div>
+                  <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).length} {T2("sections")}</div>
                 </div>
               </div>
             )}
@@ -798,9 +798,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 secGroupsFor(sec).forEach(function(e) { n += (e[1].items||[]).length; });
                 return n;
               };
-              var libSectionOptions = editSecNames.filter(function(s) { return s !== "Beverages"; });
+              var libSectionOptions = editSecNames;
               var existingInActive  = new Set(((editSections[activeLibrarySection] || []).map(function(d) { return (d && d.en) || ''; }).filter(Boolean)));
-              var visibleSecNames   = editSecNames.filter(function(s) { return s !== "Beverages"; });
+              var visibleSecNames   = editSecNames;
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
@@ -953,7 +953,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       <select value="" onChange={function(e) { if (e.target.value) { addDishInSec(e.target.value); setActiveLibrarySection(e.target.value); setAddSecVal(""); } }}
                         style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
                         <option value="">Pick a section to add…</option>
-                        {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; }).map(function(s) {
+                        {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1; }).map(function(s) {
                           var cat2 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
                           return <option key={s} value={s}>{cat2 ? cat2.icon : "🍽"} {s}</option>;
                         })}
@@ -968,7 +968,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     var selCount = selectedIdxs().length;
                     if (!selCount) return null;
                     var moveTargetsExisting = visibleSecNames.filter(function(s) { return s !== activeLibrarySection; });
-                    var moveTargetsNew = allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; });
+                    var moveTargetsNew = allSections.filter(function(s) { return editSecNames.indexOf(s) === -1; });
                     return (
                       <div style={{ position: "sticky", bottom: 12, marginTop: 12, background: "#1f2937", color: "#fff", border: "1px solid #111827", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.25)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, zIndex: 20 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{selCount} {T2('selected')}</div>
@@ -1018,7 +1018,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             })()}
 
             {/* Section groups */}
-            {!dishEditMode && Object.entries(bySection).filter(function(e) { return e[0] !== "Beverages"; }).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+            {!dishEditMode && Object.entries(bySection).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
               var sec = entry[0]; var dishes = entry[1];
               var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
               var m2 = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
