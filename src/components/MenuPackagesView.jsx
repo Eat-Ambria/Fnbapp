@@ -5,7 +5,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -318,8 +318,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         Object.entries(editGroups).forEach(function(ge) { if (ge[1].section === sec) allInSec = allInSec.concat(ge[1].items||[]); });
         for (var di = 0; di < allInSec.length; di++) {
           var d = (allInSec[di] && allInSec[di].en) ? allInSec[di].en.trim() : '';
-          if (d && !origSet[d]) {
+          if (!d) continue;
+          // Fire whenever placed section differs from currently-resolved category —
+          // not just for new dishes — so cross-section moves stick.
+          var currentCat = getCatIdForDish(d);
+          if (!origSet[d] || currentCat !== catId) {
             await supabase.from('dish_categories').upsert({ dish_name: d, category_id: catId }, { onConflict: 'dish_name' });
+            upsertDishCat(d, catId);
           }
         }
       }
@@ -354,6 +359,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var catId = secToCatId(sec);
       if (catId) {
         await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+        upsertDishCat(name, catId);
       }
       MENU_PACKAGES[selPkg] = next;
       try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}

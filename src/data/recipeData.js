@@ -12,6 +12,11 @@ import INGREDIENT_HINDI from './ingredientHindi.js';
      if (hi) DISH_HINDI_MAP[dishName] = hi;
      else delete DISH_HINDI_MAP[dishName];
    }
+   function upsertDishCat(dishName, catId) {
+     if (!dishName) return;
+     if (catId) DISH_CAT_MAP[dishName] = catId;
+     else delete DISH_CAT_MAP[dishName];
+   }
 
 function guessSectionForDish(name) {
   const n = (name||"").toLowerCase().trim();
@@ -448,4 +453,4 @@ function hasIngredients(dishName) {
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat };
