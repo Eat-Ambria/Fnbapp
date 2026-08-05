@@ -57,6 +57,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [monthStr,setMonthStr] = useState(TODAY.slice(0,7));
   const [monthData,setMonthData] = useState(null);
   const [monthLoading,setMonthLoading] = useState(false);
+  const [monthSearch,setMonthSearch] = useState('');
+  const [monthDeptFilter,setMonthDeptFilter] = useState('All');
   const [monthDetailEmp,setMonthDetailEmp] = useState(null);
   function fetchMonthData(m){
     if(!m||!supabase){setMonthData(null);return;}
@@ -450,22 +452,46 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         var totInc=rows.reduce(function(a,r){return a+r.incomplete;},0);
         var avgAtt=rows.length>0?(rows.reduce(function(a,r){return a+r.daysWorked;},0)/rows.length).toFixed(1):0;
         var monthLabel=new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+        var deptOpts=Array.from(new Set(rows.map(function(r){return r.dept;}).filter(Boolean))).sort();
+        var q=monthSearch.trim().toLowerCase();
+        var filteredRows=rows.filter(function(r){
+          if(monthDeptFilter!=='All' && r.dept!==monthDeptFilter) return false;
+          if(q && !r.name.toLowerCase().includes(q)) return false;
+          return true;
+        });
+        var fPresent=filteredRows.reduce(function(a,r){return a+r.present;},0);
+        var fHalf=filteredRows.reduce(function(a,r){return a+r.halfDay;},0);
+        var fInc=filteredRows.reduce(function(a,r){return a+r.incomplete;},0);
+        var fAvgAtt=filteredRows.length>0?(filteredRows.reduce(function(a,r){return a+r.daysWorked;},0)/filteredRows.length).toFixed(1):0;
         return (
         <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}}>
             <div>
               <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📊 Monthly Attendance</div>
-              <div style={{fontSize:12,color:C.muted}}>{monthLabel} · {daysInRange} days · {rows.length} staff</div>
+              <div style={{fontSize:12,color:C.muted}}>{monthLabel} · {daysInRange} days · {filteredRows.length}/{rows.length} staff</div>
             </div>
             <input type="month" value={monthStr} max={TODAY.slice(0,7)}
               onChange={function(e){var m=e.target.value;if(m){setMonthStr(m);setMonthData(null);fetchMonthData(m);}}}
               style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
           </div>
+          <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+            <input type="text" placeholder="🔍 Search name…" value={monthSearch}
+              onChange={function(e){setMonthSearch(e.target.value);}}
+              style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:200,flex:'0 1 260px'}}/>
+            <select value={monthDeptFilter} onChange={function(e){setMonthDeptFilter(e.target.value);}}
+              style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,cursor:'pointer'}}>
+              <option value="All">All Depts</option>
+              {deptOpts.map(function(d){return <option key={d} value={d}>{d}</option>;})}
+            </select>
+            {(monthSearch||monthDeptFilter!=='All')&&
+              <button onClick={function(){setMonthSearch('');setMonthDeptFilter('All');}}
+                style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>✕ Clear</button>}
+          </div>
           {monthLoading&&<div style={{padding:30,textAlign:'center',color:C.muted,fontSize:12}}>Loading…</div>}
           {!monthLoading&&monthData&&<div>
             {/* Summary */}
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}}>
-              {[{l:'Avg Days/Person',v:avgAtt,c:C.text},{l:'Total Present Days',v:totPresent,c:C.green},{l:'Half Days',v:totHalf,c:C.amber},{l:'Incomplete',v:totInc,c:'#E67E22'}].map(function(card){
+              {[{l:'Avg Days/Person',v:fAvgAtt,c:C.text},{l:'Total Present Days',v:fPresent,c:C.green},{l:'Half Days',v:fHalf,c:C.amber},{l:'Incomplete',v:fInc,c:'#E67E22'}].map(function(card){
                 return <div key={card.l} style={{background:C.surface,borderRadius:10,padding:'10px 12px',textAlign:'center',border:'1px solid '+C.border}}>
                   <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>{card.l}</div>
                   <div style={{fontSize:22,fontWeight:700,color:card.c,marginTop:2}}>{card.v}</div>
@@ -477,8 +503,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               <div>Name</div><div>Dept</div><div>Present</div><div>Half</div><div>Absent</div><div>Inc.</div><div>Hrs</div><div>Avg/d</div>
             </div>
             <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
-              {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No data for this month</div>
-              :rows.map(function(r,ri){
+              {filteredRows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>{rows.length===0?'No data for this month':'No staff match your filters'}</div>
+              :filteredRows.map(function(r,ri){
                 var _rowBg = ri%2===0?C.bg:C.surface;
                 return <div key={r.id} onClick={function(){setMonthDetailEmp(r);}} onMouseEnter={function(e){e.currentTarget.style.background=C.goldBg;}} onMouseLeave={function(e){e.currentTarget.style.background=_rowBg;}} style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'10px 12px',alignItems:'center',background:_rowBg,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12,cursor:'pointer',transition:'background .15s'}}>
                   <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
