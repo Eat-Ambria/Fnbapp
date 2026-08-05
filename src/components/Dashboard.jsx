@@ -72,6 +72,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
+  const [menuAlertGroups, setMenuAlertGroups] = useState({week:true, month:false, later:false});
   const isODC = form.venue === "Outdoor Catering (ODC)";
 
   // Computed
@@ -216,13 +217,12 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
         </div>
       )}
 
-      {/* ══ UNCONFIRMED MENU ALERTS ══ */}
+      {/* ══ UNCONFIRMED MENU ALERTS (grouped by timeframe) ══ */}
       {(()=>{
-        // Include: (a) ODC events without odc_menu_confirmed, (b) any upcoming event with custom menu (no package)
         const isCustom=ev=>!ev.menuPackage||ev.menuPackage==="(Custom)"||ev.menuPackage==="Custom";
         const isODCUnconfirmed=ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed;
         const candidates = safeEvs.filter(ev=>ev.date>=todayStr && (isODCUnconfirmed(ev) || isCustom(ev)));
-        // Dedup by id (guard against LMS sync duplicates); fallback to guest+date+venue for id-less rows
+        // Dedup by id (guard LMS sync duplicates); fallback to guest+date+venue for id-less rows
         const seen=new Set();
         const unconfirmed = candidates.filter(ev=>{
           const k=ev.id?String(ev.id):`${ev.guest}|${ev.date}|${ev.venue}`;
@@ -231,22 +231,52 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
           return true;
         }).sort((a,b)=>a.date.localeCompare(b.date));
         if(unconfirmed.length===0) return null;
+        // Bucket by urgency
+        const buckets={week:[],month:[],later:[]};
+        unconfirmed.forEach(ev=>{
+          const dd=daysDiff(ev.date);
+          if(dd<=7) buckets.week.push(ev);
+          else if(dd<=21) buckets.month.push(ev);
+          else buckets.later.push(ev);
+        });
+        const groupDef=[
+          {k:"week", label:"This week", dot:"#D85A30", accent:C.red, accentBg:C.redBg, accentBorder:C.redBorder},
+          {k:"month", label:"Next 2 weeks", dot:"#EF9F27", accent:"#854F0B", accentBg:C.amberBg, accentBorder:"#FAC775"},
+          {k:"later", label:"Later", dot:C.purple, accent:C.purple, accentBg:C.purpleBg, accentBorder:C.purpleBorder}
+        ];
         return(
           <div style={{marginBottom:16}}>
-            {unconfirmed.map(ev=>{
-              const dd=daysDiff(ev.date);
-              const urgency=dd<=2;
-              const isODC=ev.venue==="Outdoor Catering (ODC)";
-              const icon=isODC?"🏕":"📋";
-              const label=isODC?"ODC menu not confirmed":"Custom menu needs confirmation";
-              const locLine=isODC?(ev.odc_location||"Location TBD"):ev.venue;
+            <div style={{fontSize:12,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8,paddingLeft:2}}>⚠ {unconfirmed.length} menu{unconfirmed.length===1?"":"s"} need confirmation</div>
+            {groupDef.map(g=>{
+              const list=buckets[g.k];
+              if(list.length===0) return null;
+              const open=!!menuAlertGroups[g.k];
               return(
-                <div key={ev.id||`${ev.guest}-${ev.date}`} style={{background:urgency?C.redBg:C.purpleBg,border:`1.5px solid ${urgency?C.redBorder:C.purpleBorder}`,borderRadius:12,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:700,color:urgency?C.red:C.purple}}>{icon} {label} — {ev.guest}</div>
-                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>{locLine} · {ev.date} · {ev.pax} pax · {ev.menuPackage||"Custom menu"}{dd<=1?" · "+daysLabel(dd)+"!":""}</div>
+                <div key={g.k} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,marginBottom:6,overflow:"hidden"}}>
+                  <div onClick={()=>setMenuAlertGroups(p=>({...p,[g.k]:!p[g.k]}))}
+                       style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",cursor:"pointer",background:C.bg,userSelect:"none"}}>
+                    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                      <div style={{width:9,height:9,borderRadius:"50%",background:g.dot}}></div>
+                      <div style={{fontSize:13,fontWeight:600,color:C.text}}>{g.label}</div>
+                      <div style={{fontSize:11,color:C.muted}}>{list.length} menu{list.length===1?"":"s"}</div>
+                    </div>
+                    <div style={{fontSize:11,color:C.muted}}>{open?"▼":"▶"}</div>
                   </div>
-                  <button onClick={()=>openEdit(ev)} style={{padding:"8px 16px",borderRadius:8,background:urgency?C.red:C.purple,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Confirm menu</button>
+                  {open&&list.map(ev=>{
+                    const isODC=ev.venue==="Outdoor Catering (ODC)";
+                    const dd=daysDiff(ev.date);
+                    const locLine=isODC?(ev.odc_location||"Location TBD"):ev.venue;
+                    return(
+                      <div key={ev.id||`${ev.guest}-${ev.date}`} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",borderTop:`0.5px solid ${C.border}`,gap:10,background:C.surface}}>
+                        <div style={{display:"flex",gap:10,alignItems:"baseline",minWidth:0,flex:1}}>
+                          <div style={{fontSize:11,color:C.muted,minWidth:56,flexShrink:0}}>{ev.date.slice(5)}</div>
+                          <div style={{fontSize:12,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isODC?"🏕 ":""}{ev.guest}</div>
+                          <div style={{fontSize:11,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>· {locLine} · {ev.pax} pax{dd<=1?" · "+daysLabel(dd)+"!":""}</div>
+                        </div>
+                        <button onClick={()=>openEdit(ev)} style={{padding:"5px 11px",borderRadius:6,background:"transparent",border:`1px solid ${g.accentBorder}`,color:g.accent,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Confirm →</button>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
