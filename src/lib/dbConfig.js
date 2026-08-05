@@ -169,6 +169,7 @@ export async function loadAllConfig() {
     dishCategoriesRaw,
     dishNameMapRaw,
     dishHindiMapRaw,
+    dishMasterRaw,
     teamDeptsRaw,
     teamSectionsRaw,
   ] = await Promise.all([
@@ -185,6 +186,7 @@ export async function loadAllConfig() {
     loadTable('dish_categories',       [], null),
     loadTable('dish_name_map',         [], null),
     loadTable('dish_hindi_map',        [], null),
+    loadTable('dishes_master',         [], null),
     loadTable('team_departments',      [], null),
     loadTable('team_sections',         [], null),
   ]);
@@ -214,6 +216,18 @@ export async function loadAllConfig() {
   const dishHindiMap = {};
   (dishHindiMapRaw || []).forEach(r => { if (r.dish_name && r.hi) dishHindiMap[r.dish_name] = r.hi; });
 
+  // Build dish master catalogue lookup
+  const dishMaster = {};
+  (dishMasterRaw || []).forEach(r => {
+    if (r && r.dish_name) {
+      dishMaster[r.dish_name] = {
+        is_active: r.is_active !== false,
+        notes:     r.notes || '',
+        image_url: r.image_url || ''
+      };
+    }
+  });
+
   return {
     vehicles,
     coldItems,
@@ -230,6 +244,7 @@ export async function loadAllConfig() {
     dishCategories:     dishCatMap,
     dishNameMap,
     dishHindiMap,
+    dishMaster,
     teamDepts,
   };
 }

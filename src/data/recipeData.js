@@ -18,6 +18,20 @@ import INGREDIENT_HINDI from './ingredientHindi.js';
      else delete DISH_CAT_MAP[dishName];
    }
 
+   // ── Dish master catalogue (canonical list of every dish we serve) ──
+   // Shape: { [dish_name]: { is_active, notes, image_url } }
+   let DISH_MASTER = {};
+   function setDishMaster(m) { DISH_MASTER = m || {}; }
+   function upsertDishMaster(dishName, patch) {
+     if (!dishName) return;
+     const prev = DISH_MASTER[dishName] || { is_active: true };
+     DISH_MASTER[dishName] = { ...prev, ...(patch || {}) };
+   }
+   function deactivateDish(dishName) {
+     if (!dishName || !DISH_MASTER[dishName]) return;
+     DISH_MASTER[dishName] = { ...DISH_MASTER[dishName], is_active: false };
+   }
+
 function guessSectionForDish(name) {
   const n = (name||"").toLowerCase().trim();
 
@@ -290,6 +304,10 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishHindiMap) {
     DISH_HINDI_MAP = cfg.dishHindiMap;
   }
+  // Hydrate dish master catalogue
+  if (cfg.dishMaster) {
+    DISH_MASTER = cfg.dishMaster;
+  }
 }
 
 
@@ -447,10 +465,58 @@ function dishLabel(dishName, lang) {
   return hi || en;
 }
 
+// Joined view: master ⋈ dish_categories ⋈ recipes ⋈ dish_hindi_map
+// Returns [{ dish_name, is_active, notes, image_url, catId, catName, hasRecipe, hindi }]
+// Options: { includeInactive: false } — set true to include retired dishes
+function getAllDishes(opts) {
+  const options = opts || {};
+  const includeInactive = !!options.includeInactive;
+  const catIdToName = {};
+  (RECIPE_DB.cats || []).forEach(c => { catIdToName[c.id] = c.name; });
+  const recipeNameSet = new Set();
+  (RECIPE_DB.cats || []).forEach(c => {
+    (RECIPE_DB.recipes[c.id] || []).forEach(r => { if (r && r.n) recipeNameSet.add(r.n); });
+  });
+  const out = [];
+  Object.keys(DISH_MASTER).forEach(name => {
+    const row = DISH_MASTER[name] || {};
+    if (!includeInactive && row.is_active === false) return;
+    const catId = DISH_CAT_MAP[name] || null;
+    // hasRecipe: direct name match OR resolvable via DISH_NAME_MAP (excluding __none__ sentinel)
+    const mapped = DISH_NAME_MAP[name];
+    const mappedResolves = mapped && mapped !== '__none__' && recipeNameSet.has(mapped);
+    out.push({
+      dish_name:    name,
+      is_active:    row.is_active !== false,
+      notes:        row.notes || '',
+      image_url:    row.image_url || '',
+      catId,
+      catName:      catId ? (catIdToName[catId] || catId) : null,
+      hasRecipe:    recipeNameSet.has(name) || mappedResolves,
+      mappedTo:     mappedResolves ? mapped : null,
+      explicitNone: mapped === '__none__',
+      hindi:        DISH_HINDI_MAP[name] || ''
+    });
+  });
+  return out.sort((a, b) => a.dish_name.localeCompare(b.dish_name));
+}
+
 function hasIngredients(dishName) {
   const rec = findRecipeForDish(dishName);
   if (rec?.ingredients?.items?.length > 0) return true;
   return !!RECIPE_INGREDIENTS[dishName];
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat };
+// Returns package names that currently include this dish (sorted A→Z).
+// Reads live MENU_PACKAGES — mutated in place by MenuPackagesView on save.
+function packagesContainingDish(dishName) {
+  if (!dishName) return [];
+  const out = [];
+  Object.keys(MENU_PACKAGES).forEach(pkg => {
+    const list = MENU_PACKAGES[pkg] || [];
+    if (list.indexOf(dishName) !== -1) out.push(pkg);
+  });
+  return out.sort();
+}
+
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, deactivateDish, getAllDishes, packagesContainingDish };

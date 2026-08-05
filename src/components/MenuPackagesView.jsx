@@ -5,11 +5,12 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat, getAllDishes, upsertDishMaster, deactivateDish } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
+import DishLibrary from './DishLibrary.jsx';
 
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   var T2 = function(s) { return T(s, lang); };
@@ -205,8 +206,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setEditGroups(eg);
     if (missing.length) console.log('[dishHindi] no auto-fill for:', missing);
     setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
+    setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
+    var firstSec = Object.keys(bySec).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+    setActiveLibrarySection(firstSec);
   }
-  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); }
+  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null); }
   function renameDishInSec(sec, idx, field, val) {
     var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], [field]: val }; setEditSections(upd);
   }
@@ -224,6 +228,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   function addDishInSec(sec) {
     var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = []; upd[sec].push({ en: "", hi: "" }); setEditSections(upd);
   }
+  function addNamedDishInSec(name, sec) {
+    if (!name || !sec) return;
+    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = [];
+    var hi = ''; try { hi = resolveDishHindi(name) || ''; } catch(e) {}
+    upd[sec].push({ en: name, hi: hi }); setEditSections(upd);
+  }
+  var [activeLibrarySection, setActiveLibrarySection] = useState('');
+  var [libRefreshKey, setLibRefreshKey]               = useState(0);
+  var [secMenuOpen, setSecMenuOpen]                   = useState(null);
+  var [sectionRenames, setSectionRenames]             = useState({});
+  var [secOrder, setSecOrder]                         = useState([]);
+  var [duplicating, setDuplicating]                   = useState(false);
   function splitDishInSec(sec, idx) {
     var dishObj = editSections[sec][idx]; var dish = (dishObj && dishObj.en) || '';
     var parts = []; var label = '';
@@ -276,7 +292,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     + Object.values(editGroups).reduce(function(s, g) { return s + (g.items||[]).length; }, 0);
   var editSecNames = Object.keys(editSections).concat(
     Object.values(editGroups).map(function(g) { return g.section; })
-  ).filter(function(v, i, a) { return a.indexOf(v) === i; }).sort();
+  ).filter(function(v, i, a) { return a.indexOf(v) === i; });
+  if (secOrder && secOrder.length) {
+    editSecNames.sort(function(a, b) {
+      var ai = secOrder.indexOf(a); if (ai < 0) ai = 999;
+      var bi = secOrder.indexOf(b); if (bi < 0) bi = 999;
+      return ai !== bi ? ai - bi : a.localeCompare(b);
+    });
+  } else {
+    editSecNames.sort();
+  }
   async function saveDishes() {
     setDishSaving(true);
     try {
@@ -328,8 +353,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           }
         }
       }
+      // Apply section renames (recipe_categories.name update — cascade via id, no dish_categories update needed)
+      var renamePairs = Object.keys(sectionRenames).filter(function(oldN) { var v = (sectionRenames[oldN]||'').trim(); return v && v !== oldN; });
+      for (var ri = 0; ri < renamePairs.length; ri++) {
+        var oldN = renamePairs[ri]; var newN = sectionRenames[oldN].trim();
+        var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === oldN; });
+        if (cat) {
+          var resR = await supabase.from('recipe_categories').update({ name: newN }).eq('id', cat.id);
+          if (resR.error) throw resR.error;
+          cat.name = newN;
+        }
+      }
+      if (renamePairs.length) { try { localStorage.removeItem('ambria_cfg_recipe_categories'); } catch(e3) {} }
       try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); localStorage.removeItem('ambria_cfg_dish_hindi_map'); } catch(e2) {}
       setDishEditMode(false); setEditSections({}); setEditGroups({});
+      setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
     } catch(e) { alert('Error saving dishes: ' + e.message); }
     setDishSaving(false);
   }
@@ -389,6 +427,51 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         await supabase.from('dish_name_map').delete().eq('lms_name', lmsName); delete DISH_NAME_MAP[lmsName];
       }
     } catch(e) { alert('Error removing: ' + e.message); }
+  }
+
+  function deleteSectionInEdit(sec) {
+    var count = (editSections[sec] || []).length + Object.values(editGroups).filter(function(g) { return g.section === sec; }).reduce(function(s, g) { return s + (g.items||[]).length; }, 0);
+    if (count > 0 && !window.confirm('Delete section "' + sec + '" and its ' + count + ' dishes?')) return;
+    var upd = cloneES(editSections); delete upd[sec]; setEditSections(upd);
+    var updG = cloneEG(editGroups); Object.keys(updG).forEach(function(k) { if (updG[k].section === sec) delete updG[k]; }); setEditGroups(updG);
+    if (activeLibrarySection === sec) {
+      var next = Object.keys(upd).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+      setActiveLibrarySection(next);
+    }
+    setSecMenuOpen(null);
+  }
+  function moveSectionInEdit(sec, dir) {
+    // Compute current ordered list (respecting secOrder)
+    var base = Object.keys(editSections).concat(
+      Object.values(editGroups).map(function(g) { return g.section; })
+    ).filter(function(v, i, a) { return a.indexOf(v) === i; });
+    if (secOrder.length) base.sort(function(a, b) {
+      var ai = secOrder.indexOf(a); if (ai < 0) ai = 999;
+      var bi = secOrder.indexOf(b); if (bi < 0) bi = 999;
+      return ai !== bi ? ai - bi : a.localeCompare(b);
+    }); else base.sort();
+    var idx = base.indexOf(sec); var swap = idx + dir;
+    if (idx < 0 || swap < 0 || swap >= base.length) return;
+    var tmp = base[idx]; base[idx] = base[swap]; base[swap] = tmp;
+    setSecOrder(base); setSecMenuOpen(null);
+  }
+  async function duplicatePackage() {
+    var proposed = window.prompt('Name for the copy of "' + selPkg + '":', selPkg + ' (Copy)');
+    if (!proposed || !proposed.trim()) return;
+    var newName = proposed.trim();
+    if (MENU_PACKAGES[newName]) { alert('A package with that name already exists.'); return; }
+    setDuplicating(true);
+    try {
+      var dishes = (MENU_PACKAGES[selPkg] || []).slice();
+      var dg = DISH_GROUPS[selPkg] || {};
+      var res = await supabase.from('menu_packages').insert({ name: newName, dishes: dishes, dish_groups: dg, is_active: true });
+      if (res.error) throw res.error;
+      MENU_PACKAGES[newName] = dishes;
+      DISH_GROUPS[newName] = dg;
+      try { localStorage.removeItem('ambria_cfg_menu_packages'); } catch(e) {}
+      alert('Duplicated as "' + newName + '". Reload to see it in the package list.');
+    } catch(e) { alert('Duplicate failed: ' + e.message); }
+    setDuplicating(false);
   }
 
   var PKG_META = {
@@ -552,21 +635,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               {editMode && (
                 <button onClick={function() { setEditMode(false); setSelected({}); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✕ Cancel</button>
               )}
-              {dishEditMode && (
-                <React.Fragment>
-                  <button onClick={cancelDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✕ Cancel</button>
-                  <button onClick={saveDishes} disabled={dishSaving} style={{ padding: "10px 18px", borderRadius: 10, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: dishSaving ? "not-allowed" : "pointer", minHeight: 44, opacity: dishSaving ? 0.6 : 1 }}>{dishSaving ? "Saving…" : "💾 Save"}</button>
-                </React.Fragment>
-              )}
+              
             </div>
 
-            <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: editMode ? 12 : 20 }}>
-              <div style={{ fontSize: 40 }}>{pm.icon}</div>
-              <div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
-                <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(function(s) { return s !== "Beverages"; }).length} {T2("sections")}</div>
+            {!dishEditMode && (
+              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: editMode ? 12 : 20 }}>
+                <div style={{ fontSize: 40 }}>{pm.icon}</div>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
+                  <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(function(s) { return s !== "Beverages"; }).length} {T2("sections")}</div>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Bulk Move Bar */}
             {editMode && (
@@ -618,22 +698,67 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 secGroupsFor(sec).forEach(function(e) { n += (e[1].items||[]).length; });
                 return n;
               };
+              var libSectionOptions = editSecNames.filter(function(s) { return s !== "Beverages"; });
+              var existingInActive  = new Set(((editSections[activeLibrarySection] || []).map(function(d) { return (d && d.en) || ''; }).filter(Boolean)));
+              var visibleSecNames   = editSecNames.filter(function(s) { return s !== "Beverages"; });
               return (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: C.blue, marginBottom: 10, padding: "8px 12px", background: C.blueBg, borderRadius: 8 }}>
-                    {editDishTotal} dishes across {editSecNames.filter(function(s){return s!=="Beverages";}).length} sections
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0 }}>
+                  {/* Package header card */}
+                  <div style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 30, flexShrink: 0 }}>{pm.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: C.text }}>{selPkg}</div>
+                      <div style={{ fontSize: 11, color: pm.c, marginTop: 2 }}>{editDishTotal} {T2("dishes")} · {visibleSecNames.length} {T2("sections")}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                      <button onClick={duplicatePackage} disabled={duplicating || dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: duplicating ? "wait" : "pointer" }}>{duplicating ? "…" : "⧉ Duplicate"}</button>
+                      <button onClick={cancelDishEdit} disabled={dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Cancel</button>
+                      <button onClick={saveDishes} disabled={dishSaving} style={{ padding: "6px 14px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, cursor: dishSaving ? "not-allowed" : "pointer", opacity: dishSaving ? 0.6 : 1 }}>{dishSaving ? "Saving…" : "💾 Save"}</button>
+                    </div>
                   </div>
-                  {editSecNames.filter(function(s) { return s !== "Beverages"; }).map(function(sec) {
+
+                  {visibleSecNames.map(function(sec) {
                     var secDishes = editSections[sec] || [];
                     var secGrps = secGroupsFor(sec);
-                    if (secDishes.length === 0 && secGrps.length === 0) return null;
                     var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
                     var em = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
+                    var isActive = activeLibrarySection === sec;
+                    var displayName = sectionRenames[sec] !== undefined ? sectionRenames[sec] : sec;
+                    var menuIdx = visibleSecNames.indexOf(sec);
                     return (
-                      <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
-                        <div style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: em.color }}>{em.icon} {sec} <span style={{ fontWeight: 400, fontSize: 12, color: C.muted }}>({secTotal(sec)})</span></span>
+                      <div key={sec} style={{ marginBottom: 8, border: (isActive ? "2px" : "1px") + " solid " + (isActive ? C.green : C.border), borderRadius: 12, overflow: "visible", background: C.surface, boxShadow: isActive ? "0 0 0 3px " + C.greenBg : "none", position: "relative" }}>
+                        <div onClick={function() { if (!isActive) setActiveLibrarySection(sec); }}
+                          style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: isActive ? "default" : "pointer", borderRadius: "10px 10px 0 0" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 14, flexShrink: 0 }}>{em.icon}</span>
+                            <input value={displayName}
+                              onChange={function(e) { setSectionRenames({...sectionRenames, [sec]: e.target.value}); }}
+                              onClick={function(e) { e.stopPropagation(); }}
+                              style={{ fontSize: 13, fontWeight: 500, color: em.color, border: "1px solid transparent", background: "transparent", padding: "2px 4px", borderRadius: 4, minWidth: 0, flex: 1, outline: "none" }}
+                              onFocus={function(e) { e.target.style.border = "1px solid " + C.border; e.target.style.background = C.surface; }}
+                              onBlur={function(e) { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
+                            <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>({secTotal(sec)})</span>
+                            {isActive && <span style={{ fontSize: 9, color: C.green, background: C.greenBg, padding: "2px 6px", borderRadius: 4, fontWeight: 600, letterSpacing: 0.4, flexShrink: 0 }}>ACTIVE</span>}
+                          </div>
+                          <button onClick={function(e) { e.stopPropagation(); setSecMenuOpen(secMenuOpen === sec ? null : sec); }}
+                            style={{ width: 24, height: 24, border: "none", background: "transparent", color: C.muted, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>⋯</button>
+                          {secMenuOpen === sec && (
+                            <div style={{ position: "absolute", right: 8, top: 40, background: C.surface, border: "1px solid " + C.border, borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", zIndex: 10, minWidth: 140 }}>
+                              <div onClick={function(e) { e.stopPropagation(); moveSectionInEdit(sec, -1); }} style={{ padding: "8px 12px", fontSize: 12, cursor: menuIdx > 0 ? "pointer" : "not-allowed", color: menuIdx > 0 ? C.text : C.faint, borderBottom: "1px solid " + C.borderLight }}>↑ Move up</div>
+                              <div onClick={function(e) { e.stopPropagation(); moveSectionInEdit(sec, 1); }} style={{ padding: "8px 12px", fontSize: 12, cursor: menuIdx < visibleSecNames.length - 1 ? "pointer" : "not-allowed", color: menuIdx < visibleSecNames.length - 1 ? C.text : C.faint, borderBottom: "1px solid " + C.borderLight }}>↓ Move down</div>
+                              <div onClick={function(e) { e.stopPropagation(); deleteSectionInEdit(sec); }} style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", color: C.red }}>🗑 Delete section</div>
+                            </div>
+                          )}
                         </div>
+                        {!isActive && (secDishes.length > 0 || secGrps.length > 0) && (
+                          <div onClick={function() { setActiveLibrarySection(sec); }} style={{ padding: "6px 14px 10px", cursor: "pointer" }}>
+                            <div style={{ fontSize: 11, color: C.faint, fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {secDishes.map(function(d) { return (d && d.en) || ''; }).filter(Boolean).concat(secGrps.flatMap(function(g) { return (g[1].items||[]).map(function(gi) { return (gi && gi.en) || ''; }); }).filter(Boolean)).join(" · ")}
+                            </div>
+                          </div>
+                        )}
+                        {isActive && (
                         <div style={{ padding: "6px 12px 10px" }}>
                           {secDishes.map(function(d, i) {
                             var enVal = (d && d.en) || ''; var hiVal = (d && d.hi) || '';
@@ -648,7 +773,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 {isSplittable(enVal) && (
                                   <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
                                 )}
-                                <button onClick={function() { deleteDishInSec(sec, i); }} style={{ width: 26, height: 26, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
+                                <button onClick={function() { deleteDishInSec(sec, i); }} onMouseEnter={function(e) { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = C.redBg; e.currentTarget.style.borderColor = C.redBorder; }} onMouseLeave={function(e) { e.currentTarget.style.opacity = 0.35; e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }} style={{ width: 22, height: 22, borderRadius: 6, background: "transparent", border: "1px solid transparent", color: C.red, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0, opacity: 0.35, transition: "opacity 120ms" }}>✕</button>
                               </div>
                             );
                           })}
@@ -681,9 +806,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               </div>
                             );
                           })}
-                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                          <div style={{ display: "flex", gap: 6, marginTop: 6, paddingTop: 6, borderTop: "1px dashed " + C.borderLight }}>
                             <button onClick={function() { addDishInSec(sec); }}
-                              style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.border, borderRadius: 6, color: C.muted, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add dish</button>
+                              style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.greenBorder, borderRadius: 6, color: C.green, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add blank row</button>
+                            <button onClick={function() { /* library is already visible on right; this is a nudge */ }} title={T2("Use the library on the right to add dishes")}
+                              style={{ flex: 1, padding: "6px 0", background: C.greenBg, border: "1px solid " + C.greenBorder, borderRadius: 6, color: C.green, fontSize: 11, cursor: "default", textAlign: "center", fontWeight: 500 }}>→ Browse library</button>
                             {addGrpSec === sec ? (
                               <React.Fragment>
                                 <input autoFocus value={addGrpName} onChange={function(e) { setAddGrpName(e.target.value); }} placeholder="e.g. Dim-sum Station"
@@ -700,23 +827,38 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             )}
                           </div>
                         </div>
+                        )}
                       </div>
                     );
                   })}
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                    <select value={addSecVal} onChange={function(e) { setAddSecVal(e.target.value); }}
-                      style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
-                      <option value="">+ Add section…</option>
-                      {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; }).map(function(s) {
-                        var cat2 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                        return <option key={s} value={s}>{cat2 ? cat2.icon : "🍽"} {s}</option>;
-                      })}
-                    </select>
-                    {addSecVal && (
-                      <button onClick={function() { addDishInSec(addSecVal); setAddSecVal(""); }}
-                        style={{ padding: "6px 14px", borderRadius: 8, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Add</button>
-                    )}
-                  </div>
+                  <button onClick={function() { setAddSecVal("__pick__"); }}
+                    style={{ width: "100%", padding: 10, marginTop: 6, background: "transparent", border: "1px dashed " + C.border, borderRadius: 10, color: C.muted, fontSize: 12, cursor: "pointer" }}>+ New section…</button>
+                  {addSecVal === "__pick__" && (
+                    <div style={{ marginTop: 6, padding: 10, background: C.bg, border: "1px solid " + C.border, borderRadius: 10, display: "flex", gap: 6, alignItems: "center" }}>
+                      <select value="" onChange={function(e) { if (e.target.value) { addDishInSec(e.target.value); setActiveLibrarySection(e.target.value); setAddSecVal(""); } }}
+                        style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
+                        <option value="">Pick a section to add…</option>
+                        {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; }).map(function(s) {
+                          var cat2 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
+                          return <option key={s} value={s}>{cat2 ? cat2.icon : "🍽"} {s}</option>;
+                        })}
+                      </select>
+                      <button onClick={function() { setAddSecVal(""); }}
+                        style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
+                    </div>
+                  )}
+                </div>
+                <DishLibrary
+                  activeSection={activeLibrarySection}
+                  setActiveSection={setActiveLibrarySection}
+                  sectionOptions={libSectionOptions}
+                  existingInSection={existingInActive}
+                  onAdd={function(name, sec) { addNamedDishInSec(name, sec); }}
+                  onMapSop={async function(name, recipeName) { await saveOneMapping(name, recipeName); setLibRefreshKey(function(k){ return k+1; }); }}
+                  onClearSop={async function(name) { await removeMapping(name); setLibRefreshKey(function(k){ return k+1; }); }}
+                  refreshKey={libRefreshKey}
+                  T2={T2}
+                />
                 </div>
               );
             })()}
