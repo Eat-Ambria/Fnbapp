@@ -124,14 +124,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var pkgNames = Object.keys(MENU_PACKAGES);
   var [selPkg, setSelPkg] = useState(null);
   var [openSections, setOpenSections] = useState({});
-  var [editMode, setEditMode] = useState(false);
-  var [selected, setSelected] = useState({});
-  var [targetSec, setTargetSec] = useState("");
-  var [saving, setSaving] = useState(false);
-  var [showNewCat, setShowNewCat] = useState(false);
-  var [newCatName, setNewCatName] = useState("");
-  var [newCatIcon, setNewCatIcon] = useState("🍽");
-  var [customCats, setCustomCats] = useState([]);
   var [dishEditMode, setDishEditMode] = useState(false);
   var [editSections, setEditSections] = useState({});
   var [editGroups, setEditGroups] = useState({});
@@ -149,68 +141,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var allSections = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
 
   function toggleSection(sec) { setOpenSections(function(p) { return { ...p, [sec]: !p[sec] }; }); }
-  function toggleDish(d) { setSelected(function(p) { return { ...p, [d]: !p[d] }; }); }
-  function selectAllInSec(dishes) {
-    var all = dishes.every(function(d) { return selected[d]; });
-    var upd = { ...selected };
-    dishes.forEach(function(d) { upd[d] = !all; });
-    setSelected(upd);
-  }
-  var selCount = Object.values(selected).filter(Boolean).length;
 
   function secToCatId(secName) {
     var dbCat = (RECIPE_DB.cats || []).find(function(c) { return c.name === secName; });
     if (dbCat) return dbCat.id;
     return secName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-  }
-
-  async function createCategory() {
-    if (!newCatName.trim()) return;
-    var catId = newCatName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
-    setSaving(true);
-    try {
-      var res = await supabase.from('recipe_categories').insert({
-        id: catId, name: newCatName.trim(), icon: newCatIcon || '🍽',
-        sort_order: (RECIPE_DB.cats || []).length + 1
-      });
-      if (res.error && res.error.code !== '23505') throw res.error;
-      setCustomCats(function(prev) { return [...prev, newCatName.trim()]; });
-      setTargetSec(newCatName.trim());
-      setShowNewCat(false);
-      setNewCatName("");
-      setNewCatIcon("🍽");
-    } catch (e) {
-      alert('Error creating category: ' + e.message);
-    }
-    setSaving(false);
-  }
-
-  async function moveSelected() {
-    if (!targetSec || selCount === 0) return;
-    setSaving(true);
-    var catId = secToCatId(targetSec);
-    var dishNames = Object.keys(selected).filter(function(k) { return selected[k]; });
-    try {
-      for (var i = 0; i < dishNames.length; i++) {
-        await supabase.from('dish_categories').upsert(
-          { dish_name: dishNames[i], category_id: catId },
-          { onConflict: 'dish_name' }
-        );
-      }
-      alert('Moved ' + dishNames.length + ' dish' + (dishNames.length > 1 ? 'es' : '') + ' to ' + targetSec);
-      setSelected({});
-      setEditMode(false);
-      try {
-        localStorage.removeItem('ambria_cfg_recipes');
-        localStorage.removeItem('ambria_cfg_recipe_categories');
-        localStorage.removeItem('ambria_cfg_menu_packages');
-        localStorage.removeItem('ambria_cfg_dish_categories');
-      } catch (e) { }
-      window.location.reload();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
-    setSaving(false);
   }
 
   // ─── Dish editing + SOP mapping helpers ───
@@ -258,7 +193,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
     setEditGroups(eg);
     if (missing.length) console.log('[dishHindi] no auto-fill for:', missing);
-    setDishEditMode(true); setEditMode(false); setSelected({}); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
+    setDishEditMode(true); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
     setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
     var firstSec = Object.keys(bySec).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
     setActiveLibrarySection(firstSec);
@@ -714,7 +649,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: "1px solid " + C.border, paddingBottom: 8, marginTop: 12 }}>
         {TABS.map(function(t) {
-          return <button key={t.v} onClick={function() { setMainTab(t.v); setSelPkg(null); setSelEvId(null); setEditMode(false); setSelected({}); }}
+          return <button key={t.v} onClick={function() { setMainTab(t.v); setSelPkg(null); setSelEvId(null); }}
             style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", background: mainTab === t.v ? C.wine : "transparent", color: mainTab === t.v ? "#fff" : C.muted, border: "1.5px solid " + (mainTab === t.v ? C.wine : C.border) }}>{t.l}</button>;
         })}
       </div>
@@ -808,7 +743,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var m = PKG_META[pkg] || { icon: "📋", c: C.gold, bg: C.goldBg };
               var items = MENU_PACKAGES[pkg] || [];
               return (
-                <button key={pkg} onClick={function() { setSelPkg(pkg); setEditMode(false); setSelected({}); }}
+                <button key={pkg} onClick={function() { setSelPkg(pkg); }}
                   style={{ background: C.surface, border: "2px solid " + m.c + "30", borderRadius: 16, padding: "20px 18px", cursor: "pointer", textAlign: "left", display: "flex", gap: 14, alignItems: "center", minHeight: 80 }}>
                   <div style={{ fontSize: 32, flexShrink: 0 }}>{m.icon}</div>
                   <div>
@@ -837,66 +772,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <div>
             {/* Header */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={function() { setSelPkg(null); setEditMode(false); setDishEditMode(false); setEditSections({}); setEditGroups({}); setSelected({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
-              {isAdmin && !editMode && !dishEditMode && (
-                <React.Fragment>
-                  <button onClick={function() { setEditMode(true); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, color: C.amber, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Categories</button>
-                  <button onClick={enterDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.blueBg, border: "1px solid " + C.blueBorder, color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Dishes</button>
-                </React.Fragment>
+              <button onClick={function() { setSelPkg(null); setDishEditMode(false); setEditSections({}); setEditGroups({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
+              {isAdmin && !dishEditMode && (
+                <button onClick={enterDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.blueBg, border: "1px solid " + C.blueBorder, color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Dishes</button>
               )}
-              {editMode && (
-                <button onClick={function() { setEditMode(false); setSelected({}); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✕ Cancel</button>
-              )}
-              
             </div>
 
             {!dishEditMode && (
-              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: editMode ? 12 : 20 }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 20 }}>
                 <div style={{ fontSize: 40 }}>{pm.icon}</div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
                   <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).filter(function(s) { return s !== "Beverages"; }).length} {T2("sections")}</div>
                 </div>
-              </div>
-            )}
-
-            {/* Bulk Move Bar */}
-            {editMode && (
-              <div style={{ position: "sticky", top: 0, zIndex: 20, background: C.amberBg, border: "1.5px solid " + C.amberBorder, borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: C.amber }}>{selCount} selected</span>
-                  <select value={targetSec} onChange={function(e) {
-                    if (e.target.value === "__new__") { setShowNewCat(true); setTargetSec(""); }
-                    else { setTargetSec(e.target.value); setShowNewCat(false); }
-                  }}
-                    style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface, minWidth: 140 }}>
-                    <option value="">Move to…</option>
-                    {allSections.map(function(s) {
-                      var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                      return <option key={s} value={s}>{cat ? cat.icon : "🍽"} {s}</option>;
-                    })}
-                    <option value="__new__">＋ New Section…</option>
-                  </select>
-                  <button onClick={moveSelected} disabled={!targetSec || selCount === 0 || saving}
-                    style={{ padding: "8px 16px", borderRadius: 8, background: selCount > 0 && targetSec ? C.green : C.faint, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: selCount > 0 && targetSec ? "pointer" : "not-allowed", opacity: saving ? 0.5 : 1 }}>
-                    {saving ? "Saving…" : "Move " + selCount + " →"}
-                  </button>
-                </div>
-                {showNewCat && (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-                    <input value={newCatIcon} onChange={function(e) { setNewCatIcon(e.target.value); }} placeholder="🍽"
-                      style={{ width: 40, padding: "6px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 16, textAlign: "center", background: C.surface }} maxLength={2} />
-                    <input value={newCatName} onChange={function(e) { setNewCatName(e.target.value); }} placeholder="Section name e.g. Continental"
-                      style={{ flex: 1, minWidth: 160, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}
-                      onKeyDown={function(e) { if (e.key === 'Enter') createCategory(); }} />
-                    <button onClick={createCategory} disabled={!newCatName.trim() || saving}
-                      style={{ padding: "6px 14px", borderRadius: 8, background: newCatName.trim() ? C.green : C.faint, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: newCatName.trim() ? "pointer" : "not-allowed" }}>
-                      {saving ? "…" : "Create"}
-                    </button>
-                    <button onClick={function() { setShowNewCat(false); setNewCatName(""); }}
-                      style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>Cancel</button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -914,7 +802,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var existingInActive  = new Set(((editSections[activeLibrarySection] || []).map(function(d) { return (d && d.en) || ''; }).filter(Boolean)));
               var visibleSecNames   = editSecNames.filter(function(s) { return s !== "Beverages"; });
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 420px', gap: 14, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
                   {/* Package header card */}
                   <div style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
@@ -1135,7 +1023,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
               var m2 = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
               var isOpen = !!openSections[sec];
-              var allSelected = dishes.every(function(d) { return selected[d]; });
 
               return (
                 <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
@@ -1147,7 +1034,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   </button>
                   {isOpen && (
                     <div style={{ padding: "8px 14px 12px" }}>
-                      {isAdmin && !editMode && !dishEditMode && (
+                      {isAdmin && !dishEditMode && (
                         quickAddSec === sec ? (
                           <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "6px 0 10px", borderBottom: "1px dashed " + C.borderLight, marginBottom: 6 }}>
                             <input autoFocus value={quickAddVal} onChange={function(e) { setQuickAddVal(e.target.value); }}
@@ -1163,12 +1050,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           <button onClick={function() { setQuickAddSec(sec); setQuickAddVal(""); }}
                             style={{ width: "100%", padding: "6px 0", marginBottom: 6, background: "transparent", border: "1px dashed " + m2.color, borderRadius: 6, color: m2.color, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>+ Add dish to {sec}</button>
                         )
-                      )}
-                      {editMode && (
-                        <div onClick={function() { selectAllInSec(dishes); }} style={{ padding: "6px 0 8px", borderBottom: "1px solid " + C.borderLight, fontSize: 11, color: C.amber, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (allSelected ? C.green : C.border), background: allSelected ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{allSelected ? "✓" : ""}</span>
-                          {allSelected ? "Deselect all" : "Select all"} ({dishes.length})
-                        </div>
                       )}
                       {(function() {
                         var vGrps = DISH_GROUPS[selPkg] || {};
@@ -1186,26 +1067,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           <div key={'gh-'+item.label} style={{ padding: "5px 0 2px", fontSize: 11, fontWeight: 700, color: C.amber, display: "flex", alignItems: "center", gap: 4 }}>▸ {item.label}</div>
                         );
                         var d = item.name;
-                        var ms = !editMode ? getMappingStatus(d) : null;
+                        var ms = getMappingStatus(d);
                         var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : C.red) : m2.color;
                         return (
                           <div key={i}>
-                            <div onClick={editMode ? function() { toggleDish(d); } : undefined}
-                              style={{ padding: "6px 0", borderBottom: "1px solid " + C.borderLight, fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: editMode ? "pointer" : "default", background: selected[d] ? C.amberBg + "80" : "transparent", borderRadius: selected[d] ? 6 : 0, paddingLeft: item.indent ? 16 : (selected[d] ? 6 : 0) }}>
-                              {editMode && (
-                                <span style={{ width: 18, height: 18, borderRadius: 4, border: "2px solid " + (selected[d] ? C.green : C.border), background: selected[d] ? C.green : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", flexShrink: 0 }}>{selected[d] ? "✓" : ""}</span>
-                              )}
-                              {!editMode && <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }}></span>}
-                              {editMode && <span style={{ color: m2.color, fontSize: 10 }}>•</span>}
+                            <div style={{ padding: "6px 0", borderBottom: "1px solid " + C.borderLight, fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: "default", paddingLeft: item.indent ? 16 : 0 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }}></span>
                               <span style={{ flex: 1 }}>{d}</span>
                               {ms && ms.status !== 'unmapped' && (
                                 <span style={{ fontSize: 10, color: ms.status === 'mapped' ? C.gold : C.green, flexShrink: 0 }}>→ {ms.recipe && ms.recipe.length > 28 ? ms.recipe.slice(0, 26) + '…' : ms.recipe}</span>
                               )}
-                              {isAdmin && !editMode && ms && ms.status === 'unmapped' && (
+                              {isAdmin && ms && ms.status === 'unmapped' && (
                                 <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
                                   style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer", flexShrink: 0 }}>Link SOP</button>
                               )}
-                              {isAdmin && !editMode && ms && ms.status !== 'unmapped' && (
+                              {isAdmin && ms && ms.status !== 'unmapped' && (
                                 <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
                                   style={{ padding: "2px 6px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 9, cursor: "pointer", flexShrink: 0 }}>✎</button>
                               )}
