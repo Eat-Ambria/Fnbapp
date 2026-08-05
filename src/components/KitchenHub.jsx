@@ -22,12 +22,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return [];
   }
 
-  // -- Date+time stamp helper --
-  function fmtStamp(ts) {
-    var d = ts ? new Date(ts) : new Date();
-    return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}) + ' ' +
-           d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
-  }
+  
 
   // -- Strip hardcoded quantities from SOP step text --
   // SOPs have "पनीर (15 kg / 200 PAX)" baked in — we show scaled ingredients separately

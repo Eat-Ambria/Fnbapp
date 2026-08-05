@@ -462,14 +462,9 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             onChange:function(e){setVendorForm(function(p){return{...p,section:e.target.value};});},
             style:fld},
             React.createElement('option',{value:''},'Select section'),
-            React.createElement('option',{value:'Kitchen'},'Kitchen'),
-            React.createElement('option',{value:'Service'},'Service'),
-            React.createElement('option',{value:'Crockery'},'Crockery'),
-            React.createElement('option',{value:'Beverages'},'Beverages'),
-            React.createElement('option',{value:'Transport'},'Transport'),
-            React.createElement('option',{value:'ODC'},'ODC'),
-            React.createElement('option',{value:'Management'},'Management'),
-            React.createElement('option',{value:'Maintenance'},'Maintenance'),
+            ...(TEAM_DEPTS || []).map(function(d){
+              return React.createElement('option',{key:d.id,value:d.label},(d.icon?d.icon+' ':'')+d.label);
+            }),
             React.createElement('option',{value:'General'},'General / Multiple')
           )
         ),
