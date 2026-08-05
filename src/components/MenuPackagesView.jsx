@@ -802,7 +802,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var existingInActive  = new Set(((editSections[activeLibrarySection] || []).map(function(d) { return (d && d.en) || ''; }).filter(Boolean)));
               var visibleSecNames   = editSecNames.filter(function(s) { return s !== "Beverages"; });
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 420px', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14, alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0 }}>
                   {/* Package header card */}
                   <div style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
