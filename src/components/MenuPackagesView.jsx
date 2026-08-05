@@ -1,7 +1,7 @@
 // Ambria FnB — Menu & Packages View
 // Two tabs: Build Menu (assign menus to functions) + Packages (view/edit standard packages)
 // Place in: src/components/MenuPackagesView.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
@@ -11,6 +11,59 @@ import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishLibrary from './DishLibrary.jsx';
+import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, closestCenter, useDraggable } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// ── Drag-handle context — inner elements (grip icons) consume {attributes, listeners} from the nearest wrapping sortable/draggable
+const DragHandleContext = React.createContext(null);
+
+function DragHandle({ style }) {
+  const ctx = React.useContext(DragHandleContext) || {};
+  return (
+    <span {...(ctx.attributes || {})} {...(ctx.listeners || {})}
+      onClick={function(e) { e.stopPropagation(); }}
+      title="Drag to reorder"
+      style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none', display: 'inline-flex', alignItems: 'center', flexShrink: 0, ...style }}>⋮⋮</span>
+  );
+}
+
+function SortableSectionCard({ sec, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: 'sec:' + sec,
+    data: { type: 'section', section: sec }
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    position: 'relative',
+    zIndex: isDragging ? 100 : 'auto',
+  };
+  return (
+    <DragHandleContext.Provider value={{ attributes, listeners }}>
+      <div ref={setNodeRef} style={style}>{children}</div>
+    </DragHandleContext.Provider>
+  );
+}
+
+function DraggableDishRow({ sec, idx, children }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: 'dish:' + sec + ':' + idx,
+    data: { type: 'dish', sourceSec: sec, sourceIdx: idx }
+  });
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+    position: 'relative',
+    zIndex: isDragging ? 100 : 'auto',
+  };
+  return (
+    <DragHandleContext.Provider value={{ attributes, listeners }}>
+      <div ref={setNodeRef} style={style}>{children}</div>
+    </DragHandleContext.Provider>
+  );
+}
 
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   var T2 = function(s) { return T(s, lang); };
@@ -210,7 +263,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var firstSec = Object.keys(bySec).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
     setActiveLibrarySection(firstSec);
   }
-  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null); }
+  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null); setDishSel({}); }
   function renameDishInSec(sec, idx, field, val) {
     var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], [field]: val }; setEditSections(upd);
   }
@@ -234,12 +287,87 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var hi = ''; try { hi = resolveDishHindi(name) || ''; } catch(e) {}
     upd[sec].push({ en: name, hi: hi }); setEditSections(upd);
   }
+  function toggleDishSel(i) {
+    setDishSel(function(prev) { var next = {...prev}; if (next[i]) delete next[i]; else next[i] = true; return next; });
+  }
+  function selectedIdxs() {
+    return Object.keys(dishSel).filter(function(k) { return dishSel[k]; }).map(Number).sort(function(a, b) { return a - b; });
+  }
+  function bulkDeleteInActive() {
+    var idxs = selectedIdxs(); if (!idxs.length || !activeLibrarySection) return;
+    if (!window.confirm(T2('Delete ') + idxs.length + T2(' dish(es) from "') + activeLibrarySection + '"?')) return;
+    var upd = cloneES(editSections);
+    upd[activeLibrarySection] = (upd[activeLibrarySection] || []).filter(function(_, i) { return idxs.indexOf(i) === -1; });
+    if (upd[activeLibrarySection].length === 0) delete upd[activeLibrarySection];
+    setEditSections(upd);
+    setDishSel({});
+  }
+  function bulkMoveToSec(targetSec) {
+    var idxs = selectedIdxs();
+    if (!idxs.length || !targetSec || !activeLibrarySection || targetSec === activeLibrarySection) return;
+    var upd = cloneES(editSections);
+    var srcList = upd[activeLibrarySection] || [];
+    var moving = idxs.map(function(i) { return srcList[i]; }).filter(Boolean);
+    if (!moving.length) return;
+    upd[activeLibrarySection] = srcList.filter(function(_, i) { return idxs.indexOf(i) === -1; });
+    if (upd[activeLibrarySection].length === 0) delete upd[activeLibrarySection];
+    if (!upd[targetSec]) upd[targetSec] = [];
+    upd[targetSec] = upd[targetSec].concat(moving);
+    setEditSections(upd);
+    setDishSel({});
+    setActiveLibrarySection(targetSec);
+  }
+
+  // ── DnD sensors + handler (6.4) ──
+  var dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
+  );
+
+  function handleDragEnd(event) {
+    var active = event.active, over = event.over;
+    if (!over) return;
+    var activeType = active.data && active.data.current && active.data.current.type;
+    var overType   = over.data   && over.data.current   && over.data.current.type;
+
+    // Section reorder
+    if (activeType === 'section' && overType === 'section') {
+      if (active.id === over.id) return;
+      var ids = visibleSecNames.map(function(s) { return 'sec:' + s; });
+      var oldIdx = ids.indexOf(active.id);
+      var newIdx = ids.indexOf(over.id);
+      if (oldIdx < 0 || newIdx < 0) return;
+      var reordered = arrayMove(ids, oldIdx, newIdx).map(function(id) { return id.slice(4); });
+      setSecOrder(reordered);
+      return;
+    }
+
+    // Dish move to target section
+    if (activeType === 'dish' && overType === 'section') {
+      var srcSec = active.data.current.sourceSec;
+      var srcIdx = active.data.current.sourceIdx;
+      var targetSec = over.data.current.section;
+      if (srcSec === targetSec) return;
+      var upd = cloneES(editSections);
+      var srcList = upd[srcSec] || [];
+      var item = srcList[srcIdx];
+      if (!item) return;
+      upd[srcSec] = srcList.filter(function(_, i) { return i !== srcIdx; });
+      if (upd[srcSec].length === 0) delete upd[srcSec];
+      if (!upd[targetSec]) upd[targetSec] = [];
+      upd[targetSec] = upd[targetSec].concat([item]);
+      setEditSections(upd);
+      setDishSel({});
+    }
+  }
   var [activeLibrarySection, setActiveLibrarySection] = useState('');
   var [libRefreshKey, setLibRefreshKey]               = useState(0);
   var [secMenuOpen, setSecMenuOpen]                   = useState(null);
   var [sectionRenames, setSectionRenames]             = useState({});
   var [secOrder, setSecOrder]                         = useState([]);
   var [duplicating, setDuplicating]                   = useState(false);
+  var [dishSel, setDishSel]                           = useState({});  // { idx: true } — indices within activeLibrarySection
+  useEffect(function() { setDishSel({}); }, [activeLibrarySection, dishEditMode]);
   function splitDishInSec(sec, idx) {
     var dishObj = editSections[sec][idx]; var dish = (dishObj && dishObj.en) || '';
     var parts = []; var label = '';
@@ -472,6 +600,90 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       alert('Duplicated as "' + newName + '". Reload to see it in the package list.');
     } catch(e) { alert('Duplicate failed: ' + e.message); }
     setDuplicating(false);
+  }
+
+  // ── Export current editSections/editGroups/secOrder/sectionRenames as JSON ──
+  function exportPackageJSON() {
+    var payload = {
+      type: 'ambria_menu_package',
+      version: 1,
+      name: selPkg,
+      exported_at: new Date().toISOString(),
+      sections: editSections,
+      groups: editGroups,
+      sec_order: secOrder,
+      section_renames: sectionRenames,
+    };
+    try {
+      var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var safeName = (selPkg || 'package').replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+      a.href = url;
+      a.download = safeName + '_' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(e) { alert('Export failed: ' + e.message); }
+  }
+
+  function applyImportPayload(data) {
+    setEditSections(data.sections || {});
+    setEditGroups(data.groups || {});
+    setSecOrder(Array.isArray(data.sec_order) ? data.sec_order : []);
+    setSectionRenames(data.section_renames || {});
+    setDishSel({});
+    var firstSec = Object.keys(data.sections || {}).filter(function(s) { return s !== 'Beverages'; }).sort()[0] || '';
+    if (firstSec) setActiveLibrarySection(firstSec);
+    alert(T2('Import loaded. Review changes and click Save to commit.'));
+  }
+
+  async function handleImportFile(file) {
+    if (!file) return;
+    var text;
+    try { text = await file.text(); } catch(e) { alert('Read failed: ' + e.message); return; }
+    var data;
+    try { data = JSON.parse(text); } catch(e) { alert('Invalid JSON: ' + e.message); return; }
+    if (!data || data.type !== 'ambria_menu_package') { alert('Not a valid Ambria package export.'); return; }
+    if (!data.sections || typeof data.sections !== 'object') { alert('Missing "sections" in payload.'); return; }
+
+    // Collect all dish names from sections + groups
+    var names = [];
+    Object.keys(data.sections).forEach(function(sec) {
+      (data.sections[sec] || []).forEach(function(d) { if (d && d.en) names.push(d.en); });
+    });
+    Object.keys(data.groups || {}).forEach(function(grp) {
+      var items = (data.groups[grp] && data.groups[grp].items) || [];
+      items.forEach(function(d) { if (d && d.en) names.push(d.en); });
+    });
+    var uniqueNames = names.filter(function(n, i) { return names.indexOf(n) === i; });
+
+    var known = getAllDishes({ includeInactive: true });
+    var knownSet = {}; known.forEach(function(d) { knownSet[d.dish_name] = true; });
+    var missing = uniqueNames.filter(function(n) { return !knownSet[n]; });
+
+    if (missing.length === 0) { applyImportPayload(data); return; }
+
+    var preview = missing.slice(0, 10).join('\n') + (missing.length > 10 ? '\n… and ' + (missing.length - 10) + ' more' : '');
+    var msg = missing.length + T2(' dish(es) not in the master catalogue:\n\n') + preview + T2('\n\nInsert them into dishes_master before applying?');
+    if (!window.confirm(msg)) {
+      if (window.confirm(T2('Import anyway without adding to catalogue?'))) applyImportPayload(data);
+      return;
+    }
+    try {
+      var rows = missing.map(function(n) { return { dish_name: n }; });
+      var res = await supabase.from('dishes_master').insert(rows);
+      if (res.error && res.error.code !== '23505') throw res.error;
+      missing.forEach(function(n) { upsertDishMaster(n, { is_active: true }); });
+      applyImportPayload(data);
+    } catch(e) { alert('Insert failed: ' + e.message); }
+  }
+
+  function triggerPackageImport() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = function() { if (input.files && input.files[0]) handleImportFile(input.files[0]); };
+    input.click();
   }
 
   var PKG_META = {
@@ -713,11 +925,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </div>
                     <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
                       <button onClick={duplicatePackage} disabled={duplicating || dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: duplicating ? "wait" : "pointer" }}>{duplicating ? "…" : "⧉ Duplicate"}</button>
+                      <button onClick={exportPackageJSON} disabled={dishSaving} title={T2('Export package as JSON')} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>⬇ Export</button>
+                      <button onClick={triggerPackageImport} disabled={dishSaving} title={T2('Import package from JSON')} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>⬆ Import</button>
                       <button onClick={cancelDishEdit} disabled={dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Cancel</button>
                       <button onClick={saveDishes} disabled={dishSaving} style={{ padding: "6px 14px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, cursor: dishSaving ? "not-allowed" : "pointer", opacity: dishSaving ? 0.6 : 1 }}>{dishSaving ? "Saving…" : "💾 Save"}</button>
                     </div>
                   </div>
 
+                  <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={visibleSecNames.map(function(s) { return 'sec:' + s; })} strategy={verticalListSortingStrategy}>
                   {visibleSecNames.map(function(sec) {
                     var secDishes = editSections[sec] || [];
                     var secGrps = secGroupsFor(sec);
@@ -727,10 +943,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     var displayName = sectionRenames[sec] !== undefined ? sectionRenames[sec] : sec;
                     var menuIdx = visibleSecNames.indexOf(sec);
                     return (
-                      <div key={sec} style={{ marginBottom: 8, border: (isActive ? "2px" : "1px") + " solid " + (isActive ? C.green : C.border), borderRadius: 12, overflow: "visible", background: C.surface, boxShadow: isActive ? "0 0 0 3px " + C.greenBg : "none", position: "relative" }}>
+                      <SortableSectionCard key={sec} sec={sec}>
+                      <div style={{ marginBottom: 8, border: (isActive ? "2px" : "1px") + " solid " + (isActive ? C.green : C.border), borderRadius: 12, overflow: "visible", background: C.surface, boxShadow: isActive ? "0 0 0 3px " + C.greenBg : "none", position: "relative" }}>
                         <div onClick={function() { if (!isActive) setActiveLibrarySection(sec); }}
                           style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: isActive ? "default" : "pointer", borderRadius: "10px 10px 0 0" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                            <DragHandle style={{ fontSize: 14, color: C.muted, opacity: 0.55, padding: '0 2px' }} />
                             <span style={{ fontSize: 14, flexShrink: 0 }}>{em.icon}</span>
                             <input value={displayName}
                               onChange={function(e) { setSectionRenames({...sectionRenames, [sec]: e.target.value}); }}
@@ -762,8 +980,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         <div style={{ padding: "6px 12px 10px" }}>
                           {secDishes.map(function(d, i) {
                             var enVal = (d && d.en) || ''; var hiVal = (d && d.hi) || '';
+                            var rowSelected = !!dishSel[i];
                             return (
-                              <div key={'d-'+i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + C.borderLight }}>
+                              <DraggableDishRow key={'d-'+i} sec={sec} idx={i}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + C.borderLight, background: rowSelected ? C.blueBg : 'transparent', borderRadius: rowSelected ? 4 : 0 }}>
+                                <DragHandle style={{ fontSize: 10, color: C.muted, opacity: 0.45, padding: '0 2px' }} />
+                                <input type="checkbox" checked={rowSelected} onChange={function() { toggleDishSel(i); }} title={T2('Select for bulk actions')}
+                                  style={{ margin: "0 2px 0 4px", cursor: "pointer", flexShrink: 0, width: 14, height: 14, accentColor: C.wine }} />
                                 <input value={enVal} onChange={function(e) { renameDishInSec(sec, i, 'en', e.target.value); }}
                                   onBlur={function() { autofillDishHiInSec(sec, i); }}
                                   style={{ flex: 1.3, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
@@ -775,6 +998,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 )}
                                 <button onClick={function() { deleteDishInSec(sec, i); }} onMouseEnter={function(e) { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = C.redBg; e.currentTarget.style.borderColor = C.redBorder; }} onMouseLeave={function(e) { e.currentTarget.style.opacity = 0.35; e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }} style={{ width: 22, height: 22, borderRadius: 6, background: "transparent", border: "1px solid transparent", color: C.red, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0, opacity: 0.35, transition: "opacity 120ms" }}>✕</button>
                               </div>
+                              </DraggableDishRow>
                             );
                           })}
                           {secGrps.map(function(ge) {
@@ -829,8 +1053,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         </div>
                         )}
                       </div>
+                      </SortableSectionCard>
                     );
                   })}
+                  </SortableContext>
+                  </DndContext>
                   <button onClick={function() { setAddSecVal("__pick__"); }}
                     style={{ width: "100%", padding: 10, marginTop: 6, background: "transparent", border: "1px dashed " + C.border, borderRadius: 10, color: C.muted, fontSize: 12, cursor: "pointer" }}>+ New section…</button>
                   {addSecVal === "__pick__" && (
@@ -847,6 +1074,45 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
                     </div>
                   )}
+
+                  {/* ── Bulk-action bar (visible when 1+ dishes selected in active section) ── */}
+                  {(function() {
+                    var selCount = selectedIdxs().length;
+                    if (!selCount) return null;
+                    var moveTargetsExisting = visibleSecNames.filter(function(s) { return s !== activeLibrarySection; });
+                    var moveTargetsNew = allSections.filter(function(s) { return editSecNames.indexOf(s) === -1 && s !== "Beverages"; });
+                    return (
+                      <div style={{ position: "sticky", bottom: 12, marginTop: 12, background: "#1f2937", color: "#fff", border: "1px solid #111827", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.25)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, zIndex: 20 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{selCount} {T2('selected')}</div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{T2('in')} {activeLibrarySection}</div>
+                        <div style={{ flex: 1 }} />
+                        <select value="" onChange={function(e) { if (e.target.value) bulkMoveToSec(e.target.value); }}
+                          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #374151", background: "#111827", color: "#fff", fontSize: 11, cursor: "pointer" }}>
+                          <option value="">↪ {T2('Move to…')}</option>
+                          {moveTargetsExisting.length > 0 && (
+                            <optgroup label={T2('Existing sections')}>
+                              {moveTargetsExisting.map(function(s) {
+                                var cat3 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
+                                return <option key={s} value={s}>{cat3 ? cat3.icon : "🍽"} {s}</option>;
+                              })}
+                            </optgroup>
+                          )}
+                          {moveTargetsNew.length > 0 && (
+                            <optgroup label={'＋ ' + T2('New section')}>
+                              {moveTargetsNew.map(function(s) {
+                                var cat4 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
+                                return <option key={'new-'+s} value={s}>{cat4 ? cat4.icon : "🍽"} {s}</option>;
+                              })}
+                            </optgroup>
+                          )}
+                        </select>
+                        <button onClick={bulkDeleteInActive}
+                          style={{ padding: "5px 10px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>🗑 {T2('Delete')}</button>
+                        <button onClick={function() { setDishSel({}); }} title={T2('Clear selection')}
+                          style={{ width: 26, height: 26, borderRadius: 6, background: "transparent", border: "1px solid #374151", color: "#9ca3af", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <DishLibrary
                   activeSection={activeLibrarySection}
