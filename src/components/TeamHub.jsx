@@ -59,6 +59,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [monthLoading,setMonthLoading] = useState(false);
   const [monthSearch,setMonthSearch] = useState('');
   const [monthDeptFilter,setMonthDeptFilter] = useState('All');
+  const [monthSort,setMonthSort] = useState({col:'daysWorked',dir:'desc'});
   const [monthDetailEmp,setMonthDetailEmp] = useState(null);
   function fetchMonthData(m){
     if(!m||!supabase){setMonthData(null);return;}
@@ -444,8 +445,13 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             present:present,halfDay:halfDay,incomplete:incomplete,absent:absent,
             daysWorked:daysWorked,totalHrs:totalHrs,avgHrs:avgHrs};
         });
-        // Sort by days worked desc
-        rows.sort(function(a,b){return b.daysWorked-a.daysWorked;});
+        // Sort by selected column
+        rows.sort(function(a,b){
+          var col=monthSort.col,dir=monthSort.dir==='asc'?1:-1;
+          var av=a[col],bv=b[col];
+          if(typeof av==='string') return av.localeCompare(bv)*dir;
+          return ((av||0)-(bv||0))*dir;
+        });
         // Totals
         var totPresent=rows.reduce(function(a,r){return a+r.present;},0);
         var totHalf=rows.reduce(function(a,r){return a+r.halfDay;},0);
@@ -500,7 +506,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             </div>
             {/* Table */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
-              <div>Name</div><div>Dept</div><div>Present</div><div>Half</div><div>Absent</div><div>Inc.</div><div>Hrs</div><div>Avg/d</div>
+              {[{k:'name',l:'Name',a:'left'},{k:'dept',l:'Dept',a:'left'},{k:'present',l:'Present',a:'center'},{k:'halfDay',l:'Half',a:'center'},{k:'absent',l:'Absent',a:'center'},{k:'incomplete',l:'Inc.',a:'center'},{k:'totalHrs',l:'Hrs',a:'center'},{k:'avgHrs',l:'Avg/d',a:'center'}].map(function(h){
+                var active=monthSort.col===h.k;
+                return <div key={h.k} onClick={function(){setMonthSort(function(p){return{col:h.k,dir:p.col===h.k&&p.dir==='desc'?'asc':'desc'};});}}
+                  style={{textAlign:h.a,cursor:'pointer',userSelect:'none',color:active?C.text:C.muted,display:'flex',alignItems:'center',justifyContent:h.a==='center'?'center':'flex-start',gap:3}}>
+                  <span>{h.l}</span>
+                  <span style={{fontSize:9,opacity:active?1:0.3}}>{active?(monthSort.dir==='desc'?'▼':'▲'):'⇅'}</span>
+                </div>;
+              })}
             </div>
             <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
               {filteredRows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>{rows.length===0?'No data for this month':'No staff match your filters'}</div>
