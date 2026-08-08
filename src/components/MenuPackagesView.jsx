@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat, getAllDishes, upsertDishMaster, deactivateDish } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat, getAllDishes, upsertDishMaster, deactivateDish, resolveDishStore } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -436,6 +436,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   }
   function getMappingStatus(dish) {
     if (!dish) return { status: 'unmapped', recipe: null };
+    // V62: Tier 0 — Ops store item mapping (finished goods like Bisleri, disposables).
+    // Checked BEFORE dish_name_map: a stores dish is intentionally not SOP-linked.
+    var store = resolveDishStore(dish);
+    if (store) return { status: 'stores', recipe: null, store: store };
     var dn = dish.toLowerCase().trim();
     var mapKey = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === dn; });
     if (mapKey && DISH_NAME_MAP[mapKey] === '__none__') return { status: 'unmapped', recipe: null };
@@ -1010,6 +1014,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   onAdd={function(name, sec) { addNamedDishInSec(name, sec); }}
                   onMapSop={async function(name, recipeName) { await saveOneMapping(name, recipeName); setLibRefreshKey(function(k){ return k+1; }); }}
                   onClearSop={async function(name) { await removeMapping(name); setLibRefreshKey(function(k){ return k+1; }); }}
+                  onStoreMappingChanged={function() { setLibRefreshKey(function(k){ return k+1; }); }}
                   refreshKey={libRefreshKey}
                   T2={T2}
                 />
@@ -1068,20 +1073,23 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         );
                         var d = item.name;
                         var ms = getMappingStatus(d);
-                        var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : C.red) : m2.color;
+                        var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : ms.status === 'stores' ? C.teal : C.red) : m2.color;
                         return (
                           <div key={i}>
                             <div style={{ padding: "6px 0", borderBottom: "1px solid " + C.borderLight, fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: "default", paddingLeft: item.indent ? 16 : 0 }}>
                               <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }}></span>
                               <span style={{ flex: 1 }}>{d}</span>
-                              {ms && ms.status !== 'unmapped' && (
+                              {ms && ms.status === 'stores' && ms.store && (
+                                <span style={{ fontSize: 10, color: C.teal, fontWeight: 600, flexShrink: 0 }}>→ {ms.store.qty_per_cover} {ms.store.ops_item_unit || ''} · Stores</span>
+                              )}
+                              {ms && (ms.status === 'mapped' || ms.status === 'auto') && (
                                 <span style={{ fontSize: 10, color: ms.status === 'mapped' ? C.gold : C.green, flexShrink: 0 }}>→ {ms.recipe && ms.recipe.length > 28 ? ms.recipe.slice(0, 26) + '…' : ms.recipe}</span>
                               )}
                               {isAdmin && ms && ms.status === 'unmapped' && (
                                 <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
                                   style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer", flexShrink: 0 }}>Link SOP</button>
                               )}
-                              {isAdmin && ms && ms.status !== 'unmapped' && (
+                              {isAdmin && ms && (ms.status === 'mapped' || ms.status === 'auto') && (
                                 <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
                                   style={{ padding: "2px 6px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 9, cursor: "pointer", flexShrink: 0 }}>✎</button>
                               )}

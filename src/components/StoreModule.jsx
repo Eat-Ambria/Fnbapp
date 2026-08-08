@@ -1,20 +1,15 @@
 // Ambria FnB — Store & Inventory (reads live data from Ambria Ops Supabase)
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { createClient } from '@supabase/supabase-js';
-import { C, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE } from '../data/constants.js';
+import { C, OPS_IMG_BASE } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safeNum, TOMORROW } from '../utils/helpers.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
+import { opsSupabase } from '../lib/opsSupabase.js';
 import { getCatForDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
-
-/* ── Ops Supabase client (separate project for inventory data) ── */
-const opsSupabase = (OPS_SUPABASE_URL && OPS_SUPABASE_KEY)
-  ? createClient(OPS_SUPABASE_URL, OPS_SUPABASE_KEY)
-  : null;
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 

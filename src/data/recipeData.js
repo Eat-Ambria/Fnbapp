@@ -32,6 +32,16 @@ import INGREDIENT_HINDI from './ingredientHindi.js';
      DISH_MASTER[dishName] = { ...DISH_MASTER[dishName], is_active: false };
    }
 
+   // ── Dish → Ops store item mapping (V62) ──
+   // Shape: { [dish_name]: { ops_item_id, ops_item_name, ops_item_hindi, ops_item_unit, qty_per_cover } }
+   let DISH_STORE_MAP = {};
+   function setDishStoreMap(m) { DISH_STORE_MAP = m || {}; }
+   function upsertDishStoreMap(dishName, row) {
+     if (!dishName) return;
+     if (row) DISH_STORE_MAP[dishName] = row;
+     else delete DISH_STORE_MAP[dishName];
+   }
+
 function guessSectionForDish(name) {
   const n = (name||"").toLowerCase().trim();
 
@@ -308,6 +318,10 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishMaster) {
     DISH_MASTER = cfg.dishMaster;
   }
+  // V62: Hydrate dish → Ops store item map
+  if (cfg.dishStoreMap) {
+    DISH_STORE_MAP = cfg.dishStoreMap;
+  }
 }
 
 
@@ -458,6 +472,19 @@ function resolveDishHindi(dishName) {
   return '';
 }
 
+// V62: Resolve a dish to its Ops store-item mapping (returns null if unmapped).
+// Case-insensitive key match, mirroring resolveDishHindi.
+function resolveDishStore(dishName) {
+  if (!dishName) return null;
+  const key = typeof dishName === 'string' ? dishName : (dishName.name || dishName.n || '');
+  if (!key) return null;
+  if (DISH_STORE_MAP[key]) return DISH_STORE_MAP[key];
+  const keyL = key.toLowerCase().trim();
+  const mk = Object.keys(DISH_STORE_MAP).find(k => k.toLowerCase().trim() === keyL);
+  if (mk && DISH_STORE_MAP[mk]) return DISH_STORE_MAP[mk];
+  return null;
+}
+
 function dishLabel(dishName, lang) {
   const en = typeof dishName === 'string' ? dishName : (dishName && (dishName.name || dishName.n)) || '';
   if (lang !== 'hi') return en;
@@ -519,4 +546,4 @@ function packagesContainingDish(dishName) {
   return out.sort();
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, deactivateDish, getAllDishes, packagesContainingDish };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore };

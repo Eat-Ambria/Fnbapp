@@ -170,6 +170,7 @@ export async function loadAllConfig() {
     dishNameMapRaw,
     dishHindiMapRaw,
     dishMasterRaw,
+    dishStoreMapRaw,
     teamDeptsRaw,
     teamSectionsRaw,
   ] = await Promise.all([
@@ -187,6 +188,7 @@ export async function loadAllConfig() {
     loadTable('dish_name_map',         [], null),
     loadTable('dish_hindi_map',        [], null),
     loadTable('dishes_master',         [], null),
+    loadTable('dish_store_map',        [], null),
     loadTable('team_departments',      [], null),
     loadTable('team_sections',         [], null),
   ]);
@@ -228,6 +230,20 @@ export async function loadAllConfig() {
     }
   });
 
+  // V62: Build dish → Ops store item lookup
+  const dishStoreMap = {};
+  (dishStoreMapRaw || []).forEach(r => {
+    if (r && r.dish_name && r.ops_item_id) {
+      dishStoreMap[r.dish_name] = {
+        ops_item_id:    r.ops_item_id,
+        ops_item_name:  r.ops_item_name || '',
+        ops_item_hindi: r.ops_item_hindi || '',
+        ops_item_unit:  r.ops_item_unit || '',
+        qty_per_cover:  Number(r.qty_per_cover) || 1
+      };
+    }
+  });
+
   return {
     vehicles,
     coldItems,
@@ -245,6 +261,7 @@ export async function loadAllConfig() {
     dishNameMap,
     dishHindiMap,
     dishMaster,
+    dishStoreMap,
     teamDepts,
   };
 }

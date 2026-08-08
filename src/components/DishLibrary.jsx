@@ -2,8 +2,9 @@
 // Read-only browse + click-to-add + create-new. Standalone; owns its own filter state.
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { C } from '../data/constants.js';
-import { getAllDishes, upsertDishMaster, RECIPE_DB, resolveDishHindi, packagesContainingDish, upsertDishHindi, upsertDishCat, deactivateDish, DISH_HINDI_MAP } from '../data/recipeData.js';
+import { getAllDishes, upsertDishMaster, RECIPE_DB, resolveDishHindi, packagesContainingDish, upsertDishHindi, upsertDishCat, deactivateDish, DISH_HINDI_MAP, DISH_STORE_MAP, upsertDishStoreMap, DISH_NAME_MAP, resolveDishStore } from '../data/recipeData.js';
 import { supabase } from '../lib/supabase.js';
+import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 
 function DishLibrary(props) {
   var activeSection      = props.activeSection || '';
@@ -32,6 +33,13 @@ function DishLibrary(props) {
   var [detailMapOpen, setDetailMapOpen]     = useState(false);
   var [detailMapSearch, setDetailMapSearch] = useState('');
   var [detailUsageOpen, setDetailUsageOpen] = useState(false);
+  // V62: Inventory-dish (store item) state — used only inside the detail popover
+  var [detailType, setDetailType]           = useState('sop');    // 'sop' | 'store'
+  var [storeItems, setStoreItems]           = useState([]);
+  var [storeItemsLoading, setStoreItemsLoading] = useState(false);
+  var [storeSearch, setStoreSearch]         = useState('');
+  var [storeItemPick, setStoreItemPick]     = useState('');       // ops_item_id
+  var [storeQtyBuf, setStoreQtyBuf]         = useState('1');
   var flashTimer = useRef(null);
 
   var allRecipes = useMemo(function() {
@@ -61,8 +69,10 @@ function DishLibrary(props) {
     var qL = q.trim().toLowerCase();
     return allDishes.filter(function(d) {
       if (qL && d.dish_name.toLowerCase().indexOf(qL) === -1) return false;
-      if (filter === 'mapped'   && !d.hasRecipe) return false;
-      if (filter === 'unmapped' &&  d.hasRecipe) return false;
+      // V62: a store-mapped dish is intentionally mapped (to inventory, not SOP) — treat as "mapped" for filter chips
+      var storeMapped = !!resolveDishStore(d.dish_name);
+      if (filter === 'mapped'   && !d.hasRecipe && !storeMapped) return false;
+      if (filter === 'unmapped' && (d.hasRecipe || storeMapped)) return false;
       if (catFilter && d.catId !== catFilter) return false;
       return true;
     });
@@ -102,7 +112,15 @@ function DishLibrary(props) {
   }
   async function pickSop(dishName, recipeName) {
     setMapSaving(true);
-    try { await (props.onMapSop || function() {})(dishName, recipeName); }
+    try {
+      await (props.onMapSop || function() {})(dishName, recipeName);
+      // V62: mutual exclusion — if a store mapping exists, clear it
+      var existingStore = resolveDishStore(dishName);
+      if (existingStore) {
+        var resDel = await supabase.from('dish_store_map').delete().eq('dish_name', dishName);
+        if (!resDel.error) upsertDishStoreMap(dishName, null);
+      }
+    }
     finally { setMapSaving(false); setMapOpenFor(''); setMapSearch(''); }
   }
   async function clearSop(dishName) {
@@ -123,15 +141,38 @@ function DishLibrary(props) {
     finally { setRestoring(''); }
   }
 
+  // V62: lazy-load Ops catering items (cached, 5-min TTL). Reused by openDetail + switchDetailType.
+  async function loadStoreItems() {
+    if (storeItems.length > 0) return;
+    setStoreItemsLoading(true);
+    try { var items = await getCateringStoreItemsCached(); setStoreItems(items || []); }
+    catch (e) { console.error('Store items load failed:', e); }
+    finally { setStoreItemsLoading(false); }
+  }
+
   function openDetail(dishName) {
     var row = allDishes.find(function(x) { return x.dish_name === dishName; });
     setDetailFor(dishName);
     setDetailHindiBuf((row && row.hindi) || DISH_HINDI_MAP[dishName] || '');
     setDetailCatBuf((row && row.catId) || '');
     setDetailMapOpen(false); setDetailMapSearch(''); setDetailUsageOpen(false);
+    // V62: init Type + store fields from existing dish_store_map row
+    var existingStore = resolveDishStore(dishName);
+    if (existingStore) {
+      setDetailType('store');
+      setStoreItemPick(existingStore.ops_item_id);
+      setStoreQtyBuf(String(existingStore.qty_per_cover || 1));
+      loadStoreItems();
+    } else {
+      setDetailType('sop');
+      setStoreItemPick('');
+      setStoreQtyBuf('1');
+    }
+    setStoreSearch('');
   }
   function closeDetail() {
     setDetailFor(''); setDetailMapOpen(false); setDetailMapSearch(''); setDetailUsageOpen(false);
+    setStoreSearch(''); setStoreItemPick(''); setStoreQtyBuf('1');
   }
   async function saveDetailHindi() {
     if (!detailFor) return;
@@ -167,7 +208,18 @@ function DishLibrary(props) {
   async function saveDetailSop(recipeName) {
     if (!detailFor) return;
     setDetailSaving('sop');
-    try { await (props.onMapSop || function() {})(detailFor, recipeName); }
+    try {
+      await (props.onMapSop || function() {})(detailFor, recipeName);
+      // V62: mutual exclusion — if a store mapping exists, clear it
+      var existingStore = resolveDishStore(detailFor);
+      if (existingStore) {
+        var resDel = await supabase.from('dish_store_map').delete().eq('dish_name', detailFor);
+        if (!resDel.error) {
+          upsertDishStoreMap(detailFor, null);
+          setStoreItemPick(''); setStoreQtyBuf('1');
+        }
+      }
+    }
     finally { setDetailSaving(''); setDetailMapOpen(false); setDetailMapSearch(''); }
   }
   async function clearDetailSop() {
@@ -188,6 +240,73 @@ function DishLibrary(props) {
       setLocalBump(function(n) { return n + 1; });
       closeDetail();
     } catch (e) { alert('Retire failed: ' + e.message); }
+    finally { setDetailSaving(''); }
+  }
+
+  // V62: switch between SOP / Store mode inside the detail popover (UI only, no DB writes)
+  function switchDetailType(next) {
+    setDetailType(next);
+    if (next === 'store') {
+      loadStoreItems();
+      // Rehydrate pick + qty from any existing mapping (in case they were reset earlier)
+      var existing = resolveDishStore(detailFor);
+      if (existing && !storeItemPick) {
+        setStoreItemPick(existing.ops_item_id);
+        setStoreQtyBuf(String(existing.qty_per_cover || 1));
+      }
+    }
+  }
+  // V62: upsert dish_store_map + clear any dish_name_map row (mutual exclusion)
+  async function saveDetailStore(itemId, qtyRaw) {
+    if (!detailFor) return;
+    var qty = Number(qtyRaw != null ? qtyRaw : storeQtyBuf);
+    if (!qty || qty <= 0) { alert(T2('Enter a valid qty per cover')); return; }
+    var item = storeItems.find(function(x) { return x.id === itemId; });
+    if (!item) { alert(T2('Store item not found')); return; }
+    setDetailSaving('store');
+    try {
+      var row = {
+        dish_name:      detailFor,
+        ops_item_id:    item.id,
+        ops_item_name:  item.name || '',
+        ops_item_hindi: item.name_hindi || null,
+        ops_item_unit:  item.unit || 'Pieces',
+        qty_per_cover:  qty,
+        updated_at:     new Date().toISOString(),
+      };
+      var res = await supabase.from('dish_store_map').upsert(row, { onConflict: 'dish_name' });
+      if (res.error) throw res.error;
+      upsertDishStoreMap(detailFor, {
+        ops_item_id:    item.id,
+        ops_item_name:  item.name || '',
+        ops_item_hindi: item.name_hindi || '',
+        ops_item_unit:  item.unit || 'Pieces',
+        qty_per_cover:  qty,
+      });
+      setStoreItemPick(item.id);
+      // Mutual exclusion: clear any dish_name_map row for this dish
+      var mk = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === detailFor.toLowerCase().trim(); });
+      if (mk) {
+        await supabase.from('dish_name_map').delete().eq('lms_name', mk);
+        delete DISH_NAME_MAP[mk];
+      }
+      setLocalBump(function(n) { return n + 1; });
+      if (typeof props.onStoreMappingChanged === 'function') props.onStoreMappingChanged(detailFor);
+    } catch (e) { alert('Save failed: ' + e.message); }
+    finally { setDetailSaving(''); }
+  }
+  async function clearDetailStore() {
+    if (!detailFor) return;
+    if (!window.confirm(T2('Remove inventory (store) mapping for this dish?'))) return;
+    setDetailSaving('store');
+    try {
+      var res = await supabase.from('dish_store_map').delete().eq('dish_name', detailFor);
+      if (res.error) throw res.error;
+      upsertDishStoreMap(detailFor, null);
+      setStoreItemPick(''); setStoreQtyBuf('1'); setDetailType('sop');
+      setLocalBump(function(n) { return n + 1; });
+      if (typeof props.onStoreMappingChanged === 'function') props.onStoreMappingChanged(detailFor);
+    } catch (e) { alert('Remove failed: ' + e.message); }
     finally { setDetailSaving(''); }
   }
 
@@ -269,10 +388,14 @@ function DishLibrary(props) {
           var mapMatches  = mapSearch.trim()
             ? allRecipes.filter(function(r) { return r.n.toLowerCase().indexOf(mapSearch.trim().toLowerCase()) !== -1; }).slice(0, 8)
             : allRecipes.slice(0, 8);
-          var subline = d.hasRecipe
-            ? (d.mappedTo ? ('→ ' + d.mappedTo) : (d.catName || T2('SOP')))
-            : (d.explicitNone ? T2('No SOP') : T2('Unmapped'));
-          var sublineColor = d.hasRecipe ? C.muted : (d.explicitNone ? C.faint : C.amber);
+          // V62: Store mapping shown in teal, takes precedence over SOP subline
+          var storeInfo   = resolveDishStore(d.dish_name);
+          var subline     = storeInfo
+            ? ('→ ' + (storeInfo.qty_per_cover || 1) + ' ' + (storeInfo.ops_item_unit || '') + ' · ' + T2('Stores'))
+            : (d.hasRecipe
+                ? (d.mappedTo ? ('→ ' + d.mappedTo) : (d.catName || T2('SOP')))
+                : (d.explicitNone ? T2('No SOP') : T2('Unmapped')));
+          var sublineColor = storeInfo ? C.teal : (d.hasRecipe ? C.muted : (d.explicitNone ? C.faint : C.amber));
           return (
             <div key={d.dish_name} style={{ borderBottom: '1px solid ' + C.borderLight }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, padding: '7px 4px', background: isFlashing ? C.amberBg : (isDup ? C.bg : 'transparent'), transition: 'background 200ms', opacity: isRetired ? 0.5 : (isDup ? 0.55 : 1), filter: isRetired ? 'grayscale(0.6)' : 'none' }}>
@@ -284,7 +407,7 @@ function DishLibrary(props) {
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{subline}</span>
                   </div>
                 </div>
-                {!isRetired && (
+                {!isRetired && !storeInfo && (
                   <button onClick={function() { openMapFor(d.dish_name); }} title={d.hasRecipe ? T2('Change SOP mapping') : T2('Map to SOP')}
                     style={{ width: 24, height: 24, borderRadius: 6, background: isMapOpen ? C.blue : (d.hasRecipe ? 'transparent' : C.amberBg), color: isMapOpen ? '#fff' : (d.hasRecipe ? C.muted : C.amber), border: '1px solid ' + (isMapOpen ? C.blue : (d.hasRecipe ? C.border : C.amberBorder)), fontSize: 12, lineHeight: 1, cursor: 'pointer', flexShrink: 0, padding: 0 }}>🔗</button>
                 )}
@@ -359,6 +482,18 @@ function DishLibrary(props) {
                   style={{ width: 26, height: 26, borderRadius: 6, background: 'transparent', color: C.muted, border: '1px solid ' + C.border, fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0, flexShrink: 0 }}>✕</button>
               </div>
 
+              {/* V62: Type toggle — SOP dish vs Inventory dish */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 12, background: C.bg, borderRadius: 8, padding: 3, border: '1px solid ' + C.borderLight }}>
+                <button onClick={function() { switchDetailType('sop'); }}
+                  style={{ flex: 1, padding: '6px 10px', fontSize: 11, fontWeight: detailType === 'sop' ? 700 : 500, background: detailType === 'sop' ? C.wine : 'transparent', color: detailType === 'sop' ? '#fff' : C.muted, border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                  {T2('SOP dish')}
+                </button>
+                <button onClick={function() { switchDetailType('store'); }}
+                  style={{ flex: 1, padding: '6px 10px', fontSize: 11, fontWeight: detailType === 'store' ? 700 : 500, background: detailType === 'store' ? C.wine : 'transparent', color: detailType === 'store' ? '#fff' : C.muted, border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                  {T2('Inventory dish')}
+                </button>
+              </div>
+
               {/* Hindi */}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Hindi name')}</label>
@@ -380,46 +515,108 @@ function DishLibrary(props) {
                 {detailSaving === 'cat' && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{T2('Saving…')}</div>}
               </div>
 
-              {/* SOP mapping */}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('SOP recipe')}</label>
-                {!detailMapOpen ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: currentSop ? C.greenBg : C.amberBg, border: '1px solid ' + (currentSop ? C.greenBorder : C.amberBorder), borderRadius: 6 }}>
-                    <span style={{ flex: 1, fontSize: 12, color: currentSop ? C.green : C.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {currentSop || (row.explicitNone ? T2('No SOP') : T2('Not mapped'))}
-                    </span>
-                    <button onClick={function() { setDetailMapOpen(true); setDetailMapSearch(''); }}
-                      style={{ padding: '3px 10px', fontSize: 10, background: C.surface, color: C.text, border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
-                      {currentSop ? T2('Change') : T2('Map')}
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 4, padding: 8, background: C.blueBg, border: '1px solid ' + C.blueBorder, borderRadius: 6 }}>
-                    <input autoFocus type="text" value={detailMapSearch} onChange={function(e) { setDetailMapSearch(e.target.value); }} placeholder={T2('Search SOP recipes…')}
-                      onKeyDown={function(e) { if (e.key === 'Escape') { setDetailMapOpen(false); setDetailMapSearch(''); } }}
-                      style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
-                    <div style={{ maxHeight: 160, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
-                      {detailMapMatches.length === 0 && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No SOP recipes match')}</div>}
-                      {detailMapMatches.map(function(r) {
-                        var isCurrent = currentSop === r.n;
-                        return (
-                          <div key={r.n} onClick={detailSaving === 'sop' ? null : function() { saveDetailSop(r.n); }}
-                            style={{ padding: '5px 8px', fontSize: 11, cursor: detailSaving === 'sop' ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.n}</span>
-                            <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{r.cat}{isCurrent ? ' · current' : ''}</span>
-                          </div>
-                        );
-                      })}
+              {/* V62: SOP mapping (only in SOP dish mode) */}
+              {detailType === 'sop' && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('SOP recipe')}</label>
+                  {!detailMapOpen ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: currentSop ? C.greenBg : C.amberBg, border: '1px solid ' + (currentSop ? C.greenBorder : C.amberBorder), borderRadius: 6 }}>
+                      <span style={{ flex: 1, fontSize: 12, color: currentSop ? C.green : C.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {currentSop || (row.explicitNone ? T2('No SOP') : T2('Not mapped'))}
+                      </span>
+                      <button onClick={function() { setDetailMapOpen(true); setDetailMapSearch(''); }}
+                        style={{ padding: '3px 10px', fontSize: 10, background: C.surface, color: C.text, border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+                        {currentSop ? T2('Change') : T2('Map')}
+                      </button>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'space-between' }}>
-                      <button onClick={function() { setDetailMapOpen(false); setDetailMapSearch(''); }} disabled={detailSaving === 'sop'}
-                        style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.muted, cursor: 'pointer' }}>{T2('Cancel')}</button>
-                      <button onClick={clearDetailSop} disabled={detailSaving === 'sop'}
-                        style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Mark as no SOP')}</button>
+                  ) : (
+                    <div style={{ marginTop: 4, padding: 8, background: C.blueBg, border: '1px solid ' + C.blueBorder, borderRadius: 6 }}>
+                      <input autoFocus type="text" value={detailMapSearch} onChange={function(e) { setDetailMapSearch(e.target.value); }} placeholder={T2('Search SOP recipes…')}
+                        onKeyDown={function(e) { if (e.key === 'Escape') { setDetailMapOpen(false); setDetailMapSearch(''); } }}
+                        style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                      <div style={{ maxHeight: 160, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
+                        {detailMapMatches.length === 0 && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No SOP recipes match')}</div>}
+                        {detailMapMatches.map(function(r) {
+                          var isCurrent = currentSop === r.n;
+                          return (
+                            <div key={r.n} onClick={detailSaving === 'sop' ? null : function() { saveDetailSop(r.n); }}
+                              style={{ padding: '5px 8px', fontSize: 11, cursor: detailSaving === 'sop' ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.n}</span>
+                              <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{r.cat}{isCurrent ? ' · current' : ''}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'space-between' }}>
+                        <button onClick={function() { setDetailMapOpen(false); setDetailMapSearch(''); }} disabled={detailSaving === 'sop'}
+                          style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.muted, cursor: 'pointer' }}>{T2('Cancel')}</button>
+                        <button onClick={clearDetailSop} disabled={detailSaving === 'sop'}
+                          style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Mark as no SOP')}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* V62: Inventory (store item) mapping (only in Inventory dish mode) */}
+              {detailType === 'store' && (function() {
+                var currentStore = resolveDishStore(detailFor);
+                var picked = storeItems.find(function(x) { return x.id === storeItemPick; });
+                var qtyNum = Number(storeQtyBuf);
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Store item')}</label>
+                    <div style={{ marginTop: 4, padding: 8, background: C.tealBg, border: '1px solid ' + C.tealBorder, borderRadius: 6 }}>
+                      <input type="text" value={storeSearch} onChange={function(e) { setStoreSearch(e.target.value); }} placeholder={T2('Search catering store items…')}
+                        style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                      <div style={{ maxHeight: 150, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6, marginBottom: 8 }}>
+                        {storeItemsLoading && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('Loading…')}</div>}
+                        {!storeItemsLoading && storeItems.length === 0 && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No store items available')}</div>}
+                        {!storeItemsLoading && storeItems
+                          .filter(function(it) {
+                            var s = storeSearch.trim().toLowerCase();
+                            if (!s) return true;
+                            return (it.name || '').toLowerCase().indexOf(s) !== -1
+                              || (it.brand || '').toLowerCase().indexOf(s) !== -1;
+                          })
+                          .slice(0, 40)
+                          .map(function(it) {
+                            var isCurrent = storeItemPick === it.id;
+                            var suffix = [it.brand, (it.pack_size_qty ? (it.pack_size_qty + ' ' + (it.pack_size_unit || '')) : '')].filter(Boolean).join(' · ');
+                            return (
+                              <div key={it.id} onClick={detailSaving === 'store' ? null : function() { setStoreItemPick(it.id); saveDetailStore(it.id, storeQtyBuf); }}
+                                style={{ padding: '5px 8px', fontSize: 11, cursor: detailSaving === 'store' ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
+                                <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{suffix}{isCurrent ? ' · current' : ''}</span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <label style={{ fontSize: 10, color: C.muted, minWidth: 84, fontWeight: 600 }}>{T2('Qty per cover')}</label>
+                        <input type="number" min="0" step="0.01" value={storeQtyBuf}
+                          onChange={function(e) { setStoreQtyBuf(e.target.value); }}
+                          onBlur={function() { if (storeItemPick && Number(storeQtyBuf) > 0) saveDetailStore(storeItemPick, storeQtyBuf); }}
+                          onKeyDown={function(e) { if (e.key === 'Enter') { e.target.blur(); } }}
+                          style={{ width: 80, padding: '4px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, background: C.surface, color: C.text }} />
+                        <span style={{ fontSize: 10, color: C.muted }}>{picked ? (picked.unit || '') + ' ' + T2('per pax') : T2('per pax')}</span>
+                      </div>
+                      {picked && qtyNum > 0 && (
+                        <div style={{ padding: '5px 8px', fontSize: 11, color: C.teal, background: C.surface, border: '1px solid ' + C.tealBorder, borderRadius: 6, marginBottom: 6, fontWeight: 600 }}>
+                          → {storeQtyBuf} {picked.unit || ''} · {picked.name}
+                        </div>
+                      )}
+                      {detailSaving === 'store' && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{T2('Saving…')}</div>}
+                      {currentStore && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                          <button onClick={clearDetailStore} disabled={detailSaving === 'store'}
+                            style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Unlink store item')}</button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Used in packages */}
               <div style={{ marginBottom: 14 }}>
