@@ -54,6 +54,7 @@ function transformOpsItem(it) {
       venueCode: va.venues?.code || "",
       venueName: va.venues?.name || "",
     })).filter(v => v.qty > 0),
+    rate: it.rate_paise != null ? +(it.rate_paise) / 100 : null,
     source: "store",
   };
 }
@@ -61,7 +62,7 @@ function transformOpsItem(it) {
 /* Fetch all approved catering store items with joins */
 async function fetchOpsCateringItems() {
   if (!opsSupabase) return [];
-  const SELECT = "id,inventory_id,name,name_hindi,qty,unit,brand,pack_size_qty,pack_size_unit,category_id,season_reorder_qty,off_season_reorder_qty,image_path,description,status,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
+  const SELECT = "id,inventory_id,name,name_hindi,qty,unit,brand,pack_size_qty,pack_size_unit,category_id,rate_paise,season_reorder_qty,off_season_reorder_qty,image_path,description,status,categories(name,code),cs_venue_allocations(qty,venue_id,venues(code,name))";
   let all = [], from = 0, PAGE = 1000;
   while (true) {
     const { data, error } = await opsSupabase
@@ -1819,6 +1820,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <div style={{textAlign:"right",flexShrink:0}}>
                     <div style={{fontSize:12,fontWeight:600,color:si.available>0?C.green:C.red}}>{si.available}</div>
                     <div style={{fontSize:10,color:C.muted}}>{si.unit}</div>
+                    {si.rate>0&&<div style={{fontSize:10,color:C.muted,marginTop:2}}>₹{si.rate%1===0?si.rate:si.rate.toFixed(2)}/{si.unit}</div>}
                   </div>
                 </div>
               ))}
