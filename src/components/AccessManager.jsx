@@ -63,6 +63,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [filterRole, setFilterRole] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
+  const [showBasicStaff, setShowBasicStaff] = useState(false);
   const [form, setForm]       = useState(blankForm);
   const [addMode, setAddMode] = useState("staff");
   const [showPin, setShowPin] = useState(null); // staff_id whose PIN is visible
@@ -228,6 +229,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(filterRole==="dept" && !["service","crockery","beverages","transport","kiosk_gate"].includes(s.role)) return false;
     if(filterRole==="staff" && s.role!=="staff") return false;
     if(filterDept!=="all" && (s.dept||"kitchen")!==filterDept) return false;
+    if(!showBasicStaff && filterRole!=="staff" && s.role==="staff") return false;
     return true;
   });
   const activeFilterCount = (filterRole!=="all"?1:0)+(filterStatus!=="all"?1:0)+(filterDept!=="all"?1:0);
@@ -292,6 +294,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <option value="odc">ODC</option>
         </select>
         {activeFilterCount>0&&<button onClick={()=>{setFilterRole("all");setFilterStatus("all");setFilterDept("all");}} style={{padding:"4px 10px",borderRadius:20,fontSize:10,cursor:"pointer",background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>✕ {T2("Clear")} ({activeFilterCount})</button>}
+        <button onClick={()=>setShowBasicStaff(v=>!v)} title={T2("Basic Staff — Attendance only are hidden by default")} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:showBasicStaff?600:400,cursor:"pointer",background:showBasicStaff?C.goldBg:"transparent",border:`1px solid ${showBasicStaff?C.gold:C.border}`,color:showBasicStaff?C.gold:C.muted,transition:"all .15s"}}>{showBasicStaff?"👤 "+T2("Basic staff shown"):"👤 "+T2("Show basic staff")}</button>
         <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{staff.length} {T2("shown")}</span>
       </div>
 
