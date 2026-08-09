@@ -1341,7 +1341,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if (!ing) return;
             ing.filter(i => i.q > 0).forEach(i => {
               const k = (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
-              if (!bucket[k]) bucket[k] = { n: i.n, u: i.u, q: 0 };
+              if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", u: i.u, q: 0 };
+              else if (!bucket[k].h && i.h) bucket[k].h = i.h;
               bucket[k].q += Number(i.q) || 0;
             });
           });
@@ -1421,7 +1422,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               display: "flex", alignItems: "center", justifyContent: "center",
                               fontSize: 11, color: "#fff", fontWeight: 700
                             }}>{done ? "✓" : ""}</div>
-                            <div style={{ flex: 1, fontSize: large?13:12, color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
+                            <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                              <div style={{ fontSize: large?13:12, color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
+                              {i.h && <div style={{ fontSize: large?11:10, color: done ? C.faint : C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.h}</div>}
+                            </div>
                             <div style={{ fontSize: large?13:12, fontWeight: 700, color: done ? C.green : C.gold, whiteSpace: "nowrap" }}>{fmtQty(i)}</div>
                           </div>
                         );
