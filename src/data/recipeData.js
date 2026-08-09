@@ -2,7 +2,7 @@
 // Extracted from App.jsx
 // ALL RECIPE DATA NOW LIVES IN SUPABASE — this file provides structure + helper functions only
 
-import { MENU_PACKAGES } from './menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from './menuPackages.js';
 import INGREDIENT_HINDI from './ingredientHindi.js';
    
    let DISH_HINDI_MAP = {};
@@ -546,4 +546,62 @@ function packagesContainingDish(dishName) {
   return out.sort();
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore };
+// V63 ────────────────────────────────────────────────────────────
+// Return structured sections for a package. Preference order:
+//   1. Explicit sections hydrated from menu_packages.sections column
+//   2. Derived on the fly from flat MENU_PACKAGES[pkg] using getSectionForDish
+// Always returns a NEW array of NEW objects (safe for caller to mutate).
+// Shape: [{ id, name, sop_category, dishes: [dishName, ...] }, ...]
+function getSectionsForPackage(pkgName) {
+  if (!pkgName) return [];
+  const explicit = MENU_PACKAGE_SECTIONS[pkgName];
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    return explicit.map(s => ({
+      id: s.id || ('sec_' + Math.random().toString(36).slice(2, 8)),
+      name: s.name || '',
+      sop_category: s.sop_category || s.name || '',
+      dishes: Array.isArray(s.dishes) ? s.dishes.slice() : []
+    }));
+  }
+  // Derive from flat dishes[]
+  const flat = MENU_PACKAGES[pkgName] || [];
+  const bySec = {};
+  const order = [];
+  flat.forEach(d => {
+    const sec = getSectionForDish(d) || 'Other';
+    if (!bySec[sec]) { bySec[sec] = []; order.push(sec); }
+    bySec[sec].push(d);
+  });
+  return order.map((sec, i) => ({
+    id: 'sec_' + i + '_' + sec.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    name: sec,
+    sop_category: sec,
+    dishes: bySec[sec]
+  }));
+}
+
+// Flatten sections → dedup'd flat dish name array, preserving section+intra-section order.
+// Used before every menu_packages save to keep the legacy dishes[] column in sync.
+function flattenSectionsToDishes(sections) {
+  const out = [];
+  const seen = {};
+  (sections || []).forEach(s => {
+    (s.dishes || []).forEach(d => {
+      if (!d || seen[d]) return;
+      seen[d] = true;
+      out.push(d);
+    });
+  });
+  return out;
+}
+
+// Mutate both in-memory maps in place after a successful save. Matches the
+// existing pattern (MENU_PACKAGES[pkg] = filtered) in MenuPackagesView.
+// Caller is responsible for the actual supabase.update() call.
+function setPackageSections(pkgName, sections, flatDishes) {
+  if (!pkgName) return;
+  MENU_PACKAGE_SECTIONS[pkgName] = sections || [];
+  if (Array.isArray(flatDishes)) MENU_PACKAGES[pkgName] = flatDishes;
+}
+
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections };

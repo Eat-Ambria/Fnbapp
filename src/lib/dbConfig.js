@@ -250,6 +250,7 @@ export async function loadAllConfig() {
     menuPackages:       transformMenuPackages(menuPackagesRaw),
     menuPackageNames:   Object.keys(transformMenuPackages(menuPackagesRaw)),
     dishGroups:         (function() { var g = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ g[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups||'{}') : (r.dish_groups||{}); }); return g; })(),
+    menuSections:       (function() { var s = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ var raw = r.sections; if (raw == null) return; try { s[r.name] = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) { console.warn('[menu_packages] sections parse failed for', r.name, e); } }); return s; })(),
     vendors,
     recipeCategories,
     recipes:            transformRecipes(recipesRaw),

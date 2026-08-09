@@ -220,7 +220,7 @@ export default function App() {
       try {
         const cfg = await loadAllConfig();
         hydrateConstants(cfg);
-        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups);
+        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuSections);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);

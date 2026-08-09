@@ -1,77 +1,52 @@
-// Ambria FnB — Menu & Packages View
-// Two tabs: Build Menu (assign menus to functions) + Packages (view/edit standard packages)
+// Ambria FnB — Menu & Packages View  (V63 rebuild — 5b left rail)
+// Three tabs: Build menu · Packages · Dish library
 // Place in: src/components/MenuPackagesView.jsx
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, RECIPE_DB, findRecipeForDish, DISH_NAME_MAP, DISH_HINDI_MAP, resolveDishHindi, upsertDishCat, getAllDishes, upsertDishMaster, deactivateDish, resolveDishStore } from '../data/recipeData.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
-import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
+import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
-import DishLibrary from './DishLibrary.jsx';
-import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, closestCenter, useDraggable } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
-// ── Drag-handle context — inner elements (grip icons) consume {attributes, listeners} from the nearest wrapping sortable/draggable
-const DragHandleContext = React.createContext(null);
-
-function DragHandle({ style }) {
-  const ctx = React.useContext(DragHandleContext) || {};
-  return (
-    <span {...(ctx.attributes || {})} {...(ctx.listeners || {})}
-      onClick={function(e) { e.stopPropagation(); }}
-      title="Drag to reorder"
-      style={{ cursor: 'grab', touchAction: 'none', userSelect: 'none', display: 'inline-flex', alignItems: 'center', flexShrink: 0, ...style }}>⋮⋮</span>
-  );
+// ── CSV utilities (V63 5e) ─────────────────────────────────────────
+// Handles quoted fields, escaped double-quotes, commas inside quotes, CRLF/LF.
+function parseCSV(text) {
+  var rows = []; var cur = []; var field = ''; var i = 0; var inQ = false;
+  var s = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  while (i < s.length) {
+    var c = s[i];
+    if (inQ) {
+      if (c === '"') { if (s[i+1] === '"') { field += '"'; i += 2; continue; } inQ = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQ = true; i++; continue; }
+    if (c === ',') { cur.push(field); field = ''; i++; continue; }
+    if (c === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; i++; continue; }
+    field += c; i++;
+  }
+  if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
+  return rows.filter(function(r) { return r.length > 0 && r.some(function(v) { return (v || '').trim() !== ''; }); });
 }
-
-function SortableSectionCard({ sec, children }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: 'sec:' + sec,
-    data: { type: 'section', section: sec }
-  });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    position: 'relative',
-    zIndex: isDragging ? 100 : 'auto',
-  };
-  return (
-    <DragHandleContext.Provider value={{ attributes, listeners }}>
-      <div ref={setNodeRef} style={style}>{children}</div>
-    </DragHandleContext.Provider>
-  );
-}
-
-function DraggableDishRow({ sec, idx, children }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: 'dish:' + sec + ':' + idx,
-    data: { type: 'dish', sourceSec: sec, sourceIdx: idx }
-  });
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.4 : 1,
-    position: 'relative',
-    zIndex: isDragging ? 100 : 'auto',
-  };
-  return (
-    <DragHandleContext.Provider value={{ attributes, listeners }}>
-      <div ref={setNodeRef} style={style}>{children}</div>
-    </DragHandleContext.Provider>
-  );
+function csvEscape(v) { var s = (v == null ? '' : String(v)); return /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function csvRow(arr) { return arr.map(csvEscape).join(','); }
+function downloadCSV(filename, text) {
+  var blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   var T2 = function(s) { return T(s, lang); };
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
-  var [mainTab, setMainTab] = useState("events"); // "events" | "packages"
+  var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
 
   // ════════════════════════════════════════════════════════════
-  // BUILD MENU TAB STATE
+  // BUILD MENU TAB — preserved verbatim from V62
   // ════════════════════════════════════════════════════════════
   var [selEvId, setSelEvId] = useState(null);
 
@@ -119,529 +94,437 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   }
 
   // ════════════════════════════════════════════════════════════
-  // PACKAGES TAB STATE (original MenuPackagesView)
+  // PACKAGES TAB STATE (5b)
   // ════════════════════════════════════════════════════════════
-  var pkgNames = Object.keys(MENU_PACKAGES);
   var [selPkg, setSelPkg] = useState(null);
-  var [openSections, setOpenSections] = useState({});
-  var [dishEditMode, setDishEditMode] = useState(false);
-  var [editSections, setEditSections] = useState({});
-  var [editGroups, setEditGroups] = useState({});
-  var [dishSaving, setDishSaving] = useState(false);
-  var [addSecVal, setAddSecVal] = useState("");
-  var [addGrpSec, setAddGrpSec] = useState("");
-  var [addGrpName, setAddGrpName] = useState("");
-  var [mapDropOpen, setMapDropOpen] = useState(null);
-  var [mapSearch, setMapSearch] = useState("");
-  var [quickAddSec, setQuickAddSec] = useState(null);
-  var [quickAddVal, setQuickAddVal] = useState("");
-  var [quickAddSaving, setQuickAddSaving] = useState(false);
-  var [refreshTick, setRefreshTick] = useState(0);
 
-  var allSections = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
+  var pkgNames = Object.keys(MENU_PACKAGES).sort();
 
-  function toggleSection(sec) { setOpenSections(function(p) { return { ...p, [sec]: !p[sec] }; }); }
-
-  function secToCatId(secName) {
-    var dbCat = (RECIPE_DB.cats || []).find(function(c) { return c.name === secName; });
-    if (dbCat) return dbCat.id;
-    return secName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+  function pkgSummary(pkg) {
+    var dishes = MENU_PACKAGES[pkg] || [];
+    var sections = getSectionsForPackage(pkg);
+    return { dishCount: dishes.length, sectionCount: sections.length };
   }
 
-  // ─── Dish editing + SOP mapping helpers ───
-  var allRecipes = (RECIPE_DB.cats || []).flatMap(function(cat) {
-    return (RECIPE_DB.recipes[cat.id] || []).map(function(r) {
-      var dn = r.n.indexOf('/') > -1 ? r.n.split('/')[0].trim() : r.n;
-      return { name: r.n, display: dn, catName: cat.name, catIcon: cat.icon };
-    });
-  });
-  function isSplittable(dish) {
-    if (!dish) return false;
-    var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
-    if (pm && pm[2].includes('/')) return true;
-    return (dish.match(/\//g) || []).length >= 1;
-  }
-  function normDishItem(it) {
-    if (typeof it === 'string') return { en: it, hi: '' };
-    return { en: (it && it.en) || '', hi: (it && it.hi) || '' };
-  }
-  function cloneES(obj) {
-    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = (obj[k]||[]).map(normDishItem); }); return out;
-  }
-  function cloneEG(obj) {
-    var out = {}; Object.keys(obj).forEach(function(k) { out[k] = { section: obj[k].section, items: (obj[k].items||[]).map(normDishItem) }; }); return out;
-  }
-  function enterDishEdit() {
-    var pkgGroups = DISH_GROUPS[selPkg] || {};
-    var groupedSet = {};
-    Object.values(pkgGroups).forEach(function(items) { (items||[]).forEach(function(d) { groupedSet[d] = true; }); });
-    var wrap = function(d) { return { en: d, hi: resolveDishHindi(d) || '' }; };
-    var bySec = {}; var missing = [];
-    (MENU_PACKAGES[selPkg] || []).forEach(function(d) {
-      if (groupedSet[d]) return;
-      var sec = getSectionForDish(d);
-      if (!bySec[sec]) bySec[sec] = [];
-      var w = wrap(d); if (!w.hi) missing.push(d);
-      bySec[sec].push(w);
-    });
-    setEditSections(bySec);
-    var eg = {};
-    Object.entries(pkgGroups).forEach(function(entry) {
-      var items = entry[1] || [];
-      var sec = items.length > 0 ? getSectionForDish(items[0]) : "Other";
-      eg[entry[0]] = { section: sec, items: items.map(function(d) { var w = wrap(d); if (!w.hi) missing.push(d); return w; }) };
-    });
-    setEditGroups(eg);
-    if (missing.length) console.log('[dishHindi] no auto-fill for:', missing);
-    setDishEditMode(true); setAddSecVal(""); setAddGrpSec(""); setAddGrpName("");
-    setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
-    var firstSec = Object.keys(bySec).sort()[0] || '';
-    setActiveLibrarySection(firstSec);
-  }
-  function cancelDishEdit() { setDishEditMode(false); setEditSections({}); setEditGroups({}); setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null); setDishSel({}); }
-  function renameDishInSec(sec, idx, field, val) {
-    var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], [field]: val }; setEditSections(upd);
-  }
-  function autofillDishHiInSec(sec, idx) {
-    var cur = (editSections[sec] || [])[idx]; if (!cur || !cur.en || cur.hi) return;
-    var hi = resolveDishHindi(cur.en); if (!hi) return;
-    var upd = cloneES(editSections); upd[sec][idx] = { ...upd[sec][idx], hi: hi }; setEditSections(upd);
-  }
-  function deleteDishInSec(sec, idx) {
-    var upd = cloneES(editSections);
-    upd[sec] = upd[sec].filter(function(_, i) { return i !== idx; });
-    if (upd[sec].length === 0) delete upd[sec];
-    setEditSections(upd);
-  }
-  function addDishInSec(sec) {
-    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = []; upd[sec].push({ en: "", hi: "" }); setEditSections(upd);
-  }
-  function addNamedDishInSec(name, sec) {
-    if (!name || !sec) return;
-    var upd = cloneES(editSections); if (!upd[sec]) upd[sec] = [];
-    var hi = ''; try { hi = resolveDishHindi(name) || ''; } catch(e) {}
-    upd[sec].push({ en: name, hi: hi }); setEditSections(upd);
-  }
-  function toggleDishSel(i) {
-    setDishSel(function(prev) { var next = {...prev}; if (next[i]) delete next[i]; else next[i] = true; return next; });
-  }
-  function selectedIdxs() {
-    return Object.keys(dishSel).filter(function(k) { return dishSel[k]; }).map(Number).sort(function(a, b) { return a - b; });
-  }
-  function bulkDeleteInActive() {
-    var idxs = selectedIdxs(); if (!idxs.length || !activeLibrarySection) return;
-    if (!window.confirm(T2('Delete ') + idxs.length + T2(' dish(es) from "') + activeLibrarySection + '"?')) return;
-    var upd = cloneES(editSections);
-    upd[activeLibrarySection] = (upd[activeLibrarySection] || []).filter(function(_, i) { return idxs.indexOf(i) === -1; });
-    if (upd[activeLibrarySection].length === 0) delete upd[activeLibrarySection];
-    setEditSections(upd);
-    setDishSel({});
-  }
-  function bulkMoveToSec(targetSec) {
-    var idxs = selectedIdxs();
-    if (!idxs.length || !targetSec || !activeLibrarySection || targetSec === activeLibrarySection) return;
-    var upd = cloneES(editSections);
-    var srcList = upd[activeLibrarySection] || [];
-    var moving = idxs.map(function(i) { return srcList[i]; }).filter(Boolean);
-    if (!moving.length) return;
-    upd[activeLibrarySection] = srcList.filter(function(_, i) { return idxs.indexOf(i) === -1; });
-    if (upd[activeLibrarySection].length === 0) delete upd[activeLibrarySection];
-    if (!upd[targetSec]) upd[targetSec] = [];
-    upd[targetSec] = upd[targetSec].concat(moving);
-    setEditSections(upd);
-    setDishSel({});
-    setActiveLibrarySection(targetSec);
+  function pkgUsageCount(pkg) {
+    return safeArr(events).filter(function(e) { return e.menuPackage === pkg && e.date >= TODAY; }).length;
   }
 
-  // ── DnD sensors + handler (6.4) ──
-  var dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
-  );
+  // ── Local editor state (5c — no writes yet, wires up in 5d) ────────
+  var [editorSections, setEditorSections] = useState([]);
+  var [dirty, setDirty]                   = useState(false);
+  var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
 
-  function handleDragEnd(event) {
-    var active = event.active, over = event.over;
-    if (!over) return;
-    var activeType = active.data && active.data.current && active.data.current.type;
-    var overType   = over.data   && over.data.current   && over.data.current.type;
-
-    // Section reorder
-    if (activeType === 'section' && overType === 'section') {
-      if (active.id === over.id) return;
-      var ids = visibleSecNames.map(function(s) { return 'sec:' + s; });
-      var oldIdx = ids.indexOf(active.id);
-      var newIdx = ids.indexOf(over.id);
-      if (oldIdx < 0 || newIdx < 0) return;
-      var reordered = arrayMove(ids, oldIdx, newIdx).map(function(id) { return id.slice(4); });
-      setSecOrder(reordered);
-      return;
-    }
-
-    // Dish move to target section
-    if (activeType === 'dish' && overType === 'section') {
-      var srcSec = active.data.current.sourceSec;
-      var srcIdx = active.data.current.sourceIdx;
-      var targetSec = over.data.current.section;
-      if (srcSec === targetSec) return;
-      var upd = cloneES(editSections);
-      var srcList = upd[srcSec] || [];
-      var item = srcList[srcIdx];
-      if (!item) return;
-      upd[srcSec] = srcList.filter(function(_, i) { return i !== srcIdx; });
-      if (upd[srcSec].length === 0) delete upd[srcSec];
-      if (!upd[targetSec]) upd[targetSec] = [];
-      upd[targetSec] = upd[targetSec].concat([item]);
-      setEditSections(upd);
-      setDishSel({});
-    }
-  }
-  var [activeLibrarySection, setActiveLibrarySection] = useState('');
-  var [libRefreshKey, setLibRefreshKey]               = useState(0);
-  var [secMenuOpen, setSecMenuOpen]                   = useState(null);
-  var [sectionRenames, setSectionRenames]             = useState({});
-  var [secOrder, setSecOrder]                         = useState([]);
-  var [duplicating, setDuplicating]                   = useState(false);
-  var [dishSel, setDishSel]                           = useState({});  // { idx: true } — indices within activeLibrarySection
-  useEffect(function() { setDishSel({}); }, [activeLibrarySection, dishEditMode]);
-  function splitDishInSec(sec, idx) {
-    var dishObj = editSections[sec][idx]; var dish = (dishObj && dishObj.en) || '';
-    var parts = []; var label = '';
-    var pm = dish.match(/^(.+?)\s*\((.+)\)\s*$/);
-    if (pm) { label = pm[1].trim(); parts = pm[2].split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
-    else if (dish.includes('/')) { parts = dish.split('/').map(function(s) { return s.trim(); }).filter(Boolean); }
-    if (parts.length < 2) return;
-    var partsObj = parts.map(function(p) { return { en: p, hi: resolveDishHindi(p) || '' }; });
-    var updSec = cloneES(editSections); updSec[sec].splice(idx, 1);
-    if (label) {
-      var updGrp = cloneEG(editGroups);
-      updGrp[label] = { section: sec, items: partsObj };
-      setEditGroups(updGrp);
+  useEffect(function() {
+    if (selPkg) {
+      setEditorSections(getSectionsForPackage(selPkg));
+      setDirty(false);
+      setAddDishInput({});
     } else {
-      for (var i = partsObj.length - 1; i >= 0; i--) updSec[sec].splice(idx, 0, partsObj[i]);
+      setEditorSections([]);
+      setDirty(false);
+      setAddDishInput({});
     }
-    setEditSections(updSec);
-  }
-  function renameDishInGrp(grp, idx, field, val) {
-    var upd = cloneEG(editGroups); upd[grp].items[idx] = { ...upd[grp].items[idx], [field]: val }; setEditGroups(upd);
-  }
-  function autofillDishHiInGrp(grp, idx) {
-    var cur = (editGroups[grp] && editGroups[grp].items || [])[idx]; if (!cur || !cur.en || cur.hi) return;
-    var hi = resolveDishHindi(cur.en); if (!hi) return;
-    var upd = cloneEG(editGroups); upd[grp].items[idx] = { ...upd[grp].items[idx], hi: hi }; setEditGroups(upd);
-  }
-  function deleteDishInGrp(grp, idx) {
-    var upd = cloneEG(editGroups); upd[grp].items = upd[grp].items.filter(function(_, i) { return i !== idx; });
-    if (upd[grp].items.length === 0) delete upd[grp];
-    setEditGroups(upd);
-  }
-  function addDishToGrp(grp) {
-    var upd = cloneEG(editGroups); upd[grp].items.push({ en: "", hi: "" }); setEditGroups(upd);
-  }
-  function deleteGroup(grp) {
-    var g = editGroups[grp]; if (!g) return;
-    var updSec = cloneES(editSections);
-    if (!updSec[g.section]) updSec[g.section] = [];
-    g.items.forEach(function(d) { var en = (d && d.en) ? d.en.trim() : ''; if (en) updSec[g.section].push({ en: en, hi: (d && d.hi) || '' }); });
-    setEditSections(updSec);
-    var updGrp = cloneEG(editGroups); delete updGrp[grp]; setEditGroups(updGrp);
-  }
-  function createGroup(sec) {
-    if (!addGrpName.trim()) return;
-    var upd = cloneEG(editGroups);
-    upd[addGrpName.trim()] = { section: sec, items: [{ en: "", hi: "" }] };
-    setEditGroups(upd); setAddGrpName(""); setAddGrpSec("");
-  }
-  var editDishTotal = Object.values(editSections).reduce(function(s, a) { return s + a.length; }, 0)
-    + Object.values(editGroups).reduce(function(s, g) { return s + (g.items||[]).length; }, 0);
-  var editSecNames = Object.keys(editSections).concat(
-    Object.values(editGroups).map(function(g) { return g.section; })
-  ).filter(function(v, i, a) { return a.indexOf(v) === i; });
-  if (secOrder && secOrder.length) {
-    editSecNames.sort(function(a, b) {
-      var ai = secOrder.indexOf(a); if (ai < 0) ai = 999;
-      var bi = secOrder.indexOf(b); if (bi < 0) bi = 999;
-      return ai !== bi ? ai - bi : a.localeCompare(b);
+  }, [selPkg]);
+
+  function genSecId() { return 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+
+  function addSection() {
+    setEditorSections(function(prev) {
+      return [...prev, { id: genSecId(), name: 'New section', sop_category: '', dishes: [] }];
     });
-  } else {
-    editSecNames.sort();
+    setDirty(true);
   }
-  async function saveDishes() {
-    setDishSaving(true);
-    try {
-      var origSet = {};
-      (MENU_PACKAGES[selPkg] || []).forEach(function(d) { origSet[d] = true; });
-      var filtered = [];
-      var hindiRows = [];
-      var pushDish = function(obj) {
-        var en = (obj && obj.en) ? obj.en.trim() : '';
-        var hi = (obj && obj.hi) ? obj.hi.trim() : '';
-        if (!en) return;
-        filtered.push(en);
-        if (hi) hindiRows.push({ dish_name: en, hi: hi });
+  function renameSection(secId, newName) {
+    setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, name: newName } : s; }); });
+    setDirty(true);
+  }
+  function setSectionCategory(secId, catName) {
+    setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, sop_category: catName } : s; }); });
+    setDirty(true);
+  }
+  function deleteSection(secId) {
+    var sec = editorSections.find(function(s) { return s.id === secId; });
+    if (!sec) return;
+    if (sec.dishes.length > 0 && !window.confirm('Delete section "' + (sec.name||'') + '" with ' + sec.dishes.length + ' dishes? Dishes will be removed from this package (but stay in the Dish Library).')) return;
+    setEditorSections(function(prev) { return prev.filter(function(s) { return s.id !== secId; }); });
+    setDirty(true);
+  }
+  function addDishToSection(secId, name) {
+    var trimmed = (name || '').trim();
+    if (!trimmed) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        if (s.dishes.indexOf(trimmed) !== -1) return s;
+        return { ...s, dishes: [...s.dishes, trimmed] };
+      });
+    });
+    setAddDishInput(function(p) { return { ...p, [secId]: '' }; });
+    setDirty(true);
+  }
+  function removeDishFromSection(secId, name) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, dishes: s.dishes.filter(function(d) { return d !== name; }) };
+      });
+    });
+    setDirty(true);
+  }
+  function discardChanges() {
+    if (!selPkg) return;
+    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    setEditorSections(getSectionsForPackage(selPkg));
+    setDirty(false);
+    setAddDishInput({});
+  }
+  function getDishType(name) {
+    if (!name) return 'unmapped';
+    if (resolveDishStore(name)) return 'inventory';
+    if (findRecipeForDish(name)) return 'sop';
+    return 'unmapped';
+  }
+
+  // ── Save / lifecycle (5d) ─────────────────────────────────────────
+  var [saving, setSaving] = useState(false);
+
+  // Strip client-only cruft before persisting. Keeps id (stable ref).
+  function serializeSections(secs) {
+    return (secs || []).map(function(s) {
+      return {
+        id: s.id || genSecId(),
+        name: (s.name || '').trim() || 'Untitled',
+        sop_category: s.sop_category || '',
+        dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
       };
-      editSecNames.forEach(function(sec) {
-        (editSections[sec] || []).forEach(pushDish);
-        Object.entries(editGroups).forEach(function(ge) {
-          if (ge[1].section === sec) (ge[1].items||[]).forEach(pushDish);
-        });
-      });
-      var dg = {};
-      Object.entries(editGroups).forEach(function(ge) {
-        var items = (ge[1].items||[]).map(function(d) { return (d && d.en) ? d.en.trim() : ''; }).filter(Boolean);
-        if (items.length > 0) dg[ge[0]] = items;
-      });
-      var res = await supabase.from('menu_packages').update({ dishes: filtered, dish_groups: dg }).eq('name', selPkg);
+    });
+  }
+
+  function clearMenuPackageCaches() {
+    try {
+      localStorage.removeItem('ambria_menu_packages');
+      localStorage.removeItem('ambria_cfg_menu_packages');
+    } catch(e) {}
+  }
+
+  async function savePackage() {
+    if (!selPkg || saving) return;
+    var serialized = serializeSections(editorSections);
+    var flatDishes = flattenSectionsToDishes(serialized);
+    setSaving(true);
+    try {
+      var res = await supabase.from('menu_packages')
+        .update({ dishes: flatDishes, sections: serialized })
+        .eq('name', selPkg);
       if (res.error) throw res.error;
-      MENU_PACKAGES[selPkg] = filtered;
-      DISH_GROUPS[selPkg] = dg;
-      // Upsert Hindi overrides in one batch
-      if (hindiRows.length > 0) {
-        var resHi = await supabase.from('dish_hindi_map').upsert(hindiRows, { onConflict: 'dish_name' });
-        if (resHi.error) throw resHi.error;
-        hindiRows.forEach(function(r) { DISH_HINDI_MAP[r.dish_name] = r.hi; });
-      }
-      for (var si = 0; si < editSecNames.length; si++) {
-        var sec = editSecNames[si]; var catId = secToCatId(sec);
-        var allInSec = [].concat(editSections[sec] || []);
-        Object.entries(editGroups).forEach(function(ge) { if (ge[1].section === sec) allInSec = allInSec.concat(ge[1].items||[]); });
-        for (var di = 0; di < allInSec.length; di++) {
-          var d = (allInSec[di] && allInSec[di].en) ? allInSec[di].en.trim() : '';
-          if (!d) continue;
-          // Fire whenever placed section differs from currently-resolved category —
-          // not just for new dishes — so cross-section moves stick.
-          var currentCat = getCatIdForDish(d);
-          if (!origSet[d] || currentCat !== catId) {
-            await supabase.from('dish_categories').upsert({ dish_name: d, category_id: catId }, { onConflict: 'dish_name' });
-            upsertDishCat(d, catId);
-          }
-        }
-      }
-      // Apply section renames (recipe_categories.name update — cascade via id, no dish_categories update needed)
-      var renamePairs = Object.keys(sectionRenames).filter(function(oldN) { var v = (sectionRenames[oldN]||'').trim(); return v && v !== oldN; });
-      for (var ri = 0; ri < renamePairs.length; ri++) {
-        var oldN = renamePairs[ri]; var newN = sectionRenames[oldN].trim();
-        var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === oldN; });
-        if (cat) {
-          var resR = await supabase.from('recipe_categories').update({ name: newN }).eq('id', cat.id);
-          if (resR.error) throw resR.error;
-          cat.name = newN;
-        }
-      }
-      if (renamePairs.length) { try { localStorage.removeItem('ambria_cfg_recipe_categories'); } catch(e3) {} }
-      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); localStorage.removeItem('ambria_cfg_dish_hindi_map'); } catch(e2) {}
-      setDishEditMode(false); setEditSections({}); setEditGroups({});
-      setSectionRenames({}); setSecOrder([]); setSecMenuOpen(null);
-    } catch(e) { alert('Error saving dishes: ' + e.message); }
-    setDishSaving(false);
+      setPackageSections(selPkg, serialized, flatDishes);
+      clearMenuPackageCaches();
+      setEditorSections(serialized);
+      setDirty(false);
+    } catch (e) {
+      console.error('savePackage failed:', e);
+      alert('Save failed: ' + (e.message || e));
+    } finally {
+      setSaving(false);
+    }
   }
-  function getMappingStatus(dish) {
-    if (!dish) return { status: 'unmapped', recipe: null };
-    // V62: Tier 0 — Ops store item mapping (finished goods like Bisleri, disposables).
-    // Checked BEFORE dish_name_map: a stores dish is intentionally not SOP-linked.
-    var store = resolveDishStore(dish);
-    if (store) return { status: 'stores', recipe: null, store: store };
-    var dn = dish.toLowerCase().trim();
-    var mapKey = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === dn; });
-    if (mapKey && DISH_NAME_MAP[mapKey] === '__none__') return { status: 'unmapped', recipe: null };
-    if (mapKey) return { status: 'mapped', recipe: DISH_NAME_MAP[mapKey] };
-    var recipe = findRecipeForDish(dish);
-    if (recipe) return { status: 'auto', recipe: recipe.n };
-    return { status: 'unmapped', recipe: null };
-  }
-  async function quickAddDish(sec) {
-    var name = quickAddVal.trim();
+
+  async function createPackage() {
+    if (dirty) { alert('Save or discard current changes first.'); return; }
+    var name = (window.prompt('New package name:') || '').trim();
     if (!name) return;
-    var current = (MENU_PACKAGES[selPkg] || []).slice();
-    if (current.some(function(d) { return d.toLowerCase() === name.toLowerCase(); })) {
-      alert('"' + name + '" already exists in this package.');
-      return;
-    }
-    setQuickAddSaving(true);
+    if (MENU_PACKAGES[name]) { alert('A package named "' + name + '" already exists.'); return; }
+    setSaving(true);
     try {
-      var next = current.concat([name]);
-      var res = await supabase.from('menu_packages').update({ dishes: next }).eq('name', selPkg);
+      var res = await supabase.from('menu_packages')
+        .insert({ name: name, dishes: [], sections: [], is_active: true });
       if (res.error) throw res.error;
-      var catId = secToCatId(sec);
-      if (catId) {
-        await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
-        upsertDishCat(name, catId);
-      }
-      MENU_PACKAGES[selPkg] = next;
-      try { localStorage.removeItem('ambria_cfg_menu_packages'); localStorage.removeItem('ambria_cfg_dish_categories'); } catch(e2) {}
-      setQuickAddVal("");
-      setQuickAddSec(null);
-      setRefreshTick(function(t) { return t + 1; });
-    } catch(e) {
-      alert('Error adding dish: ' + e.message);
+      setPackageSections(name, [], []);
+      clearMenuPackageCaches();
+      setSelPkg(name);
+    } catch (e) {
+      console.error('createPackage failed:', e);
+      alert('Create failed: ' + (e.message || e));
+    } finally {
+      setSaving(false);
     }
-    setQuickAddSaving(false);
-  }
-  async function saveOneMapping(lmsName, recipeName) {
-    try {
-      var res = await supabase.from('dish_name_map').upsert({ lms_name: lmsName, recipe_dish_name: recipeName }, { onConflict: 'lms_name' });
-      if (res.error) throw res.error;
-      DISH_NAME_MAP[lmsName] = recipeName;
-    } catch(e) { alert('Error saving mapping: ' + e.message); }
-    setMapDropOpen(null); setMapSearch("");
-  }
-  async function removeMapping(lmsName) {
-    try {
-      var ms = getMappingStatus(lmsName);
-      if (ms.status === 'auto') {
-        await supabase.from('dish_name_map').upsert({ lms_name: lmsName, recipe_dish_name: '__none__' }, { onConflict: 'lms_name' });
-        DISH_NAME_MAP[lmsName] = '__none__';
-      } else {
-        await supabase.from('dish_name_map').delete().eq('lms_name', lmsName); delete DISH_NAME_MAP[lmsName];
-      }
-    } catch(e) { alert('Error removing: ' + e.message); }
   }
 
-  function deleteSectionInEdit(sec) {
-    var count = (editSections[sec] || []).length + Object.values(editGroups).filter(function(g) { return g.section === sec; }).reduce(function(s, g) { return s + (g.items||[]).length; }, 0);
-    if (count > 0 && !window.confirm('Delete section "' + sec + '" and its ' + count + ' dishes?')) return;
-    var upd = cloneES(editSections); delete upd[sec]; setEditSections(upd);
-    var updG = cloneEG(editGroups); Object.keys(updG).forEach(function(k) { if (updG[k].section === sec) delete updG[k]; }); setEditGroups(updG);
-    if (activeLibrarySection === sec) {
-      var next = Object.keys(upd).sort()[0] || '';
-      setActiveLibrarySection(next);
-    }
-    setSecMenuOpen(null);
-  }
-  function moveSectionInEdit(sec, dir) {
-    // Compute current ordered list (respecting secOrder)
-    var base = Object.keys(editSections).concat(
-      Object.values(editGroups).map(function(g) { return g.section; })
-    ).filter(function(v, i, a) { return a.indexOf(v) === i; });
-    if (secOrder.length) base.sort(function(a, b) {
-      var ai = secOrder.indexOf(a); if (ai < 0) ai = 999;
-      var bi = secOrder.indexOf(b); if (bi < 0) bi = 999;
-      return ai !== bi ? ai - bi : a.localeCompare(b);
-    }); else base.sort();
-    var idx = base.indexOf(sec); var swap = idx + dir;
-    if (idx < 0 || swap < 0 || swap >= base.length) return;
-    var tmp = base[idx]; base[idx] = base[swap]; base[swap] = tmp;
-    setSecOrder(base); setSecMenuOpen(null);
-  }
   async function duplicatePackage() {
-    var proposed = window.prompt('Name for the copy of "' + selPkg + '":', selPkg + ' (Copy)');
-    if (!proposed || !proposed.trim()) return;
-    var newName = proposed.trim();
-    if (MENU_PACKAGES[newName]) { alert('A package with that name already exists.'); return; }
-    setDuplicating(true);
+    if (!selPkg) return;
+    if (dirty) { alert('Save or discard current changes first.'); return; }
+    var suggested = selPkg + ' (copy)';
+    var name = (window.prompt('Duplicate as:', suggested) || '').trim();
+    if (!name) return;
+    if (MENU_PACKAGES[name]) { alert('A package named "' + name + '" already exists.'); return; }
+    var srcSections = getSectionsForPackage(selPkg);
+    // Regenerate ids so the copy has independent stable refs
+    var copySections = srcSections.map(function(s) { return { ...s, id: genSecId(), dishes: s.dishes.slice() }; });
+    var serialized = serializeSections(copySections);
+    var flatDishes = flattenSectionsToDishes(serialized);
+    setSaving(true);
     try {
-      var dishes = (MENU_PACKAGES[selPkg] || []).slice();
-      var dg = DISH_GROUPS[selPkg] || {};
-      var res = await supabase.from('menu_packages').insert({ name: newName, dishes: dishes, dish_groups: dg, is_active: true });
+      var res = await supabase.from('menu_packages')
+        .insert({ name: name, dishes: flatDishes, sections: serialized, is_active: true });
       if (res.error) throw res.error;
-      MENU_PACKAGES[newName] = dishes;
-      DISH_GROUPS[newName] = dg;
-      try { localStorage.removeItem('ambria_cfg_menu_packages'); } catch(e) {}
-      alert('Duplicated as "' + newName + '". Reload to see it in the package list.');
-    } catch(e) { alert('Duplicate failed: ' + e.message); }
-    setDuplicating(false);
-  }
-
-  // ── Export current editSections/editGroups/secOrder/sectionRenames as JSON ──
-  function exportPackageJSON() {
-    var payload = {
-      type: 'ambria_menu_package',
-      version: 1,
-      name: selPkg,
-      exported_at: new Date().toISOString(),
-      sections: editSections,
-      groups: editGroups,
-      sec_order: secOrder,
-      section_renames: sectionRenames,
-    };
-    try {
-      var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      var safeName = (selPkg || 'package').replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
-      a.href = url;
-      a.download = safeName + '_' + new Date().toISOString().slice(0, 10) + '.json';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch(e) { alert('Export failed: ' + e.message); }
-  }
-
-  function applyImportPayload(data) {
-    setEditSections(data.sections || {});
-    setEditGroups(data.groups || {});
-    setSecOrder(Array.isArray(data.sec_order) ? data.sec_order : []);
-    setSectionRenames(data.section_renames || {});
-    setDishSel({});
-    var firstSec = Object.keys(data.sections || {}).sort()[0] || '';
-    if (firstSec) setActiveLibrarySection(firstSec);
-    alert(T2('Import loaded. Review changes and click Save to commit.'));
-  }
-
-  async function handleImportFile(file) {
-    if (!file) return;
-    var text;
-    try { text = await file.text(); } catch(e) { alert('Read failed: ' + e.message); return; }
-    var data;
-    try { data = JSON.parse(text); } catch(e) { alert('Invalid JSON: ' + e.message); return; }
-    if (!data || data.type !== 'ambria_menu_package') { alert('Not a valid Ambria package export.'); return; }
-    if (!data.sections || typeof data.sections !== 'object') { alert('Missing "sections" in payload.'); return; }
-
-    // Collect all dish names from sections + groups
-    var names = [];
-    Object.keys(data.sections).forEach(function(sec) {
-      (data.sections[sec] || []).forEach(function(d) { if (d && d.en) names.push(d.en); });
-    });
-    Object.keys(data.groups || {}).forEach(function(grp) {
-      var items = (data.groups[grp] && data.groups[grp].items) || [];
-      items.forEach(function(d) { if (d && d.en) names.push(d.en); });
-    });
-    var uniqueNames = names.filter(function(n, i) { return names.indexOf(n) === i; });
-
-    var known = getAllDishes({ includeInactive: true });
-    var knownSet = {}; known.forEach(function(d) { knownSet[d.dish_name] = true; });
-    var missing = uniqueNames.filter(function(n) { return !knownSet[n]; });
-
-    if (missing.length === 0) { applyImportPayload(data); return; }
-
-    var preview = missing.slice(0, 10).join('\n') + (missing.length > 10 ? '\n… and ' + (missing.length - 10) + ' more' : '');
-    var msg = missing.length + T2(' dish(es) not in the master catalogue:\n\n') + preview + T2('\n\nInsert them into dishes_master before applying?');
-    if (!window.confirm(msg)) {
-      if (window.confirm(T2('Import anyway without adding to catalogue?'))) applyImportPayload(data);
-      return;
+      setPackageSections(name, serialized, flatDishes);
+      clearMenuPackageCaches();
+      setSelPkg(name);
+    } catch (e) {
+      console.error('duplicatePackage failed:', e);
+      alert('Duplicate failed: ' + (e.message || e));
+    } finally {
+      setSaving(false);
     }
+  }
+
+  async function deletePackage() {
+    if (!selPkg) return;
+    if (dirty) { alert('Save or discard current changes first.'); return; }
+    var usage = pkgUsageCount(selPkg);
+    var warn = 'Delete package "' + selPkg + '"?';
+    if (usage > 0) warn += '\n\n⚠ ' + usage + ' upcoming function(s) still reference this package. Their existing menus stay intact, but they will lose the package link.';
+    warn += '\n\nThis is a soft delete — the row is marked inactive and can be restored in Supabase.';
+    if (!window.confirm(warn)) return;
+    setSaving(true);
     try {
-      var rows = missing.map(function(n) { return { dish_name: n }; });
-      var res = await supabase.from('dishes_master').insert(rows);
-      if (res.error && res.error.code !== '23505') throw res.error;
-      missing.forEach(function(n) { upsertDishMaster(n, { is_active: true }); });
-      applyImportPayload(data);
-    } catch(e) { alert('Insert failed: ' + e.message); }
+      var res = await supabase.from('menu_packages')
+        .update({ is_active: false })
+        .eq('name', selPkg);
+      if (res.error) throw res.error;
+      delete MENU_PACKAGES[selPkg];
+      delete MENU_PACKAGE_SECTIONS[selPkg];
+      clearMenuPackageCaches();
+      setSelPkg(null);
+    } catch (e) {
+      console.error('deletePackage failed:', e);
+      alert('Delete failed: ' + (e.message || e));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function triggerPackageImport() {
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json,application/json';
-    input.onchange = function() { if (input.files && input.files[0]) handleImportFile(input.files[0]); };
-    input.click();
+  // ── CSV import / export (5e) ──────────────────────────────────────
+  var [csvOpen, setCsvOpen]         = useState(false);
+  var [csvRows, setCsvRows]         = useState([]);
+  var [csvOpsItems, setCsvOpsItems] = useState([]);
+  var [csvFile, setCsvFile]         = useState('');
+  var [csvErrors, setCsvErrors]     = useState([]);
+  var [csvLoading, setCsvLoading]   = useState(false);
+  var [csvSaving, setCsvSaving]     = useState(false);
+
+  function exportCurrentPackage() {
+    if (!selPkg) return;
+    var sections = getSectionsForPackage(selPkg);
+    var lines = ['package,section,dish,type,sop_category,ops_item,qty_per_cover,hindi'];
+    sections.forEach(function(sec) {
+      sec.dishes.forEach(function(d) {
+        var store = resolveDishStore(d);
+        var hi = resolveDishHindi(d) || '';
+        var type = store ? 'inventory' : (findRecipeForDish(d) ? 'sop' : '');
+        lines.push(csvRow([
+          selPkg, sec.name, d, type,
+          sec.sop_category || '',
+          store ? (store.ops_item_name || '') : '',
+          store ? (store.qty_per_cover || '') : '',
+          hi
+        ]));
+      });
+    });
+    downloadCSV(selPkg.replace(/[^\w]+/g, '_') + '.csv', lines.join('\n'));
   }
 
-  var PKG_META = {
-    "Multi-Cuisine Veg": { icon: "🌱", c: "#4DAA6A", bg: C.greenBg },
-    "Multi-Cuisine Non-Veg": { icon: "🍗", c: "#D06040", bg: C.redBg },
-    "Magnum Veg": { icon: "⭐", c: "#D4A843", bg: C.goldBg },
-    "Magnum Non-Veg": { icon: "🌟", c: "#D06040", bg: C.redBg },
-    "Double Magnum Veg": { icon: "🏆", c: "#50B0A0", bg: C.tealBg },
-    "Double Magnum Non-Veg": { icon: "🏅", c: "#5B8FD0", bg: C.blueBg },
-    "Luxury Veg": { icon: "👑", c: "#8A70C8", bg: C.purpleBg },
-    "Luxury Non-Veg": { icon: "💎", c: "#5B8FD0", bg: C.blueBg },
-  };
+  async function openCsvImport() {
+    setCsvOpen(true); setCsvRows([]); setCsvFile(''); setCsvErrors([]);
+    setCsvLoading(true);
+    try {
+      var items = await getCateringStoreItemsCached();
+      setCsvOpsItems(items || []);
+    } catch (e) {
+      console.warn('Ops items fetch failed — inventory rows will import as unmatched:', e);
+      setCsvOpsItems([]);
+    } finally {
+      setCsvLoading(false);
+    }
+  }
+  function closeCsvImport() { if (!csvSaving) setCsvOpen(false); }
+
+  function resolveCsvRow(row, opsItems) {
+    var status = 'ok'; var note = ''; var opsMatch = null;
+    if (row.type === 'inventory' && row.ops_item) {
+      var target = row.ops_item.toLowerCase().trim();
+      opsMatch = opsItems.find(function(it) { return (it.name || '').toLowerCase().trim() === target; });
+      if (!opsMatch) {
+        var loose = opsItems.filter(function(it) {
+          var n = (it.name || '').toLowerCase();
+          return n.indexOf(target) !== -1 || target.indexOf(n) !== -1;
+        });
+        if (loose.length === 1) { opsMatch = loose[0]; status = 'fuzzy'; note = 'Loose match — verify.'; }
+        else if (loose.length > 1) { status = 'ambiguous'; note = loose.length + ' possible ops matches.'; }
+        else { status = 'unmatched'; note = 'Ops item not found. Imports without inventory mapping.'; }
+      }
+    } else if (row.type === 'sop' && !findRecipeForDish(row.dish)) {
+      status = 'pending'; note = 'No SOP recipe — imports, map later in Dish library.';
+    }
+    return { ...row, status: status, note: note, opsMatch: opsMatch };
+  }
+
+  function handleCsvFile(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setCsvFile(f.name); setCsvErrors([]);
+    var reader = new FileReader();
+    reader.onload = function() {
+      var rows = parseCSV(reader.result);
+      if (rows.length < 2) { setCsvErrors(['CSV empty or has no data rows.']); setCsvRows([]); return; }
+      var headers = rows[0].map(function(h) { return (h || '').toString().trim().toLowerCase().replace(/\s+/g, '_'); });
+      var missing = ['package', 'section', 'dish'].filter(function(r) { return headers.indexOf(r) === -1; });
+      if (missing.length) { setCsvErrors(['Missing required column(s): ' + missing.join(', ')]); setCsvRows([]); return; }
+      var idx = {}; headers.forEach(function(h, i) { idx[h] = i; });
+      var errs = [];
+      var parsed = rows.slice(1).map(function(r, rowIdx) {
+        function get(col) { return idx[col] != null ? (r[idx[col]] || '').trim() : ''; }
+        var t = get('type').toLowerCase();
+        var type = (t === 'inventory' || t === 'inv') ? 'inventory' : (t === 'sop') ? 'sop' : '';
+        var qty = get('qty_per_cover');
+        var qtyNum = qty ? parseFloat(qty) : null;
+        if (qty && (isNaN(qtyNum) || qtyNum <= 0)) errs.push('Row ' + (rowIdx + 2) + ': invalid qty_per_cover "' + qty + '"');
+        return {
+          rowIdx: rowIdx + 2,
+          package: get('package'), section: get('section'), dish: get('dish'),
+          type: type, sop_category: get('sop_category'),
+          ops_item: get('ops_item'), qty: qtyNum, hindi: get('hindi'),
+        };
+      }).filter(function(r) { return r.package && r.section && r.dish; });
+      setCsvRows(parsed.map(function(r) { return resolveCsvRow(r, csvOpsItems); }));
+      setCsvErrors(errs);
+    };
+    reader.onerror = function() { setCsvErrors(['Could not read file.']); };
+    reader.readAsText(f);
+  }
+
+  function downloadCsvTemplate() {
+    var text = 'package,section,dish,type,sop_category,ops_item,qty_per_cover,hindi\n' +
+      'Pearl Veg,Beverages,Fresh Lime Soda,sop,Beverages,,,फ्रेश लाइम सोडा\n' +
+      'Pearl Veg,Beverages,Bisleri 500ml,inventory,,Bisleri 500ml,1,\n' +
+      'Pearl Veg,Salads,Kachumber Salad,sop,Salads,,,कचूमर सलाद\n';
+    downloadCSV('menu_package_template.csv', text);
+  }
+
+  function csvPackagesAffected() {
+    var m = {}; csvRows.forEach(function(r) { m[r.package] = (m[r.package] || 0) + 1; });
+    return Object.keys(m).map(function(p) { return { name: p, rowCount: m[p], existing: !!MENU_PACKAGES[p] }; });
+  }
+
+  async function commitCsvImport() {
+    if (csvSaving || csvRows.length === 0) return;
+    var pkgs = csvPackagesAffected();
+    var existing = pkgs.filter(function(p) { return p.existing; }).map(function(p) { return p.name; });
+    var warn = 'Import ' + csvRows.length + ' rows into ' + pkgs.length + ' package(s)?';
+    if (existing.length > 0) warn += '\n\n⚠ REPLACES existing packages: ' + existing.join(', ') + '. Sections/dishes not in the CSV will be removed from these packages.';
+    warn += '\n\nInventory mappings and Hindi are written for resolved rows. Ops items not found → dish imports without inventory mapping (can map later in Dish library).';
+    if (!window.confirm(warn)) return;
+
+    setCsvSaving(true);
+    try {
+      // 1. Group CSV rows into per-package section structures (preserves order)
+      var byPkg = {};
+      csvRows.forEach(function(r) {
+        if (!byPkg[r.package]) byPkg[r.package] = { sections: [], secIdx: {} };
+        var bag = byPkg[r.package];
+        if (bag.secIdx[r.section] == null) {
+          bag.secIdx[r.section] = bag.sections.length;
+          bag.sections.push({
+            id: 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + bag.sections.length,
+            name: r.section, sop_category: r.sop_category || '', dishes: []
+          });
+        }
+        var sec = bag.sections[bag.secIdx[r.section]];
+        if (r.sop_category && !sec.sop_category) sec.sop_category = r.sop_category;
+        if (sec.dishes.indexOf(r.dish) === -1) sec.dishes.push(r.dish);
+      });
+
+      // 2. Ensure every dish exists in dishes_master (ignore 23505 unique conflict)
+      var allDishNames = {}; csvRows.forEach(function(r) { allDishNames[r.dish] = true; });
+      for (var name in allDishNames) {
+        var ins = await supabase.from('dishes_master').insert({ dish_name: name }).select();
+        if (ins.error && ins.error.code !== '23505') console.warn('dishes_master insert', name, ins.error);
+        upsertDishMaster(name, { is_active: true });
+      }
+
+      // 3. Hindi mappings (batch upsert)
+      var hindiRows = csvRows.filter(function(r) { return r.hindi; });
+      if (hindiRows.length > 0) {
+        var seen = {}; var hindiUpsert = [];
+        hindiRows.forEach(function(r) { if (!seen[r.dish]) { seen[r.dish] = true; hindiUpsert.push({ dish_name: r.dish, hi: r.hindi }); } });
+        var hRes = await supabase.from('dish_hindi_map').upsert(hindiUpsert, { onConflict: 'dish_name' });
+        if (hRes.error) console.warn('dish_hindi_map upsert', hRes.error);
+        else hindiUpsert.forEach(function(r) { upsertDishHindi(r.dish_name, r.hi); });
+      }
+
+      // 4. Inventory store mappings (only rows resolved to an Ops item)
+      var invRows = csvRows.filter(function(r) { return r.type === 'inventory' && r.opsMatch; });
+      if (invRows.length > 0) {
+        var seenInv = {}; var storeUpsert = [];
+        invRows.forEach(function(r) {
+          if (seenInv[r.dish]) return; seenInv[r.dish] = true;
+          storeUpsert.push({
+            dish_name: r.dish, ops_item_id: r.opsMatch.id,
+            ops_item_name: r.opsMatch.name || '',
+            ops_item_hindi: r.opsMatch.name_hindi || null,
+            ops_item_unit: r.opsMatch.unit || 'Pieces',
+            qty_per_cover: r.qty || 1,
+            updated_at: new Date().toISOString(),
+          });
+        });
+        var sRes = await supabase.from('dish_store_map').upsert(storeUpsert, { onConflict: 'dish_name' });
+        if (sRes.error) console.warn('dish_store_map upsert', sRes.error);
+        else storeUpsert.forEach(function(r) {
+          upsertDishStoreMap(r.dish_name, {
+            ops_item_id: r.ops_item_id, ops_item_name: r.ops_item_name,
+            ops_item_hindi: r.ops_item_hindi || '', ops_item_unit: r.ops_item_unit,
+            qty_per_cover: r.qty_per_cover,
+          });
+        });
+      }
+
+      // 5. Upsert each package (menu_packages) — dishes[] + sections
+      for (var pkgName in byPkg) {
+        var pkg = byPkg[pkgName];
+        var flatDishes = flattenSectionsToDishes(pkg.sections);
+        if (MENU_PACKAGES[pkgName]) {
+          var uRes = await supabase.from('menu_packages')
+            .update({ dishes: flatDishes, sections: pkg.sections, is_active: true })
+            .eq('name', pkgName);
+          if (uRes.error) throw uRes.error;
+        } else {
+          var iRes = await supabase.from('menu_packages')
+            .insert({ name: pkgName, dishes: flatDishes, sections: pkg.sections, is_active: true });
+          if (iRes.error) throw iRes.error;
+        }
+        setPackageSections(pkgName, pkg.sections, flatDishes);
+      }
+
+      clearMenuPackageCaches();
+      alert('Import complete: ' + csvRows.length + ' rows into ' + Object.keys(byPkg).length + ' package(s).');
+      setCsvOpen(false);
+      if (byPkg[selPkg]) { setEditorSections(getSectionsForPackage(selPkg)); setDirty(false); }
+    } catch (e) {
+      console.error('CSV import failed:', e);
+      alert('Import failed: ' + (e.message || e));
+    } finally {
+      setCsvSaving(false);
+    }
+  }
 
   // ════════════════════════════════════════════════════════════
   // RENDER
   // ════════════════════════════════════════════════════════════
   var TABS = [
-    { v: "events", l: "📋 " + T2("Build Menu") },
+    { v: "events",   l: "📋 " + T2("Build menu") },
     { v: "packages", l: "📦 " + T2("Packages") },
+    { v: "library",  l: "📚 " + T2("Dish library") },
   ];
 
   return (
@@ -653,7 +536,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: "1px solid " + C.border, paddingBottom: 8, marginTop: 12 }}>
         {TABS.map(function(t) {
-          return <button key={t.v} onClick={function() { setMainTab(t.v); setSelPkg(null); setSelEvId(null); }}
+          return <button key={t.v} onClick={function() { setMainTab(t.v); setSelEvId(null); }}
             style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", background: mainTab === t.v ? C.wine : "transparent", color: mainTab === t.v ? "#fff" : C.muted, border: "1.5px solid " + (mainTab === t.v ? C.wine : C.border) }}>{t.l}</button>;
         })}
       </div>
@@ -737,413 +620,345 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       )}
 
       {/* ════════════════════════════════════════════════════════ */}
-      {/* PACKAGES TAB (original MenuPackagesView)                */}
+      {/* PACKAGES TAB — 5b left rail                              */}
       {/* ════════════════════════════════════════════════════════ */}
-      {mainTab === "packages" && !selPkg && (
-        <div>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>{pkgNames.length} {T2("packages")}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
-            {pkgNames.map(function(pkg) {
-              var m = PKG_META[pkg] || { icon: "📋", c: C.gold, bg: C.goldBg };
-              var items = MENU_PACKAGES[pkg] || [];
-              return (
-                <button key={pkg} onClick={function() { setSelPkg(pkg); }}
-                  style={{ background: C.surface, border: "2px solid " + m.c + "30", borderRadius: 16, padding: "20px 18px", cursor: "pointer", textAlign: "left", display: "flex", gap: 14, alignItems: "center", minHeight: 80 }}>
-                  <div style={{ fontSize: 32, flexShrink: 0 }}>{m.icon}</div>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{pkg}</div>
-                    <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{items.length} {T2("dishes")}</div>
-                  </div>
+      {mainTab === "packages" && (
+        <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: 14, alignItems: "flex-start" }}>
+
+          {/* TOOLBAR — spans both columns */}
+          <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: C.faint }}>{T2("Bulk-manage packages via CSV")}</div>
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={openCsvImport} disabled={saving || csvSaving}
+                  style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: (saving || csvSaving) ? "not-allowed" : "pointer" }}>⬆ {T2("Import CSV")}</button>
+                <button onClick={exportCurrentPackage} disabled={!selPkg || saving}
+                  title={!selPkg ? T2("Select a package first") : T2("Export current package as CSV")}
+                  style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: selPkg ? C.text : C.faint, fontSize: 12, fontWeight: 600, cursor: (!selPkg || saving) ? "not-allowed" : "pointer", opacity: (!selPkg || saving) ? 0.6 : 1 }}>⬇ {T2("Export CSV")}</button>
+              </div>
+            )}
+          </div>
+
+          {/* LEFT RAIL — package list */}
+          <div style={{ background: C.bg, borderRadius: 12, padding: 10, border: "1px solid " + C.border }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 6px 8px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>{T2("Packages")} ({pkgNames.length})</div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {pkgNames.length === 0 && (
+                <div style={{ padding: "12px 8px", fontSize: 12, color: C.muted, textAlign: "center" }}>{T2("No packages yet")}</div>
+              )}
+              {pkgNames.map(function(pkg) {
+                var s = pkgSummary(pkg);
+                var usage = pkgUsageCount(pkg);
+                var isSel = selPkg === pkg;
+                return (
+                  <button key={pkg} onClick={function() { setSelPkg(pkg); }}
+                    style={{
+                      textAlign: "left",
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      background: isSel ? C.surface : "transparent",
+                      border: "1px solid " + (isSel ? C.border : "transparent"),
+                      cursor: "pointer",
+                      color: C.text,
+                    }}>
+                    <div style={{ fontSize: 13, fontWeight: isSel ? 700 : 500, lineHeight: 1.3 }}>{pkg}</div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                      {s.sectionCount} {T2("sections")} · {s.dishCount} {T2("dishes")}
+                      {usage > 0 && <span style={{ marginLeft: 6, color: C.green }}>· {usage} {T2("upcoming")}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+
+              {isAdmin && (
+                <button onClick={createPackage} disabled={saving}
+                  style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, border: "1px dashed " + C.border, background: "transparent", textAlign: "center", fontSize: 12, color: C.text, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.5 : 1 }}>
+                  + {T2("New package")}
                 </button>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT PANE — editor placeholder */}
+          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300 }}>
+            {!selPkg && (
+              <div style={{ padding: "60px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>{T2("Select a package to view")}</div>
+                <div style={{ fontSize: 12, color: C.muted }}>{T2("Full editor arrives in 5c")}</div>
+              </div>
+            )}
+
+            {selPkg && (function() {
+              var totalDishes = editorSections.reduce(function(n, sec) { return n + sec.dishes.length; }, 0);
+              var usage = pkgUsageCount(selPkg);
+              var catOptions = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
+              var allDishNames = getAllDishes ? getAllDishes({ includeInactive: false }).map(function(d) { return d.dish_name; }) : [];
+              return (
+                <div>
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
+                      <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                        {editorSections.length} {T2("sections")} · {totalDishes} {T2("dishes")}{usage > 0 && " · " + T2("used by") + " " + usage + " " + T2("upcoming")}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      {dirty && (
+                        <span style={{ fontSize: 11, color: C.amber, padding: "3px 8px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, fontWeight: 600 }}>● {T2("unsaved")}</span>
+                      )}
+                      {isAdmin && (
+                        <button onClick={addSection}
+                          style={{ padding: "6px 12px", borderRadius: 6, background: C.wine, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ {T2("Section")}</button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={duplicatePackage} disabled={saving || dirty}
+                          title={dirty ? T2("Save changes first") : T2("Duplicate package")}
+                          style={{ padding: "6px 10px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: (saving || dirty) ? "not-allowed" : "pointer", opacity: (saving || dirty) ? 0.5 : 1 }}>⧉ {T2("Duplicate")}</button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={deletePackage} disabled={saving || dirty}
+                          title={dirty ? T2("Save changes first") : T2("Delete package")}
+                          style={{ padding: "6px 10px", borderRadius: 6, background: C.surface, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: (saving || dirty) ? "not-allowed" : "pointer", opacity: (saving || dirty) ? 0.5 : 1 }}>🗑 {T2("Delete")}</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sections */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {editorSections.length === 0 && (
+                      <div style={{ padding: "40px 20px", textAlign: "center", background: C.bg, border: "1.5px dashed " + C.border, borderRadius: 10 }}>
+                        <div style={{ fontSize: 12, color: C.muted }}>{T2("No sections. Click + Section to add one.")}</div>
+                      </div>
+                    )}
+
+                    {editorSections.map(function(sec) {
+                      return (
+                        <div key={sec.id} style={{ border: "1px solid " + C.border, borderRadius: 10, background: C.surface }}>
+                          {/* Section header */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: "10px 10px 0 0", borderBottom: "1px solid " + C.border, flexWrap: "wrap" }}>
+                            <input
+                              value={sec.name}
+                              onChange={function(e) { renameSection(sec.id, e.target.value); }}
+                              placeholder={T2("Section name")}
+                              disabled={!isAdmin}
+                              style={{ padding: "4px 8px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 13, fontWeight: 600, color: C.text, minWidth: 140, flex: "0 1 auto" }}
+                            />
+                            <span style={{ fontSize: 11, color: C.muted }}>{T2("default")}:</span>
+                            <select
+                              value={sec.sop_category || ''}
+                              onChange={function(e) { setSectionCategory(sec.id, e.target.value); }}
+                              disabled={!isAdmin}
+                              style={{ padding: "3px 6px", borderRadius: 10, border: "1px solid " + C.blueBorder, background: C.blueBg, fontSize: 11, color: C.blue, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
+                              <option value="">— {T2("pick default")} —</option>
+                              {catOptions.map(function(c) { return <option key={c} value={c}>SOP · {c}</option>; })}
+                              <option value="__inventory__">{T2("Inventory (Stores)")}</option>
+                            </select>
+                            <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sec.dishes.length} {T2("dishes")}</span>
+                            {isAdmin && (
+                              <button onClick={function() { deleteSection(sec.id); }}
+                                title={T2("Delete section")}
+                                style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+                            )}
+                          </div>
+
+                          {/* Dishes */}
+                          <div>
+                            {sec.dishes.length === 0 && (
+                              <div style={{ padding: "10px 14px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this section")}</div>
+                            )}
+                            {sec.dishes.map(function(d) {
+                              var type = getDishType(d);
+                              var hi = resolveDishHindi(d);
+                              var store = type === 'inventory' ? resolveDishStore(d) : null;
+                              var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
+                              var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
+                              var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
+                              var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
+                              return (
+                                <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}></span>
+                                    <span style={{ fontSize: 13, color: C.text }}>{d}</span>
+                                    {hi && <span style={{ fontSize: 11, color: C.muted }}>{hi}</span>}
+                                    {store && <span style={{ fontSize: 11, color: '#0F6E56' }}>→ {store.qty_per_cover} {store.ops_item_unit}/pax</span>}
+                                    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: badgeBg, color: badgeC }}>{badgeLbl}</span>
+                                  </div>
+                                  {isAdmin && (
+                                    <button onClick={function() { removeDishFromSection(sec.id, d); }}
+                                      title={T2("Remove")}
+                                      style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {/* Add dish row */}
+                            {isAdmin && (
+                              <div style={{ padding: "8px 12px", borderTop: "1px solid " + C.borderLight, background: C.bg, borderRadius: "0 0 10px 10px" }}>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <input
+                                    list={"dishopts_" + sec.id}
+                                    value={addDishInput[sec.id] || ''}
+                                    onChange={function(e) { setAddDishInput(function(p) { return { ...p, [sec.id]: e.target.value }; }); }}
+                                    onKeyDown={function(e) { if (e.key === 'Enter') { addDishToSection(sec.id, addDishInput[sec.id] || ''); } }}
+                                    placeholder={T2("+ Add dish (type or pick)…")}
+                                    style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, minWidth: 0 }}
+                                  />
+                                  <datalist id={"dishopts_" + sec.id}>
+                                    {allDishNames.map(function(n) { return <option key={n} value={n} />; })}
+                                  </datalist>
+                                  <button onClick={function() { addDishToSection(sec.id, addDishInput[sec.id] || ''); }}
+                                    style={{ padding: "5px 12px", borderRadius: 5, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Add")}</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Save bar (5d wires up) */}
+                  {dirty && (
+                    <div style={{ position: "sticky", bottom: 0, marginTop: 16, padding: "12px 14px", background: C.amberBg, border: "1.5px solid " + C.amberBorder, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>{T2("Unsaved changes — Save wires up in 5d")}</span>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={discardChanges}
+                          style={{ padding: "6px 14px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Discard")}</button>
+                        <button onClick={savePackage} disabled={saving}
+                          style={{ padding: "6px 14px", borderRadius: 6, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? T2("Saving…") : T2("Save")}</button>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
               );
-            })}
+            })()}
+          </div>
+
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* DISH LIBRARY TAB — 5a placeholder (built in step 6)     */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {mainTab === "library" && (
+        <div style={{ padding: "60px 20px", textAlign: "center", background: C.surface, border: "1.5px dashed " + C.border, borderRadius: 12 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📚</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 6 }}>{T2("Dish library — coming soon")}</div>
+          <div style={{ fontSize: 12, color: C.muted, maxWidth: 380, margin: "0 auto", lineHeight: 1.5 }}>
+            {T2("A unified list of every dish across every package with mapping status, package usage, and bulk actions. Rebuilt in step 6.")}
           </div>
         </div>
       )}
 
-      {mainTab === "packages" && selPkg && (function() {
-        var allDishes = MENU_PACKAGES[selPkg] || [];
-        var bySection = {};
-        allDishes.forEach(function(d) {
-          var sec = getSectionForDish(d);
-          if (!bySection[sec]) bySection[sec] = [];
-          bySection[sec].push(d);
-        });
-        var pm = PKG_META[selPkg] || { icon: "📋", c: C.gold, bg: C.goldBg };
-        var nonBevDishes = allDishes;
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* CSV IMPORT MODAL                                        */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {csvOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={closeCsvImport}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 820, width: "100%", maxHeight: "85vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
 
-        return (
-          <div>
-            {/* Header */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={function() { setSelPkg(null); setDishEditMode(false); setEditSections({}); setEditGroups({}); setMapDropOpen(null); }} style={{ padding: "10px 18px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, color: C.muted, fontSize: 12, cursor: "pointer", minHeight: 44 }}>← {T2("All Packages")}</button>
-              {isAdmin && !dishEditMode && (
-                <button onClick={enterDishEdit} style={{ padding: "10px 18px", borderRadius: 10, background: C.blueBg, border: "1px solid " + C.blueBorder, color: C.blue, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 44 }}>✏️ Edit Dishes</button>
-              )}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{T2("Import menu packages from CSV")}</div>
+              <button onClick={closeCsvImport} disabled={csvSaving}
+                style={{ background: "transparent", border: "none", color: C.muted, fontSize: 20, cursor: csvSaving ? "not-allowed" : "pointer", padding: 4 }}>×</button>
             </div>
 
-            {!dishEditMode && (
-              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 20 }}>
-                <div style={{ fontSize: 40 }}>{pm.icon}</div>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
-                  <div style={{ fontSize: 13, color: pm.c, marginTop: 3 }}>{nonBevDishes.length} {T2("dishes")} · {Object.keys(bySection).length} {T2("sections")}</div>
-                </div>
+            <div style={{ border: "1.5px dashed " + C.border, borderRadius: 10, padding: 20, textAlign: "center", background: C.bg, marginBottom: 12 }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div>
+              <label style={{ display: "inline-block", padding: "8px 16px", borderRadius: 6, background: C.wine, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {csvFile ? T2("Choose different file") : T2("Choose CSV file")}
+                <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+              </label>
+              {csvFile && <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>{csvFile}</div>}
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>{T2("Required")}: package, section, dish</div>
+              <div style={{ fontSize: 11, color: C.faint }}>{T2("Optional")}: type (sop/inventory), sop_category, ops_item, qty_per_cover, hindi</div>
+            </div>
+
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={downloadCsvTemplate}
+                style={{ padding: "5px 10px", borderRadius: 6, background: C.bg, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>⬇ {T2("Download template")}</button>
+              {csvLoading && <span style={{ fontSize: 11, color: C.muted }}>{T2("Loading Ops items…")}</span>}
+              {!csvLoading && csvOpsItems.length > 0 && <span style={{ fontSize: 11, color: C.faint }}>{csvOpsItems.length} {T2("Ops items available for matching")}</span>}
+            </div>
+
+            {csvErrors.length > 0 && (
+              <div style={{ padding: "8px 12px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12, marginBottom: 12 }}>
+                {csvErrors.map(function(er, i) { return <div key={i}>⚠ {er}</div>; })}
               </div>
             )}
 
-            {/* ── Dish Edit Mode — section-grouped with groups ── */}
-            {dishEditMode && (function() {
-              var secGroupsFor = function(sec) {
-                return Object.entries(editGroups).filter(function(e) { return e[1].section === sec; });
-              };
-              var secTotal = function(sec) {
-                var n = (editSections[sec]||[]).length;
-                secGroupsFor(sec).forEach(function(e) { n += (e[1].items||[]).length; });
-                return n;
-              };
-              var libSectionOptions = editSecNames;
-              var existingInActive  = new Set(((editSections[activeLibrarySection] || []).map(function(d) { return (d && d.en) || ''; }).filter(Boolean)));
-              var visibleSecNames   = editSecNames;
+            {csvRows.length > 0 && (function() {
+              var pkgs = csvPackagesAffected();
+              var okCount       = csvRows.filter(function(r) { return r.status === 'ok'; }).length;
+              var fuzzyCount    = csvRows.filter(function(r) { return r.status === 'fuzzy'; }).length;
+              var badCount      = csvRows.filter(function(r) { return r.status === 'unmatched' || r.status === 'ambiguous'; }).length;
+              var pendingCount  = csvRows.filter(function(r) { return r.status === 'pending'; }).length;
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ minWidth: 0 }}>
-                  {/* Package header card */}
-                  <div style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 30, flexShrink: 0 }}>{pm.icon}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: C.text }}>{selPkg}</div>
-                      <div style={{ fontSize: 11, color: pm.c, marginTop: 2 }}>{editDishTotal} {T2("dishes")} · {visibleSecNames.length} {T2("sections")}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                      <button onClick={duplicatePackage} disabled={duplicating || dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: duplicating ? "wait" : "pointer" }}>{duplicating ? "…" : "⧉ Duplicate"}</button>
-                      <button onClick={exportPackageJSON} disabled={dishSaving} title={T2('Export package as JSON')} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>⬇ Export</button>
-                      <button onClick={triggerPackageImport} disabled={dishSaving} title={T2('Import package from JSON')} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>⬆ Import</button>
-                      <button onClick={cancelDishEdit} disabled={dishSaving} style={{ padding: "6px 10px", borderRadius: 8, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>✕ Cancel</button>
-                      <button onClick={saveDishes} disabled={dishSaving} style={{ padding: "6px 14px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, cursor: dishSaving ? "not-allowed" : "pointer", opacity: dishSaving ? 0.6 : 1 }}>{dishSaving ? "Saving…" : "💾 Save"}</button>
-                    </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                    {T2("Preview")} · {csvRows.length} {T2("rows")} · {pkgs.length} {T2("package(s)")}
                   </div>
-
-                  <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={visibleSecNames.map(function(s) { return 'sec:' + s; })} strategy={verticalListSortingStrategy}>
-                  {visibleSecNames.map(function(sec) {
-                    var secDishes = editSections[sec] || [];
-                    var secGrps = secGroupsFor(sec);
-                    var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
-                    var em = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
-                    var isActive = activeLibrarySection === sec;
-                    var displayName = sectionRenames[sec] !== undefined ? sectionRenames[sec] : sec;
-                    var menuIdx = visibleSecNames.indexOf(sec);
-                    return (
-                      <SortableSectionCard key={sec} sec={sec}>
-                      <div style={{ marginBottom: 8, border: (isActive ? "2px" : "1px") + " solid " + (isActive ? C.green : C.border), borderRadius: 12, overflow: "visible", background: C.surface, boxShadow: isActive ? "0 0 0 3px " + C.greenBg : "none", position: "relative" }}>
-                        <div onClick={function() { if (!isActive) setActiveLibrarySection(sec); }}
-                          style={{ padding: "10px 14px", background: em.color + "15", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: isActive ? "default" : "pointer", borderRadius: "10px 10px 0 0" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                            <DragHandle style={{ fontSize: 14, color: C.muted, opacity: 0.55, padding: '0 2px' }} />
-                            <span style={{ fontSize: 14, flexShrink: 0 }}>{em.icon}</span>
-                            <input value={displayName}
-                              onChange={function(e) { setSectionRenames({...sectionRenames, [sec]: e.target.value}); }}
-                              onClick={function(e) { e.stopPropagation(); }}
-                              style={{ fontSize: 13, fontWeight: 500, color: em.color, border: "1px solid transparent", background: "transparent", padding: "2px 4px", borderRadius: 4, minWidth: 0, flex: 1, outline: "none" }}
-                              onFocus={function(e) { e.target.style.border = "1px solid " + C.border; e.target.style.background = C.surface; }}
-                              onBlur={function(e) { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
-                            <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>({secTotal(sec)})</span>
-                            {isActive && <span style={{ fontSize: 9, color: C.green, background: C.greenBg, padding: "2px 6px", borderRadius: 4, fontWeight: 600, letterSpacing: 0.4, flexShrink: 0 }}>ACTIVE</span>}
-                          </div>
-                          <button onClick={function(e) { e.stopPropagation(); setSecMenuOpen(secMenuOpen === sec ? null : sec); }}
-                            style={{ width: 24, height: 24, border: "none", background: "transparent", color: C.muted, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>⋯</button>
-                          {secMenuOpen === sec && (
-                            <div style={{ position: "absolute", right: 8, top: 40, background: C.surface, border: "1px solid " + C.border, borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", zIndex: 10, minWidth: 140 }}>
-                              <div onClick={function(e) { e.stopPropagation(); moveSectionInEdit(sec, -1); }} style={{ padding: "8px 12px", fontSize: 12, cursor: menuIdx > 0 ? "pointer" : "not-allowed", color: menuIdx > 0 ? C.text : C.faint, borderBottom: "1px solid " + C.borderLight }}>↑ Move up</div>
-                              <div onClick={function(e) { e.stopPropagation(); moveSectionInEdit(sec, 1); }} style={{ padding: "8px 12px", fontSize: 12, cursor: menuIdx < visibleSecNames.length - 1 ? "pointer" : "not-allowed", color: menuIdx < visibleSecNames.length - 1 ? C.text : C.faint, borderBottom: "1px solid " + C.borderLight }}>↓ Move down</div>
-                              <div onClick={function(e) { e.stopPropagation(); deleteSectionInEdit(sec); }} style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", color: C.red }}>🗑 Delete section</div>
-                            </div>
-                          )}
-                        </div>
-                        {!isActive && (secDishes.length > 0 || secGrps.length > 0) && (
-                          <div onClick={function() { setActiveLibrarySection(sec); }} style={{ padding: "6px 14px 10px", cursor: "pointer" }}>
-                            <div style={{ fontSize: 11, color: C.faint, fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {secDishes.map(function(d) { return (d && d.en) || ''; }).filter(Boolean).concat(secGrps.flatMap(function(g) { return (g[1].items||[]).map(function(gi) { return (gi && gi.en) || ''; }); }).filter(Boolean)).join(" · ")}
-                            </div>
-                          </div>
-                        )}
-                        {isActive && (
-                        <div style={{ padding: "6px 12px 10px" }}>
-                          {secDishes.map(function(d, i) {
-                            var enVal = (d && d.en) || ''; var hiVal = (d && d.hi) || '';
-                            var rowSelected = !!dishSel[i];
-                            return (
-                              <DraggableDishRow key={'d-'+i} sec={sec} idx={i}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + C.borderLight, background: rowSelected ? C.blueBg : 'transparent', borderRadius: rowSelected ? 4 : 0 }}>
-                                <DragHandle style={{ fontSize: 10, color: C.muted, opacity: 0.45, padding: '0 2px' }} />
-                                <input type="checkbox" checked={rowSelected} onChange={function() { toggleDishSel(i); }} title={T2('Select for bulk actions')}
-                                  style={{ margin: "0 2px 0 4px", cursor: "pointer", flexShrink: 0, width: 14, height: 14, accentColor: C.wine }} />
-                                <input value={enVal} onChange={function(e) { renameDishInSec(sec, i, 'en', e.target.value); }}
-                                  onBlur={function() { autofillDishHiInSec(sec, i); }}
-                                  style={{ flex: 1.3, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish name" />
-                                <input value={hiVal} onChange={function(e) { renameDishInSec(sec, i, 'hi', e.target.value); }}
-                                  lang="hi"
-                                  style={{ flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 6, border: "1px solid " + (hiVal ? C.border : C.borderLight), fontSize: 12, background: hiVal ? C.surface : C.bg, color: C.text }} placeholder="हिन्दी नाम" />
-                                {isSplittable(enVal) && (
-                                  <button onClick={function() { splitDishInSec(sec, i); }} style={{ padding: "3px 8px", borderRadius: 6, background: C.purpleBg, border: "1px solid " + C.purpleBorder, color: C.purple, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>✂ Split</button>
-                                )}
-                                <button onClick={function() { deleteDishInSec(sec, i); }} onMouseEnter={function(e) { e.currentTarget.style.opacity = 1; e.currentTarget.style.background = C.redBg; e.currentTarget.style.borderColor = C.redBorder; }} onMouseLeave={function(e) { e.currentTarget.style.opacity = 0.35; e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }} style={{ width: 22, height: 22, borderRadius: 6, background: "transparent", border: "1px solid transparent", color: C.red, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0, opacity: 0.35, transition: "opacity 120ms" }}>✕</button>
-                              </div>
-                              </DraggableDishRow>
-                            );
-                          })}
-                          {secGrps.map(function(ge) {
-                            var grpName = ge[0]; var grpItems = ge[1].items || [];
-                            return (
-                              <div key={'g-'+grpName} style={{ margin: "6px 0", border: "1.5px solid " + C.amberBorder, borderRadius: 8, background: C.amberBg + "40", overflow: "hidden" }}>
-                                <div style={{ padding: "6px 10px", background: C.amberBg, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: C.amber }}>▸ {grpName} <span style={{ fontWeight: 400, fontSize: 11, color: C.muted }}>({grpItems.length})</span></span>
-                                  <button onClick={function() { deleteGroup(grpName); }} style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 9, cursor: "pointer" }}>Ungroup</button>
-                                </div>
-                                <div style={{ padding: "4px 10px 8px" }}>
-                                  {grpItems.map(function(gd, gi) {
-                                    var gEn = (gd && gd.en) || ''; var gHi = (gd && gd.hi) || '';
-                                    return (
-                                      <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", borderBottom: gi < grpItems.length - 1 ? "1px solid " + C.borderLight : "none" }}>
-                                        <input value={gEn} onChange={function(e) { renameDishInGrp(grpName, gi, 'en', e.target.value); }}
-                                          onBlur={function() { autofillDishHiInGrp(grpName, gi); }}
-                                          style={{ flex: 1.3, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.border, fontSize: 12, background: C.surface, color: C.text }} placeholder="Dish in group" />
-                                        <input value={gHi} onChange={function(e) { renameDishInGrp(grpName, gi, 'hi', e.target.value); }}
-                                          lang="hi"
-                                          style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 6, border: "1px solid " + (gHi ? C.border : C.borderLight), fontSize: 12, background: gHi ? C.surface : C.bg, color: C.text }} placeholder="हिन्दी" />
-                                        <button onClick={function() { deleteDishInGrp(grpName, gi); }} style={{ width: 22, height: 22, borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 }}>✕</button>
-                                      </div>
-                                    );
-                                  })}
-                                  <button onClick={function() { addDishToGrp(grpName); }}
-                                    style={{ display: "block", width: "100%", padding: "4px 0", marginTop: 3, background: "transparent", border: "1px dashed " + C.amberBorder, borderRadius: 4, color: C.amber, fontSize: 10, cursor: "pointer", textAlign: "center" }}>+ Add to {grpName}</button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          <div style={{ display: "flex", gap: 6, marginTop: 6, paddingTop: 6, borderTop: "1px dashed " + C.borderLight }}>
-                            <button onClick={function() { addDishInSec(sec); }}
-                              style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.greenBorder, borderRadius: 6, color: C.green, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add blank row</button>
-                            <button onClick={function() { /* library is already visible on right; this is a nudge */ }} title={T2("Use the library on the right to add dishes")}
-                              style={{ flex: 1, padding: "6px 0", background: C.greenBg, border: "1px solid " + C.greenBorder, borderRadius: 6, color: C.green, fontSize: 11, cursor: "default", textAlign: "center", fontWeight: 500 }}>→ Browse library</button>
-                            {addGrpSec === sec ? (
-                              <React.Fragment>
-                                <input autoFocus value={addGrpName} onChange={function(e) { setAddGrpName(e.target.value); }} placeholder="e.g. Dim-sum Station"
-                                  onKeyDown={function(e) { if (e.key === 'Enter') createGroup(sec); }}
-                                  style={{ flex: 2, padding: "4px 8px", borderRadius: 6, border: "1px solid " + C.amberBorder, fontSize: 11, background: C.surface, color: C.text }} />
-                                <button onClick={function() { createGroup(sec); }} disabled={!addGrpName.trim()}
-                                  style={{ padding: "4px 10px", borderRadius: 6, background: addGrpName.trim() ? C.amber : C.faint, color: "#fff", border: "none", fontSize: 10, fontWeight: 600, cursor: addGrpName.trim() ? "pointer" : "not-allowed" }}>Create</button>
-                                <button onClick={function() { setAddGrpSec(""); setAddGrpName(""); }}
-                                  style={{ padding: "4px 8px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 10, cursor: "pointer" }}>✕</button>
-                              </React.Fragment>
-                            ) : (
-                              <button onClick={function() { setAddGrpSec(sec); setAddGrpName(""); }}
-                                style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px dashed " + C.amberBorder, borderRadius: 6, color: C.amber, fontSize: 11, cursor: "pointer", textAlign: "center" }}>+ Add group</button>
-                            )}
-                          </div>
-                        </div>
-                        )}
-                      </div>
-                      </SortableSectionCard>
-                    );
-                  })}
-                  </SortableContext>
-                  </DndContext>
-                  <button onClick={function() { setAddSecVal("__pick__"); }}
-                    style={{ width: "100%", padding: 10, marginTop: 6, background: "transparent", border: "1px dashed " + C.border, borderRadius: 10, color: C.muted, fontSize: 12, cursor: "pointer" }}>+ New section…</button>
-                  {addSecVal === "__pick__" && (
-                    <div style={{ marginTop: 6, padding: 10, background: C.bg, border: "1px solid " + C.border, borderRadius: 10, display: "flex", gap: 6, alignItems: "center" }}>
-                      <select value="" onChange={function(e) { if (e.target.value) { addDishInSec(e.target.value); setActiveLibrarySection(e.target.value); setAddSecVal(""); } }}
-                        style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, background: C.surface }}>
-                        <option value="">Pick a section to add…</option>
-                        {allSections.filter(function(s) { return editSecNames.indexOf(s) === -1; }).map(function(s) {
-                          var cat2 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                          return <option key={s} value={s}>{cat2 ? cat2.icon : "🍽"} {s}</option>;
-                        })}
-                      </select>
-                      <button onClick={function() { setAddSecVal(""); }}
-                        style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10, fontSize: 11 }}>
+                    {okCount > 0       && <span style={{ padding: "2px 8px", borderRadius: 10, background: C.greenBg, color: C.green, fontWeight: 600 }}>✓ {okCount} ok</span>}
+                    {fuzzyCount > 0    && <span style={{ padding: "2px 8px", borderRadius: 10, background: C.amberBg, color: C.amber, fontWeight: 600 }}>~ {fuzzyCount} fuzzy</span>}
+                    {badCount > 0      && <span style={{ padding: "2px 8px", borderRadius: 10, background: C.redBg, color: C.red, fontWeight: 600 }}>⚠ {badCount} unmatched</span>}
+                    {pendingCount > 0  && <span style={{ padding: "2px 8px", borderRadius: 10, background: C.bg, color: C.muted, fontWeight: 600 }}>⏳ {pendingCount} SOP pending</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
+                    {pkgs.map(function(p) {
+                      return <span key={p.name} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 10, background: p.existing ? C.amberBg : C.greenBg, color: p.existing ? C.amber : C.green, fontWeight: 600 }}>
+                        {p.name} · {p.rowCount} {T2("rows")} · {p.existing ? T2("REPLACES existing") : T2("new")}
+                      </span>;
+                    })}
+                  </div>
+                  <div style={{ border: "1px solid " + C.border, borderRadius: 8, overflow: "hidden", fontSize: 11, maxHeight: 300, overflowY: "auto" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr 0.6fr 1fr 0.8fr", padding: "6px 8px", background: C.bg, color: C.muted, fontWeight: 700, position: "sticky", top: 0 }}>
+                      <div>{T2("Package")}</div><div>{T2("Section")}</div><div>{T2("Dish")}</div><div>{T2("Type")}</div><div>{T2("Ops match")}</div><div>{T2("Status")}</div>
                     </div>
-                  )}
-
-                  {/* ── Bulk-action bar (visible when 1+ dishes selected in active section) ── */}
-                  {(function() {
-                    var selCount = selectedIdxs().length;
-                    if (!selCount) return null;
-                    var moveTargetsExisting = visibleSecNames.filter(function(s) { return s !== activeLibrarySection; });
-                    var moveTargetsNew = allSections.filter(function(s) { return editSecNames.indexOf(s) === -1; });
-                    return (
-                      <div style={{ position: "sticky", bottom: 12, marginTop: 12, background: "#1f2937", color: "#fff", border: "1px solid #111827", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.25)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, zIndex: 20 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{selCount} {T2('selected')}</div>
-                        <div style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{T2('in')} {activeLibrarySection}</div>
-                        <div style={{ flex: 1 }} />
-                        <select value="" onChange={function(e) { if (e.target.value) bulkMoveToSec(e.target.value); }}
-                          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #374151", background: "#111827", color: "#fff", fontSize: 11, cursor: "pointer" }}>
-                          <option value="">↪ {T2('Move to…')}</option>
-                          {moveTargetsExisting.length > 0 && (
-                            <optgroup label={T2('Existing sections')}>
-                              {moveTargetsExisting.map(function(s) {
-                                var cat3 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                                return <option key={s} value={s}>{cat3 ? cat3.icon : "🍽"} {s}</option>;
-                              })}
-                            </optgroup>
-                          )}
-                          {moveTargetsNew.length > 0 && (
-                            <optgroup label={'＋ ' + T2('New section')}>
-                              {moveTargetsNew.map(function(s) {
-                                var cat4 = (RECIPE_DB.cats || []).find(function(c) { return c.name === s; });
-                                return <option key={'new-'+s} value={s}>{cat4 ? cat4.icon : "🍽"} {s}</option>;
-                              })}
-                            </optgroup>
-                          )}
-                        </select>
-                        <button onClick={bulkDeleteInActive}
-                          style={{ padding: "5px 10px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>🗑 {T2('Delete')}</button>
-                        <button onClick={function() { setDishSel({}); }} title={T2('Clear selection')}
-                          style={{ width: 26, height: 26, borderRadius: 6, background: "transparent", border: "1px solid #374151", color: "#9ca3af", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0, flexShrink: 0 }}>✕</button>
-                      </div>
-                    );
-                  })()}
-                </div>
-                <DishLibrary
-                  activeSection={activeLibrarySection}
-                  setActiveSection={setActiveLibrarySection}
-                  sectionOptions={libSectionOptions}
-                  existingInSection={existingInActive}
-                  onAdd={function(name, sec) { addNamedDishInSec(name, sec); }}
-                  onMapSop={async function(name, recipeName) { await saveOneMapping(name, recipeName); setLibRefreshKey(function(k){ return k+1; }); }}
-                  onClearSop={async function(name) { await removeMapping(name); setLibRefreshKey(function(k){ return k+1; }); }}
-                  onStoreMappingChanged={function() { setLibRefreshKey(function(k){ return k+1; }); }}
-                  refreshKey={libRefreshKey}
-                  T2={T2}
-                />
+                    {csvRows.slice(0, 100).map(function(r, i) {
+                      var statusColor = r.status === 'ok' ? C.green : r.status === 'fuzzy' ? C.amber : r.status === 'pending' ? C.muted : C.red;
+                      return (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr 0.6fr 1fr 0.8fr", padding: "6px 8px", borderTop: "1px solid " + C.borderLight, color: C.text }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.package}</div>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.section}</div>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.dish}{r.hindi && <span style={{ color: C.faint, marginLeft: 4 }}>· {r.hindi}</span>}</div>
+                          <div>{r.type || <span style={{ color: C.faint }}>—</span>}</div>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: r.opsMatch ? C.green : C.faint }}>
+                            {r.opsMatch ? r.opsMatch.name : (r.ops_item || '—')}{r.qty ? ' · ' + r.qty : ''}
+                          </div>
+                          <div style={{ color: statusColor, fontWeight: 600 }} title={r.note}>{r.status}</div>
+                        </div>
+                      );
+                    })}
+                    {csvRows.length > 100 && (
+                      <div style={{ padding: "6px 8px", borderTop: "1px solid " + C.borderLight, textAlign: "center", color: C.faint, fontSize: 10 }}>+ {csvRows.length - 100} {T2("more rows (not shown)")}</div>
+                    )}
+                  </div>
                 </div>
               );
             })()}
 
-            {/* Section groups */}
-            {!dishEditMode && Object.entries(bySection).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-              var sec = entry[0]; var dishes = entry[1];
-              var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sec; });
-              var m2 = { color: cat?.color || C.muted, icon: cat?.icon || "🍽" };
-              var isOpen = !!openSections[sec];
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, paddingTop: 12, borderTop: "1px solid " + C.border }}>
+              <button onClick={closeCsvImport} disabled={csvSaving}
+                style={{ padding: "8px 16px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: csvSaving ? "not-allowed" : "pointer" }}>{T2("Cancel")}</button>
+              <button onClick={commitCsvImport} disabled={csvSaving || csvRows.length === 0}
+                style={{ padding: "8px 16px", borderRadius: 6, background: C.wine, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: (csvSaving || csvRows.length === 0) ? "not-allowed" : "pointer", opacity: (csvSaving || csvRows.length === 0) ? 0.5 : 1 }}>
+                {csvSaving ? T2("Importing…") : T2("Import ") + csvRows.length + T2(" rows")}
+              </button>
+            </div>
 
-              return (
-                <div key={sec} style={{ marginBottom: 8, border: "1px solid " + C.border, borderRadius: 12, overflow: "hidden" }}>
-                  <button onClick={function() { toggleSection(sec); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: isOpen ? m2.color + "15" : C.bg, border: "none", cursor: "pointer", textAlign: "left" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: m2.color }}>
-                      {m2.icon} {T2(sec)} <span style={{ fontWeight: 400, fontSize: 12, color: C.muted }}>({dishes.length} items)</span>
-                    </span>
-                    <span style={{ fontSize: 14, color: m2.color, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
-                  </button>
-                  {isOpen && (
-                    <div style={{ padding: "8px 14px 12px" }}>
-                      {isAdmin && !dishEditMode && (
-                        quickAddSec === sec ? (
-                          <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "6px 0 10px", borderBottom: "1px dashed " + C.borderLight, marginBottom: 6 }}>
-                            <input autoFocus value={quickAddVal} onChange={function(e) { setQuickAddVal(e.target.value); }}
-                              onKeyDown={function(e) { if (e.key === 'Enter') quickAddDish(sec); if (e.key === 'Escape') { setQuickAddSec(null); setQuickAddVal(""); } }}
-                              placeholder={"Add dish to " + sec + "…"} disabled={quickAddSaving}
-                              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1.5px solid " + m2.color, fontSize: 12, background: C.surface, color: C.text, outline: "none" }} />
-                            <button onClick={function() { quickAddDish(sec); }} disabled={!quickAddVal.trim() || quickAddSaving}
-                              style={{ padding: "6px 14px", borderRadius: 6, background: quickAddVal.trim() && !quickAddSaving ? C.green : C.faint, color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: quickAddVal.trim() && !quickAddSaving ? "pointer" : "not-allowed", flexShrink: 0 }}>{quickAddSaving ? "..." : "Add"}</button>
-                            <button onClick={function() { setQuickAddSec(null); setQuickAddVal(""); }} disabled={quickAddSaving}
-                              style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 11, cursor: "pointer", flexShrink: 0 }}>✕</button>
-                          </div>
-                        ) : (
-                          <button onClick={function() { setQuickAddSec(sec); setQuickAddVal(""); }}
-                            style={{ width: "100%", padding: "6px 0", marginBottom: 6, background: "transparent", border: "1px dashed " + m2.color, borderRadius: 6, color: m2.color, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>+ Add dish to {sec}</button>
-                        )
-                      )}
-                      {(function() {
-                        var vGrps = DISH_GROUPS[selPkg] || {};
-                        var d2g = {};
-                        Object.entries(vGrps).forEach(function(ge) { (ge[1]||[]).forEach(function(dd) { d2g[dd] = ge[0]; }); });
-                        var shown = {}; var viewItems = [];
-                        dishes.forEach(function(d) {
-                          var grp = d2g[d];
-                          if (grp && !shown[grp]) { viewItems.push({ type: 'hdr', label: grp }); shown[grp] = true; }
-                          viewItems.push({ type: 'dish', name: d, indent: !!grp });
-                        });
-                        return viewItems;
-                      })().map(function(item, i) {
-                        if (item.type === 'hdr') return (
-                          <div key={'gh-'+item.label} style={{ padding: "5px 0 2px", fontSize: 11, fontWeight: 700, color: C.amber, display: "flex", alignItems: "center", gap: 4 }}>▸ {item.label}</div>
-                        );
-                        var d = item.name;
-                        var ms = getMappingStatus(d);
-                        var dotColor = ms ? (ms.status === 'mapped' ? C.gold : ms.status === 'auto' ? C.green : ms.status === 'stores' ? C.teal : C.red) : m2.color;
-                        return (
-                          <div key={i}>
-                            <div style={{ padding: "6px 0", borderBottom: "1px solid " + C.borderLight, fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, cursor: "default", paddingLeft: item.indent ? 16 : 0 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }}></span>
-                              <span style={{ flex: 1 }}>{d}</span>
-                              {ms && ms.status === 'stores' && ms.store && (
-                                <span style={{ fontSize: 10, color: C.teal, fontWeight: 600, flexShrink: 0 }}>→ {ms.store.qty_per_cover} {ms.store.ops_item_unit || ''} · Stores</span>
-                              )}
-                              {ms && (ms.status === 'mapped' || ms.status === 'auto') && (
-                                <span style={{ fontSize: 10, color: ms.status === 'mapped' ? C.gold : C.green, flexShrink: 0 }}>→ {ms.recipe && ms.recipe.length > 28 ? ms.recipe.slice(0, 26) + '…' : ms.recipe}</span>
-                              )}
-                              {isAdmin && ms && ms.status === 'unmapped' && (
-                                <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
-                                  style={{ padding: "2px 8px", borderRadius: 6, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, fontSize: 10, cursor: "pointer", flexShrink: 0 }}>Link SOP</button>
-                              )}
-                              {isAdmin && ms && (ms.status === 'mapped' || ms.status === 'auto') && (
-                                <button onClick={function(e) { e.stopPropagation(); setMapDropOpen(mapDropOpen === d ? null : d); setMapSearch(""); }}
-                                  style={{ padding: "2px 6px", borderRadius: 6, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 9, cursor: "pointer", flexShrink: 0 }}>✎</button>
-                              )}
-                            </div>
-                            {mapDropOpen === d && (
-                              <div style={{ position: "relative", zIndex: 30, margin: "2px 0 6px 20px" }}>
-                                <div onClick={function() { setMapDropOpen(null); }} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 15 }}></div>
-                                <div style={{ position: "relative", zIndex: 20, background: C.surface, border: "1.5px solid " + C.border, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,.12)", maxHeight: 260, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                                  <input autoFocus value={mapSearch} onChange={function(e) { setMapSearch(e.target.value); }} placeholder="Search recipes…"
-                                    style={{ padding: "8px 10px", border: "none", borderBottom: "1px solid " + C.borderLight, fontSize: 12, outline: "none", background: "transparent", color: C.text }} />
-                                  <div style={{ overflowY: "auto", maxHeight: 200 }}>
-                                    {(function() {
-                                      var filtered = allRecipes.filter(function(r) { var q = mapSearch.toLowerCase(); return !mapSearch || r.display.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.catName.toLowerCase().includes(q); });
-                                      var byCat = {};
-                                      filtered.forEach(function(r) { if (!byCat[r.catName]) byCat[r.catName] = { icon: r.catIcon, items: [] }; byCat[r.catName].items.push(r); });
-                                      return Object.entries(byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-                                        var catName = entry[0]; var grp = entry[1];
-                                        return (
-                                          <div key={catName}>
-                                            <div style={{ position: "sticky", top: 0, padding: "5px 10px", fontSize: 10, fontWeight: 700, color: C.muted, background: C.bg, borderBottom: "1px solid " + C.borderLight, zIndex: 2 }}>{grp.icon} {catName}</div>
-                                            {grp.items.map(function(r) {
-                                              return (
-                                                <div key={r.name} onClick={function() { saveOneMapping(d, r.name); }}
-                                                  style={{ padding: "6px 10px 6px 22px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid " + C.borderLight, color: C.text }}
-                                                  onMouseEnter={function(ev) { ev.currentTarget.style.background = C.bg; }}
-                                                  onMouseLeave={function(ev) { ev.currentTarget.style.background = "transparent"; }}>
-                                                  {r.display}{r.display !== r.name ? <span style={{ fontSize: 10, color: C.muted, marginLeft: 6 }}>{r.name.split('/').slice(1).join('/').trim()}</span> : null}
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        );
-                                      });
-                                    })()}
-                                  </div>
-                                  {ms && (ms.status === 'mapped' || ms.status === 'auto') && (
-                                    <button onClick={function(e) { e.stopPropagation(); removeMapping(d); setMapDropOpen(null); }}
-                                      style={{ padding: "6px 10px", borderTop: "1px solid " + C.borderLight, background: C.redBg, color: C.red, fontSize: 10, cursor: "pointer", textAlign: "center", width: "100%", border: "none", borderTop: "1px solid " + C.borderLight }}>Remove mapping</button>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {!dishEditMode && null}
           </div>
-        );
-      })()}
+        </div>
+      )}
+
     </div>
   );
 }
