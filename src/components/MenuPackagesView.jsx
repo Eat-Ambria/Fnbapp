@@ -10,6 +10,7 @@ import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
+import DishLibrary from './DishLibrary.jsx';
 
 // ── CSV utilities (V63 5e) ─────────────────────────────────────────
 // Handles quoted fields, escaped double-quotes, commas inside quotes, CRLF/LF.
@@ -848,13 +849,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       {/* DISH LIBRARY TAB — 5a placeholder (built in step 6)     */}
       {/* ════════════════════════════════════════════════════════ */}
       {mainTab === "library" && (
-        <div style={{ padding: "60px 20px", textAlign: "center", background: C.surface, border: "1.5px dashed " + C.border, borderRadius: 12 }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📚</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 6 }}>{T2("Dish library — coming soon")}</div>
-          <div style={{ fontSize: 12, color: C.muted, maxWidth: 380, margin: "0 auto", lineHeight: 1.5 }}>
-            {T2("A unified list of every dish across every package with mapping status, package usage, and bulk actions. Rebuilt in step 6.")}
-          </div>
-        </div>
+        <DishLibrary
+          lang={lang}
+          currentUser={currentUser}
+          onJumpToPackage={function(pkgName) { setMainTab("packages"); setSelPkg(pkgName); }}
+        />
       )}
 
       {/* ════════════════════════════════════════════════════════ */}

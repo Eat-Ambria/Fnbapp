@@ -1,47 +1,55 @@
-// Ambria FnB — Dish Library (right pane of Menu Package Builder)
-// Read-only browse + click-to-add + create-new. Standalone; owns its own filter state.
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+// Ambria FnB — Dish Library (V63 standalone tab)
+// Unified list of every dish across every package.
+// - Summary strip (total / SOP / Inventory / Unmapped)
+// - Filter chips + search
+// - Row selection with bulk actions (auto-Hindi, delete unused)
+// - Click row → detail modal (Hindi edit, SOP/Inventory mapping, deactivate)
+// Props: lang, currentUser, onJumpToPackage?, refreshKey?
+import React, { useState, useMemo, useEffect } from 'react';
 import { C } from '../data/constants.js';
-import { getAllDishes, upsertDishMaster, RECIPE_DB, resolveDishHindi, packagesContainingDish, upsertDishHindi, upsertDishCat, deactivateDish, DISH_HINDI_MAP, DISH_STORE_MAP, upsertDishStoreMap, DISH_NAME_MAP, resolveDishStore } from '../data/recipeData.js';
+import { T } from '../data/translations.js';
+import {
+  getAllDishes, upsertDishMaster, deactivateDish,
+  RECIPE_DB,
+  resolveDishHindi, upsertDishHindi, DISH_HINDI_MAP,
+  resolveDishStore, upsertDishStoreMap, DISH_STORE_MAP,
+  DISH_NAME_MAP, packagesContainingDish, findRecipeForDish
+} from '../data/recipeData.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
+import { transliterateName } from '../utils/helpers.js';
 
 function DishLibrary(props) {
-  var activeSection      = props.activeSection || '';
-  var setActiveSection   = props.setActiveSection || function() {};
-  var sectionOptions     = props.sectionOptions || [];  // array of section names
-  var existingInSection  = props.existingInSection || new Set();
-  var onAdd              = props.onAdd || function() {};
-  var T2                 = props.T2 || function(s) { return s; };
+  var lang           = props.lang || 'en';
+  var currentUser    = props.currentUser || null;
+  var onJumpToPackage= props.onJumpToPackage || function() {};
+  var T2             = function(s) { return T(s, lang); };
+  var isAdmin        = currentUser && (currentUser.role === 'admin' || currentUser.role === 'headchef');
 
-  var [q, setQ]                 = useState('');
-  var [filter, setFilter]       = useState('all');   // all | mapped | unmapped
-  var [catFilter, setCatFilter] = useState('');       // '' or catId
-  var [catMenuOpen, setCatMenuOpen] = useState(false);
-  var [flash, setFlash]         = useState('');
-  var [creating, setCreating]   = useState(false);
-  var [mapOpenFor, setMapOpenFor] = useState('');
-  var [mapSearch, setMapSearch]   = useState('');
-  var [mapSaving, setMapSaving]   = useState(false);
+  // ── State ────────────────────────────────────────────────────────
+  var [q, setQ]               = useState('');
+  var [filter, setFilter]     = useState('all'); // all | sop | inv | unmapped | unused
   var [showRetired, setShowRetired] = useState(false);
   var [localBump, setLocalBump]     = useState(0);
-  var [restoring, setRestoring]     = useState('');
+  var [selected, setSelected]       = useState({}); // { [dishName]: true }
+  var [bulkSaving, setBulkSaving]   = useState(false);
+
+  // Detail modal state
   var [detailFor, setDetailFor]             = useState('');
   var [detailHindiBuf, setDetailHindiBuf]   = useState('');
-  var [detailCatBuf, setDetailCatBuf]       = useState('');
-  var [detailSaving, setDetailSaving]       = useState('');   // '' | 'hindi' | 'cat' | 'sop' | 'deact'
-  var [detailMapOpen, setDetailMapOpen]     = useState(false);
-  var [detailMapSearch, setDetailMapSearch] = useState('');
-  var [detailUsageOpen, setDetailUsageOpen] = useState(false);
-  // V62: Inventory-dish (store item) state — used only inside the detail popover
-  var [detailType, setDetailType]           = useState('sop');    // 'sop' | 'store'
+  var [detailSaving, setDetailSaving]       = useState(''); // '' | 'hindi' | 'sop' | 'store' | 'deact'
+  var [detailType, setDetailType]           = useState('sop'); // 'sop' | 'store'
+  var [sopSearch, setSopSearch]             = useState('');
   var [storeItems, setStoreItems]           = useState([]);
   var [storeItemsLoading, setStoreItemsLoading] = useState(false);
   var [storeSearch, setStoreSearch]         = useState('');
-  var [storeItemPick, setStoreItemPick]     = useState('');       // ops_item_id
+  var [storeItemPick, setStoreItemPick]     = useState('');
   var [storeQtyBuf, setStoreQtyBuf]         = useState('1');
-  var flashTimer = useRef(null);
 
+  // Add new dish
+  var [creating, setCreating] = useState(false);
+
+  // ── Data ─────────────────────────────────────────────────────────
   var allRecipes = useMemo(function() {
     var out = [];
     (RECIPE_DB.cats || []).forEach(function(c) {
@@ -52,128 +60,179 @@ function DishLibrary(props) {
     return out.sort(function(a, b) { return a.n.localeCompare(b.n); });
   }, [props.refreshKey]);
 
-  useEffect(function() { return function() { if (flashTimer.current) clearTimeout(flashTimer.current); }; }, []);
-  useEffect(function() {
-    if (!detailFor) return;
-    function onKey(e) { if (e.key === 'Escape') { setDetailFor(''); setDetailMapOpen(false); setDetailMapSearch(''); setDetailUsageOpen(false); } }
-    document.addEventListener('keydown', onKey);
-    return function() { document.removeEventListener('keydown', onKey); };
-  }, [detailFor]);
+  var enriched = useMemo(function() {
+    var raw = getAllDishes({ includeInactive: showRetired });
+    return raw.map(function(d) {
+      var name = d.dish_name;
+      var packages = packagesContainingDish(name);
+      var store = resolveDishStore(name);
+      var type = store ? 'inv'
+               : (d.hasRecipe ? 'sop'
+               : (d.explicitNone ? 'nosop' : 'unmapped'));
+      return {
+        dish_name: name,
+        is_active: d.is_active !== false,
+        hindi: resolveDishHindi(name) || '',
+        packages: packages,
+        isUnused: packages.length === 0,
+        type: type,
+        store: store,
+        mappedTo: d.mappedTo || '',
+        catName: d.catName || '',
+        catId: d.catId || '',
+      };
+    });
+  }, [props.refreshKey, showRetired, localBump]);
 
-  var allDishes = useMemo(function() { return getAllDishes({ includeInactive: showRetired }); }, [props.refreshKey, showRetired, localBump]);
-
-  var cats = (RECIPE_DB.cats || []);
-  var catNameById = {}; cats.forEach(function(c) { catNameById[c.id] = c.name; });
+  var totals = useMemo(function() {
+    var t = { total: enriched.length, sop: 0, inv: 0, unmapped: 0, unused: 0 };
+    enriched.forEach(function(d) {
+      if (d.type === 'sop') t.sop++;
+      else if (d.type === 'inv') t.inv++;
+      else if (d.type === 'unmapped') t.unmapped++;
+      if (d.isUnused) t.unused++;
+    });
+    return t;
+  }, [enriched]);
 
   var filtered = useMemo(function() {
     var qL = q.trim().toLowerCase();
-    return allDishes.filter(function(d) {
-      if (qL && d.dish_name.toLowerCase().indexOf(qL) === -1) return false;
-      // V62: a store-mapped dish is intentionally mapped (to inventory, not SOP) — treat as "mapped" for filter chips
-      var storeMapped = !!resolveDishStore(d.dish_name);
-      if (filter === 'mapped'   && !d.hasRecipe && !storeMapped) return false;
-      if (filter === 'unmapped' && (d.hasRecipe || storeMapped)) return false;
-      if (catFilter && d.catId !== catFilter) return false;
+    return enriched.filter(function(d) {
+      if (filter === 'sop' && d.type !== 'sop') return false;
+      if (filter === 'inv' && d.type !== 'inv') return false;
+      if (filter === 'unmapped' && d.type !== 'unmapped') return false;
+      if (filter === 'unused' && !d.isUnused) return false;
+      if (qL) {
+        var nameHit = d.dish_name.toLowerCase().indexOf(qL) !== -1;
+        var hindiHit = d.hindi && d.hindi.toLowerCase().indexOf(qL) !== -1;
+        if (!nameHit && !hindiHit) return false;
+      }
       return true;
+    }).sort(function(a, b) { return a.dish_name.localeCompare(b.dish_name); });
+  }, [enriched, q, filter]);
+
+  var selectedNames = Object.keys(selected).filter(function(k) { return selected[k]; });
+  var selectedCount = selectedNames.length;
+  var allFilteredSelected = filtered.length > 0 && filtered.every(function(d) { return selected[d.dish_name]; });
+
+  // ── Bulk actions ─────────────────────────────────────────────────
+  function toggleSelect(name) {
+    setSelected(function(p) {
+      var next = { ...p };
+      if (next[name]) delete next[name]; else next[name] = true;
+      return next;
     });
-  }, [allDishes, q, filter, catFilter]);
+  }
+  function selectAllFiltered() {
+    setSelected(function(p) {
+      var next = { ...p };
+      if (allFilteredSelected) filtered.forEach(function(d) { delete next[d.dish_name]; });
+      else filtered.forEach(function(d) { next[d.dish_name] = true; });
+      return next;
+    });
+  }
+  function clearSelection() { setSelected({}); }
 
-  var exactMatch = q.trim() && allDishes.some(function(d) { return d.dish_name.toLowerCase() === q.trim().toLowerCase(); });
-  var showCreate = q.trim() && !exactMatch && !creating;
-
-  function handleAdd(dishName) {
-    if (!activeSection) { alert(T2('Pick a section first')); return; }
-    if (existingInSection.has(dishName)) {
-      setFlash(dishName);
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-      flashTimer.current = setTimeout(function() { setFlash(''); }, 700);
-      return;
-    }
-    onAdd(dishName, activeSection);
+  async function bulkDeleteUnused() {
+    if (!isAdmin) return;
+    var toDelete = selectedNames.filter(function(name) {
+      var d = enriched.find(function(e) { return e.dish_name === name; });
+      return d && d.isUnused && d.is_active;
+    });
+    var inUseCount = selectedNames.length - toDelete.length;
+    if (toDelete.length === 0) { alert(T2('None of the selected dishes are unused (or all are already retired). Only unused dishes can be bulk-retired.')); return; }
+    var msg = T2('Retire ') + toDelete.length + T2(' unused dish(es)?');
+    if (inUseCount > 0) msg += '\n\n' + inUseCount + T2(' selected dish(es) are still used in packages and will be skipped.');
+    if (!window.confirm(msg)) return;
+    setBulkSaving(true);
+    try {
+      var res = await supabase.from('dishes_master').update({ is_active: false }).in('dish_name', toDelete);
+      if (res.error) throw res.error;
+      toDelete.forEach(function(name) { deactivateDish(name); });
+      setSelected({});
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Bulk retire failed: ' + e.message); }
+    finally { setBulkSaving(false); }
   }
 
+  async function bulkAutoHindi() {
+    if (!isAdmin) return;
+    var candidates = selectedNames.map(function(name) {
+      var existing = DISH_HINDI_MAP[name];
+      if (existing) return null;
+      var hi = transliterateName(name);
+      if (!hi || hi === name) return null;
+      return { dish_name: name, hi: hi };
+    }).filter(Boolean);
+    if (candidates.length === 0) { alert(T2('Selected dishes already have Hindi, or transliteration produced no output.')); return; }
+    if (!window.confirm(T2('Auto-generate Hindi (Sanscript ITRANS) for ') + candidates.length + T2(' dish(es)?\n\nExisting Hindi mappings are preserved.'))) return;
+    setBulkSaving(true);
+    try {
+      var res = await supabase.from('dish_hindi_map').upsert(candidates, { onConflict: 'dish_name' });
+      if (res.error) throw res.error;
+      candidates.forEach(function(r) { upsertDishHindi(r.dish_name, r.hi); });
+      setSelected({});
+      setLocalBump(function(n) { return n + 1; });
+      alert(T2('Auto-Hindi complete: ') + candidates.length + T2(' dish(es) updated.'));
+    } catch (e) { alert('Auto-Hindi failed: ' + e.message); }
+    finally { setBulkSaving(false); }
+  }
+
+  // ── Add new dish ─────────────────────────────────────────────────
   async function handleCreate() {
-    var name = q.trim(); if (!name) return;
-    if (!activeSection) { alert(T2('Pick a section first')); return; }
+    if (!isAdmin) return;
+    var name = (window.prompt(T2('New dish name:')) || '').trim();
+    if (!name) return;
     setCreating(true);
     try {
       var res = await supabase.from('dishes_master').insert({ dish_name: name }).select();
       if (res.error && res.error.code !== '23505') { alert('Save failed: ' + res.error.message); return; }
       upsertDishMaster(name, { is_active: true });
-      onAdd(name, activeSection);
-      setQ('');
+      setLocalBump(function(n) { return n + 1; });
+      setDetailFor(name);
+      openDetail(name);
     } catch (e) { alert('Save failed: ' + e.message); }
     finally { setCreating(false); }
   }
 
-  function openMapFor(dishName) {
-    if (mapOpenFor === dishName) { setMapOpenFor(''); setMapSearch(''); return; }
-    setMapOpenFor(dishName); setMapSearch('');
-  }
-  async function pickSop(dishName, recipeName) {
-    setMapSaving(true);
-    try {
-      await (props.onMapSop || function() {})(dishName, recipeName);
-      // V62: mutual exclusion — if a store mapping exists, clear it
-      var existingStore = resolveDishStore(dishName);
-      if (existingStore) {
-        var resDel = await supabase.from('dish_store_map').delete().eq('dish_name', dishName);
-        if (!resDel.error) upsertDishStoreMap(dishName, null);
-      }
-    }
-    finally { setMapSaving(false); setMapOpenFor(''); setMapSearch(''); }
-  }
-  async function clearSop(dishName) {
-    if (!window.confirm(T2('Mark as no SOP for this dish?'))) return;
-    setMapSaving(true);
-    try { await (props.onClearSop || function() {})(dishName); }
-    finally { setMapSaving(false); setMapOpenFor(''); setMapSearch(''); }
-  }
+  // ── Detail modal ─────────────────────────────────────────────────
+  useEffect(function() {
+    if (!detailFor) return;
+    function onKey(e) { if (e.key === 'Escape') closeDetail(); }
+    document.addEventListener('keydown', onKey);
+    return function() { document.removeEventListener('keydown', onKey); };
+  }, [detailFor]);
 
-  async function handleRestore(dishName) {
-    setRestoring(dishName);
-    try {
-      var res = await supabase.from('dishes_master').update({ is_active: true }).eq('dish_name', dishName);
-      if (res.error) { alert('Restore failed: ' + res.error.message); return; }
-      upsertDishMaster(dishName, { is_active: true });
-      setLocalBump(function(n) { return n + 1; });
-    } catch (e) { alert('Restore failed: ' + e.message); }
-    finally { setRestoring(''); }
-  }
-
-  // V62: lazy-load Ops catering items (cached, 5-min TTL). Reused by openDetail + switchDetailType.
   async function loadStoreItems() {
     if (storeItems.length > 0) return;
     setStoreItemsLoading(true);
     try { var items = await getCateringStoreItemsCached(); setStoreItems(items || []); }
-    catch (e) { console.error('Store items load failed:', e); }
+    catch (e) { console.warn('Ops items load failed:', e); }
     finally { setStoreItemsLoading(false); }
   }
 
-  function openDetail(dishName) {
-    var row = allDishes.find(function(x) { return x.dish_name === dishName; });
-    setDetailFor(dishName);
-    setDetailHindiBuf((row && row.hindi) || DISH_HINDI_MAP[dishName] || '');
-    setDetailCatBuf((row && row.catId) || '');
-    setDetailMapOpen(false); setDetailMapSearch(''); setDetailUsageOpen(false);
-    // V62: init Type + store fields from existing dish_store_map row
-    var existingStore = resolveDishStore(dishName);
-    if (existingStore) {
+  function openDetail(name) {
+    setDetailFor(name);
+    setDetailHindiBuf(DISH_HINDI_MAP[name] || '');
+    var store = resolveDishStore(name);
+    if (store) {
       setDetailType('store');
-      setStoreItemPick(existingStore.ops_item_id);
-      setStoreQtyBuf(String(existingStore.qty_per_cover || 1));
+      setStoreItemPick(store.ops_item_id);
+      setStoreQtyBuf(String(store.qty_per_cover || 1));
       loadStoreItems();
     } else {
       setDetailType('sop');
       setStoreItemPick('');
       setStoreQtyBuf('1');
     }
-    setStoreSearch('');
+    setSopSearch(''); setStoreSearch('');
   }
   function closeDetail() {
-    setDetailFor(''); setDetailMapOpen(false); setDetailMapSearch(''); setDetailUsageOpen(false);
-    setStoreSearch(''); setStoreItemPick(''); setStoreQtyBuf('1');
+    if (detailSaving) return;
+    setDetailFor(''); setDetailHindiBuf(''); setDetailType('sop');
+    setSopSearch(''); setStoreSearch(''); setStoreItemPick(''); setStoreQtyBuf('1');
   }
+
   async function saveDetailHindi() {
     if (!detailFor) return;
     var current = DISH_HINDI_MAP[detailFor] || '';
@@ -193,76 +252,46 @@ function DishLibrary(props) {
     } catch (e) { alert('Hindi save failed: ' + e.message); }
     finally { setDetailSaving(''); }
   }
-  async function saveDetailCat(catId) {
-    if (!detailFor || !catId) return;
-    setDetailSaving('cat');
-    setDetailCatBuf(catId);
-    try {
-      var res = await supabase.from('dish_categories').upsert({ dish_name: detailFor, category_id: catId }, { onConflict: 'dish_name' });
-      if (res.error) throw res.error;
-      upsertDishCat(detailFor, catId);
-      setLocalBump(function(n) { return n + 1; });
-    } catch (e) { alert('Category save failed: ' + e.message); }
-    finally { setDetailSaving(''); }
-  }
+
   async function saveDetailSop(recipeName) {
     if (!detailFor) return;
     setDetailSaving('sop');
     try {
-      await (props.onMapSop || function() {})(detailFor, recipeName);
-      // V62: mutual exclusion — if a store mapping exists, clear it
-      var existingStore = resolveDishStore(detailFor);
-      if (existingStore) {
-        var resDel = await supabase.from('dish_store_map').delete().eq('dish_name', detailFor);
-        if (!resDel.error) {
-          upsertDishStoreMap(detailFor, null);
-          setStoreItemPick(''); setStoreQtyBuf('1');
-        }
+      var res = await supabase.from('dish_name_map').upsert({ lms_name: detailFor, recipe_dish_name: recipeName }, { onConflict: 'lms_name' });
+      if (res.error) throw res.error;
+      DISH_NAME_MAP[detailFor] = recipeName;
+      // Mutual exclusion: clear any store mapping
+      if (resolveDishStore(detailFor)) {
+        var resD = await supabase.from('dish_store_map').delete().eq('dish_name', detailFor);
+        if (!resD.error) upsertDishStoreMap(detailFor, null);
       }
-    }
-    finally { setDetailSaving(''); setDetailMapOpen(false); setDetailMapSearch(''); }
+      setDetailType('sop');
+      setStoreItemPick(''); setStoreQtyBuf('1');
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('SOP link failed: ' + e.message); }
+    finally { setDetailSaving(''); setSopSearch(''); }
   }
+
   async function clearDetailSop() {
     if (!detailFor) return;
-    if (!window.confirm(T2('Mark as no SOP for this dish?'))) return;
+    if (!window.confirm(T2('Mark "') + detailFor + T2('" as intentionally having no SOP?'))) return;
     setDetailSaving('sop');
-    try { await (props.onClearSop || function() {})(detailFor); }
-    finally { setDetailSaving(''); setDetailMapOpen(false); setDetailMapSearch(''); }
-  }
-  async function handleDeactivate() {
-    if (!detailFor) return;
-    if (!window.confirm(T2('Retire "') + detailFor + T2('"? It will be hidden from the library unless "Show retired" is on.'))) return;
-    setDetailSaving('deact');
     try {
-      var res = await supabase.from('dishes_master').update({ is_active: false }).eq('dish_name', detailFor);
+      var res = await supabase.from('dish_name_map').upsert({ lms_name: detailFor, recipe_dish_name: '__none__' }, { onConflict: 'lms_name' });
       if (res.error) throw res.error;
-      deactivateDish(detailFor);
+      DISH_NAME_MAP[detailFor] = '__none__';
       setLocalBump(function(n) { return n + 1; });
-      closeDetail();
-    } catch (e) { alert('Retire failed: ' + e.message); }
+    } catch (e) { alert('Clear SOP failed: ' + e.message); }
     finally { setDetailSaving(''); }
   }
 
-  // V62: switch between SOP / Store mode inside the detail popover (UI only, no DB writes)
-  function switchDetailType(next) {
-    setDetailType(next);
-    if (next === 'store') {
-      loadStoreItems();
-      // Rehydrate pick + qty from any existing mapping (in case they were reset earlier)
-      var existing = resolveDishStore(detailFor);
-      if (existing && !storeItemPick) {
-        setStoreItemPick(existing.ops_item_id);
-        setStoreQtyBuf(String(existing.qty_per_cover || 1));
-      }
-    }
-  }
-  // V62: upsert dish_store_map + clear any dish_name_map row (mutual exclusion)
-  async function saveDetailStore(itemId, qtyRaw) {
+  async function saveDetailStore() {
     if (!detailFor) return;
-    var qty = Number(qtyRaw != null ? qtyRaw : storeQtyBuf);
-    if (!qty || qty <= 0) { alert(T2('Enter a valid qty per cover')); return; }
-    var item = storeItems.find(function(x) { return x.id === itemId; });
-    if (!item) { alert(T2('Store item not found')); return; }
+    if (!storeItemPick) { alert(T2('Pick an Ops item first.')); return; }
+    var item = storeItems.find(function(x) { return x.id === storeItemPick; });
+    if (!item) { alert(T2('Ops item not found.')); return; }
+    var qty = parseFloat(storeQtyBuf);
+    if (!qty || qty <= 0) { alert(T2('Enter a valid qty per cover.')); return; }
     setDetailSaving('store');
     try {
       var row = {
@@ -277,27 +306,25 @@ function DishLibrary(props) {
       var res = await supabase.from('dish_store_map').upsert(row, { onConflict: 'dish_name' });
       if (res.error) throw res.error;
       upsertDishStoreMap(detailFor, {
-        ops_item_id:    item.id,
-        ops_item_name:  item.name || '',
-        ops_item_hindi: item.name_hindi || '',
-        ops_item_unit:  item.unit || 'Pieces',
-        qty_per_cover:  qty,
+        ops_item_id: item.id, ops_item_name: item.name || '',
+        ops_item_hindi: item.name_hindi || '', ops_item_unit: item.unit || 'Pieces',
+        qty_per_cover: qty,
       });
-      setStoreItemPick(item.id);
-      // Mutual exclusion: clear any dish_name_map row for this dish
+      // Mutual exclusion: clear any dish_name_map row
       var mk = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === detailFor.toLowerCase().trim(); });
       if (mk) {
         await supabase.from('dish_name_map').delete().eq('lms_name', mk);
         delete DISH_NAME_MAP[mk];
       }
+      setDetailType('store');
       setLocalBump(function(n) { return n + 1; });
-      if (typeof props.onStoreMappingChanged === 'function') props.onStoreMappingChanged(detailFor);
-    } catch (e) { alert('Save failed: ' + e.message); }
+    } catch (e) { alert('Inventory link failed: ' + e.message); }
     finally { setDetailSaving(''); }
   }
+
   async function clearDetailStore() {
     if (!detailFor) return;
-    if (!window.confirm(T2('Remove inventory (store) mapping for this dish?'))) return;
+    if (!window.confirm(T2('Remove inventory mapping for "') + detailFor + '"?')) return;
     setDetailSaving('store');
     try {
       var res = await supabase.from('dish_store_map').delete().eq('dish_name', detailFor);
@@ -305,351 +332,394 @@ function DishLibrary(props) {
       upsertDishStoreMap(detailFor, null);
       setStoreItemPick(''); setStoreQtyBuf('1'); setDetailType('sop');
       setLocalBump(function(n) { return n + 1; });
-      if (typeof props.onStoreMappingChanged === 'function') props.onStoreMappingChanged(detailFor);
-    } catch (e) { alert('Remove failed: ' + e.message); }
+    } catch (e) { alert('Remove inventory failed: ' + e.message); }
     finally { setDetailSaving(''); }
   }
 
-  var chip = function(v, label) {
-    var on = filter === v;
-    return React.createElement('button', {
-      key: v, onClick: function() { setFilter(v); },
-      style: { fontSize: 10, padding: '3px 10px', borderRadius: 12, background: on ? C.wine : 'transparent', color: on ? '#fff' : C.muted, border: '1px solid ' + (on ? C.wine : C.border), cursor: 'pointer', fontWeight: on ? 600 : 500 }
-    }, label);
-  };
+  async function handleDeactivate() {
+    if (!detailFor) return;
+    var pkgs = packagesContainingDish(detailFor);
+    var warn = T2('Retire "') + detailFor + T2('"?');
+    if (pkgs.length > 0) warn += '\n\n⚠ ' + T2('Still used in ') + pkgs.length + T2(' package(s): ') + pkgs.slice(0, 3).join(', ') + (pkgs.length > 3 ? '…' : '') + T2('. Retiring hides it from the library but keeps it in those packages.');
+    if (!window.confirm(warn)) return;
+    setDetailSaving('deact');
+    try {
+      var res = await supabase.from('dishes_master').update({ is_active: false }).eq('dish_name', detailFor);
+      if (res.error) throw res.error;
+      deactivateDish(detailFor);
+      setLocalBump(function(n) { return n + 1; });
+      closeDetail();
+    } catch (e) { alert('Retire failed: ' + e.message); }
+    finally { setDetailSaving(''); }
+  }
+
+  async function handleRestore(name) {
+    if (!isAdmin) return;
+    try {
+      var res = await supabase.from('dishes_master').update({ is_active: true }).eq('dish_name', name);
+      if (res.error) throw res.error;
+      upsertDishMaster(name, { is_active: true });
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Restore failed: ' + e.message); }
+  }
+
+  // ── Render helpers ───────────────────────────────────────────────
+  function chip(v, label, count, colorFg, colorBg) {
+    var active = filter === v;
+    return (
+      <button key={v} onClick={function() { setFilter(v); }}
+        style={{
+          padding: '5px 12px', borderRadius: 14, fontSize: 12, fontWeight: active ? 600 : 500,
+          cursor: 'pointer',
+          background: active ? (colorBg || C.text) : (colorBg || 'transparent'),
+          color: active ? (colorFg === C.text ? '#fff' : (colorFg || '#fff')) : (colorFg || C.muted),
+          border: '1px solid ' + (active ? (colorFg || C.text) : (colorBg ? 'transparent' : C.border)),
+        }}>
+        {label}{count != null ? ' ' + count : ''}
+      </button>
+    );
+  }
+
+  function typeBadge(type) {
+    var bg = type === 'inv' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : type === 'nosop' ? C.bg : C.redBg;
+    var fg = type === 'inv' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : type === 'nosop' ? C.muted : C.red;
+    var label = type === 'inv' ? 'Inventory' : type === 'sop' ? 'SOP' : type === 'nosop' ? T2('No SOP') : T2('Unmapped');
+    return <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: bg, color: fg }}>{label}</span>;
+  }
+
+  // ── RENDER ───────────────────────────────────────────────────────
+  var recipesFiltered = allRecipes.filter(function(r) { return !sopSearch || r.n.toLowerCase().indexOf(sopSearch.toLowerCase()) !== -1; }).slice(0, 30);
+  var storeItemsFiltered = storeItems.filter(function(x) { return !storeSearch || (x.name || '').toLowerCase().indexOf(storeSearch.toLowerCase()) !== -1; }).slice(0, 30);
+  var detailStore = detailFor ? resolveDishStore(detailFor) : null;
+  var detailSop = detailFor ? findRecipeForDish(detailFor) : null;
+  var detailPkgs = detailFor ? packagesContainingDish(detailFor) : [];
 
   return (
-    <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', minHeight: 460, maxHeight: 720, position: 'sticky', top: 12 }}>
+    <div>
 
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{T2('Dish library')}</div>
-        <div style={{ fontSize: 11, color: C.muted }}>{filtered.length} / {allDishes.length}</div>
-      </div>
-
-      {/* Adding-to selector */}
-      <div style={{ fontSize: 11, color: activeSection ? C.green : C.amber, background: activeSection ? C.greenBg : C.amberBg, borderRadius: 6, padding: '6px 10px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{T2('Adding to')}:</span>
-        <select value={activeSection} onChange={function(e) { setActiveSection(e.target.value); }}
-          style={{ flex: 1, padding: '2px 4px', border: 'none', background: 'transparent', fontSize: 11, fontWeight: 600, color: activeSection ? C.green : C.amber, cursor: 'pointer' }}>
-          <option value="">{T2('— pick a section —')}</option>
-          {sectionOptions.map(function(s) { return <option key={s} value={s}>{s}</option>; })}
-        </select>
-      </div>
-
-      {/* Search */}
-      <input type="text" value={q} onChange={function(e) { setQ(e.target.value); }} placeholder={T2('Search dishes…')}
-        style={{ width: '100%', padding: '6px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, background: C.bg, color: C.text, boxSizing: 'border-box', marginBottom: 8 }} />
-
-      {/* Filter chips */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {chip('all', T2('All'))}
-        {chip('mapped', T2('Has SOP'))}
-        {chip('unmapped', T2('Unmapped'))}
-        <div style={{ position: 'relative' }}>
-          <button onClick={function() { setCatMenuOpen(!catMenuOpen); }}
-            style={{ fontSize: 10, padding: '3px 10px', borderRadius: 12, background: catFilter ? C.wine : 'transparent', color: catFilter ? '#fff' : C.muted, border: '1px solid ' + (catFilter ? C.wine : C.border), cursor: 'pointer' }}>
-            {catFilter ? (catNameById[catFilter] || catFilter) : T2('Cat')} ▾
-          </button>
-          {catMenuOpen && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', zIndex: 5, minWidth: 160, maxHeight: 220, overflowY: 'auto' }}>
-              <div onClick={function() { setCatFilter(''); setCatMenuOpen(false); }}
-                style={{ padding: '6px 10px', fontSize: 11, cursor: 'pointer', color: !catFilter ? C.wine : C.text, borderBottom: '1px solid ' + C.borderLight, fontWeight: !catFilter ? 600 : 400 }}>
-                {T2('All categories')}
-              </div>
-              {cats.map(function(c) {
-                return <div key={c.id} onClick={function() { setCatFilter(c.id); setCatMenuOpen(false); }}
-                  style={{ padding: '6px 10px', fontSize: 11, cursor: 'pointer', color: catFilter === c.id ? C.wine : C.text, fontWeight: catFilter === c.id ? 600 : 400 }}>
-                  {c.icon} {c.name}
-                </div>;
-              })}
-            </div>
-          )}
+      {/* SUMMARY STRIP */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+        <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Total dishes')}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.text, marginTop: 2 }}>{totals.total}</div>
         </div>
-        <button onClick={function() { setShowRetired(!showRetired); }} title={T2('Toggle retired dishes')}
-          style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 10px', borderRadius: 12, background: showRetired ? C.faint : 'transparent', color: showRetired ? C.text : C.muted, border: '1px dashed ' + C.border, cursor: 'pointer', fontWeight: showRetired ? 600 : 500 }}>
+        <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>SOP {T2('mapped')}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#3B6D11', marginTop: 2 }}>{totals.sop} <span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>{totals.total ? Math.round(totals.sop / totals.total * 100) + '%' : ''}</span></div>
+        </div>
+        <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Inventory')}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: '#0F6E56', marginTop: 2 }}>{totals.inv} <span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>{totals.total ? Math.round(totals.inv / totals.total * 100) + '%' : ''}</span></div>
+        </div>
+        <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Unmapped')}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: C.red, marginTop: 2 }}>{totals.unmapped} <span style={{ fontSize: 11, color: C.muted, fontWeight: 400 }}>{totals.total ? Math.round(totals.unmapped / totals.total * 100) + '%' : ''}</span></div>
+        </div>
+      </div>
+
+      {/* FILTER + SEARCH */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        {chip('all',      T2('All'),        totals.total,    '#fff',      C.text)}
+        {chip('sop',      T2('SOP'),        totals.sop,      '#3B6D11', '#EAF3DE')}
+        {chip('inv',      T2('Inventory'),  totals.inv,      '#0F6E56', '#E1F5EE')}
+        {chip('unmapped', T2('Unmapped'),   totals.unmapped, C.red,     C.redBg)}
+        {chip('unused',   T2('Unused'),     totals.unused,   C.muted,   C.bg)}
+        <button onClick={function() { setShowRetired(!showRetired); }}
+          title={T2('Toggle retired dishes')}
+          style={{ marginLeft: 4, fontSize: 11, padding: '4px 10px', borderRadius: 14, background: showRetired ? C.faint : 'transparent', color: showRetired ? C.text : C.muted, border: '1px dashed ' + C.border, cursor: 'pointer', fontWeight: showRetired ? 600 : 500 }}>
           {showRetired ? '👁 ' + T2('Retired on') : T2('Show retired')}
         </button>
+        <div style={{ flex: 1, minWidth: 140, position: 'relative' }}>
+          <input value={q} onChange={function(e) { setQ(e.target.value); }}
+            placeholder={T2('Search dish name or Hindi…')}
+            style={{ width: '100%', padding: '6px 10px 6px 28px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
+          <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: C.muted }}>🔍</span>
+        </div>
+        {isAdmin && (
+          <button onClick={handleCreate} disabled={creating}
+            style={{ padding: '6px 12px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: creating ? 'wait' : 'pointer' }}>+ {T2('New dish')}</button>
+        )}
       </div>
 
-      {/* Rows */}
-      <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid ' + C.borderLight, marginBottom: 8 }}>
+      {/* BULK ACTION BAR */}
+      {selectedCount > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: C.blueBg, border: '1px solid ' + C.blueBorder, borderRadius: 8, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>{selectedCount} {T2('dish(es) selected')}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {isAdmin && (
+              <button onClick={bulkAutoHindi} disabled={bulkSaving}
+                style={{ padding: '4px 10px', borderRadius: 6, background: C.surface, border: '1px solid ' + C.border, fontSize: 11, color: C.text, cursor: bulkSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
+                🅷 {T2('Auto-Hindi')}
+              </button>
+            )}
+            {isAdmin && (
+              <button onClick={bulkDeleteUnused} disabled={bulkSaving}
+                style={{ padding: '4px 10px', borderRadius: 6, background: C.surface, border: '1px solid ' + C.redBorder, fontSize: 11, color: C.red, cursor: bulkSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
+                🗑 {T2('Retire unused')}
+              </button>
+            )}
+            <button onClick={clearSelection} disabled={bulkSaving}
+              style={{ padding: '4px 10px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, fontSize: 11, color: C.muted, cursor: 'pointer' }}>
+              {T2('Clear')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TABLE */}
+      <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden', background: C.surface, fontSize: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border }}>
+          <div>
+            <input type="checkbox" checked={allFilteredSelected} onChange={selectAllFiltered}
+              style={{ cursor: 'pointer', margin: 0 }} />
+          </div>
+          <div>{T2('Dish')}</div>
+          <div>{T2('Hindi')}</div>
+          <div>{T2('Type')}</div>
+          <div>{T2('Maps to')}</div>
+          <div>{T2('Used in')}</div>
+          <div></div>
+        </div>
+
         {filtered.length === 0 && (
-          <div style={{ padding: '16px 4px', fontSize: 11, color: C.muted, textAlign: 'center' }}>
-            {q ? T2('No matches. Try Create new below.') : T2('No dishes match your filters.')}
+          <div style={{ padding: '30px 12px', textAlign: 'center', color: C.muted, fontSize: 12 }}>
+            {q ? T2('No matches.') : T2('No dishes match the current filter.')}
           </div>
         )}
-        {filtered.slice(0, 300).map(function(d) {
-          var isDup        = existingInSection.has(d.dish_name);
-          var isFlashing   = flash === d.dish_name;
-          var isMapOpen    = mapOpenFor === d.dish_name;
-          var isRetired    = d.is_active === false;
-          var isRestoring  = restoring === d.dish_name;
-          var mapMatches  = mapSearch.trim()
-            ? allRecipes.filter(function(r) { return r.n.toLowerCase().indexOf(mapSearch.trim().toLowerCase()) !== -1; }).slice(0, 8)
-            : allRecipes.slice(0, 8);
-          // V62: Store mapping shown in teal, takes precedence over SOP subline
-          var storeInfo   = resolveDishStore(d.dish_name);
-          var subline     = storeInfo
-            ? ('→ ' + (storeInfo.qty_per_cover || 1) + ' ' + (storeInfo.ops_item_unit || '') + ' · ' + T2('Stores'))
-            : (d.hasRecipe
-                ? (d.mappedTo ? ('→ ' + d.mappedTo) : (d.catName || T2('SOP')))
-                : (d.explicitNone ? T2('No SOP') : T2('Unmapped')));
-          var sublineColor = storeInfo ? C.teal : (d.hasRecipe ? C.muted : (d.explicitNone ? C.faint : C.amber));
+
+        {filtered.slice(0, 500).map(function(d) {
+          var isSel = !!selected[d.dish_name];
+          var mapText = d.type === 'inv' && d.store
+            ? (d.store.ops_item_name + ' · ' + (d.store.qty_per_cover || 1) + ' ' + (d.store.ops_item_unit || '') + '/pax')
+            : d.type === 'sop'
+              ? (d.mappedTo || d.catName || 'SOP')
+              : d.type === 'nosop'
+                ? T2('(no SOP set)')
+                : T2('unmapped');
+          var mapColor = d.type === 'inv' ? '#0F6E56' : d.type === 'unmapped' ? C.red : C.muted;
           return (
-            <div key={d.dish_name} style={{ borderBottom: '1px solid ' + C.borderLight }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, padding: '7px 4px', background: isFlashing ? C.amberBg : (isDup ? C.bg : 'transparent'), transition: 'background 200ms', opacity: isRetired ? 0.5 : (isDup ? 0.55 : 1), filter: isRetired ? 'grayscale(0.6)' : 'none' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div onClick={function() { openDetail(d.dish_name); }} title={T2('View details')}
-                    style={{ fontSize: 12, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isRetired ? 'line-through' : 'none', cursor: 'pointer' }}>{d.dish_name}</div>
-                  <div style={{ fontSize: 10, color: sublineColor, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {isRetired && <span style={{ fontSize: 8, fontWeight: 700, color: C.muted, background: C.faint, padding: '1px 5px', borderRadius: 3, letterSpacing: 0.4, flexShrink: 0 }}>{T2('RETIRED')}</span>}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{subline}</span>
-                  </div>
-                </div>
-                {!isRetired && !storeInfo && (
-                  <button onClick={function() { openMapFor(d.dish_name); }} title={d.hasRecipe ? T2('Change SOP mapping') : T2('Map to SOP')}
-                    style={{ width: 24, height: 24, borderRadius: 6, background: isMapOpen ? C.blue : (d.hasRecipe ? 'transparent' : C.amberBg), color: isMapOpen ? '#fff' : (d.hasRecipe ? C.muted : C.amber), border: '1px solid ' + (isMapOpen ? C.blue : (d.hasRecipe ? C.border : C.amberBorder)), fontSize: 12, lineHeight: 1, cursor: 'pointer', flexShrink: 0, padding: 0 }}>🔗</button>
-                )}
-                {isRetired ? (
-                  <button onClick={function() { handleRestore(d.dish_name); }} disabled={isRestoring} title={T2('Restore dish')}
-                    style={{ padding: '3px 8px', borderRadius: 6, background: C.greenBg, color: C.green, border: '1px solid ' + C.greenBorder, fontSize: 10, fontWeight: 600, cursor: isRestoring ? 'wait' : 'pointer', flexShrink: 0, filter: 'grayscale(0)' }}>
-                    {isRestoring ? '…' : T2('Restore')}
-                  </button>
-                ) : (
-                  <button onClick={function() { handleAdd(d.dish_name); }} disabled={isDup} title={isDup ? T2('Already in section') : T2('Add to section')}
-                    style={{ width: 24, height: 24, borderRadius: 6, background: isDup ? C.faint : C.wine, color: '#fff', border: 'none', fontSize: 15, lineHeight: 1, cursor: isDup ? 'not-allowed' : 'pointer', flexShrink: 0, padding: 0 }}>+</button>
+            <div key={d.dish_name}
+              style={{
+                display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px',
+                borderTop: '1px solid ' + C.borderLight,
+                alignItems: 'center',
+                background: isSel ? C.blueBg : (d.is_active ? 'transparent' : C.bg),
+                opacity: d.is_active ? 1 : 0.6,
+                cursor: 'pointer',
+              }}
+              onClick={function(e) {
+                if (e.target.tagName === 'INPUT' || e.target.closest('.dish-pill') || e.target.closest('button')) return;
+                openDetail(d.dish_name);
+              }}
+            >
+              <div onClick={function(e) { e.stopPropagation(); toggleSelect(d.dish_name); }}>
+                <input type="checkbox" checked={isSel} readOnly style={{ cursor: 'pointer', margin: 0 }} />
+              </div>
+              <div style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.dish_name}
+                {!d.is_active && <span style={{ marginLeft: 6, fontSize: 10, color: C.muted, fontStyle: 'italic' }}>({T2('retired')})</span>}
+              </div>
+              <div style={{ color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.hindi || '—'}</div>
+              <div>{typeBadge(d.type)}</div>
+              <div style={{ color: mapColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapText}</div>
+              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                {d.packages.length === 0 && <span style={{ fontSize: 10, color: C.faint, fontStyle: 'italic' }}>{T2('unused')}</span>}
+                {d.packages.slice(0, 2).map(function(p) {
+                  return <span key={p} className="dish-pill" onClick={function(e) { e.stopPropagation(); onJumpToPackage(p); }}
+                    style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.bg, color: C.text, cursor: 'pointer', border: '1px solid ' + C.borderLight }}>{p}</span>;
+                })}
+                {d.packages.length > 2 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.bg, color: C.muted }}>+{d.packages.length - 2}</span>}
+              </div>
+              <div style={{ textAlign: 'right', color: C.muted }}>
+                {!d.is_active && isAdmin && (
+                  <button onClick={function(e) { e.stopPropagation(); handleRestore(d.dish_name); }}
+                    title={T2('Restore')}
+                    style={{ background: 'transparent', border: 'none', color: C.green, cursor: 'pointer', fontSize: 14, padding: 2 }}>↺</button>
                 )}
               </div>
-              {isMapOpen && (
-                <div style={{ padding: '8px 4px 10px', background: C.blueBg, borderTop: '1px solid ' + C.blueBorder }}>
-                  <input autoFocus type="text" value={mapSearch} onChange={function(e) { setMapSearch(e.target.value); }} placeholder={T2('Search SOP recipes…')}
-                    onKeyDown={function(e) { if (e.key === 'Escape') { setMapOpenFor(''); setMapSearch(''); } }}
-                    style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
-                  <div style={{ maxHeight: 180, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
-                    {mapMatches.length === 0 && <div style={{ padding: '8px', fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No SOP recipes match')}</div>}
-                    {mapMatches.map(function(r) {
-                      var isCurrent = d.mappedTo === r.n || (d.hasRecipe && !d.mappedTo && r.n === d.dish_name);
-                      return (
-                        <div key={r.n} onClick={mapSaving ? null : function() { pickSop(d.dish_name, r.n); }}
-                          style={{ padding: '5px 8px', fontSize: 11, cursor: mapSaving ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.n}</span>
-                          <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{r.cat}{isCurrent ? ' · current' : ''}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'space-between' }}>
-                    <button onClick={function() { setMapOpenFor(''); setMapSearch(''); }} disabled={mapSaving}
-                      style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.muted, cursor: 'pointer' }}>{T2('Cancel')}</button>
-                    <button onClick={function() { clearSop(d.dish_name); }} disabled={mapSaving}
-                      style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Mark as no SOP')}</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
-        {filtered.length > 300 && (
-          <div style={{ padding: '8px 4px', fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('… narrow search to see more')}</div>
+        {filtered.length > 500 && (
+          <div style={{ padding: '8px 12px', borderTop: '1px solid ' + C.borderLight, textAlign: 'center', color: C.faint, fontSize: 11 }}>
+            {T2('Showing 500 of ')}{filtered.length}{T2('. Refine the filter or search to see more.')}
+          </div>
         )}
       </div>
 
-      {/* Create-new footer */}
-      {showCreate && (
-        <button onClick={handleCreate} disabled={creating}
-          style={{ width: '100%', padding: 8, fontSize: 12, color: C.green, background: C.greenBg, border: '1px dashed ' + C.greenBorder, borderRadius: 8, cursor: creating ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-          {creating ? T2('Creating…') : ('+ ' + T2('Create new dish') + ' “' + q.trim() + '” ' + T2('and add'))}
-        </button>
-      )}
+      {/* DETAIL MODAL */}
+      {detailFor && (
+        <div onClick={closeDetail}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 560, width: '100%', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
 
-      {/* ── Dish detail popover ── */}
-      {detailFor && (function() {
-        var row = allDishes.find(function(x) { return x.dish_name === detailFor; }) || { dish_name: detailFor, is_active: true };
-        var usage = packagesContainingDish(detailFor);
-        var currentSop = row.hasRecipe ? (row.mappedTo || row.dish_name) : null;
-        var detailMapMatches = detailMapSearch.trim()
-          ? allRecipes.filter(function(r) { return r.n.toLowerCase().indexOf(detailMapSearch.trim().toLowerCase()) !== -1; }).slice(0, 8)
-          : allRecipes.slice(0, 8);
-        return (
-          <div onClick={closeDetail}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div onClick={function(e) { e.stopPropagation(); }}
-              style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 12, width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto', padding: 16, boxShadow: '0 12px 32px rgba(0,0,0,0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: C.text, lineHeight: 1.3, flex: 1 }}>{detailFor}</div>
-                <button onClick={closeDetail} title={T2('Close')}
-                  style={{ width: 26, height: 26, borderRadius: 6, background: 'transparent', color: C.muted, border: '1px solid ' + C.border, fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0, flexShrink: 0 }}>✕</button>
-              </div>
-
-              {/* V62: Type toggle — SOP dish vs Inventory dish */}
-              <div style={{ display: 'flex', gap: 4, marginBottom: 12, background: C.bg, borderRadius: 8, padding: 3, border: '1px solid ' + C.borderLight }}>
-                <button onClick={function() { switchDetailType('sop'); }}
-                  style={{ flex: 1, padding: '6px 10px', fontSize: 11, fontWeight: detailType === 'sop' ? 700 : 500, background: detailType === 'sop' ? C.wine : 'transparent', color: detailType === 'sop' ? '#fff' : C.muted, border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-                  {T2('SOP dish')}
-                </button>
-                <button onClick={function() { switchDetailType('store'); }}
-                  style={{ flex: 1, padding: '6px 10px', fontSize: 11, fontWeight: detailType === 'store' ? 700 : 500, background: detailType === 'store' ? C.wine : 'transparent', color: detailType === 'store' ? '#fff' : C.muted, border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-                  {T2('Inventory dish')}
-                </button>
-              </div>
-
-              {/* Hindi */}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Hindi name')}</label>
-                <input type="text" value={detailHindiBuf} onChange={function(e) { setDetailHindiBuf(e.target.value); }} onBlur={saveDetailHindi}
-                  onKeyDown={function(e) { if (e.key === 'Enter') { e.target.blur(); } }}
-                  placeholder={T2('हिंदी नाम')}
-                  style={{ width: '100%', padding: '6px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text, boxSizing: 'border-box', marginTop: 4 }} />
-                {detailSaving === 'hindi' && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{T2('Saving…')}</div>}
-              </div>
-
-              {/* Category */}
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Category')}</label>
-                <select value={detailCatBuf} onChange={function(e) { saveDetailCat(e.target.value); }} disabled={detailSaving === 'cat'}
-                  style={{ width: '100%', padding: '6px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, background: C.bg, color: C.text, boxSizing: 'border-box', marginTop: 4, cursor: 'pointer' }}>
-                  <option value="">{T2('— pick a category —')}</option>
-                  {cats.map(function(c) { return <option key={c.id} value={c.id}>{c.icon} {c.name}</option>; })}
-                </select>
-                {detailSaving === 'cat' && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{T2('Saving…')}</div>}
-              </div>
-
-              {/* V62: SOP mapping (only in SOP dish mode) */}
-              {detailType === 'sop' && (
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('SOP recipe')}</label>
-                  {!detailMapOpen ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, padding: '6px 10px', background: currentSop ? C.greenBg : C.amberBg, border: '1px solid ' + (currentSop ? C.greenBorder : C.amberBorder), borderRadius: 6 }}>
-                      <span style={{ flex: 1, fontSize: 12, color: currentSop ? C.green : C.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {currentSop || (row.explicitNone ? T2('No SOP') : T2('Not mapped'))}
-                      </span>
-                      <button onClick={function() { setDetailMapOpen(true); setDetailMapSearch(''); }}
-                        style={{ padding: '3px 10px', fontSize: 10, background: C.surface, color: C.text, border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
-                        {currentSop ? T2('Change') : T2('Map')}
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 4, padding: 8, background: C.blueBg, border: '1px solid ' + C.blueBorder, borderRadius: 6 }}>
-                      <input autoFocus type="text" value={detailMapSearch} onChange={function(e) { setDetailMapSearch(e.target.value); }} placeholder={T2('Search SOP recipes…')}
-                        onKeyDown={function(e) { if (e.key === 'Escape') { setDetailMapOpen(false); setDetailMapSearch(''); } }}
-                        style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
-                      <div style={{ maxHeight: 160, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
-                        {detailMapMatches.length === 0 && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No SOP recipes match')}</div>}
-                        {detailMapMatches.map(function(r) {
-                          var isCurrent = currentSop === r.n;
-                          return (
-                            <div key={r.n} onClick={detailSaving === 'sop' ? null : function() { saveDetailSop(r.n); }}
-                              style={{ padding: '5px 8px', fontSize: 11, cursor: detailSaving === 'sop' ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.n}</span>
-                              <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{r.cat}{isCurrent ? ' · current' : ''}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'space-between' }}>
-                        <button onClick={function() { setDetailMapOpen(false); setDetailMapSearch(''); }} disabled={detailSaving === 'sop'}
-                          style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.muted, cursor: 'pointer' }}>{T2('Cancel')}</button>
-                        <button onClick={clearDetailSop} disabled={detailSaving === 'sop'}
-                          style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Mark as no SOP')}</button>
-                      </div>
-                    </div>
-                  )}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{detailFor}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                  {detailPkgs.length > 0 ? T2('Used in ') + detailPkgs.length + T2(' package(s)') : T2('Not used in any package')}
                 </div>
-              )}
+              </div>
+              <button onClick={closeDetail} disabled={!!detailSaving}
+                style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: detailSaving ? 'not-allowed' : 'pointer', padding: 4 }}>×</button>
+            </div>
 
-              {/* V62: Inventory (store item) mapping (only in Inventory dish mode) */}
-              {detailType === 'store' && (function() {
-                var currentStore = resolveDishStore(detailFor);
-                var picked = storeItems.find(function(x) { return x.id === storeItemPick; });
-                var qtyNum = Number(storeQtyBuf);
-                return (
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{T2('Store item')}</label>
-                    <div style={{ marginTop: 4, padding: 8, background: C.tealBg, border: '1px solid ' + C.tealBorder, borderRadius: 6 }}>
-                      <input type="text" value={storeSearch} onChange={function(e) { setStoreSearch(e.target.value); }} placeholder={T2('Search catering store items…')}
-                        style={{ width: '100%', padding: '5px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 11, background: C.surface, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
-                      <div style={{ maxHeight: 150, overflowY: 'auto', background: C.surface, border: '1px solid ' + C.borderLight, borderRadius: 6, marginBottom: 8 }}>
-                        {storeItemsLoading && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('Loading…')}</div>}
-                        {!storeItemsLoading && storeItems.length === 0 && <div style={{ padding: 8, fontSize: 10, color: C.muted, textAlign: 'center' }}>{T2('No store items available')}</div>}
-                        {!storeItemsLoading && storeItems
-                          .filter(function(it) {
-                            var s = storeSearch.trim().toLowerCase();
-                            if (!s) return true;
-                            return (it.name || '').toLowerCase().indexOf(s) !== -1
-                              || (it.brand || '').toLowerCase().indexOf(s) !== -1;
-                          })
-                          .slice(0, 40)
-                          .map(function(it) {
-                            var isCurrent = storeItemPick === it.id;
-                            var suffix = [it.brand, (it.pack_size_qty ? (it.pack_size_qty + ' ' + (it.pack_size_unit || '')) : '')].filter(Boolean).join(' · ');
-                            return (
-                              <div key={it.id} onClick={detailSaving === 'store' ? null : function() { setStoreItemPick(it.id); saveDetailStore(it.id, storeQtyBuf); }}
-                                style={{ padding: '5px 8px', fontSize: 11, cursor: detailSaving === 'store' ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, background: isCurrent ? C.greenBg : 'transparent', color: isCurrent ? C.green : C.text, fontWeight: isCurrent ? 600 : 400, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
-                                <span style={{ fontSize: 9, color: isCurrent ? C.green : C.muted, marginLeft: 8, flexShrink: 0 }}>{suffix}{isCurrent ? ' · current' : ''}</span>
-                              </div>
-                            );
-                          })}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                        <label style={{ fontSize: 10, color: C.muted, minWidth: 84, fontWeight: 600 }}>{T2('Qty per cover')}</label>
-                        <input type="number" min="0" step="0.01" value={storeQtyBuf}
-                          onChange={function(e) { setStoreQtyBuf(e.target.value); }}
-                          onBlur={function() { if (storeItemPick && Number(storeQtyBuf) > 0) saveDetailStore(storeItemPick, storeQtyBuf); }}
-                          onKeyDown={function(e) { if (e.key === 'Enter') { e.target.blur(); } }}
-                          style={{ width: 80, padding: '4px 8px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, background: C.surface, color: C.text }} />
-                        <span style={{ fontSize: 10, color: C.muted }}>{picked ? (picked.unit || '') + ' ' + T2('per pax') : T2('per pax')}</span>
-                      </div>
-                      {picked && qtyNum > 0 && (
-                        <div style={{ padding: '5px 8px', fontSize: 11, color: C.teal, background: C.surface, border: '1px solid ' + C.tealBorder, borderRadius: 6, marginBottom: 6, fontWeight: 600 }}>
-                          → {storeQtyBuf} {picked.unit || ''} · {picked.name}
-                        </div>
-                      )}
-                      {detailSaving === 'store' && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{T2('Saving…')}</div>}
-                      {currentStore && (
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
-                          <button onClick={clearDetailStore} disabled={detailSaving === 'store'}
-                            style={{ padding: '4px 10px', fontSize: 10, background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, color: C.amber, cursor: 'pointer' }}>{T2('Unlink store item')}</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Used in packages */}
-              <div style={{ marginBottom: 14 }}>
-                <div onClick={function() { if (usage.length) setDetailUsageOpen(!detailUsageOpen); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: usage.length > 0 ? 'pointer' : 'default' }}>
-                  <label style={{ fontSize: 10, color: C.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'inherit' }}>{T2('Used in')}</label>
-                  <span style={{ fontSize: 11, color: usage.length ? C.text : C.faint, fontWeight: 600 }}>{usage.length} {usage.length === 1 ? T2('package') : T2('packages')}</span>
-                  {usage.length > 0 && <span style={{ fontSize: 10, color: C.muted, marginLeft: 'auto' }}>{detailUsageOpen ? '▾' : '▸'}</span>}
-                </div>
-                {detailUsageOpen && usage.length > 0 && (
-                  <ul style={{ margin: '6px 0 0', padding: '0 0 0 16px', fontSize: 11, color: C.text, lineHeight: 1.6 }}>
-                    {usage.map(function(p) { return <li key={p}>{p}</li>; })}
-                  </ul>
+            {/* Hindi */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Hindi')}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={detailHindiBuf} onChange={function(e) { setDetailHindiBuf(e.target.value); }}
+                  placeholder={T2('Hindi name…')} disabled={!isAdmin}
+                  style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.bg, fontSize: 13, color: C.text }} />
+                {isAdmin && (
+                  <button onClick={function() { setDetailHindiBuf(transliterateName(detailFor)); }}
+                    title={T2('Auto-transliterate (Sanscript ITRANS)')}
+                    disabled={!!detailSaving}
+                    style={{ padding: '6px 10px', borderRadius: 6, background: C.bg, border: '1px solid ' + C.border, fontSize: 11, color: C.text, cursor: 'pointer', fontWeight: 600 }}>🅷</button>
                 )}
-              </div>
-
-              {/* Retire */}
-              <div style={{ borderTop: '1px solid ' + C.borderLight, paddingTop: 10 }}>
-                {row.is_active === false ? (
-                  <div style={{ fontSize: 11, color: C.muted, fontStyle: 'italic', textAlign: 'center' }}>{T2('This dish is retired. Use "Restore" on the library row.')}</div>
-                ) : (
-                  <button onClick={handleDeactivate} disabled={detailSaving === 'deact'}
-                    style={{ width: '100%', padding: '7px 10px', fontSize: 12, background: 'transparent', color: C.amber, border: '1px solid ' + C.amberBorder, borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
-                    {detailSaving === 'deact' ? T2('Retiring…') : T2('Retire dish')}
+                {isAdmin && (
+                  <button onClick={saveDetailHindi} disabled={!!detailSaving || (detailHindiBuf || '') === (DISH_HINDI_MAP[detailFor] || '')}
+                    style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: detailSaving === 'hindi' ? 'wait' : 'pointer', opacity: (detailSaving || (detailHindiBuf || '') === (DISH_HINDI_MAP[detailFor] || '')) ? 0.5 : 1 }}>
+                    {detailSaving === 'hindi' ? T2('Saving…') : T2('Save')}
                   </button>
                 )}
               </div>
             </div>
+
+            {/* Type toggle */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Mapping type')}</div>
+              <div style={{ display: 'flex', gap: 4, background: C.bg, borderRadius: 6, padding: 3, width: 'fit-content' }}>
+                <button onClick={function() { setDetailType('sop'); }}
+                  style={{ padding: '5px 14px', borderRadius: 4, background: detailType === 'sop' ? '#3B6D11' : 'transparent', color: detailType === 'sop' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>SOP {T2('recipe')}</button>
+                <button onClick={function() { setDetailType('store'); loadStoreItems(); }}
+                  style={{ padding: '5px 14px', borderRadius: 4, background: detailType === 'store' ? '#0F6E56' : 'transparent', color: detailType === 'store' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{T2('Inventory')}</button>
+              </div>
+              <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2('Mutually exclusive — picking one clears the other.')}</div>
+            </div>
+
+            {/* SOP picker */}
+            {detailType === 'sop' && (
+              <div style={{ marginBottom: 14, padding: 10, background: '#F5FAF0', border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: '#3B6D11', marginBottom: 6, fontWeight: 600 }}>
+                  {detailSop ? T2('Currently linked to: ') + detailSop.n : T2('No SOP recipe linked yet.')}
+                </div>
+                <input value={sopSearch} onChange={function(e) { setSopSearch(e.target.value); }}
+                  placeholder={T2('Search recipes to link…')} disabled={!isAdmin}
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 6, background: C.surface }}>
+                  {recipesFiltered.map(function(r) {
+                    var linked = detailSop && detailSop.n === r.n;
+                    return (
+                      <div key={r.n} onClick={function() { if (isAdmin && !detailSaving) saveDetailSop(r.n); }}
+                        style={{ padding: '5px 10px', fontSize: 11, cursor: isAdmin ? 'pointer' : 'default', borderBottom: '1px solid ' + C.borderLight, background: linked ? '#EAF3DE' : 'transparent', color: linked ? '#3B6D11' : C.text, fontWeight: linked ? 600 : 400, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{r.n}</span>
+                        <span style={{ color: C.faint, fontSize: 10 }}>{r.cat}</span>
+                      </div>
+                    );
+                  })}
+                  {recipesFiltered.length === 0 && (
+                    <div style={{ padding: '8px 10px', fontSize: 11, color: C.muted, textAlign: 'center' }}>{T2('No matching recipes.')}</div>
+                  )}
+                </div>
+                {isAdmin && (
+                  <div style={{ marginTop: 6, textAlign: 'right' }}>
+                    <button onClick={clearDetailSop} disabled={!!detailSaving}
+                      style={{ padding: '4px 10px', borderRadius: 6, background: 'transparent', border: '1px dashed ' + C.border, color: C.muted, fontSize: 11, cursor: 'pointer' }}>
+                      {T2('Mark as no SOP')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Inventory picker */}
+            {detailType === 'store' && (
+              <div style={{ marginBottom: 14, padding: 10, background: '#F0FAF5', border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: '#0F6E56', marginBottom: 6, fontWeight: 600 }}>
+                  {detailStore ? T2('Currently linked to: ') + detailStore.ops_item_name + ' · ' + (detailStore.qty_per_cover || 1) + ' ' + (detailStore.ops_item_unit || '') + '/pax' : T2('No inventory item linked yet.')}
+                </div>
+                {storeItemsLoading && <div style={{ fontSize: 11, color: C.muted, padding: '8px' }}>{T2('Loading Ops items…')}</div>}
+                {!storeItemsLoading && (
+                  <React.Fragment>
+                    <input value={storeSearch} onChange={function(e) { setStoreSearch(e.target.value); }}
+                      placeholder={T2('Search Ops inventory…')} disabled={!isAdmin}
+                      style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                    <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 6, background: C.surface, marginBottom: 6 }}>
+                      {storeItemsFiltered.map(function(it) {
+                        var picked = storeItemPick === it.id;
+                        return (
+                          <div key={it.id} onClick={function() { if (isAdmin) setStoreItemPick(it.id); }}
+                            style={{ padding: '5px 10px', fontSize: 11, cursor: isAdmin ? 'pointer' : 'default', borderBottom: '1px solid ' + C.borderLight, background: picked ? '#E1F5EE' : 'transparent', color: picked ? '#0F6E56' : C.text, fontWeight: picked ? 600 : 400, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{it.name}</span>
+                            <span style={{ color: C.faint, fontSize: 10 }}>{it.unit}</span>
+                          </div>
+                        );
+                      })}
+                      {storeItemsFiltered.length === 0 && (
+                        <div style={{ padding: '8px 10px', fontSize: 11, color: C.muted, textAlign: 'center' }}>{T2('No matching items.')}</div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: C.muted }}>{T2('Qty per cover')}:</span>
+                      <input value={storeQtyBuf} onChange={function(e) { setStoreQtyBuf(e.target.value); }}
+                        type="number" step="0.1" min="0" disabled={!isAdmin}
+                        style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text }} />
+                      {isAdmin && (
+                        <button onClick={saveDetailStore} disabled={!!detailSaving || !storeItemPick}
+                          style={{ padding: '5px 14px', borderRadius: 6, background: '#0F6E56', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (detailSaving || !storeItemPick) ? 'not-allowed' : 'pointer', opacity: (detailSaving || !storeItemPick) ? 0.5 : 1, marginLeft: 'auto' }}>
+                          {detailSaving === 'store' ? T2('Saving…') : T2('Link')}
+                        </button>
+                      )}
+                    </div>
+                    {detailStore && isAdmin && (
+                      <div style={{ textAlign: 'right' }}>
+                        <button onClick={clearDetailStore} disabled={!!detailSaving}
+                          style={{ padding: '4px 10px', borderRadius: 6, background: 'transparent', border: '1px dashed ' + C.border, color: C.muted, fontSize: 11, cursor: 'pointer' }}>
+                          {T2('Remove inventory mapping')}
+                        </button>
+                      </div>
+                    )}
+                  </React.Fragment>
+                )}
+              </div>
+            )}
+
+            {/* Packages usage */}
+            {detailPkgs.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Used in packages')}</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {detailPkgs.map(function(p) {
+                    return <button key={p} onClick={function() { closeDetail(); onJumpToPackage(p); }}
+                      style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: C.bg, color: C.text, border: '1px solid ' + C.borderLight, cursor: 'pointer' }}>{p} →</button>;
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Footer actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 12, borderTop: '1px solid ' + C.border }}>
+              {isAdmin ? (
+                <button onClick={handleDeactivate} disabled={!!detailSaving}
+                  style={{ padding: '6px 12px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.redBorder, color: C.red, fontSize: 12, fontWeight: 600, cursor: detailSaving === 'deact' ? 'wait' : 'pointer' }}>
+                  🗑 {T2('Retire dish')}
+                </button>
+              ) : <span />}
+              <button onClick={closeDetail} disabled={!!detailSaving}
+                style={{ padding: '6px 14px', borderRadius: 6, background: C.text, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: detailSaving ? 'not-allowed' : 'pointer' }}>
+                {T2('Done')}
+              </button>
+            </div>
+
           </div>
-        );
-      })()}
+        </div>
+      )}
+
     </div>
   );
 }
 
 export default DishLibrary;
+export { DishLibrary };
