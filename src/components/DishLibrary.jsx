@@ -13,8 +13,10 @@ import {
   RECIPE_DB,
   resolveDishHindi, upsertDishHindi, DISH_HINDI_MAP,
   resolveDishStore, upsertDishStoreMap, DISH_STORE_MAP,
-  DISH_NAME_MAP, packagesContainingDish, findRecipeForDish
+  DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
+  getSectionsForPackage, setPackageSections
 } from '../data/recipeData.js';
+import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
@@ -48,6 +50,11 @@ function DishLibrary(props) {
 
   // Add new dish
   var [creating, setCreating] = useState(false);
+
+  // Merge / Rename modal state
+  var [mergeOpen, setMergeOpen]       = useState(false);
+  var [mergeTarget, setMergeTarget]   = useState('');
+  var [mergeSaving, setMergeSaving]   = useState(false);
 
   // ── Data ─────────────────────────────────────────────────────────
   var allRecipes = useMemo(function() {
@@ -176,6 +183,135 @@ function DishLibrary(props) {
       alert(T2('Auto-Hindi complete: ') + candidates.length + T2(' dish(es) updated.'));
     } catch (e) { alert('Auto-Hindi failed: ' + e.message); }
     finally { setBulkSaving(false); }
+  }
+
+  // ── Menu-packages cascade helper ─────────────────────────────────
+  // renameMap: { sourceName: targetName-or-null }. null = strip source, string = replace.
+  // Rewrites menu_packages.dishes[] and menu_packages.sections[].dishes[] and syncs in-memory.
+  async function applyRenameToPackages(renameMap) {
+    var sources = Object.keys(renameMap);
+    if (sources.length === 0) return { affected: 0 };
+    // Find affected package names from live MENU_PACKAGES (any package containing any source)
+    var affected = [];
+    Object.keys(MENU_PACKAGES).forEach(function(pkg) {
+      var list = MENU_PACKAGES[pkg] || [];
+      for (var i = 0; i < sources.length; i++) {
+        if (list.indexOf(sources[i]) !== -1) { affected.push(pkg); return; }
+      }
+    });
+    if (affected.length === 0) return { affected: 0 };
+    // Fetch fresh sections JSONB from Supabase for each affected package
+    var fetchRes = await supabase.from('menu_packages').select('name, dishes, sections').in('name', affected);
+    if (fetchRes.error) throw fetchRes.error;
+    var pkgRows = fetchRes.data || [];
+    // Rewrite each package
+    for (var pi = 0; pi < pkgRows.length; pi++) {
+      var row = pkgRows[pi];
+      var rewriteList = function(arr) {
+        var out = [];
+        var seen = {};
+        (arr || []).forEach(function(name) {
+          var nm = name in renameMap ? renameMap[name] : name;
+          if (nm == null) return; // stripped
+          if (seen[nm]) return;   // dedupe
+          seen[nm] = true;
+          out.push(nm);
+        });
+        return out;
+      };
+      var newDishes = rewriteList(row.dishes || []);
+      var newSections = (row.sections || []).map(function(sec) {
+        return { id: sec.id, name: sec.name, sop_category: sec.sop_category, dishes: rewriteList(sec.dishes || []) };
+      });
+      var uRes = await supabase.from('menu_packages').update({ dishes: newDishes, sections: newSections }).eq('name', row.name);
+      if (uRes.error) throw uRes.error;
+      // Sync in-memory
+      MENU_PACKAGES[row.name] = newDishes;
+      try { setPackageSections(row.name, newSections, newDishes); } catch(e) {}
+    }
+    // Clear localStorage caches so next hydration is fresh
+    try {
+      localStorage.removeItem('ambria_menu_packages');
+      localStorage.removeItem('ambria_cfg_menu_packages');
+    } catch(e) {}
+    return { affected: pkgRows.length };
+  }
+
+  // ── Rename / Merge ───────────────────────────────────────────────
+  function openMerge() {
+    if (selectedCount === 0) return;
+    // Default target = first selected (alphabetical)
+    var sorted = selectedNames.slice().sort();
+    setMergeTarget(sorted[0]);
+    setMergeOpen(true);
+  }
+  function closeMerge() {
+    if (mergeSaving) return;
+    setMergeOpen(false);
+    setMergeTarget('');
+  }
+  async function confirmMerge() {
+    if (!isAdmin) return;
+    var target = (mergeTarget || '').trim();
+    if (!target) { alert(T2('Enter a target dish name.')); return; }
+    var sources = selectedNames.filter(function(n) { return n !== target; });
+    if (sources.length === 0 && selectedCount === 1 && selectedNames[0] === target) {
+      alert(T2('Target is the same as the selected dish. Nothing to rename.'));
+      return;
+    }
+    var isRename = selectedCount === 1 && sources.length === 1;
+    var verb = isRename ? T2('Rename "') + sources[0] + T2('" to "') + target + T2('"?')
+                        : T2('Merge ') + sources.length + T2(' dish(es) into "') + target + T2('"?');
+    var warn = '\n\n' + T2('This will:') +
+      '\n• ' + T2('Replace the merged name(s) in every menu package that references them') +
+      '\n• ' + T2('Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings') +
+      '\n• ' + T2('Keep the target\'s own mappings unchanged');
+    if (!window.confirm(verb + warn)) return;
+    setMergeSaving(true);
+    try {
+      // 1. Ensure target row exists in dishes_master
+      var insRes = await supabase.from('dishes_master').upsert({ dish_name: target, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
+      if (insRes.error && insRes.error.code !== '23505') throw insRes.error;
+      upsertDishMaster(target, { is_active: true });
+      // 2. Delete source rows from side tables
+      if (sources.length > 0) {
+        var delCat  = await supabase.from('dish_categories').delete().in('dish_name', sources);
+        if (delCat.error) throw delCat.error;
+        var delHi   = await supabase.from('dish_hindi_map').delete().in('dish_name', sources);
+        if (delHi.error) throw delHi.error;
+        var delStr  = await supabase.from('dish_store_map').delete().in('dish_name', sources);
+        if (delStr.error) throw delStr.error;
+        var delNm   = await supabase.from('dish_name_map').delete().in('lms_name', sources);
+        if (delNm.error) throw delNm.error;
+        // In-memory cleanup
+        sources.forEach(function(s) {
+          upsertDishHindi(s, '');
+          upsertDishStoreMap(s, null);
+          if (DISH_NAME_MAP[s]) delete DISH_NAME_MAP[s];
+        });
+      }
+      // 3. Rewrite menu_packages
+      var renameMap = {};
+      sources.forEach(function(s) { renameMap[s] = target; });
+      var { affected } = await applyRenameToPackages(renameMap);
+      // 4. Delete source rows from dishes_master (last, so packages already rewritten)
+      if (sources.length > 0) {
+        var delMst = await supabase.from('dishes_master').delete().in('dish_name', sources);
+        if (delMst.error) throw delMst.error;
+        // In-memory: mark inactive so getAllDishes drops them (deactivateDish flips is_active=false)
+        sources.forEach(function(s) { deactivateDish(s); });
+      }
+      setSelected({});
+      setMergeOpen(false);
+      setMergeTarget('');
+      setLocalBump(function(n) { return n + 1; });
+      alert(isRename ? T2('Renamed. ') + affected + T2(' package(s) updated.') 
+                     : T2('Merged ') + sources.length + T2(' dish(es) into "') + target + T2('". ') + affected + T2(' package(s) updated.'));
+    } catch (e) {
+      alert('Merge failed: ' + (e.message || e));
+    } finally {
+      setMergeSaving(false);
+    }
   }
 
   // ── Add new dish ─────────────────────────────────────────────────
@@ -447,6 +583,13 @@ function DishLibrary(props) {
           <div style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>{selectedCount} {T2('dish(es) selected')}</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {isAdmin && (
+              <button onClick={openMerge} disabled={bulkSaving}
+                title={selectedCount === 1 ? T2('Rename this dish (updates every package that uses it)') : T2('Merge selected dishes into one canonical name (updates every package)')}
+                style={{ padding: '4px 10px', borderRadius: 6, background: C.surface, border: '1px solid ' + C.wine, fontSize: 11, color: C.wine, cursor: bulkSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
+                🔀 {selectedCount === 1 ? T2('Rename') : T2('Merge')}
+              </button>
+            )}
+            {isAdmin && (
               <button onClick={bulkAutoHindi} disabled={bulkSaving}
                 style={{ padding: '4px 10px', borderRadius: 6, background: C.surface, border: '1px solid ' + C.border, fontSize: 11, color: C.text, cursor: bulkSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
                 🅷 {T2('Auto-Hindi')}
@@ -546,6 +689,72 @@ function DishLibrary(props) {
           </div>
         )}
       </div>
+
+      {/* MERGE / RENAME MODAL */}
+      {mergeOpen && (
+        <div onClick={closeMerge}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 480, width: '100%', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
+                  🔀 {selectedCount === 1 ? T2('Rename dish') : T2('Merge ') + selectedCount + T2(' dishes')}
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                  {T2('The target name replaces the others in every menu package.')}
+                </div>
+              </div>
+              <button onClick={closeMerge} disabled={mergeSaving}
+                style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: mergeSaving ? 'not-allowed' : 'pointer', padding: 4 }}>×</button>
+            </div>
+
+            {/* Selected dishes list — click to make target */}
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{T2('Selected — click one to make it the target')}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, maxHeight: 140, overflowY: 'auto' }}>
+              {selectedNames.slice().sort().map(function(n) {
+                var isT = n === mergeTarget;
+                return (
+                  <button key={n} onClick={function() { setMergeTarget(n); }} disabled={mergeSaving}
+                    style={{ padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: mergeSaving ? 'not-allowed' : 'pointer',
+                      background: isT ? C.wine : C.bg, color: isT ? '#fff' : C.text,
+                      border: '1px solid ' + (isT ? C.wine : C.border), fontWeight: isT ? 600 : 400 }}>
+                    {isT ? '✓ ' : ''}{n}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom target name */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Or type a new target name')}</div>
+              <input value={mergeTarget} onChange={function(e) { setMergeTarget(e.target.value); }} disabled={mergeSaving}
+                placeholder={T2('Target dish name…')}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid ' + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Warning */}
+            <div style={{ padding: '10px 12px', background: C.amberBg, border: '1px solid ' + C.amberBorder, borderRadius: 6, fontSize: 11, color: C.text, marginBottom: 14, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, color: C.amber, marginBottom: 4 }}>⚠ {T2('What this does')}</div>
+              • {T2('Replaces the merged name(s) in every menu package that uses them')}<br/>
+              • {T2('Deletes the merged dish(es) from the library')}<br/>
+              • {T2('Drops the merged dishes\' own Hindi / SOP / Inventory mappings — the target\'s are kept')}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid ' + C.border }}>
+              <button onClick={closeMerge} disabled={mergeSaving}
+                style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: mergeSaving ? 'not-allowed' : 'pointer' }}>
+                {T2('Cancel')}
+              </button>
+              <button onClick={confirmMerge} disabled={mergeSaving || !mergeTarget.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (mergeSaving || !mergeTarget.trim()) ? 'not-allowed' : 'pointer', opacity: (mergeSaving || !mergeTarget.trim()) ? 0.5 : 1 }}>
+                {mergeSaving ? T2('Working…') : (selectedCount === 1 ? T2('Rename') : T2('Merge'))}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DETAIL MODAL */}
       {detailFor && (
