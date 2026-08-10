@@ -14,11 +14,11 @@ import {
   resolveDishHindi, upsertDishHindi, DISH_HINDI_MAP,
   resolveDishStore, upsertDishStoreMap, DISH_STORE_MAP,
   DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
-  getSectionsForPackage, setPackageSections
+  getSectionsForPackage, setPackageSections, getCatIdForDish
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
-import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
+import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
 
 function DishLibrary(props) {
@@ -55,6 +55,11 @@ function DishLibrary(props) {
   var [mergeOpen, setMergeOpen]       = useState(false);
   var [mergeTarget, setMergeTarget]   = useState('');
   var [mergeSaving, setMergeSaving]   = useState(false);
+
+  // Detail modal: package-assignment state
+  var [detailPkgAddOpen, setDetailPkgAddOpen] = useState(false);
+  var [detailPkgSearch, setDetailPkgSearch]   = useState('');
+  var [detailPkgSaving, setDetailPkgSaving]   = useState('');   // '' | pkgName being mutated
 
   // ── Data ─────────────────────────────────────────────────────────
   var allRecipes = useMemo(function() {
@@ -237,6 +242,73 @@ function DishLibrary(props) {
     return { affected: pkgRows.length };
   }
 
+  // ── Single-package mutation helper (add / remove one dish) ───────
+  async function mutatePackage(pkgName, mutatorFn) {
+    var fetchRes = await supabase.from('menu_packages').select('name, dishes, sections').eq('name', pkgName).limit(1);
+    if (fetchRes.error) throw fetchRes.error;
+    var row = (fetchRes.data && fetchRes.data[0]) || null;
+    if (!row) throw new Error('Package not found: ' + pkgName);
+    var next = mutatorFn({ dishes: row.dishes || [], sections: row.sections || [] });
+    var uRes = await supabase.from('menu_packages').update({ dishes: next.dishes, sections: next.sections }).eq('name', pkgName);
+    if (uRes.error) throw uRes.error;
+    MENU_PACKAGES[pkgName] = next.dishes;
+    try { setPackageSections(pkgName, next.sections, next.dishes); } catch(e) {}
+    try {
+      localStorage.removeItem('ambria_menu_packages');
+      localStorage.removeItem('ambria_cfg_menu_packages');
+    } catch(e) {}
+  }
+
+  async function handleAddToPackage(pkgName) {
+    if (!isAdmin || !detailFor || !pkgName) return;
+    setDetailPkgSaving(pkgName);
+    try {
+      await mutatePackage(pkgName, function(cur) {
+        var dishes = cur.dishes.slice();
+        if (dishes.indexOf(detailFor) === -1) dishes.push(detailFor);
+        // Section placement: match by sop_category → dish's cat name; fallback to first; else new "Other"
+        var sections = (cur.sections || []).map(function(s) { return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).slice() }; });
+        // Skip if dish is already in any section
+        var alreadyIn = sections.some(function(s) { return (s.dishes || []).indexOf(detailFor) !== -1; });
+        if (!alreadyIn) {
+          var catId = getCatIdForDish(detailFor);
+          var catName = catId ? ((RECIPE_DB.cats || []).find(function(c) { return c.id === catId; }) || {}).name || '' : '';
+          var target = null;
+          if (catName) target = sections.find(function(s) { return s.sop_category === catName || s.name === catName; });
+          if (!target && sections.length > 0) target = sections[0];
+          if (!target) {
+            var newSec = { id: 'sec_' + Date.now() + '_other', name: 'Other', sop_category: '', dishes: [detailFor] };
+            sections.push(newSec);
+          } else {
+            target.dishes.push(detailFor);
+          }
+        }
+        return { dishes: dishes, sections: sections };
+      });
+      setDetailPkgAddOpen(false);
+      setDetailPkgSearch('');
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Add to package failed: ' + (e.message || e)); }
+    finally { setDetailPkgSaving(''); }
+  }
+
+  async function handleRemoveFromPackage(pkgName) {
+    if (!isAdmin || !detailFor || !pkgName) return;
+    if (!window.confirm(T2('Remove "') + detailFor + T2('" from package "') + pkgName + '"?')) return;
+    setDetailPkgSaving(pkgName);
+    try {
+      await mutatePackage(pkgName, function(cur) {
+        var dishes = (cur.dishes || []).filter(function(n) { return n !== detailFor; });
+        var sections = (cur.sections || []).map(function(s) {
+          return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).filter(function(n) { return n !== detailFor; }) };
+        });
+        return { dishes: dishes, sections: sections };
+      });
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Remove from package failed: ' + (e.message || e)); }
+    finally { setDetailPkgSaving(''); }
+  }
+
   // ── Rename / Merge ───────────────────────────────────────────────
   function openMerge() {
     if (selectedCount === 0) return;
@@ -346,6 +418,26 @@ function DishLibrary(props) {
     catch (e) { console.warn('Ops items load failed:', e); }
     finally { setStoreItemsLoading(false); }
   }
+
+  // Realtime: keep Ops catering items in sync across DishLibrary's lifetime
+  useEffect(function() {
+    if (!opsSupabase) return;
+    var sub = opsSupabase
+      .channel('dl-cs-items-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'catering_store_items' }, function() {
+        try { localStorage.removeItem('ambria_ops_catering_items'); } catch(e) {}
+        // Only refetch if the picker has already been used this session
+        setStoreItems(function(prev) {
+          if (prev.length === 0) return prev;
+          getCateringStoreItemsCached().then(function(items) { setStoreItems(items || []); }).catch(function(){});
+          return prev;
+        });
+      })
+      .subscribe();
+    return function() {
+      try { opsSupabase.removeChannel(sub); } catch(e) {}
+    };
+  }, []);
 
   function openDetail(name) {
     setDetailFor(name);
@@ -895,18 +987,73 @@ function DishLibrary(props) {
               </div>
             )}
 
-            {/* Packages usage */}
-            {detailPkgs.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Used in packages')}</div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {detailPkgs.map(function(p) {
-                    return <button key={p} onClick={function() { closeDetail(); onJumpToPackage(p); }}
-                      style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: C.bg, color: C.text, border: '1px solid ' + C.borderLight, cursor: 'pointer' }}>{p} →</button>;
-                  })}
+            {/* Packages usage — assign / remove */}
+            {(function() {
+              var allPkgs = Object.keys(MENU_PACKAGES).sort();
+              var inSet = {}; detailPkgs.forEach(function(p) { inSet[p] = true; });
+              var available = allPkgs.filter(function(p) { return !inSet[p]; });
+              var qL = detailPkgSearch.trim().toLowerCase();
+              var availFiltered = qL ? available.filter(function(p) { return p.toLowerCase().indexOf(qL) !== -1; }) : available;
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{T2('Assign to packages')} <span style={{ color: C.faint, fontWeight: 400 }}>({detailPkgs.length})</span></span>
+                    {isAdmin && available.length > 0 && (
+                      <button onClick={function() { setDetailPkgAddOpen(!detailPkgAddOpen); setDetailPkgSearch(''); }} disabled={!!detailPkgSaving}
+                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 12, background: detailPkgAddOpen ? C.wine : 'transparent', color: detailPkgAddOpen ? '#fff' : C.wine, border: '1px solid ' + C.wine, cursor: detailPkgSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
+                        {detailPkgAddOpen ? '× ' + T2('Close') : '+ ' + T2('Add to package')}
+                      </button>
+                    )}
+                  </div>
+
+                  {detailPkgs.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: detailPkgAddOpen ? 8 : 0 }}>
+                      {detailPkgs.map(function(p) {
+                        var isSaving = detailPkgSaving === p;
+                        return (
+                          <div key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, padding: '2px 4px 2px 8px', borderRadius: 10, background: C.bg, color: C.text, border: '1px solid ' + C.borderLight, opacity: isSaving ? 0.5 : 1 }}>
+                            <span onClick={function() { closeDetail(); onJumpToPackage(p); }} style={{ cursor: 'pointer' }}>{p} →</span>
+                            {isAdmin && (
+                              <button onClick={function() { handleRemoveFromPackage(p); }} disabled={!!detailPkgSaving}
+                                title={T2('Remove from ') + p}
+                                style={{ background: 'transparent', border: 'none', color: C.red, fontSize: 13, cursor: detailPkgSaving ? 'not-allowed' : 'pointer', padding: '0 4px', lineHeight: 1, fontWeight: 700 }}>×</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {detailPkgs.length === 0 && !detailPkgAddOpen && (
+                    <div style={{ fontSize: 11, color: C.faint, fontStyle: 'italic' }}>{T2('Not used in any package.')}</div>
+                  )}
+
+                  {detailPkgAddOpen && (
+                    <div style={{ marginTop: 4, padding: 8, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
+                      <input value={detailPkgSearch} onChange={function(e) { setDetailPkgSearch(e.target.value); }}
+                        placeholder={T2('Search packages…')} autoFocus disabled={!!detailPkgSaving}
+                        style={{ width: '100%', padding: '5px 10px', borderRadius: 4, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                      <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 4, background: C.surface }}>
+                        {availFiltered.length === 0 && (
+                          <div style={{ padding: '8px 10px', fontSize: 11, color: C.muted, textAlign: 'center' }}>
+                            {available.length === 0 ? T2('Already in every package.') : T2('No matches.')}
+                          </div>
+                        )}
+                        {availFiltered.map(function(p) {
+                          var isSaving = detailPkgSaving === p;
+                          return (
+                            <div key={p} onClick={function() { if (!detailPkgSaving) handleAddToPackage(p); }}
+                              style={{ padding: '5px 10px', fontSize: 12, cursor: detailPkgSaving ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, color: C.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isSaving ? 0.5 : 1 }}>
+                              <span>{p}</span>
+                              {isSaving ? <span style={{ fontSize: 10, color: C.muted }}>{T2('Adding…')}</span> : <span style={{ fontSize: 12, color: C.wine, fontWeight: 700 }}>+</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Footer actions */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 12, borderTop: '1px solid ' + C.border }}>
