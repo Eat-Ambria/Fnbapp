@@ -265,6 +265,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // scaleEventId ? REMOVED in Phase 4
   const [yieldAdjustPct, setYieldAdjustPct] = useState(100); // global multiplier applied to planned yields (100 = exactly as planned)
+  const [yieldSavedPct,  setYieldSavedPct]  = useState(100); // last successfully persisted yield pct (drives Apply dirty state)
+  const [yieldSaving,    setYieldSaving]    = useState(false);
   const [closeEventId, setCloseEventId] = useState(null); // eventId whose closing is being edited
   const [closeRows, setCloseRows] = useState({}); // {dishName: production_closings row} for closeEventId
   const [closeSaving, setCloseSaving] = useState(new Set()); // dish names currently saving
@@ -410,35 +412,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return ()=>{ cancelled=true; };
   },[planEvId]);
 
-  // -- Sync yieldAdjustPct UI from event.yield_multiplier when a Planning event is selected (Phase 3) --
+  // -- Sync yieldAdjustPct + yieldSavedPct UI from event.yield_multiplier when a Planning event is selected (Phase 3) --
   useEffect(()=>{
     if(!planEvId) return;
     const ev = evList.find(e=>e.id===planEvId);
     if(!ev) return;
     const pct = Math.round((Number(ev.yield_multiplier)||1.0) * 100);
     setYieldAdjustPct(pct);
+    setYieldSavedPct(pct);
     // Deliberately NOT depending on evList — realtime updates from other tabs shouldn't clobber a slider mid-drag
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[planEvId]);
 
-  // -- Debounced save of yield_multiplier to events table when slider changes (Phase 3) --
-  useEffect(()=>{
-    if(!planEvId) return;
-    const ev = evList.find(e=>e.id===planEvId);
-    if(!ev) return;
-    const curMult = Number(ev.yield_multiplier)||1.0;
-    const uiMult = yieldAdjustPct/100;
-    if(Math.abs(curMult - uiMult) < 0.001) return; // no change vs DB — skip save
-    const t = setTimeout(()=>{
-      import('../lib/supabase.js').then(mod=>{
-        mod.supabase.from('events').update({yield_multiplier: uiMult}).eq('id', planEvId).then(({error})=>{
-          if(error) console.error('[yield_multiplier save]', error);
-        });
-      });
-    }, 500);
-    return ()=>clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[yieldAdjustPct, planEvId]);
+  // -- Yield multiplier is now saved on explicit Apply click (see Yield Adjustment card in Planning tab render).
+  //    Debounced auto-save removed — was too easy to trigger unintended cascades on Event Day / Prep Day scaling.
 
   // scaleEventId useEffect ? REMOVED in Phase 4
 
@@ -2714,12 +2701,26 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 </div>
 
-                {/* Global yield adjustment slider (Phase 3: merged from Scaling tab; saves to events.yield_multiplier per event) */}
+                {/* Global yield adjustment slider (Phase 3: merged from Scaling tab; saves to events.yield_multiplier per event on Apply click) */}
                 {dishes.length>0 && (()=>{
                   const plannedKgTotal = dishes.reduce((s,d)=>s+(Number(planRows[d]?.target_yield_kg)||0),0);
                   const adjustedTotal = Math.round(plannedKgTotal * yieldAdjustPct/100 * 10)/10;
+                  const fmtKg = v => (v>=0.01 ? v.toFixed(1).replace(/\.0$/,"") : "0");
+                  const isDirty = yieldAdjustPct !== yieldSavedPct;
+                  const onApplyYield = ()=>{
+                    if(!planEvId || yieldSaving || !isDirty) return;
+                    setYieldSaving(true);
+                    const uiMult = yieldAdjustPct/100;
+                    import('../lib/supabase.js').then(mod=>{
+                      mod.supabase.from('events').update({yield_multiplier: uiMult}).eq('id', planEvId).then(({error})=>{
+                        setYieldSaving(false);
+                        if(error){ console.error('[yield_multiplier save]', error); alert((T2?T2("Failed to save yield: "):"Failed to save yield: ")+error.message); return; }
+                        setYieldSavedPct(yieldAdjustPct);
+                      });
+                    });
+                  };
                   return(
-                  <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${C.purpleBorder}`,background:C.purpleBg}}>
+                  <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${isDirty?C.purple:C.purpleBorder}`,background:C.purpleBg,boxShadow:isDirty?`0 0 0 2px ${C.purple}22`:"none"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
                       <div>
                         <div style={{fontSize:12,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.6}}>⚖️ {T2("Yield adjustment")}</div>
@@ -2758,7 +2759,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </>)}
                       </div>
                     )}
-                    <div style={{marginTop:8,fontSize:10,color:C.faint,textAlign:"center"}}>{T2("Auto-saves to event on change. Applies to Event Day and Prep Day ingredient calculations.")}</div>
+                    <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                      <div style={{fontSize:10,color:isDirty?C.purple:C.faint,fontWeight:isDirty?600:400,flex:"1 1 200px"}}>
+                        {isDirty
+                          ? T2("Unsaved — click Apply to scale ingredients for this event.")
+                          : T2("Saved. Applies to Event Day and Prep Day ingredient calculations.")}
+                      </div>
+                      <button onClick={onApplyYield} disabled={!isDirty||yieldSaving}
+                        style={{padding:"9px 20px",borderRadius:8,fontSize:12,fontWeight:700,cursor:(!isDirty||yieldSaving)?"not-allowed":"pointer",background:(!isDirty||yieldSaving)?C.bg:C.purple,color:(!isDirty||yieldSaving)?C.faint:"#fff",border:`1.5px solid ${(!isDirty||yieldSaving)?C.border:C.purple}`,minHeight:38,opacity:(!isDirty||yieldSaving)?0.65:1,whiteSpace:"nowrap"}}>
+                        {yieldSaving ? T2("Saving…") : (isDirty ? T2("✓ Apply yield") : T2("✓ Applied"))}
+                      </button>
+                    </div>
                   </Card>);
                 })()}
 
