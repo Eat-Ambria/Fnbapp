@@ -574,10 +574,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
   async function generatePO(shortages, filtEvs) {
     if (!shortages.length) return;
     const VENUE_CODE_TO_ID = {AP:9, AE:11, AM:10, AR:12};
-    const venueCode = currentUser?.venue;
-    if (!venueCode) { alert("Your login has no venue assigned. Contact admin."); return; }
+    let venueCode = currentUser?.venue;
+    if (!venueCode) {
+      const pick = prompt("Which venue is this requisition for?\n\nType one: AP (Pushpanjali), AE (Exotica), AM (Manaktala), AR (Restro)", "AM");
+      if (pick === null) return;
+      venueCode = (pick || "").trim().toUpperCase();
+    }
     const venueId = VENUE_CODE_TO_ID[venueCode];
-    if (!venueId) { alert("Venue " + venueCode + " isn't set up in Ops (only AP/AE/AM/AR supported for requisitions)."); return; }
+    if (!venueId) { alert("Venue " + venueCode + " isn't set up in Ops. Use AP / AE / AM / AR."); return; }
     const empId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.id;
     const empName = currentUser?.name || empId;
     if (!empId) { alert("Login required to raise requisition."); return; }
@@ -1375,13 +1379,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
           <div>
             {/* Header + mode toggle */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Smart Issue")}</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements")}</div>
               <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
                 <button onClick={()=>setIssueMode("event")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="event"?C.gold:"transparent",color:issueMode==="event"?C.goldBg:C.muted}}>📅 {T2("By Event")}</button>
                 <button onClick={()=>setIssueMode("collective")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="collective"?C.gold:"transparent",color:issueMode==="collective"?C.goldBg:C.muted}}>📦 {T2("Collective")}</button>
               </div>
             </div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{issueMode==="event"?T2("Issue ingredients per event"):T2("Merged quantities across events")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{issueMode==="event"?T2("Aggregate ingredient needs per event"):T2("Merged quantities across events")}</div>
 
             {/* Date filter */}
             <div style={{display:"flex",gap:6,marginBottom:14}}>
