@@ -239,7 +239,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSaving(true);
     try {
       var res = await supabase.from('menu_packages')
-        .insert({ name: name, dishes: [], sections: [], is_active: true });
+        .upsert({ name: name, dishes: [], sections: [], is_active: true }, { onConflict: 'name' });
       if (res.error) throw res.error;
       setPackageSections(name, [], []);
       clearMenuPackageCaches();
@@ -267,7 +267,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSaving(true);
     try {
       var res = await supabase.from('menu_packages')
-        .insert({ name: name, dishes: flatDishes, sections: serialized, is_active: true });
+        .upsert({ name: name, dishes: flatDishes, sections: serialized, is_active: true }, { onConflict: 'name' });
       if (res.error) throw res.error;
       setPackageSections(name, serialized, flatDishes);
       clearMenuPackageCaches();
@@ -503,7 +503,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           if (uRes.error) throw uRes.error;
         } else {
           var iRes = await supabase.from('menu_packages')
-            .insert({ name: pkgName, dishes: flatDishes, sections: pkg.sections, is_active: true });
+            .upsert({ name: pkgName, dishes: flatDishes, sections: pkg.sections, is_active: true }, { onConflict: 'name' });
           if (iRes.error) throw iRes.error;
         }
         setPackageSections(pkgName, pkg.sections, flatDishes);
