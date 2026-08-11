@@ -141,7 +141,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [loading,  setLoading]  = useState(true);
   const [loadError, setLoadError] = useState("");
   const [lastSync, setLastSync] = useState(null);
-  const [orders,   setOrders]   = useState([]);
   const [tab,      setTab]      = useState("inventory");
   const [catFil,   setCatFil]   = useState("All");
   const [venueFil, setVenueFil] = useState("All");
@@ -155,16 +154,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const scanVideoRef  = useRef(null);
   const scanStreamRef = useRef(null);
   const scanAnimRef   = useRef(null);
-  const [showOrder,setShowOrder]=useState(null);
-  const [orderQty, setOrderQty] =useState("");
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
-  const [transactions, setTransactions] = useState([]); // [{id,itemId,itemName,type:"in"|"out",qty,reason,time}]
-  const [scanMode, setScanMode] = useState("in"); // "in" or "out"
-  const [scanItem, setScanItem] = useState(null); // matched item after scan
-  const [scanQty, setScanQty] = useState("");
-  const [scanReason, setScanReason] = useState("Purchase");
-  const [scanLookup, setScanLookup] = useState(null); // {name,brand,image,energy,weight,source}
   const [issueDate, setIssueDate] = useState("all");
   const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
   const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
@@ -184,6 +175,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
   const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
+
+  /* ── V65: Ops-side requisitions state (catering_requisitions + catering_requisition_items) ── */
+  const [opsReqs, setOpsReqs] = useState([]);
+  const [opsReqLoading, setOpsReqLoading] = useState(false);
+  const [opsReqCancelId, setOpsReqCancelId] = useState(null);
+
+  /* Venue id → code + display name (locked in V65). Ops venue names are placeholders — never display. */
+  const VENUE_ID_TO_CODE = {9:"AP", 11:"AE", 10:"AM", 12:"AR"};
+  const VENUE_ID_TO_NAME = {9:"Ambria Pushpanjali", 11:"Ambria Exotica", 10:"Ambria Manaktala", 12:"Ambria Restro"};
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
   useEffect(() => {
@@ -308,7 +308,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     }
     loadIssueState();
 
-    // Load POs
+    // Load POs (legacy — deprecated in V65 but preserved for audit)
     async function loadPOs() {
       try {
         const {data:pos} = await supabase.from('store_purchase_orders').select('*').order('created_at',{ascending:false});
@@ -319,6 +319,39 @@ function StoreModule({events, lang="en", currentUser=null}) {
       } catch(e){ console.error("PO load failed:",e); }
     }
     loadPOs();
+
+    // V65: Load Ops requisitions + realtime subs
+    async function loadOpsReqs() {
+      if (!opsSupabase) return;
+      setOpsReqLoading(true);
+      try {
+        const {data:reqs, error:rErr} = await opsSupabase
+          .from('catering_requisitions')
+          .select('id, requested_by, requested_by_name, requested_at, venue_id, event_ids, event_summary, needed_by, notes, status, approved_at, received_at, created_at, updated_at')
+          .order('created_at',{ascending:false})
+          .limit(200);
+        if (rErr) { console.error('Ops req load:',rErr); setOpsReqLoading(false); return; }
+        const reqIds = (reqs||[]).map(r=>r.id);
+        let itemsData = [];
+        if (reqIds.length) {
+          const {data:its} = await opsSupabase
+            .from('catering_requisition_items')
+            .select('id, requisition_id, ops_inventory_id, item_name, item_name_hindi, category_name, qty_requested, qty_received, unit, notes, status, created_at')
+            .in('requisition_id', reqIds);
+          itemsData = its || [];
+        }
+        const combined = (reqs||[]).map(r=>({...r, items: itemsData.filter(i=>i.requisition_id===r.id)}));
+        setOpsReqs(combined);
+      } catch(e){ console.error('Ops req load ex:',e); }
+      setOpsReqLoading(false);
+    }
+    loadOpsReqs();
+
+    let opsCh1=null, opsCh2=null;
+    if (opsSupabase) {
+      opsCh1 = opsSupabase.channel('ops-req-rt').on('postgres_changes',{event:'*',schema:'public',table:'catering_requisitions'},()=>loadOpsReqs()).subscribe();
+      opsCh2 = opsSupabase.channel('ops-req-items-rt').on('postgres_changes',{event:'*',schema:'public',table:'catering_requisition_items'},()=>loadOpsReqs()).subscribe();
+    }
 
     // Realtime subscriptions
     const ch1 = supabase.channel('sia-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_issue_assignments' }, (p) => {
@@ -354,7 +387,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
     }).subscribe();
     subs = [ch1, ch2, ch3, ch4];
 
-    return () => { subs.forEach(ch => supabase.removeChannel(ch)); };
+    return () => {
+      subs.forEach(ch => supabase.removeChannel(ch));
+      if (opsCh1 && opsSupabase) opsSupabase.removeChannel(opsCh1);
+      if (opsCh2 && opsSupabase) opsSupabase.removeChannel(opsCh2);
+    };
   }, []);
 
   /* ── Smart Issue helpers ── */
@@ -553,9 +590,26 @@ function StoreModule({events, lang="en", currentUser=null}) {
       }));
       const {error:liErr} = await supabase.from('store_po_items').insert(lineItems);
       if(liErr) console.error("PO items err:",liErr);
-      else { setTab("orders"); }
+      else { setTab("requisitions"); }
     } catch(e){ console.error("PO gen failed:",e); }
     setPoLoading(false);
+  }
+
+  async function cancelOpsReq(reqId, reason) {
+    const empId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.id;
+    if (!empId) { alert("Login required to cancel"); return; }
+    setOpsReqCancelId(reqId);
+    try {
+      const {data, error} = await supabase.functions.invoke('ops-req-router', {
+        body: {action:'cancel', payload:{req_id:reqId, cancelled_by:empId, cancelled_reason:reason||'cancelled via app'}}
+      });
+      if (error) throw error;
+      if (data && data.error) throw new Error(data.error);
+      // Realtime sub refreshes list; no manual refetch needed
+    } catch(e) {
+      alert("Cancel failed: " + (e.message||String(e)));
+    }
+    setOpsReqCancelId(null);
   }
 
   async function saveIngredientMapping(ingName, ingHindi, opsItem, conversion) {
@@ -866,30 +920,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
         </div>
       )}
 
-      {/* Order modal */}
-      {showOrder&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:C.surface,borderRadius:14,padding:"28px 32px",width:340}}>
-            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>🛒 Place Order</div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{items.find(i=>i.id===showOrder)?.name}</div>
-            <input type="number" value={orderQty} onChange={e=>setOrderQty(e.target.value)} placeholder="Quantity to order" autoFocus
-              style={{width:"100%",padding:"9px 11px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",marginBottom:12}}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <Btn onClick={()=>{setShowOrder(null);setOrderQty("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-              <Btn onClick={()=>{
-                const item=items.find(i=>i.id===showOrder);
-                if(!item||!orderQty||+orderQty<=0) return;
-                setOrders(p=>[...p,{id:"ORD-"+Date.now(),itemId:item.id,itemName:item.name,cat:item.cat,qty:+orderQty,unit:item.unit,status:"Ordered",orderedAt:new Date().toLocaleString("en-IN"),receivedQty:0}]);
-                setShowOrder(null);setOrderQty("");
-              }} color={C.wine} style={{fontSize:12,padding:"8px 20px"}}>{T2("Place Order")}</Btn>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"scan",l:T2("📷 Scan & Stock")},{v:"issue",l:T2("🧮 Smart Issue")},{v:"orders",l:T2("🛒 Orders")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"requisitions",l:T2("📋 Requisitions")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -1081,9 +1114,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
         </div>
       )}
 
-      {/* ── SCAN & STOCK IN/OUT ── */}
-      {tab==="scan"&&(
-        <div>
+      {/* ── SCAN & STOCK IN/OUT — REMOVED (V65) ── */}
+      {false&&(
+        <div style={{display:"none"}}>{/* scan tab content stripped from render — safe to fully delete in Batch 3 */}
           {/* Mode toggle */}
           <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`}}>
             {hasPerm(currentUser,"store.receive")&&<button onClick={()=>setScanMode("in")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
@@ -1221,8 +1254,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
         </div>
       )}
 
-      {/* ── SMART ISSUE — event-first with collective toggle ── */}
-      {tab==="issue"&&(()=>{
+      {/* ── REQUIREMENTS — event-first with collective toggle ── */}
+      {tab==="requirements"&&(()=>{
         const issueEvs = safeEvs.filter(e=>e.date===TODAY||e.date===TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
         const filtEvs = issueDate==="all"?issueEvs:issueEvs.filter(e=>e.date===issueDate);
         const evBags = buildEventBags(filtEvs);
@@ -1568,10 +1601,77 @@ function StoreModule({events, lang="en", currentUser=null}) {
         );
       })()}
 
-      {/* ── ORDERS (POs from Supabase) ── */}
-      {tab==="orders"&&(
+      {/* ── REQUISITIONS (V65 — live from Ops catering_requisitions) ── */}
+      {tab==="requisitions"&&(
         <div>
-          {purchaseOrders.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No purchase orders yet. Generate from Smart Issue shortages.")}</div>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:11,color:C.muted}}>{opsReqLoading?"Loading requisitions…":`${opsReqs.length} ${T2("requisitions")}`}</div>
+          </div>
+          {!opsReqLoading&&opsReqs.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No requisitions raised yet.")}</div>}
+          {opsReqs.map(req=>{
+            const stColors={pending:{c:C.muted,bg:C.bg},approved:{c:"#378ADD",bg:"#E6F1FB"},purchasing:{c:C.amber,bg:C.amberBg},partially_received:{c:C.amber,bg:C.amberBg},received:{c:C.green,bg:C.greenBg},cancelled:{c:C.red,bg:C.redBg}};
+            const sc=stColors[req.status]||stColors.pending;
+            const venueCode=VENUE_ID_TO_CODE[req.venue_id]||"?";
+            const venueName=VENUE_ID_TO_NAME[req.venue_id]||`Venue ${req.venue_id}`;
+            const vc=venueColor(venueCode);
+            const canCancel=(req.status==='pending'||req.status==='approved')&&hasPerm(currentUser,"store.edit_stock");
+            return (
+              <Card key={req.id} style={{padding:"14px 16px",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:vc.bg,color:vc.text}}>{venueName}</span>
+                      <div style={{fontSize:11,fontWeight:600,color:C.muted,fontFamily:"monospace"}}>{req.id.slice(0,8)}</div>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginTop:2}}>{req.event_summary||"—"}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                      {req.items.length} {T2("items")} · {T2("by")} {req.requested_by_name||req.requested_by} · {new Date(req.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}
+                      {req.needed_by&&<span> · {T2("needed by")} {new Date(req.needed_by).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</span>}
+                    </div>
+                    {req.notes&&<div style={{fontSize:10,color:C.muted,marginTop:2,fontStyle:"italic"}}>{req.notes}</div>}
+                  </div>
+                  <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:20,background:sc.bg,color:sc.c,textTransform:"capitalize",whiteSpace:"nowrap"}}>{req.status.replace(/_/g," ")}</span>
+                </div>
+                {req.items.length>0&&(
+                  <div style={{border:`1px solid ${C.borderLight}`,borderRadius:8,overflow:"hidden",marginBottom:canCancel?8:0}}>
+                    <div style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.borderLight}`}}>
+                      {[T2("Item"),T2("Reqd"),T2("Recv"),T2("Unit")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
+                    </div>
+                    {req.items.map(li=>(
+                      <div key={li.id} style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",borderBottom:`1px solid ${C.borderLight}22`,alignItems:"center"}}>
+                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>
+                          {li.item_name}
+                          {li.item_name_hindi&&<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({li.item_name_hindi})</span>}
+                          {!li.ops_inventory_id&&<span style={{fontSize:9,color:C.amber,marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.amberBg}}>ad-hoc</span>}
+                        </div>
+                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{li.qty_requested}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:(+li.qty_received)>=(+li.qty_requested)?C.green:C.amber}}>{li.qty_received||0}</div>
+                        <div style={{fontSize:11,color:C.muted}}>{li.unit||"-"}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {canCancel&&(
+                  <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                    <Btn onClick={async()=>{
+                      const reason=prompt("Reason for cancellation:","");
+                      if(reason===null) return;
+                      await cancelOpsReq(req.id,reason);
+                    }} color={C.red} style={{fontSize:11,padding:"6px 14px"}} disabled={opsReqCancelId===req.id}>
+                      {opsReqCancelId===req.id?"Cancelling…":`✕ ${T2("Cancel")}`}
+                    </Btn>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── LEGACY PO VIEW (deprecated in V65 — kept for audit, not reachable from tabs) ── */}
+      {false&&(
+        <div>
+          {purchaseOrders.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No purchase orders yet. Generate from Requirements shortages.")}</div>}
           {purchaseOrders.map(po=>{
             const stColors={draft:{c:C.muted,bg:C.bg},ordered:{c:C.amber,bg:C.amberBg},partial:{c:C.amber,bg:C.amberBg},received:{c:C.green,bg:C.greenBg},cancelled:{c:C.red,bg:C.redBg}};
             const sc=stColors[po.status]||stColors.draft;
