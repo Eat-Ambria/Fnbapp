@@ -572,26 +572,59 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
 
   async function generatePO(shortages, filtEvs) {
-    if(!shortages.length) return;
+    if (!shortages.length) return;
+    const VENUE_CODE_TO_ID = {AP:9, AE:11, AM:10, AR:12};
+    const venueCode = currentUser?.venue;
+    if (!venueCode) { alert("Your login has no venue assigned. Contact admin."); return; }
+    const venueId = VENUE_CODE_TO_ID[venueCode];
+    if (!venueId) { alert("Venue " + venueCode + " isn't set up in Ops (only AP/AE/AM/AR supported for requisitions)."); return; }
+    const empId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.id;
+    const empName = currentUser?.name || empId;
+    if (!empId) { alert("Login required to raise requisition."); return; }
     setPoLoading(true);
     try {
-      const poNum = "PO-" + new Date().toISOString().slice(0,10).replace(/-/g,"") + "-" + Date.now().toString(36).slice(-4).toUpperCase();
-      const staffId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.name || "system";
-      const {data:poRow, error:poErr} = await supabase.from('store_purchase_orders').insert({
-        po_number: poNum, status: 'draft', created_by: staffId,
-        notes: filtEvs.map(e=>e.guest+" ("+e.date+")").join(", ")
-      }).select().single();
-      if(poErr||!poRow){ console.error("PO create err:",poErr); setPoLoading(false); return; }
-      const lineItems = shortages.map(s=>({
-        po_id: poRow.id, ingredient_name: s.name, ops_item_id: s.opsItemId||null,
-        ops_item_name: s.opsItemName||null, qty_required: s.required,
-        qty_ordered: s.shortfall, qty_received: 0, unit: s.unit,
-        event_ids: s.eventIds, event_names: s.eventNames,
+      // Numeric ops id → stable ops_inventory_id prefix (from live items state, sourced from catering_store_items)
+      const opsIdToInvId = {};
+      items.forEach(i => { if (i._opsId && i.inventoryId) opsIdToInvId[i._opsId] = i.inventoryId; });
+
+      const payloadItems = shortages.map(s => ({
+        ops_inventory_id: (s.opsItemId && opsIdToInvId[s.opsItemId]) || null,
+        item_name: s.opsItemName || s.name,
+        item_name_hindi: null,
+        category_name: null,
+        qty_requested: s.shortfall,
+        unit: s.storeUnit || s.unit,
+        notes: null,
       }));
-      const {error:liErr} = await supabase.from('store_po_items').insert(lineItems);
-      if(liErr) console.error("PO items err:",liErr);
-      else { setTab("requisitions"); }
-    } catch(e){ console.error("PO gen failed:",e); }
+
+      const eventIds = [...new Set(filtEvs.map(e => e.id))];
+      const eventSummary = filtEvs.slice(0,3).map(e => e.guest + " (" + e.date + ")").join(", ") + (filtEvs.length > 3 ? " +" + (filtEvs.length - 3) + " more" : "");
+      const neededBy = filtEvs.reduce((min, e) => (min && min <= e.date) ? min : e.date, null);
+
+      const { data, error } = await supabase.functions.invoke('ops-req-router', {
+        body: {
+          action: 'create',
+          payload: {
+            requested_by: empId,
+            requested_by_name: empName,
+            venue_id: venueId,
+            event_ids: eventIds,
+            event_summary: eventSummary,
+            needed_by: neededBy,
+            notes: null,
+            items: payloadItems,
+          }
+        }
+      });
+      if (error) throw error;
+      if (data && data.error) throw new Error(data.error + (data.detail ? ": " + data.detail : ""));
+
+      // Success — realtime sub refreshes the Requisitions tab
+      setTab("requisitions");
+    } catch (e) {
+      alert("Requisition create failed: " + (e.message || String(e)));
+      console.error("generatePO (router) failed:", e);
+    }
     setPoLoading(false);
   }
 
@@ -1565,7 +1598,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     </div>
                     {hasPerm(currentUser,"store.edit_stock")&&<button disabled={poLoading} onClick={()=>generatePO(shortages,filtEvs)}
                       style={{padding:"8px 16px",borderRadius:10,background:poLoading?C.muted:C.red,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:poLoading?"default":"pointer",minHeight:36,opacity:poLoading?.6:1}}>
-                      {poLoading?"⏳ ...":"📋 "+T2("Generate PO")}
+                      {poLoading?"⏳ Ordering…":"📋 "+T2("Order Shortfall")}
                     </button>}
                   </div>
                   <div style={{border:`1px solid ${C.redBorder}`,borderRadius:10,overflow:"hidden"}}>
