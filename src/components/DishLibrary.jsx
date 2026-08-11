@@ -523,20 +523,21 @@ function DishLibrary(props) {
     setDetailSaving('store');
     try {
       var row = {
-        dish_name:      detailFor,
-        ops_item_id:    item.id,
-        ops_item_name:  item.name || '',
-        ops_item_hindi: item.name_hindi || null,
-        ops_item_unit:  item.unit || 'Pieces',
-        qty_per_cover:  qty,
-        updated_at:     new Date().toISOString(),
+        dish_name:        detailFor,
+        ops_item_id:      item.id,
+        ops_inventory_id: item.inventory_id || null,  // V64: stable prefix key (CS-*/FLO-*/PRBR-*) — survives Ops rebuilds
+        ops_item_name:    item.name || '',
+        ops_item_hindi:   item.name_hindi || null,
+        ops_item_unit:    item.unit || 'Pieces',
+        qty_per_cover:    qty,
+        updated_at:       new Date().toISOString(),
       };
       var res = await supabase.from('dish_store_map').upsert(row, { onConflict: 'dish_name' });
       if (res.error) throw res.error;
       upsertDishStoreMap(detailFor, {
-        ops_item_id: item.id, ops_item_name: item.name || '',
-        ops_item_hindi: item.name_hindi || '', ops_item_unit: item.unit || 'Pieces',
-        qty_per_cover: qty,
+        ops_item_id: item.id, ops_inventory_id: item.inventory_id || null,
+        ops_item_name: item.name || '', ops_item_hindi: item.name_hindi || '',
+        ops_item_unit: item.unit || 'Pieces', qty_per_cover: qty,
       });
       // Mutual exclusion: clear any dish_name_map row
       var mk = Object.keys(DISH_NAME_MAP).find(function(k) { return k.toLowerCase().trim() === detailFor.toLowerCase().trim(); });

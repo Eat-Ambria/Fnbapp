@@ -231,15 +231,17 @@ export async function loadAllConfig() {
   });
 
   // V62: Build dish → Ops store item lookup
+  // V64: added ops_inventory_id (stable prefix key — CS-/FLO-/PRBR-) that survives Ops inventory rebuilds; ops_item_id kept for back-compat
   const dishStoreMap = {};
   (dishStoreMapRaw || []).forEach(r => {
     if (r && r.dish_name && r.ops_item_id) {
       dishStoreMap[r.dish_name] = {
-        ops_item_id:    r.ops_item_id,
-        ops_item_name:  r.ops_item_name || '',
-        ops_item_hindi: r.ops_item_hindi || '',
-        ops_item_unit:  r.ops_item_unit || '',
-        qty_per_cover:  Number(r.qty_per_cover) || 1
+        ops_item_id:      r.ops_item_id,
+        ops_inventory_id: r.ops_inventory_id || null,
+        ops_item_name:    r.ops_item_name || '',
+        ops_item_hindi:   r.ops_item_hindi || '',
+        ops_item_unit:    r.ops_item_unit || '',
+        qty_per_cover:    Number(r.qty_per_cover) || 1
       };
     }
   });

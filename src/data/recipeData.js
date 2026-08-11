@@ -33,7 +33,8 @@ import INGREDIENT_HINDI from './ingredientHindi.js';
    }
 
    // ── Dish → Ops store item mapping (V62) ──
-   // Shape: { [dish_name]: { ops_item_id, ops_item_name, ops_item_hindi, ops_item_unit, qty_per_cover } }
+   // Shape: { [dish_name]: { ops_item_id, ops_inventory_id, ops_item_name, ops_item_hindi, ops_item_unit, qty_per_cover } }
+   // V64: ops_inventory_id is the stable prefix key (CS-/FLO-/PRBR-) that survives Ops inventory rebuilds; ops_item_id is legacy numeric, kept for back-compat during migration
    let DISH_STORE_MAP = {};
    function setDishStoreMap(m) { DISH_STORE_MAP = m || {}; }
    function upsertDishStoreMap(dishName, row) {

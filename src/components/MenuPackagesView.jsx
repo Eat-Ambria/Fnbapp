@@ -471,7 +471,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         invRows.forEach(function(r) {
           if (seenInv[r.dish]) return; seenInv[r.dish] = true;
           storeUpsert.push({
-            dish_name: r.dish, ops_item_id: r.opsMatch.id,
+            dish_name: r.dish,
+            ops_item_id: r.opsMatch.id,
+            ops_inventory_id: r.opsMatch.inventory_id || null,  // V64: stable prefix key — survives Ops rebuilds
             ops_item_name: r.opsMatch.name || '',
             ops_item_hindi: r.opsMatch.name_hindi || null,
             ops_item_unit: r.opsMatch.unit || 'Pieces',
@@ -483,9 +485,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         if (sRes.error) console.warn('dish_store_map upsert', sRes.error);
         else storeUpsert.forEach(function(r) {
           upsertDishStoreMap(r.dish_name, {
-            ops_item_id: r.ops_item_id, ops_item_name: r.ops_item_name,
-            ops_item_hindi: r.ops_item_hindi || '', ops_item_unit: r.ops_item_unit,
-            qty_per_cover: r.qty_per_cover,
+            ops_item_id: r.ops_item_id, ops_inventory_id: r.ops_inventory_id,
+            ops_item_name: r.ops_item_name, ops_item_hindi: r.ops_item_hindi || '',
+            ops_item_unit: r.ops_item_unit, qty_per_cover: r.qty_per_cover,
           });
         });
       }
