@@ -4,7 +4,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
@@ -2575,12 +2575,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           savePlanYield(dish, draft, rowCtx);
         }
 
-        // Group dishes by section (RECIPE_DB.cats order), unmapped last
+        // Group dishes by section (RECIPE_DB.cats order). Store-mapped dishes are excluded (they're issued from store, not prepped).
         const grouped = new Map();
         const unmapped = [];
         dishes.forEach((dish,idx)=>{
           const st = dishStatus(dish);
-          if(!st.catId){ unmapped.push({dish,st,idx}); return; }
+          if(!st.catId){
+            // No recipe. If it has a store mapping, it's issued from store — skip from planning entirely.
+            if(resolveDishStore(dish)) return;
+            unmapped.push({dish,st,idx});
+            return;
+          }
           if(!grouped.has(st.catId)){
             const cat = RECIPE_DB.cats.find(c=>c.id===st.catId) || {id:st.catId,name:st.catId,icon:"??"};
             grouped.set(st.catId,{cat,items:[]});
@@ -2591,14 +2596,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           .filter(c=>grouped.has(c.id))
           .map(c=>grouped.get(c.id));
 
-        // Plan-based stats: auto = using computed default; override = chef pinned custom qty; unmapped = no recipe
+        // Plan-based stats: auto = using computed default; override = chef pinned; fromStore = issued from store (no prep); unmapped = no recipe AND no store link
         const stats = dishes.reduce((acc,d)=>{
           const st = dishStatus(d);
-          if(!st.catId) acc.unmapped++;
+          if(!st.catId){
+            if(resolveDishStore(d)) acc.fromStore++;
+            else acc.unmapped++;
+          }
           else if(planRows[d]) acc.override++;
           else acc.auto++;
           return acc;
-        },{auto:0,override:0,unmapped:0});
+        },{auto:0,override:0,unmapped:0,fromStore:0});
 
         return(
           <div>
@@ -2709,7 +2717,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{display:"flex",gap:10,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
                     <span style={{color:C.green,background:C.greenBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>✨ {stats.auto} {T2("auto-planned")}</span>
                     <span style={{color:C.purple,background:C.purpleBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>📌 {stats.override} {T2("override")}</span>
-                    <span style={{color:C.red,background:C.redBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>⚠ {stats.unmapped} {T2("unmapped")}</span>
+                    {stats.fromStore>0 && <span style={{color:C.muted,background:C.bg,padding:"3px 10px",borderRadius:12,fontWeight:600,border:`1px solid ${C.border}`}}>📦 {stats.fromStore} {T2("from store")}</span>}
+                    {stats.unmapped>0 && <span style={{color:C.red,background:C.redBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>⚠ {stats.unmapped} {T2("unmapped")}</span>}
                     {planLoading && <span style={{color:C.muted,fontStyle:"italic",fontSize:10}}>{T2("Loading...")}</span>}
                   </div>
                 </div>
