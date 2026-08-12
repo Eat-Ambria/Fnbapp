@@ -2864,46 +2864,44 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const rowStyle = (isLast)=>({padding:"10px 12px",borderBottom:!isLast?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"});
                           const isLastGroupRow = i===g.items.length-1;
                           if(useSections){
-                            // Expand into N sub-rows, one per section
+                            // Expand into N sub-rows, one per section. Same auto/pinned model as single-row.
+                            const secMult = yieldAdjustPct/100;
                             return recSections.map((sec,si)=>{
-                              const sectionSuggested = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const secAutoRaw = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
                               const draftKey = it.dish+"|"+sec.name;
                               const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
-                              const currentVal = planDrafts[draftKey] ?? (savedVal!=null?savedVal:"");
+                              const isSecOverride = savedVal!=null && savedVal!=="";
+                              const currentVal = planDrafts[draftKey] ?? (isSecOverride ? String(savedVal) : "");
                               const isSaving = planSaving.has(draftKey);
-                              const isSaved = savedVal!=null && savedVal!=="";
                               const isLast = isLastGroupRow && si===recSections.length-1;
+                              const revertSecToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;}); savePlanYield(it.dish, "", rowCtx, sec.name); };
                               return(
-                                <div key={i+"-"+si} style={rowStyle(isLast)}>
+                                <div key={i+"-"+si} style={{...rowStyle(isLast),background:isSecOverride?C.purpleBg+"60":"transparent"}}>
                                   <div style={{flex:"1 1 200px",minWidth:0}}>
                                     <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish} <span style={{color:C.gold,fontWeight:600}}>→ {sec.name}</span></div>
                                     <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
-                                      {mappedName && si===0 && <span>? {mappedName}</span>}
-                                      <span style={{color:C.gold}}>💡 {T2("suggest")} {sectionSuggested} kg</span>
+                                      {mappedName && si===0 && <span>📖 {mappedName}</span>}
+                                      {isSecOverride && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {secAutoScaled} kg</span>}
+                                      {!isSecOverride && <span>{selEv.pax} pax{secMult!==1?` · ${yieldAdjustPct}%`:""}</span>}
                                     </div>
                                   </div>
                                   <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                    {String(currentVal)==="" && (
-                                      <button onClick={()=>{setPlanDrafts(p=>({...p,[draftKey]:String(sectionSuggested)}));savePlanYield(it.dish, sectionSuggested, rowCtx, sec.name);}}
-                                        style={{fontSize:10,padding:"5px 8px",border:`1px dashed ${C.gold}`,color:C.gold,borderRadius:6,background:"transparent",cursor:"pointer",whiteSpace:"nowrap"}}>
-                                        {T2("Use")} {sectionSuggested}
-                                      </button>
-                                    )}
                                     <input type="number" step="any" inputMode="decimal" min="0"
                                       value={currentVal}
                                       onChange={e=>setPlanDrafts(p=>({...p,[draftKey]:e.target.value}))}
-                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;savePlanYield(it.dish, d, rowCtx, sec.name);}}
+                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}savePlanYield(it.dish, d, rowCtx, sec.name);}}
                                       onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
-                                      placeholder={String(sectionSuggested)}
+                                      placeholder={String(secAutoScaled)}
                                       disabled={isSaving}
-                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:`1px solid ${isSaved?C.green+"60":C.border}`,fontSize:12,textAlign:"right",background:isSaved?C.green+"08":C.bg,color:C.text,opacity:isSaving?0.6:1}} />
+                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:isSecOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isSecOverride?600:400,textAlign:"right",background:isSecOverride?C.surface:"transparent",color:C.text,opacity:isSaving?0.6:1}} />
                                     <span style={{fontSize:10,color:C.muted}}>kg</span>
                                     {isSaving ? (
-                                      <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:52}}>{T2("Saving")}...</span>
-                                    ) : isSaved ? (
-                                      <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.amber,background:C.amber+"15",border:`1px solid ${C.amber}30`,whiteSpace:"nowrap"}}>{T2("Draft")}</div>
+                                      <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:64}}>{T2("Saving")}...</span>
+                                    ) : isSecOverride ? (
+                                      <button onClick={revertSecToAuto} title={T2("Revert to auto")} style={{padding:"3px 6px",borderRadius:6,fontSize:10,fontWeight:600,color:C.purple,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>📌 {T2("pinned")} <span style={{fontSize:12,marginLeft:1,lineHeight:1}}>×</span></button>
                                     ) : (
-                                      <div style={{width:52}}></div>
+                                      <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.green,background:C.greenBg,border:`1px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("auto")}</div>
                                     )}
                                   </div>
                                 </div>
