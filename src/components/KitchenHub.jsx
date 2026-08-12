@@ -871,7 +871,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       const sectionYieldsPlan = planRow?.section_yields || null;
       // Default when chef hasn't planned: base_yield — pax ratio (preserves prior auto-pax behavior)
       const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
-      const effKg = (planned || defaultYield) * mult;
+      // Pin (planned) is authoritative — slider only scales auto-computed defaults
+      const effKg = planned ? planned : (defaultYield!=null ? defaultYield * mult : null);
       // Build per-section factors when both SOP and plan define section yields
       let sectionFactors = null;
       if(sectionYieldsPlan){
@@ -2916,9 +2917,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish}</div>
                                 <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {mappedName && <span>📖 {mappedName}</span>}
-                                  {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("auto was")} {suggested} kg</span>}
+                                  {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
                                   {!isOverride && suggested!=null && <span>{selEv.pax} pax{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
-                                  {isOverride && mult!==1 && overrideEff!=null && <span style={{color:C.purple}}>→ {overrideEff} kg {T2("effective")}</span>}
                                   {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
                                 </div>
                               </div>

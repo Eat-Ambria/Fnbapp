@@ -146,7 +146,8 @@ function EventDayTab({
       if (baseKg) {
         const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
         const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-        effKg = (plannedKg || defaultYield) * mult;
+        // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+        effKg = plannedKg ? plannedKg : defaultYield * mult;
         ing = getIngrForYield(dish.name, effKg);
       }
       if (!ing || ing.length === 0) {
@@ -550,7 +551,8 @@ function EventDayTab({
                             if (baseKg) {
                               const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
                               const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-                              effKg = (plannedKg || defaultYield) * mult;
+                              // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+                              effKg = plannedKg ? plannedKg : defaultYield * mult;
                               ing = getIngrForYield(dish.name, effKg);
                               planned = !!plannedKg;
                             }
