@@ -170,7 +170,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
   const [mapTabSearch, setMapTabSearch] = useState("");
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
-  const [purchaseOrders, setPurchaseOrders] = useState([]); // from store_purchase_orders + store_po_items
   const [poLoading, setPoLoading] = useState(false);
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
   const [expandedShortage, setExpandedShortage] = useState(null);
@@ -308,17 +307,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
     }
     loadIssueState();
 
-    // Load POs (legacy — deprecated in V65 but preserved for audit)
-    async function loadPOs() {
-      try {
-        const {data:pos} = await supabase.from('store_purchase_orders').select('*').order('created_at',{ascending:false});
-        const {data:poItems} = await supabase.from('store_po_items').select('*');
-        if(pos&&poItems){
-          setPurchaseOrders(pos.map(po=>({...po,items:(poItems||[]).filter(i=>i.po_id===po.id)})));
-        }
-      } catch(e){ console.error("PO load failed:",e); }
-    }
-    loadPOs();
 
     // V65: Load Ops requisitions + realtime subs
     async function loadOpsReqs() {
@@ -378,14 +366,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         setIngredientMap(prev => ({ ...prev, [r.ingredient_name]: r }));
       }
     }).subscribe();
-    const ch4 = supabase.channel('spo-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_purchase_orders' }, () => {
-      supabase.from('store_purchase_orders').select('*').order('created_at',{ascending:false}).then(({data:pos})=>{
-        supabase.from('store_po_items').select('*').then(({data:poItems})=>{
-          if(pos&&poItems) setPurchaseOrders(pos.map(po=>({...po,items:(poItems||[]).filter(i=>i.po_id===po.id)})));
-        });
-      });
-    }).subscribe();
-    subs = [ch1, ch2, ch3, ch4];
+    subs = [ch1, ch2, ch3];
 
     return () => {
       subs.forEach(ch => supabase.removeChannel(ch));
@@ -1152,144 +1133,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
       )}
 
       {/* ── SCAN & STOCK IN/OUT — REMOVED (V65) ── */}
-      {false&&(
-        <div style={{display:"none"}}>{/* scan tab content stripped from render — safe to fully delete in Batch 3 */}
-          {/* Mode toggle */}
-          <div style={{display:"flex",gap:0,marginBottom:14,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`}}>
-            {hasPerm(currentUser,"store.receive")&&<button onClick={()=>setScanMode("in")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
-              background:scanMode==="in"?"#1A3A1A":"transparent",color:scanMode==="in"?C.green:C.muted}}>📥 {T2("Stock In")}</button>}
-            {hasPerm(currentUser,"store.issue")&&<button onClick={()=>setScanMode("out")} style={{flex:1,padding:"12px",fontSize:13,fontWeight:700,border:"none",cursor:"pointer",
-              background:scanMode==="out"?"#3A1A1A":"transparent",color:scanMode==="out"?C.red:C.muted}}>📤 {T2("Stock Out")}</button>}
-          </div>
-
-          {/* Scanner */}
-          <Card style={{marginBottom:12,padding:"14px 16px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanning?10:0}}>
-              <div><div style={{fontSize:14,fontWeight:700,color:C.text}}>📷 {T2("Scan Barcode")}</div><div style={{fontSize:12,color:C.muted}}>{T2("Point camera at barcode")}</div></div>
-              {!scanning?<button onClick={()=>{setScanItem(null);setScanResult("");setScanError("");startScan();}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>📷 {T2("Scan")}</button>
-                        :<button onClick={stopScan} style={{padding:"8px 14px",borderRadius:10,background:C.red,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✕ {T2("Stop")}</button>}
-            </div>
-            {scanning&&<video ref={scanVideoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:200,borderRadius:10,objectFit:"cover",background:"#000",display:"block",marginBottom:8}}/>}
-            {scanning&&<div style={{fontSize:12,color:C.amber,textAlign:"center"}}>📡 {T2("Scanning…")}</div>}
-          </Card>
-
-          {/* Manual search fallback */}
-          <div style={{marginBottom:12}}>
-            <input value={search} onChange={e=>{setSearch(e.target.value);setScanItem(null);}} placeholder={T2("Search items…")+" / "+T2("Barcode")}
-              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:44}}/>
-            {search.trim()&&!scanItem&&(
-              <div style={{maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,marginTop:6}}>
-                {items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||(i.h||"").includes(search)||(i.barcode||"").includes(search)).slice(0,10).map(i=>(
-                  <div key={i.id} onClick={()=>{setScanItem(i);setSearch("");}} style={{padding:"10px 14px",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer",display:"flex",justifyContent:"space-between"}}>
-                    <div><div style={{fontSize:12,fontWeight:600,color:C.text}}>{i.name}{i.h?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({i.h})</span>:""}</div>
-                    <div style={{fontSize:11,color:C.muted}}>{i.cat} · {i.barcode||"No barcode"}</div></div>
-                    <div style={{fontSize:12,fontWeight:700,color:i.inStock>0?C.green:C.red}}>{i.inStock} {i.unit}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Scanned / Selected item */}
-          {scanItem&&(
-            <Card style={{marginBottom:12,padding:"16px",border:`2px solid ${scanMode==="in"?C.green:C.red}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>{scanItem.name}</div>
-                  <div style={{fontSize:12,color:C.muted}}>{scanItem.h||""} · {scanItem.cat} · {scanItem.barcode||"No barcode"}</div>
-                </div>
-                <div style={{textAlign:"center",padding:"8px 14px",borderRadius:10,background:scanItem.inStock>0?C.greenBg:C.redBg}}>
-                  <div style={{fontSize:20,fontWeight:700,color:scanItem.inStock>0?C.green:C.red}}>{scanItem.inStock}</div>
-                  <div style={{fontSize:10,color:C.muted}}>{scanItem.unit} {T2("Current Stock")}</div>
-                </div>
-              </div>
-
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{T2("Qty")} *</div>
-                  <input type="number" value={scanQty} onChange={e=>setScanQty(e.target.value)} placeholder="0"
-                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",textAlign:"center",minHeight:44}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{T2("Reason")}</div>
-                  <select value={scanReason} onChange={e=>setScanReason(e.target.value)}
-                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,appearance:"auto",minHeight:44}}>
-                    {scanMode==="in"
-                      ?["Purchase","Return","Transfer In","Opening Stock","Correction"].map(r=><option key={r} value={r}>{T2(r)}</option>)
-                      :["Event Use","Damage","Expired","Transfer Out","Correction"].map(r=><option key={r} value={r}>{T2(r)}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <button onClick={()=>{
-                const qty=+scanQty;if(!qty||qty<=0) return;
-                const newStock=scanMode==="in"?scanItem.inStock+qty:Math.max(0,scanItem.inStock-qty);
-                setItems(p=>p.map(i=>i.id!==scanItem.id?i:{...i,inStock:newStock}));
-                setTransactions(p=>[{id:"tx-"+Date.now(),itemId:scanItem.id,itemName:scanItem.name,type:scanMode,qty,reason:scanReason,time:new Date().toLocaleString("en-IN"),newStock},...p]);
-                setScanItem({...scanItem,inStock:newStock});setScanQty("");
-              }} disabled={!scanQty||+scanQty<=0}
-                style={{width:"100%",padding:"14px",borderRadius:12,border:"none",fontSize:14,fontWeight:700,cursor:scanQty&&+scanQty>0?"pointer":"not-allowed",minHeight:48,
-                  background:scanMode==="in"?`linear-gradient(135deg,${C.green},#1A5A30)`:`linear-gradient(135deg,${C.red},#5A1A1A)`,
-                  color:"#fff",opacity:scanQty&&+scanQty>0?1:.4}}>
-                {scanMode==="in"?`📥 ${T2("Stock In")} +${scanQty||0} ${scanItem.unit}`:`📤 ${T2("Stock Out")} −${scanQty||0} ${scanItem.unit}`}
-              </button>
-            </Card>
-          )}
-
-          {/* Scan result for new items */}
-          {scanResult&&!scanItem&&(
-            <Card style={{marginBottom:12,padding:0,overflow:"hidden",border:`1px solid ${scanLookup?C.greenBorder:C.amberBorder}`}}>
-              {/* Product image + details from API */}
-              {scanLookup&&(
-                <div style={{display:"flex",gap:0}}>
-                  {scanLookup.image&&<img src={scanLookup.image} alt={scanLookup.name} style={{width:90,height:90,objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"}/>}
-                  <div style={{flex:1,padding:"12px 14px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:14,fontWeight:700,color:C.text}}>{scanLookup.name}</div>
-                        {scanLookup.brand&&<div style={{fontSize:12,color:C.gold,marginTop:2}}>{scanLookup.brand}</div>}
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
-                          {scanLookup.weight&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted}}>📦 {scanLookup.weight}</span>}
-                          {scanLookup.energy&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.muted}}>🔥 {scanLookup.energy}</span>}
-                          <span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>✅ {scanLookup.source}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!scanLookup&&<div style={{padding:"12px 14px",background:C.amberBg}}>
-                <div style={{fontSize:12,fontWeight:700,color:C.amber}}>🔍 {T2("Barcode")}: {scanResult}</div>
-                <div style={{fontSize:11,color:C.amber,marginTop:3}}>{scanError}</div>
-              </div>}
-              {scanLookup&&<div style={{fontSize:11,color:C.green,padding:"0 14px 6px",fontStyle:"italic"}}>{scanError}</div>}
-              <div style={{padding:"10px 14px",borderTop:scanLookup?`1px solid ${C.border}`:"none",display:"flex",gap:8}}>
-                <button onClick={()=>{setShowAdd(true);}} style={{flex:1,padding:"10px 14px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>+ {T2("Save to Inventory")}</button>
-                <button onClick={()=>{setScanResult("");setScanLookup(null);setScanItem(null);setScanError("");}} style={{padding:"10px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>✕</button>
-              </div>
-            </Card>
-          )}
-
-          {/* Recent transactions */}
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase"}}>{T2("Transaction History")} ({transactions.length})</div>
-          {transactions.length===0&&<div style={{textAlign:"center",padding:20,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No transactions yet. Scan an item to begin.")}</div>}
-          {transactions.slice(0,20).map(tx=>(
-            <div key={tx.id} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 14px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,marginBottom:4}}>
-              <div style={{width:32,height:32,borderRadius:8,background:tx.type==="in"?C.greenBg:C.redBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
-                {tx.type==="in"?"📥":"📤"}
-              </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{tx.itemName}</div>
-                <div style={{fontSize:11,color:C.muted}}>{tx.reason} · {tx.time}</div>
-              </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:14,fontWeight:700,color:tx.type==="in"?C.green:C.red}}>{tx.type==="in"?"+":"-"}{tx.qty}</div>
-                <div style={{fontSize:10,color:C.muted}}>→ {tx.newStock}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* ── REQUIREMENTS — event-first with collective toggle ── */}
       {tab==="requirements"&&(()=>{
@@ -1706,64 +1549,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
       )}
 
       {/* ── LEGACY PO VIEW (deprecated in V65 — kept for audit, not reachable from tabs) ── */}
-      {false&&(
-        <div>
-          {purchaseOrders.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No purchase orders yet. Generate from Requirements shortages.")}</div>}
-          {purchaseOrders.map(po=>{
-            const stColors={draft:{c:C.muted,bg:C.bg},ordered:{c:C.amber,bg:C.amberBg},partial:{c:C.amber,bg:C.amberBg},received:{c:C.green,bg:C.greenBg},cancelled:{c:C.red,bg:C.redBg}};
-            const sc=stColors[po.status]||stColors.draft;
-            const lineItems=po.items||[];
-            const totalOrdered=lineItems.reduce((s,i)=>s+(+i.qty_ordered||0),0);
-            const totalReceived=lineItems.reduce((s,i)=>s+(+i.qty_received||0),0);
-            return (
-              <Card key={po.id} style={{padding:"14px 16px",marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:C.text}}>{po.po_number}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{lineItems.length} items · {new Date(po.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</div>
-                    {po.notes&&<div style={{fontSize:10,color:C.muted,marginTop:2,maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{po.notes}</div>}
-                  </div>
-                  <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:20,background:sc.bg,color:sc.c,textTransform:"capitalize"}}>{po.status}</span>
-                </div>
-                {lineItems.length>0&&(
-                  <div style={{border:`1px solid ${C.borderLight}`,borderRadius:8,overflow:"hidden",marginBottom:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.borderLight}`}}>
-                      {[T2("Item"),T2("Ordered"),T2("Recv"),T2("Unit")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
-                    </div>
-                    {lineItems.map(li=>(
-                      <div key={li.id} style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",borderBottom:`1px solid ${C.borderLight}22`,alignItems:"center"}}>
-                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>{li.ops_item_name||li.ingredient_name}</div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{li.qty_ordered}</div>
-                        <div style={{fontSize:12,fontWeight:600,color:(+li.qty_received)>=(+li.qty_ordered)?C.green:C.amber}}>{li.qty_received}</div>
-                        <div style={{fontSize:11,color:C.muted}}>{li.unit||"-"}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {(po.status==="draft"||po.status==="ordered"||po.status==="partial")&&hasPerm(currentUser,"store.edit_stock")&&(
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {po.status==="draft"&&<Btn onClick={async()=>{
-                      await supabase.from('store_purchase_orders').update({status:'ordered',ordered_at:new Date().toISOString()}).eq('id',po.id);
-                    }} color={C.amber} style={{fontSize:11,padding:"6px 14px"}}>📦 {T2("Mark Ordered")}</Btn>}
-                    {(po.status==="ordered"||po.status==="partial")&&<Btn onClick={async()=>{
-                      for(const li of lineItems){
-                        if((+li.qty_received)<(+li.qty_ordered)){
-                          await supabase.from('store_po_items').update({qty_received:li.qty_ordered}).eq('id',li.id);
-                        }
-                      }
-                      await supabase.from('store_purchase_orders').update({status:'received',received_at:new Date().toISOString()}).eq('id',po.id);
-                    }} color={C.green} style={{fontSize:11,padding:"6px 14px"}}>✅ {T2("Mark All Received")}</Btn>}
-                    {po.status==="draft"&&<Btn onClick={async()=>{
-                      if(!confirm("Cancel this PO?")) return;
-                      await supabase.from('store_purchase_orders').update({status:'cancelled'}).eq('id',po.id);
-                    }} color={C.red} style={{fontSize:11,padding:"6px 14px"}}>✕ {T2("Cancel")}</Btn>}
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
 
       {/* ── EVENT REQUIREMENTS ── */}
       
