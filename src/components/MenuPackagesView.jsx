@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishLibrary from './DishLibrary.jsx';
+import DishMappingModal from './DishMappingModal.jsx';
 
 // ── CSV utilities (V63 5e) ─────────────────────────────────────────
 // Handles quoted fields, escaped double-quotes, commas inside quotes, CRLF/LF.
@@ -45,6 +46,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var T2 = function(s) { return T(s, lang); };
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
+  var [mappingDish, setMappingDish] = useState(''); // V66: opens shared DishMappingModal from Packages tab
 
   // ════════════════════════════════════════════════════════════
   // BUILD MENU TAB — preserved verbatim from V62
@@ -783,7 +785,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
                               var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
                               return (
-                                <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8 }}>
+                                <div key={d}
+                                  onClick={function(e) { if (e.target.closest('[data-nomap]')) return; setMappingDish(d); }}
+                                  title={T2('Click to edit Hindi / SOP / Inventory mapping')}
+                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer' }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
                                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}></span>
                                     <span style={{ fontSize: 13, color: C.text }}>{d}</span>
@@ -792,7 +797,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                     <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: badgeBg, color: badgeC }}>{badgeLbl}</span>
                                   </div>
                                   {isAdmin && (
-                                    <button onClick={function() { removeDishFromSection(sec.id, d); }}
+                                    <button data-nomap onClick={function() { removeDishFromSection(sec.id, d); }}
                                       title={T2("Remove")}
                                       style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
                                   )}
@@ -857,6 +862,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           onJumpToPackage={function(pkgName) { setMainTab("packages"); setSelPkg(pkgName); }}
         />
       )}
+
+      {/* V66: Shared dish mapping modal — opens on dish row click from Packages tab */}
+      <DishMappingModal
+        dishName={mappingDish}
+        lang={lang}
+        currentUser={currentUser}
+        onClose={function() { setMappingDish(''); }}
+        onChange={function() {
+          // Refresh section view so pill/badge reflects new mapping
+          if (selPkg) setEditorSections(getSectionsForPackage(selPkg));
+        }}
+        onJumpToPackage={function(pkgName) { setMappingDish(''); setMainTab("packages"); setSelPkg(pkgName); }}
+        allowDeactivate={false}
+      />
 
       {/* ════════════════════════════════════════════════════════ */}
       {/* CSV IMPORT MODAL                                        */}

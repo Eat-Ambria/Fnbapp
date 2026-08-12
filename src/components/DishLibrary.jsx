@@ -20,6 +20,7 @@ import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
+import DishMappingModal from './DishMappingModal.jsx';
 
 function DishLibrary(props) {
   var lang           = props.lang || 'en';
@@ -36,17 +37,8 @@ function DishLibrary(props) {
   var [selected, setSelected]       = useState({}); // { [dishName]: true }
   var [bulkSaving, setBulkSaving]   = useState(false);
 
-  // Detail modal state
-  var [detailFor, setDetailFor]             = useState('');
-  var [detailHindiBuf, setDetailHindiBuf]   = useState('');
-  var [detailSaving, setDetailSaving]       = useState(''); // '' | 'hindi' | 'sop' | 'store' | 'deact'
-  var [detailType, setDetailType]           = useState('sop'); // 'sop' | 'store'
-  var [sopSearch, setSopSearch]             = useState('');
-  var [storeItems, setStoreItems]           = useState([]);
-  var [storeItemsLoading, setStoreItemsLoading] = useState(false);
-  var [storeSearch, setStoreSearch]         = useState('');
-  var [storeItemPick, setStoreItemPick]     = useState('');
-  var [storeQtyBuf, setStoreQtyBuf]         = useState('1');
+  // Detail modal — most state now lives in DishMappingModal (V66)
+  var [detailFor, setDetailFor] = useState('');
 
   // Add new dish
   var [creating, setCreating] = useState(false);
@@ -56,22 +48,7 @@ function DishLibrary(props) {
   var [mergeTarget, setMergeTarget]   = useState('');
   var [mergeSaving, setMergeSaving]   = useState(false);
 
-  // Detail modal: package-assignment state
-  var [detailPkgAddOpen, setDetailPkgAddOpen] = useState(false);
-  var [detailPkgSearch, setDetailPkgSearch]   = useState('');
-  var [detailPkgSaving, setDetailPkgSaving]   = useState('');   // '' | pkgName being mutated
-
   // ── Data ─────────────────────────────────────────────────────────
-  var allRecipes = useMemo(function() {
-    var out = [];
-    (RECIPE_DB.cats || []).forEach(function(c) {
-      (RECIPE_DB.recipes[c.id] || []).forEach(function(r) {
-        if (r && r.n) out.push({ n: r.n, cat: c.name });
-      });
-    });
-    return out.sort(function(a, b) { return a.n.localeCompare(b.n); });
-  }, [props.refreshKey]);
-
   var enriched = useMemo(function() {
     var raw = getAllDishes({ includeInactive: showRetired });
     return raw.map(function(d) {
@@ -242,73 +219,6 @@ function DishLibrary(props) {
     return { affected: pkgRows.length };
   }
 
-  // ── Single-package mutation helper (add / remove one dish) ───────
-  async function mutatePackage(pkgName, mutatorFn) {
-    var fetchRes = await supabase.from('menu_packages').select('name, dishes, sections').eq('name', pkgName).limit(1);
-    if (fetchRes.error) throw fetchRes.error;
-    var row = (fetchRes.data && fetchRes.data[0]) || null;
-    if (!row) throw new Error('Package not found: ' + pkgName);
-    var next = mutatorFn({ dishes: row.dishes || [], sections: row.sections || [] });
-    var uRes = await supabase.from('menu_packages').update({ dishes: next.dishes, sections: next.sections }).eq('name', pkgName);
-    if (uRes.error) throw uRes.error;
-    MENU_PACKAGES[pkgName] = next.dishes;
-    try { setPackageSections(pkgName, next.sections, next.dishes); } catch(e) {}
-    try {
-      localStorage.removeItem('ambria_menu_packages');
-      localStorage.removeItem('ambria_cfg_menu_packages');
-    } catch(e) {}
-  }
-
-  async function handleAddToPackage(pkgName) {
-    if (!isAdmin || !detailFor || !pkgName) return;
-    setDetailPkgSaving(pkgName);
-    try {
-      await mutatePackage(pkgName, function(cur) {
-        var dishes = cur.dishes.slice();
-        if (dishes.indexOf(detailFor) === -1) dishes.push(detailFor);
-        // Section placement: match by sop_category → dish's cat name; fallback to first; else new "Other"
-        var sections = (cur.sections || []).map(function(s) { return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).slice() }; });
-        // Skip if dish is already in any section
-        var alreadyIn = sections.some(function(s) { return (s.dishes || []).indexOf(detailFor) !== -1; });
-        if (!alreadyIn) {
-          var catId = getCatIdForDish(detailFor);
-          var catName = catId ? ((RECIPE_DB.cats || []).find(function(c) { return c.id === catId; }) || {}).name || '' : '';
-          var target = null;
-          if (catName) target = sections.find(function(s) { return s.sop_category === catName || s.name === catName; });
-          if (!target && sections.length > 0) target = sections[0];
-          if (!target) {
-            var newSec = { id: 'sec_' + Date.now() + '_other', name: 'Other', sop_category: '', dishes: [detailFor] };
-            sections.push(newSec);
-          } else {
-            target.dishes.push(detailFor);
-          }
-        }
-        return { dishes: dishes, sections: sections };
-      });
-      setDetailPkgAddOpen(false);
-      setDetailPkgSearch('');
-      setLocalBump(function(n) { return n + 1; });
-    } catch (e) { alert('Add to package failed: ' + (e.message || e)); }
-    finally { setDetailPkgSaving(''); }
-  }
-
-  async function handleRemoveFromPackage(pkgName) {
-    if (!isAdmin || !detailFor || !pkgName) return;
-    if (!window.confirm(T2('Remove "') + detailFor + T2('" from package "') + pkgName + '"?')) return;
-    setDetailPkgSaving(pkgName);
-    try {
-      await mutatePackage(pkgName, function(cur) {
-        var dishes = (cur.dishes || []).filter(function(n) { return n !== detailFor; });
-        var sections = (cur.sections || []).map(function(s) {
-          return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).filter(function(n) { return n !== detailFor; }) };
-        });
-        return { dishes: dishes, sections: sections };
-      });
-      setLocalBump(function(n) { return n + 1; });
-    } catch (e) { alert('Remove from package failed: ' + (e.message || e)); }
-    finally { setDetailPkgSaving(''); }
-  }
-
   // ── Rename / Merge ───────────────────────────────────────────────
   function openMerge() {
     if (selectedCount === 0) return;
@@ -398,67 +308,8 @@ function DishLibrary(props) {
       upsertDishMaster(name, { is_active: true });
       setLocalBump(function(n) { return n + 1; });
       setDetailFor(name);
-      openDetail(name);
     } catch (e) { alert('Save failed: ' + e.message); }
     finally { setCreating(false); }
-  }
-
-  // ── Detail modal ─────────────────────────────────────────────────
-  useEffect(function() {
-    if (!detailFor) return;
-    function onKey(e) { if (e.key === 'Escape') closeDetail(); }
-    document.addEventListener('keydown', onKey);
-    return function() { document.removeEventListener('keydown', onKey); };
-  }, [detailFor]);
-
-  async function loadStoreItems() {
-    if (storeItems.length > 0) return;
-    setStoreItemsLoading(true);
-    try { var items = await getCateringStoreItemsCached(); setStoreItems(items || []); }
-    catch (e) { console.warn('Ops items load failed:', e); }
-    finally { setStoreItemsLoading(false); }
-  }
-
-  // Realtime: keep Ops catering items in sync across DishLibrary's lifetime
-  useEffect(function() {
-    if (!opsSupabase) return;
-    var sub = opsSupabase
-      .channel('dl-cs-items-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'catering_store_items' }, function() {
-        try { localStorage.removeItem('ambria_ops_catering_items'); } catch(e) {}
-        // Only refetch if the picker has already been used this session
-        setStoreItems(function(prev) {
-          if (prev.length === 0) return prev;
-          getCateringStoreItemsCached().then(function(items) { setStoreItems(items || []); }).catch(function(){});
-          return prev;
-        });
-      })
-      .subscribe();
-    return function() {
-      try { opsSupabase.removeChannel(sub); } catch(e) {}
-    };
-  }, []);
-
-  function openDetail(name) {
-    setDetailFor(name);
-    setDetailHindiBuf(DISH_HINDI_MAP[name] || '');
-    var store = resolveDishStore(name);
-    if (store) {
-      setDetailType('store');
-      setStoreItemPick(store.ops_item_id);
-      setStoreQtyBuf(String(store.qty_per_cover || 1));
-      loadStoreItems();
-    } else {
-      setDetailType('sop');
-      setStoreItemPick('');
-      setStoreQtyBuf('1');
-    }
-    setSopSearch(''); setStoreSearch('');
-  }
-  function closeDetail() {
-    if (detailSaving) return;
-    setDetailFor(''); setDetailHindiBuf(''); setDetailType('sop');
-    setSopSearch(''); setStoreSearch(''); setStoreItemPick(''); setStoreQtyBuf('1');
   }
 
   async function saveDetailHindi() {
@@ -617,11 +468,7 @@ function DishLibrary(props) {
   }
 
   // ── RENDER ───────────────────────────────────────────────────────
-  var recipesFiltered = allRecipes.filter(function(r) { return !sopSearch || r.n.toLowerCase().indexOf(sopSearch.toLowerCase()) !== -1; }).slice(0, 30);
-  var storeItemsFiltered = storeItems.filter(function(x) { return !storeSearch || (x.name || '').toLowerCase().indexOf(storeSearch.toLowerCase()) !== -1; }).slice(0, 30);
-  var detailStore = detailFor ? resolveDishStore(detailFor) : null;
-  var detailSop = detailFor ? findRecipeForDish(detailFor) : null;
-  var detailPkgs = detailFor ? packagesContainingDish(detailFor) : [];
+  
 
   return (
     <div>
@@ -745,7 +592,7 @@ function DishLibrary(props) {
               }}
               onClick={function(e) {
                 if (e.target.tagName === 'INPUT' || e.target.closest('.dish-pill') || e.target.closest('button')) return;
-                openDetail(d.dish_name);
+                setDetailFor(d.dish_name);
               }}
             >
               <div onClick={function(e) { e.stopPropagation(); toggleSelect(d.dish_name); }}>
@@ -849,9 +696,18 @@ function DishLibrary(props) {
         </div>
       )}
 
-      {/* DETAIL MODAL */}
-      {detailFor && (
-        <div onClick={closeDetail}
+      {/* DETAIL MODAL — extracted to shared DishMappingModal (V66) */}
+      <DishMappingModal
+        dishName={detailFor}
+        lang={lang}
+        currentUser={currentUser}
+        onClose={function() { setDetailFor(''); }}
+        onChange={function() { setLocalBump(function(n) { return n + 1; }); }}
+        onJumpToPackage={onJumpToPackage}
+        allowDeactivate={true}
+      />
+      {false && (
+        <div onClick={function(){}}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={function(e) { e.stopPropagation(); }}
             style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 560, width: '100%', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
