@@ -2552,13 +2552,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           return { state:baseYield?"ready":"noyield", color:baseYield?C.green:C.amber, recipe:found, catId, baseYield };
         }
 
-        // On-blur handler: save only if changed.
+        // On-blur handler: save only if changed. Also skip if typed value equals auto suggestion (would create a redundant override).
         function onYieldBlur(dish, rowCtx){
           const draft = planDrafts[dish];
           if(draft===undefined) return;
           const draftStr = String(draft).trim();
           const savedStr = String(planRows[dish]?.target_yield_kg ?? "");
           if(draftStr === savedStr) return;
+          // If chef typed the exact auto suggestion and dish isn't already an override, don't create a redundant pin
+          if(!planRows[dish] && draftStr !== ""){
+            const st = dishStatus(dish);
+            if(st.baseYield){
+              const bp = st.recipe?.ingredients?.base_pax || 300;
+              const autoKg = Math.round(selEv.pax/bp * st.baseYield * 10)/10;
+              if(draftStr === String(autoKg)){
+                setPlanDrafts(p=>{const c={...p};delete c[dish];return c;});
+                return;
+              }
+            }
+          }
           savePlanYield(dish, draft, rowCtx);
         }
 
@@ -2578,14 +2590,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           .filter(c=>grouped.has(c.id))
           .map(c=>grouped.get(c.id));
 
-        // Plan-based stats (recomputed on planRows change)
+        // Plan-based stats: auto = using computed default; override = chef pinned custom qty; unmapped = no recipe
         const stats = dishes.reduce((acc,d)=>{
           const st = dishStatus(d);
-          if(!st.catId) acc.missing++;
-          else if(planRows[d]) acc.planned++;
-          else acc.pending++;
+          if(!st.catId) acc.unmapped++;
+          else if(planRows[d]) acc.override++;
+          else acc.auto++;
           return acc;
-        },{planned:0,pending:0,missing:0});
+        },{auto:0,override:0,unmapped:0});
 
         return(
           <div>
@@ -2694,16 +2706,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" — "+fmtTime(selEv.time):""} — {selEv.venue||""} — {selEv.pax} pax — {dishes.length} dishes</div>
                   </div>
                   <div style={{display:"flex",gap:10,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{color:C.green,fontWeight:600}}>🎯 {stats.planned} {T2("planned")}</span>
-                    <span style={{color:C.amber,fontWeight:600}}>? {stats.pending} {T2("pending")}</span>
-                    <span style={{color:C.red,fontWeight:600}}>? {stats.missing} {T2("unmapped")}</span>
+                    <span style={{color:C.green,background:C.greenBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>✨ {stats.auto} {T2("auto-planned")}</span>
+                    <span style={{color:C.purple,background:C.purpleBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>📌 {stats.override} {T2("override")}</span>
+                    <span style={{color:C.red,background:C.redBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>⚠ {stats.unmapped} {T2("unmapped")}</span>
                     {planLoading && <span style={{color:C.muted,fontStyle:"italic",fontSize:10}}>{T2("Loading...")}</span>}
                   </div>
                 </div>
 
                 {/* Global yield adjustment slider (Phase 3: merged from Scaling tab; saves to events.yield_multiplier per event on Apply click) */}
                 {dishes.length>0 && (()=>{
-                  const plannedKgTotal = dishes.reduce((s,d)=>s+(Number(planRows[d]?.target_yield_kg)||0),0);
+                  // Total = overrides + auto suggestions for every mapped dish (mirrors what ingredient calc uses)
+                  const plannedKgTotal = dishes.reduce((s,d)=>{
+                    const override = Number(planRows[d]?.target_yield_kg);
+                    if(override>0) return s+override;
+                    const st = dishStatus(d);
+                    if(!st.baseYield) return s;
+                    const bp = st.recipe?.ingredients?.base_pax || 300;
+                    return s + (selEv.pax/bp * st.baseYield);
+                  },0);
                   const adjustedTotal = Math.round(plannedKgTotal * yieldAdjustPct/100 * 10)/10;
                   const fmtKg = v => (v>=0.01 ? v.toFixed(1).replace(/\.0$/,"") : "0");
                   const isDirty = yieldAdjustPct !== yieldSavedPct;
@@ -2724,7 +2744,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
                       <div>
                         <div style={{fontSize:12,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.6}}>⚖️ {T2("Yield adjustment")}</div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Uniform multiplier over every planned yield for this event. 100% = exactly as planned.")}</div>
+                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Scales every dish (auto + override). Overrides stay pinned at their custom values.")}</div>
                       </div>
                       <div style={{display:"flex",alignItems:"baseline",gap:4}}>
                         <div style={{fontSize:28,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
@@ -2732,7 +2752,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       </div>
                     </div>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-                      {[50,75,90,100,110,125,150].map(p=>(
+                      {[90,100,110,120,130,150].map(p=>(
                         <button key={p} onClick={()=>setYieldAdjustPct(p)}
                           style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`,minHeight:34}}>
                           {p}%
@@ -2777,9 +2797,38 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{padding:"24px",textAlign:"center",fontSize:12,color:C.faint,borderRadius:10,border:`1px dashed ${C.border}`}}>{T2("No menu confirmed for this event")}</div>
                 )}
 
+                {/* Bulk action bar */}
+                {dishes.length>0 && (
+                  <div style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",background:C.bg,borderRadius:8,marginBottom:12,flexWrap:"wrap"}}>
+                    <button onClick={async()=>{
+                      const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !planRows[d];});
+                      if(targets.length===0){ alert(T2("Nothing to accept — all mapped dishes are already pinned.")); return; }
+                      if(!confirm(T2("Lock in auto values as explicit overrides for ")+targets.length+T2(" dish(es)?"))) return;
+                      for(const d of targets){
+                        const st = dishStatus(d);
+                        const bp = st.recipe?.ingredients?.base_pax || 300;
+                        const suggested = Math.round(selEv.pax/bp * st.baseYield * 10)/10;
+                        await savePlanYield(d, suggested, {...ctx, recipe:st.recipe});
+                      }
+                    }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:C.surface,color:C.text,border:`1px solid ${C.border}`}}>✨ {T2("Accept all suggestions")}</button>
+                    <button onClick={async()=>{
+                      const targets = dishes.filter(d=>planRows[d]);
+                      if(targets.length===0){ alert(T2("No overrides to clear.")); return; }
+                      if(!confirm(T2("Clear all ")+targets.length+T2(" pinned override(s)? Dishes revert to auto values."))) return;
+                      for(const d of targets){
+                        const st = dishStatus(d);
+                        await savePlanYield(d, "", {...ctx, recipe:st.recipe});
+                      }
+                    }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:"transparent",color:C.muted,border:`1px solid ${C.border}`}}>↺ {T2("Clear overrides")}</button>
+                    <div style={{flex:1}}></div>
+                    <span style={{fontSize:10,color:C.faint}}>{T2("Auto-saves on blur")}</span>
+                  </div>
+                )}
+
                 {/* Grouped sections */}
                 {orderedGroups.map(g=>{
-                  const plannedInGroup = g.items.filter(it=>planRows[it.dish]).length;
+                  const overrideInGroup = g.items.filter(it=>planRows[it.dish]).length;
+                  const autoInGroup = g.items.length - overrideInGroup;
                   return(
                     <div key={g.cat.id} style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
                       <div style={{padding:"8px 12px",background:C.bg,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2788,8 +2837,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <span>{g.cat.name}</span>
                           <span style={{fontSize:10,color:C.muted,fontWeight:400}}>({g.items.length})</span>
                         </div>
-                        <div style={{fontSize:10,color:plannedInGroup===g.items.length?C.green:C.muted,fontWeight:500}}>
-                          {plannedInGroup}/{g.items.length} {T2("planned")}
+                        <div style={{fontSize:10,fontWeight:500,display:"flex",gap:6}}>
+                          {autoInGroup>0 && <span style={{color:C.green}}>{autoInGroup} {T2("auto")}</span>}
+                          {autoInGroup>0 && overrideInGroup>0 && <span style={{color:C.faint}}>·</span>}
+                          {overrideInGroup>0 && <span style={{color:C.purple}}>{overrideInGroup} {T2("pinned")}</span>}
                         </div>
                       </div>
                       <div>
@@ -2849,44 +2900,40 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               );
                             });
                           }
-                          // Single row (legacy path)
+                          // Single row: input is empty by default; placeholder shows auto suggestion. Typing pins as override.
                           const suggested = st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null;
-                          const currentVal = planDrafts[it.dish] ?? (planRows[it.dish]?.target_yield_kg ?? "");
+                          const isOverride = !!planRows[it.dish];
+                          const overrideKg = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                          const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKg ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
-                          const isSaved = !!planRows[it.dish];
+                          const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); savePlanYield(it.dish, "", rowCtx); };
                           return [(
-                            <div key={i} style={rowStyle(isLastGroupRow)}>
+                            <div key={i} style={{...rowStyle(isLastGroupRow),background:isOverride?C.purpleBg+"60":"transparent"}}>
                               <div style={{flex:"1 1 200px",minWidth:0}}>
                                 <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish}</div>
-                                {(mappedName||suggested) && (
-                                  <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
-                                    {mappedName && <span>? {mappedName}</span>}
-                                    {suggested && <span style={{color:C.gold}}>💡 {T2("suggest")} {suggested} kg</span>}
-                                  </div>
-                                )}
+                                <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
+                                  {mappedName && <span>📖 {mappedName}</span>}
+                                  {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("auto was")} {suggested} kg</span>}
+                                  {!isOverride && suggested!=null && <span>{selEv.pax} pax</span>}
+                                  {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
+                                </div>
                               </div>
                               <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                {suggested && String(currentVal)==="" && (
-                                  <button onClick={()=>{setPlanDrafts(p=>({...p,[it.dish]:String(suggested)}));savePlanYield(it.dish, suggested, rowCtx);}}
-                                    style={{fontSize:10,padding:"5px 8px",border:`1px dashed ${C.gold}`,color:C.gold,borderRadius:6,background:"transparent",cursor:"pointer",whiteSpace:"nowrap"}}>
-                                    {T2("Use")} {suggested}
-                                  </button>
-                                )}
                                 <input type="number" step="any" inputMode="decimal" min="0"
                                   value={currentVal}
                                   onChange={e=>setPlanDrafts(p=>({...p,[it.dish]:e.target.value}))}
                                   onBlur={()=>onYieldBlur(it.dish, rowCtx)}
                                   onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
-                                  placeholder={suggested?String(suggested):"—"}
+                                  placeholder={suggested!=null?String(suggested):"—"}
                                   disabled={isSaving}
-                                  style={{width:72,padding:"6px 8px",borderRadius:6,border:`1px solid ${isSaved?C.green+"60":C.border}`,fontSize:12,textAlign:"right",background:isSaved?C.green+"08":C.bg,color:C.text,opacity:isSaving?0.6:1}} />
+                                  style={{width:72,padding:"6px 8px",borderRadius:6,border:isOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isOverride?600:400,textAlign:"right",background:isOverride?C.surface:"transparent",color:C.text,opacity:isSaving?0.6:1}} />
                                 <span style={{fontSize:10,color:C.muted}}>kg</span>
                                 {isSaving ? (
-                                  <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:52}}>{T2("Saving")}...</span>
-                                ) : isSaved ? (
-                                  <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.amber,background:C.amber+"15",border:`1px solid ${C.amber}30`,whiteSpace:"nowrap"}}>{T2("Draft")}</div>
+                                  <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:64}}>{T2("Saving")}...</span>
+                                ) : isOverride ? (
+                                  <button onClick={revertToAuto} title={T2("Revert to auto")} style={{padding:"3px 6px",borderRadius:6,fontSize:10,fontWeight:600,color:C.purple,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>📌 {T2("pinned")} <span style={{fontSize:12,marginLeft:1,lineHeight:1}}>×</span></button>
                                 ) : (
-                                  <div style={{width:52}}></div>
+                                  <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.green,background:C.greenBg,border:`1px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("auto")}</div>
                                 )}
                               </div>
                             </div>
