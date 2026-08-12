@@ -47,6 +47,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
   var [mappingDish, setMappingDish] = useState(''); // V66: opens shared DishMappingModal from Packages tab
+  var [selectedDishes, setSelectedDishes] = useState({}); // V66: { [dishName]: true } — bulk-move selection
 
   // ════════════════════════════════════════════════════════════
   // BUILD MENU TAB — preserved verbatim from V62
@@ -140,14 +141,48 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       setEditorSections(loaded);
       setDirty(orphans.length > 0);  // mark dirty so user sees the save prompt and can confirm
       setAddDishInput({});
+      setSelectedDishes({});
     } else {
       setEditorSections([]);
       setDirty(false);
       setAddDishInput({});
+      setSelectedDishes({});
     }
   }, [selPkg]);
 
   function genSecId() { return 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+
+  // V66: bulk-move selection helpers
+  function toggleDishSelect(dishName) {
+    setSelectedDishes(function(prev) {
+      var next = {};
+      Object.keys(prev).forEach(function(k) { next[k] = prev[k]; });
+      if (next[dishName]) delete next[dishName]; else next[dishName] = true;
+      return next;
+    });
+  }
+  function clearDishSelect() { setSelectedDishes({}); }
+  function bulkMoveToSection(targetSecId) {
+    if (!targetSecId) return;
+    var names = Object.keys(selectedDishes);
+    if (names.length === 0) return;
+    var picked = {}; names.forEach(function(n) { picked[n] = true; });
+    setEditorSections(function(prev) {
+      // Strip picked dishes from every section
+      var stripped = prev.map(function(s) {
+        return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).filter(function(n) { return !picked[n]; }) };
+      });
+      // Append picked (in original picked order) to target, skipping duplicates
+      return stripped.map(function(s) {
+        if (s.id !== targetSecId) return s;
+        var have = {}; (s.dishes || []).forEach(function(n) { have[n] = true; });
+        var toAdd = names.filter(function(n) { return !have[n]; });
+        return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).concat(toAdd) };
+      });
+    });
+    setSelectedDishes({});
+    setDirty(true);
+  }
 
   function addSection() {
     setEditorSections(function(prev) {
@@ -752,6 +787,30 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </div>
                   </div>
 
+                  {/* V66: Bulk-move toolbar */}
+                  {(function() {
+                    var pickedNames = Object.keys(selectedDishes);
+                    if (pickedNames.length === 0) return null;
+                    return (
+                      <div style={{ position: 'sticky', top: 0, zIndex: 5, marginBottom: 10, padding: '10px 14px', background: C.blueBg, border: '1.5px solid ' + C.blueBorder, borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.blue }}>{pickedNames.length} {T2('selected')}</span>
+                        <span style={{ fontSize: 12, color: C.muted }}>· {T2('Move to')}:</span>
+                        <select value=""
+                          onChange={function(e) { var v = e.target.value; if (v) bulkMoveToSection(v); e.target.value = ''; }}
+                          style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid ' + C.blueBorder, background: C.surface, fontSize: 12, color: C.text, cursor: 'pointer', fontWeight: 600 }}>
+                          <option value="">— {T2('pick section')} —</option>
+                          {editorSections.map(function(s) {
+                            return <option key={s.id} value={s.id}>{s.name || T2('(unnamed)')}</option>;
+                          })}
+                        </select>
+                        <button onClick={clearDishSelect}
+                          style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                          {T2('Clear')}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
                   {/* Sections */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {editorSections.length === 0 && (
@@ -803,12 +862,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
                               var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
+                              var isPicked = !!selectedDishes[d];
                               return (
                                 <div key={d}
                                   onClick={function(e) { if (e.target.closest('[data-nomap]')) return; setMappingDish(d); }}
                                   title={T2('Click to edit Hindi / SOP / Inventory mapping')}
-                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer' }}>
+                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer', background: isPicked ? C.blueBg : 'transparent' }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
+                                    {isAdmin && (
+                                      <input data-nomap type="checkbox" checked={isPicked}
+                                        onChange={function() { toggleDishSelect(d); }}
+                                        onClick={function(e) { e.stopPropagation(); }}
+                                        style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
+                                    )}
                                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}></span>
                                     <span style={{ fontSize: 13, color: C.text }}>{d}</span>
                                     {hi && <span style={{ fontSize: 11, color: C.muted }}>{hi}</span>}
