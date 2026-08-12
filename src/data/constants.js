@@ -30,9 +30,6 @@ const SECTIONS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets"];
 let ALL_DEPARTMENTS = ["Indian Curries","Tandoor","Chinese","Chaat","Sweets","Beverages","Service","Crockery","Transportation","ODC","Outdoor Staff","Management"]; // fallback; hydrated from team_sections
 let TEAM_DEPTS = []; // Populated from team_departments + team_sections
 const NON_KITCHEN_DEPTS = ["Service","Crockery","Transportation","ODC","Outdoor Staff","Management"];
-const LEGACY_TO_CAT_ID = {"Indian Curries":"maincourse","Tandoor":"tandoor","Chinese":"chinese","Chaat":"chaat","Sweets":"sweets"};
-var LEGACY_SECTION_MAP = {};
-function resolveSection(name){ return (name && LEGACY_SECTION_MAP[name]) || name; }
 let SECTION_META = {
   "Indian Curries": {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"🍛"},
   "Tandoor":        {color:"#D85A30", bg:"#FAECE7", dot:"#D85A30", icon:"🔥"},
@@ -105,24 +102,12 @@ function hydrateConstants(config) {
   // ── Rebuild section metadata from Supabase recipe_categories ──
   if (config.recipeCategories && config.recipeCategories.length) {
     var cats = config.recipeCategories;
-    var idToName = {};
-    cats.forEach(function(c){ idToName[c.id] = c.name; });
-    // Legacy name → current Supabase name
-    LEGACY_SECTION_MAP = {};
-    Object.keys(LEGACY_TO_CAT_ID).forEach(function(old){
-      var catId = LEGACY_TO_CAT_ID[old];
-      if(idToName[catId] && idToName[catId] !== old) LEGACY_SECTION_MAP[old] = idToName[catId];
-    });
-    // Rebuild SECTION_META from Supabase + keep non-kitchen + add legacy aliases
+    // Rebuild SECTION_META from Supabase, preserving all initial keys (kitchen legacy names + non-kitchen depts)
     var newMeta = {};
     cats.forEach(function(c){
       newMeta[c.name] = {color:c.color||'#8E8678', bg:(c.color||'#8E8678')+'18', dot:c.color||'#8E8678', icon:c.icon||'📋'};
     });
-    NON_KITCHEN_DEPTS.forEach(function(k){ if(SECTION_META[k] && !newMeta[k]) newMeta[k] = SECTION_META[k]; });
-    Object.keys(LEGACY_SECTION_MAP).forEach(function(old){
-      var cur = LEGACY_SECTION_MAP[old];
-      if(newMeta[cur]) newMeta[old] = newMeta[cur];
-    });
+    Object.keys(SECTION_META).forEach(function(k){ if(!newMeta[k]) newMeta[k] = SECTION_META[k]; });
     SECTION_META = newMeta;
   }
   // ── Team sections (independent of recipe_categories) drive ALL_DEPARTMENTS + TEAM_DEPTS ──
@@ -138,4 +123,4 @@ const OPS_SUPABASE_URL = import.meta.env.VITE_OPS_SUPABASE_URL || "";
 const OPS_SUPABASE_KEY = import.meta.env.VITE_OPS_SUPABASE_ANON_KEY || "";
 const OPS_IMG_BASE = OPS_SUPABASE_URL ? OPS_SUPABASE_URL + "/storage/v1/object/public/images/" : "";
 
-export { C, AVATAR_COLORS, ALL_DEPARTMENTS, TEAM_DEPTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants, resolveSection, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE };
+export { C, AVATAR_COLORS, ALL_DEPARTMENTS, TEAM_DEPTS, SECTION_META, OUTSIDE_VENDORS, VEHICLES, COLD_ITEMS, NAV_ADMIN, NAV, AMBRIA_VENUES, VENDOR_CATEGORIES, hydrateConstants, OPS_SUPABASE_URL, OPS_SUPABASE_KEY, OPS_IMG_BASE };

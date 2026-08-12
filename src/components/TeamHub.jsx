@@ -1,7 +1,7 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
-import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS, resolveSection } from '../data/constants.js';
+import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
@@ -103,11 +103,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const allEmpDb = safeArr(empDb).filter(function(s){
     return s.is_active !== false && s.role !== 'kiosk_gate' && !(s.role||'').startsWith('section_');
   });
-  const deptStaffList = deptSections ? allEmpDb.filter(e=>deptSections.includes(resolveSection(e.section))) : allEmpDb;
+  const deptStaffList = deptSections ? allEmpDb.filter(e=>deptSections.includes(e.section)) : allEmpDb;
   const deptEmpDb = deptStaffList;
   const deptStaffIds = new Set(deptStaffList.map(s=>String(s.staff_id||s.id||'')));
-  const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptSections.includes(resolveSection(a.section))));
-  const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(resolveSection(l.staffSection))) : safeArr(leaves);
+  const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptSections.includes(a.section)));
+  const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(l.staffSection)) : safeArr(leaves);
   const pending    = deptLeaves.filter(l=>l.status==="Pending");
   const approved   = deptLeaves.filter(l=>l.status==="Approved");
   const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
