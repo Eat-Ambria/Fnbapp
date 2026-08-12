@@ -2900,11 +2900,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               );
                             });
                           }
-                          // Single row: input is empty by default; placeholder shows auto suggestion. Typing pins as override.
-                          const suggested = st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null;
+                          // Single row: input is empty by default; placeholder shows auto suggestion (scaled by yield slider). Typing pins as override.
+                          const mult = yieldAdjustPct/100;
+                          const suggestedRaw = st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null;
+                          const suggested = suggestedRaw!=null ? Math.round(suggestedRaw * mult * 10)/10 : null;
                           const isOverride = !!planRows[it.dish];
-                          const overrideKg = isOverride ? planRows[it.dish]?.target_yield_kg : null;
-                          const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKg ?? "") : "");
+                          const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                          const overrideEff = overrideKgRaw!=null ? Math.round(overrideKgRaw * mult * 10)/10 : null;
+                          const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKgRaw ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
                           const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); savePlanYield(it.dish, "", rowCtx); };
                           return [(
@@ -2914,7 +2917,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {mappedName && <span>📖 {mappedName}</span>}
                                   {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("auto was")} {suggested} kg</span>}
-                                  {!isOverride && suggested!=null && <span>{selEv.pax} pax</span>}
+                                  {!isOverride && suggested!=null && <span>{selEv.pax} pax{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
+                                  {isOverride && mult!==1 && overrideEff!=null && <span style={{color:C.purple}}>→ {overrideEff} kg {T2("effective")}</span>}
                                   {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
                                 </div>
                               </div>
