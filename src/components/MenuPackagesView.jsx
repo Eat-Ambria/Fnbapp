@@ -120,8 +120,25 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   useEffect(function() {
     if (selPkg) {
-      setEditorSections(getSectionsForPackage(selPkg));
-      setDirty(false);
+      var loaded = getSectionsForPackage(selPkg) || [];
+      // V66 reconcile: if flat dishes[] contains dishes missing from sections
+      // (legacy pre-sections data), park them in an "Other" section so the
+      // user sees the full package. Save will re-flatten and make both consistent.
+      var flat = MENU_PACKAGES[selPkg] || [];
+      var inSections = {};
+      loaded.forEach(function(s) { (s.dishes || []).forEach(function(d) { inSections[d] = true; }); });
+      var orphans = flat.filter(function(d) { return !inSections[d]; });
+      if (orphans.length > 0) {
+        var existingOther = loaded.find(function(s) { return (s.name || '').toLowerCase() === 'other' || s.sop_category === ''; });
+        if (existingOther) {
+          existingOther.dishes = (existingOther.dishes || []).concat(orphans);
+        } else {
+          loaded = loaded.concat([{ id: 'sec_recon_' + Date.now(), name: 'Other', sop_category: '', dishes: orphans }]);
+        }
+        console.warn('[MenuPackages] Reconciled ' + orphans.length + ' orphan dish(es) into "Other" section for package "' + selPkg + '". Save to persist.');
+      }
+      setEditorSections(loaded);
+      setDirty(orphans.length > 0);  // mark dirty so user sees the save prompt and can confirm
       setAddDishInput({});
     } else {
       setEditorSections([]);

@@ -12,7 +12,7 @@
 //   onJumpToPackage(pkgName) — optional; fires when user clicks a package chip
 //   allowDeactivate — bool, default true. Set false on Menu Packages tab (retire lives in Dish Library only).
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import {
@@ -109,10 +109,13 @@ function DishMappingModal(props) {
   }, [dishName, saving]);
 
   // Realtime sync for Ops catering items (only when picker used at least once)
+  // V66 fix: unique channel per instance — DishMappingModal is mounted twice
+  // (DishLibrary + MenuPackagesView), a shared channel name collides on subscribe.
+  var channelRef = useRef('dmm-cs-items-rt-' + Math.random().toString(36).slice(2));
   useEffect(function() {
     if (!opsSupabase) return;
     var sub = opsSupabase
-      .channel('dmm-cs-items-rt')
+      .channel(channelRef.current)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'catering_store_items' }, function() {
         try { localStorage.removeItem('ambria_ops_catering_items'); } catch(e) {}
         setStoreItems(function(prev) {
