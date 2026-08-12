@@ -240,8 +240,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (MENU_PACKAGES[name]) { alert('A package named "' + name + '" already exists.'); return; }
     setSaving(true);
     try {
+      var newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
       var res = await supabase.from('menu_packages')
-        .upsert({ name: name, dishes: [], sections: [], is_active: true }, { onConflict: 'name' });
+        .upsert({ id: newId, name: name, dishes: [], sections: [], is_active: true }, { onConflict: 'name' });
       if (res.error) throw res.error;
       setPackageSections(name, [], []);
       clearMenuPackageCaches();
@@ -268,8 +269,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var flatDishes = flattenSectionsToDishes(serialized);
     setSaving(true);
     try {
+      var newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
       var res = await supabase.from('menu_packages')
-        .upsert({ name: name, dishes: flatDishes, sections: serialized, is_active: true }, { onConflict: 'name' });
+        .upsert({ id: newId, name: name, dishes: flatDishes, sections: serialized, is_active: true }, { onConflict: 'name' });
       if (res.error) throw res.error;
       setPackageSections(name, serialized, flatDishes);
       clearMenuPackageCaches();
@@ -286,14 +288,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!selPkg) return;
     if (dirty) { alert('Save or discard current changes first.'); return; }
     var usage = pkgUsageCount(selPkg);
-    var warn = 'Delete package "' + selPkg + '"?';
+    var warn = 'Permanently delete package "' + selPkg + '"?';
     if (usage > 0) warn += '\n\n⚠ ' + usage + ' upcoming function(s) still reference this package. Their existing menus stay intact, but they will lose the package link.';
-    warn += '\n\nThis is a soft delete — the row is marked inactive and can be restored in Supabase.';
+    warn += '\n\nThis is a HARD delete — the row is removed from Supabase and cannot be restored.';
     if (!window.confirm(warn)) return;
     setSaving(true);
     try {
       var res = await supabase.from('menu_packages')
-        .update({ is_active: false })
+        .delete()
         .eq('name', selPkg);
       if (res.error) throw res.error;
       delete MENU_PACKAGES[selPkg];
