@@ -1,5 +1,5 @@
 // Ambria FnB — Store & Inventory (reads live data from Ambria Ops Supabase)
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { C, OPS_IMG_BASE } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safeNum, TOMORROW } from '../utils/helpers.js';
@@ -148,12 +148,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [sourceFil, setSourceFil] = useState("all"); // "all" | "store" | "equipment"
   const [search,   setSearch]   = useState("");
   const [showAdd,  setShowAdd]  = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanResult,setScanResult]=useState("");
-  const [scanError,setScanError]=useState("");
-  const scanVideoRef  = useRef(null);
-  const scanStreamRef = useRef(null);
-  const scanAnimRef   = useRef(null);
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
   const [issueDate, setIssueDate] = useState("all");
@@ -163,26 +157,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
-  const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_item_name, ops_item_unit, unit_conversion}}
+  const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion}}
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
   const [recipesModalIng, setRecipesModalIng] = useState(null); // {name,hindi,unit,dishes:[]} — showing which recipes use this ingredient
   const [mapSearch, setMapSearch] = useState("");
   const [mapTabFilter, setMapTabFilter] = useState("unmapped"); // "all" | "mapped" | "unmapped"
   const [mapTabSearch, setMapTabSearch] = useState("");
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
-  const [poLoading, setPoLoading] = useState(false);
+  
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
   const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
-  /* ── V65: Ops-side requisitions state (catering_requisitions + catering_requisition_items) ── */
-  const [opsReqs, setOpsReqs] = useState([]);
-  const [opsReqLoading, setOpsReqLoading] = useState(false);
-  const [opsReqCancelId, setOpsReqCancelId] = useState(null);
-
-  /* Venue id → code + display name (locked in V65). Ops venue names are placeholders — never display. */
-  const VENUE_ID_TO_CODE = {9:"AP", 11:"AE", 10:"AM", 12:"AR"};
-  const VENUE_ID_TO_NAME = {9:"Ambria Pushpanjali", 11:"Ambria Exotica", 10:"Ambria Manaktala", 12:"Ambria Restro"};
+  
 
   /* ── Load from Ops Supabase + subscribe to realtime changes ── */
   useEffect(() => {
@@ -308,39 +295,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
     loadIssueState();
 
 
-    // V65: Load Ops requisitions + realtime subs
-    async function loadOpsReqs() {
-      if (!opsSupabase) return;
-      setOpsReqLoading(true);
-      try {
-        const {data:reqs, error:rErr} = await opsSupabase
-          .from('catering_requisitions')
-          .select('id, requested_by, requested_by_name, requested_at, venue_id, event_ids, event_summary, needed_by, notes, status, approved_at, received_at, created_at, updated_at')
-          .order('created_at',{ascending:false})
-          .limit(200);
-        if (rErr) { console.error('Ops req load:',rErr); setOpsReqLoading(false); return; }
-        const reqIds = (reqs||[]).map(r=>r.id);
-        let itemsData = [];
-        if (reqIds.length) {
-          const {data:its} = await opsSupabase
-            .from('catering_requisition_items')
-            .select('id, requisition_id, ops_inventory_id, item_name, item_name_hindi, category_name, qty_requested, qty_received, unit, notes, status, created_at')
-            .in('requisition_id', reqIds);
-          itemsData = its || [];
-        }
-        const combined = (reqs||[]).map(r=>({...r, items: itemsData.filter(i=>i.requisition_id===r.id)}));
-        setOpsReqs(combined);
-      } catch(e){ console.error('Ops req load ex:',e); }
-      setOpsReqLoading(false);
-    }
-    loadOpsReqs();
-
-    let opsCh1=null, opsCh2=null;
-    if (opsSupabase) {
-      opsCh1 = opsSupabase.channel('ops-req-rt').on('postgres_changes',{event:'*',schema:'public',table:'catering_requisitions'},()=>loadOpsReqs()).subscribe();
-      opsCh2 = opsSupabase.channel('ops-req-items-rt').on('postgres_changes',{event:'*',schema:'public',table:'catering_requisition_items'},()=>loadOpsReqs()).subscribe();
-    }
-
     // Realtime subscriptions
     const ch1 = supabase.channel('sia-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_issue_assignments' }, (p) => {
       if (p.eventType === 'DELETE') {
@@ -370,8 +324,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
     return () => {
       subs.forEach(ch => supabase.removeChannel(ch));
-      if (opsCh1 && opsSupabase) opsSupabase.removeChannel(opsCh1);
-      if (opsCh2 && opsSupabase) opsSupabase.removeChannel(opsCh2);
     };
   }, []);
 
@@ -552,83 +504,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion };
   }
 
-  async function generatePO(shortages, filtEvs) {
-    if (!shortages.length) return;
-    const VENUE_CODE_TO_ID = {AP:9, AE:11, AM:10, AR:12};
-    let venueCode = currentUser?.venue;
-    if (!venueCode) {
-      const pick = prompt("Which venue is this requisition for?\n\nType one: AP (Pushpanjali), AE (Exotica), AM (Manaktala), AR (Restro)", "AM");
-      if (pick === null) return;
-      venueCode = (pick || "").trim().toUpperCase();
-    }
-    const venueId = VENUE_CODE_TO_ID[venueCode];
-    if (!venueId) { alert("Venue " + venueCode + " isn't set up in Ops. Use AP / AE / AM / AR."); return; }
-    const empId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.id;
-    const empName = currentUser?.name || empId;
-    if (!empId) { alert("Login required to raise requisition."); return; }
-    setPoLoading(true);
-    try {
-      // Numeric ops id → stable ops_inventory_id prefix (from live items state, sourced from catering_store_items)
-      const opsIdToInvId = {};
-      items.forEach(i => { if (i._opsId && i.inventoryId) opsIdToInvId[i._opsId] = i.inventoryId; });
-
-      const payloadItems = shortages.map(s => ({
-        ops_inventory_id: (s.opsItemId && opsIdToInvId[s.opsItemId]) || null,
-        item_name: s.opsItemName || s.name,
-        item_name_hindi: null,
-        category_name: null,
-        qty_requested: s.shortfall,
-        unit: s.storeUnit || s.unit,
-        notes: null,
-      }));
-
-      const eventIds = [...new Set(filtEvs.map(e => e.id))];
-      const eventSummary = filtEvs.slice(0,3).map(e => e.guest + " (" + e.date + ")").join(", ") + (filtEvs.length > 3 ? " +" + (filtEvs.length - 3) + " more" : "");
-      const neededBy = filtEvs.reduce((min, e) => (min && min <= e.date) ? min : e.date, null);
-
-      const { data, error } = await supabase.functions.invoke('ops-req-router', {
-        body: {
-          action: 'create',
-          payload: {
-            requested_by: empId,
-            requested_by_name: empName,
-            venue_id: venueId,
-            event_ids: eventIds,
-            event_summary: eventSummary,
-            needed_by: neededBy,
-            notes: null,
-            items: payloadItems,
-          }
-        }
-      });
-      if (error) throw error;
-      if (data && data.error) throw new Error(data.error + (data.detail ? ": " + data.detail : ""));
-
-      // Success — realtime sub refreshes the Requisitions tab
-      setTab("requisitions");
-    } catch (e) {
-      alert("Requisition create failed: " + (e.message || String(e)));
-      console.error("generatePO (router) failed:", e);
-    }
-    setPoLoading(false);
-  }
-
-  async function cancelOpsReq(reqId, reason) {
-    const empId = currentUser?.staff_id || currentUser?.staffListId || currentUser?.id;
-    if (!empId) { alert("Login required to cancel"); return; }
-    setOpsReqCancelId(reqId);
-    try {
-      const {data, error} = await supabase.functions.invoke('ops-req-router', {
-        body: {action:'cancel', payload:{req_id:reqId, cancelled_by:empId, cancelled_reason:reason||'cancelled via app'}}
-      });
-      if (error) throw error;
-      if (data && data.error) throw new Error(data.error);
-      // Realtime sub refreshes list; no manual refetch needed
-    } catch(e) {
-      alert("Cancel failed: " + (e.message||String(e)));
-    }
-    setOpsReqCancelId(null);
-  }
+  
 
   async function saveIngredientMapping(ingName, ingHindi, opsItem, conversion) {
     var conv = (typeof conversion === "number" && conversion > 0) ? conversion : 1;
@@ -637,6 +513,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       ingredient_name: ingName,
       ingredient_hindi: ingHindi || null,
       ops_item_id: opsItem._opsId,
+      ops_inventory_id: opsItem.inventoryId || null,  // V67: stable prefix id — survives Ops rebuilds
       ops_item_name: opsItem.name,
       ops_item_unit: opsItem.unit,
       unit_conversion: conv,
@@ -730,131 +607,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
   const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
 
-  function stopScan(){
-    if(scanAnimRef.current) cancelAnimationFrame(scanAnimRef.current);
-    scanStreamRef.current?.getTracks().forEach(t=>t.stop());
-    scanStreamRef.current=null; setScanning(false);
-  }
-  async function startScan(){
-    setScanError(""); setScanResult("");
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
-      scanStreamRef.current=stream; setScanning(true);
-      setTimeout(()=>{
-        if(scanVideoRef.current){scanVideoRef.current.srcObject=stream;scanVideoRef.current.play();}
-        if(window.BarcodeDetector){
-          const det=new window.BarcodeDetector({formats:["ean_13","ean_8","qr_code","code_128","upc_a","upc_e","itf","code_39"]});
-          function detect(){
-            if(!scanVideoRef.current||!scanStreamRef.current) return;
-            det.detect(scanVideoRef.current).then(codes=>{
-              if(codes.length>0){
-                const bc=codes[0].rawValue;
-                setScanResult(bc);
-                setNewItem(p=>({...p,barcode:bc}));
-                stopScan();
-
-                // 1. Check master data first
-                const found=items.find(i=>(i.barcode||"")===bc);
-                if(found){setScanItem(found);setScanError("✅ Found in your inventory: "+found.name);return;}
-
-                // 2. Try multiple product databases in cascade
-                setScanError("🔍 Looking up in product databases…");
-
-                async function lookupProduct(barcode){
-                  // A. Open Food Facts (global food database — 3M+ products)
-                  try{
-                    const r1=await fetch("https://world.openfoodfacts.org/api/v2/product/"+barcode+".json",{signal:AbortSignal.timeout(5000)});
-                    const d1=await r1.json();
-                    if(d1.status===1&&d1.product){
-                      const p=d1.product;
-                      const nm=p.product_name||p.product_name_en||p.generic_name||"";
-                      if(nm){
-                        const br=p.brands||"";
-                        const wt=p.quantity||p.net_weight||"";
-                        const cat=p.categories_tags?.[0]?.replace("en:","").replace(/-/g," ")||"";
-                        const nutr=p.nutriments||{};
-                        return {
-                          name:nm,brand:br,barcode,
-                          unit:wt.toLowerCase().includes("ml")||wt.toLowerCase().includes("litre")?"ml":wt.toLowerCase().includes("kg")?"kg":wt.toLowerCase().includes("g")?"g":"pcs",
-                          cat:guessCategory(nm,cat),
-                          weight:wt,
-                          image:p.image_thumb_url||p.image_url||"",
-                          source:"Open Food Facts",
-                          energy:nutr["energy-kcal_100g"]?""+Math.round(nutr["energy-kcal_100g"])+" kcal/100g":"",
-                        };
-                      }
-                    }
-                  }catch(e){}
-
-                  // B. UPC Item DB (US/Global barcode database)
-                  try{
-                    const r2=await fetch("https://api.upcitemdb.com/prod/trial/lookup?upc="+barcode,{signal:AbortSignal.timeout(5000)});
-                    const d2=await r2.json();
-                    if(d2.code==="OK"&&d2.items?.length>0){
-                      const item=d2.items[0];
-                      return {
-                        name:item.title||"",brand:item.brand||"",barcode,
-                        unit:guessUnit(item.title||""),
-                        cat:guessCategory(item.title||"",item.category||""),
-                        weight:item.size||"",
-                        image:item.images?.[0]||"",
-                        source:"UPC Item DB",
-                        energy:"",
-                      };
-                    }
-                  }catch(e){}
-
-                  return null;
-                }
-
-                function guessUnit(name){
-                  const n=name.toLowerCase();
-                  if(n.includes(" ml")||n.includes("litre")||n.includes("liter")) return "ml";
-                  if(n.includes(" kg")||n.includes("kilogram")) return "kg";
-                  if(n.includes(" gm")||n.includes(" g ")||n.includes("gram")) return "g";
-                  if(n.includes(" l ")||n.includes(" ltr")) return "L";
-                  if(n.includes("dozen")||n.includes("pack of")) return "pcs";
-                  return "pcs";
-                }
-
-                function guessCategory(name,cat){
-                  const n=(name+" "+cat).toLowerCase();
-                  if(n.includes("chicken")||n.includes("mutton")||n.includes("fish")||n.includes("meat")||n.includes("prawn")) return "Meat & Poultry";
-                  if(n.includes("milk")||n.includes("paneer")||n.includes("cream")||n.includes("butter")||n.includes("cheese")||n.includes("curd")||n.includes("yogurt")||n.includes("ghee")||n.includes("khoya")) return "Dairy";
-                  if(n.includes("oil")||n.includes("atta")||n.includes("flour")||n.includes("rice")||n.includes("dal")||n.includes("lentil")||n.includes("sugar")||n.includes("salt")||n.includes("spice")||n.includes("masala")) return "Dry Goods";
-                  if(n.includes("onion")||n.includes("tomato")||n.includes("potato")||n.includes("carrot")||n.includes("vegetable")||n.includes("sabzi")) return "Fresh Vegetables";
-                  if(n.includes("apple")||n.includes("mango")||n.includes("banana")||n.includes("fruit")) return "Fruits";
-                  if(n.includes("juice")||n.includes("drink")||n.includes("water")||n.includes("soda")||n.includes("cold drink")) return "Beverages";
-                  if(n.includes("soap")||n.includes("detergent")||n.includes("cleaner")||n.includes("sanitizer")) return "Cleaning & Hygiene";
-                  if(n.includes("foil")||n.includes("plastic")||n.includes("wrap")||n.includes("bag")||n.includes("box")||n.includes("pack")) return "Packaging";
-                  if(n.includes("gas")||n.includes("cylinder")||n.includes("fuel")) return "Gas & Fuel";
-                  return "Dry Goods";
-                }
-
-                lookupProduct(bc).then(result=>{
-                  if(result&&result.name){
-                    setNewItem(prev=>({...prev,name:result.name,brand:result.brand,barcode:bc,unit:result.unit,cat:result.cat}));
-                    setScanLookup(result);
-                    setScanError("✅ "+result.source+": "+result.name+(result.brand?" · "+result.brand:"")+(result.weight?" · "+result.weight:""));
-                  } else {
-                    setScanError("❌ Product not found. Fill details manually.");
-                    setScanLookup(null);
-                  }
-                });
-              }
-              else scanAnimRef.current=requestAnimationFrame(detect);
-            }).catch(()=>{scanAnimRef.current=requestAnimationFrame(detect);});
-          }
-          scanAnimRef.current=requestAnimationFrame(detect);
-        } else { setScanError("Barcode scanning not supported on this browser. Enter barcode manually."); }
-      },300);
-    } catch(e){ setScanError("Camera access denied. Enter barcode manually."); setScanning(false); }
-  }
   function addItem(){
     if(!newItem.name.trim()) return;
     setItems(p=>[...p,{...newItem,id:"it-"+Date.now(),inStock:+newItem.inStock||0,minStock:+newItem.minStock||0,perPax:+newItem.perPax||0}]);
     setNewItem({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
-    setScanResult(""); setScanError(""); stopScan(); setShowAdd(false);
+    setShowAdd(false);
   }
 
   const upcoming  = safeEvs.filter(e=>e.date>=TODAY);
@@ -893,24 +650,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {showAdd&&(
         <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:12,padding:"14px 18px",marginBottom:14}}>
           <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📦 Add New Inventory Item</div>
-          {/* Scanner */}
-          <div style={{background:"rgba(107,24,24,.06)",borderRadius:9,padding:"9px 12px",marginBottom:10,border:`1px dashed ${C.wineBorder}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanning?8:0}}>
-              <div><div style={{fontSize:12,fontWeight:600,color:C.gold}}>📷 Scan Barcode</div><div style={{fontSize:12,color:C.muted}}>Point camera at barcode · or enter manually below</div></div>
-              {!scanning?<button onClick={startScan} style={{padding:"5px 12px",borderRadius:7,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>📷 Scan</button>
-                        :<button onClick={stopScan}  style={{padding:"5px 10px",borderRadius:7,background:C.red, color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕</button>}
-            </div>
-            {scanning&&<video ref={scanVideoRef} autoPlay playsInline muted style={{width:"100%",maxHeight:160,borderRadius:7,objectFit:"cover",background:"#000",display:"block"}}/>}
-            {scanResult&&<div style={{marginTop:5,fontSize:12,fontWeight:600,color:C.green}}>✓ Scanned: {scanResult}</div>}
-            {scanError&&<div style={{marginTop:4,fontSize:12,color:C.amber}}>{scanError}</div>}
-          </div>
           {/* Fields */}
           <div style={{marginBottom:7}}>
             <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Item Name *</div>
             <input value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} placeholder="e.g. Dinner Plates (10 inch)" style={{...fld,fontSize:12}}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:7}}>
-            {[{l:"Barcode",k:"barcode",ph:"Auto or manual"},{l:"Brand",k:"brand",ph:"Brand name"},{l:"Supplier",k:"supplier",ph:"Supplier name"}].map(f=>(
+            {[{l:"Barcode",k:"barcode",ph:"Manual entry"},{l:"Brand",k:"brand",ph:"Brand name"},{l:"Supplier",k:"supplier",ph:"Supplier name"}].map(f=>(
               <div key={f.k}>
                 <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={fld}/>
@@ -932,7 +678,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>{setShowAdd(false);stopScan();setScanResult("");setScanError("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
+            <Btn onClick={()=>{setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
             {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>}
           </div>
         </div>
@@ -940,7 +686,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"requisitions",l:T2("📋 Requisitions")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -1443,10 +1189,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       <div style={{fontSize:13,fontWeight:700,color:C.red}}>⚠ {T2("Shortages")} — {shortages.length} {T2("items")}</div>
                       <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Stock below required for")} {filtEvs.length} {T2("events")}</div>
                     </div>
-                    {hasPerm(currentUser,"store.edit_stock")&&<button disabled={poLoading} onClick={()=>generatePO(shortages,filtEvs)}
-                      style={{padding:"8px 16px",borderRadius:10,background:poLoading?C.muted:C.red,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:poLoading?"default":"pointer",minHeight:36,opacity:poLoading?.6:1}}>
-                      {poLoading?"⏳ Ordering…":"📋 "+T2("Order Shortfall")}
-                    </button>}
+                    
                   </div>
                   <div style={{border:`1px solid ${C.redBorder}`,borderRadius:10,overflow:"hidden"}}>
                     <div style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",background:C.red+"15",borderBottom:`1px solid ${C.redBorder}`}}>
@@ -1480,75 +1223,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
         );
       })()}
-
-      {/* ── REQUISITIONS (V65 — live from Ops catering_requisitions) ── */}
-      {tab==="requisitions"&&(
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:11,color:C.muted}}>{opsReqLoading?"Loading requisitions…":`${opsReqs.length} ${T2("requisitions")}`}</div>
-          </div>
-          {!opsReqLoading&&opsReqs.length===0&&<div style={{textAlign:"center",padding:36,background:C.bg,borderRadius:12,fontSize:12,color:C.muted}}>{T2("No requisitions raised yet.")}</div>}
-          {opsReqs.map(req=>{
-            const stColors={pending:{c:C.muted,bg:C.bg},approved:{c:"#378ADD",bg:"#E6F1FB"},purchasing:{c:C.amber,bg:C.amberBg},partially_received:{c:C.amber,bg:C.amberBg},received:{c:C.green,bg:C.greenBg},cancelled:{c:C.red,bg:C.redBg}};
-            const sc=stColors[req.status]||stColors.pending;
-            const venueCode=VENUE_ID_TO_CODE[req.venue_id]||"?";
-            const venueName=VENUE_ID_TO_NAME[req.venue_id]||`Venue ${req.venue_id}`;
-            const vc=venueColor(venueCode);
-            const canCancel=(req.status==='pending'||req.status==='approved')&&hasPerm(currentUser,"store.edit_stock");
-            return (
-              <Card key={req.id} style={{padding:"14px 16px",marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
-                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,background:vc.bg,color:vc.text}}>{venueName}</span>
-                      <div style={{fontSize:11,fontWeight:600,color:C.muted,fontFamily:"monospace"}}>{req.id.slice(0,8)}</div>
-                    </div>
-                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginTop:2}}>{req.event_summary||"—"}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>
-                      {req.items.length} {T2("items")} · {T2("by")} {req.requested_by_name||req.requested_by} · {new Date(req.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}
-                      {req.needed_by&&<span> · {T2("needed by")} {new Date(req.needed_by).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</span>}
-                    </div>
-                    {req.notes&&<div style={{fontSize:10,color:C.muted,marginTop:2,fontStyle:"italic"}}>{req.notes}</div>}
-                  </div>
-                  <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:20,background:sc.bg,color:sc.c,textTransform:"capitalize",whiteSpace:"nowrap"}}>{req.status.replace(/_/g," ")}</span>
-                </div>
-                {req.items.length>0&&(
-                  <div style={{border:`1px solid ${C.borderLight}`,borderRadius:8,overflow:"hidden",marginBottom:canCancel?8:0}}>
-                    <div style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",background:C.bg,borderBottom:`1px solid ${C.borderLight}`}}>
-                      {[T2("Item"),T2("Reqd"),T2("Recv"),T2("Unit")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{h}</div>)}
-                    </div>
-                    {req.items.map(li=>(
-                      <div key={li.id} style={{display:"grid",gridTemplateColumns:"2fr 60px 60px 60px",padding:"5px 10px",borderBottom:`1px solid ${C.borderLight}22`,alignItems:"center"}}>
-                        <div style={{fontSize:12,fontWeight:500,color:C.text}}>
-                          {li.item_name}
-                          {li.item_name_hindi&&<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({li.item_name_hindi})</span>}
-                          {!li.ops_inventory_id&&<span style={{fontSize:9,color:C.amber,marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.amberBg}}>ad-hoc</span>}
-                        </div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{li.qty_requested}</div>
-                        <div style={{fontSize:12,fontWeight:600,color:(+li.qty_received)>=(+li.qty_requested)?C.green:C.amber}}>{li.qty_received||0}</div>
-                        <div style={{fontSize:11,color:C.muted}}>{li.unit||"-"}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {canCancel&&(
-                  <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                    <Btn onClick={async()=>{
-                      const reason=prompt("Reason for cancellation:","");
-                      if(reason===null) return;
-                      await cancelOpsReq(req.id,reason);
-                    }} color={C.red} style={{fontSize:11,padding:"6px 14px"}} disabled={opsReqCancelId===req.id}>
-                      {opsReqCancelId===req.id?"Cancelling…":`✕ ${T2("Cancel")}`}
-                    </Btn>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── LEGACY PO VIEW (deprecated in V65 — kept for audit, not reachable from tabs) ── */}
 
       {/* ── EVENT REQUIREMENTS ── */}
       
@@ -1610,6 +1284,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 </button>
               );
             })()}
+
+            
 
             {/* Ingredient list */}
             {filtered.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No ingredients match your filter.")}</div>}
