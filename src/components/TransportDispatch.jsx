@@ -8,6 +8,21 @@ import { dbUpsert, dbDelete } from '../lib/db.js';
 import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 
+// Module-level caches — persist across component remounts (tab switching), reduce first-open latency dramatically
+const _DISH_META_CACHE = new Map();
+const _COLD_LOWER = COLD_ITEMS.map(function(ci){return ci.toLowerCase();});
+function _getDishMeta(name){
+  if(!name) return {catId:null, cold:false};
+  if(_DISH_META_CACHE.has(name)) return _DISH_META_CACHE.get(name);
+  const nl = String(name).toLowerCase();
+  const meta = {
+    catId: getCatIdForDish(name),
+    cold: _COLD_LOWER.some(function(ci){return nl.includes(ci);}),
+  };
+  _DISH_META_CACHE.set(name, meta);
+  return meta;
+}
+
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   // Only work with events in a rolling window (today - 2d to future). Past events don't need dispatch state — they froze the mount when the queue included all 179+ historical events.
@@ -19,11 +34,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
   function buildChecklist(ev, vehicleId) {
     const v = VEHICLES.find(x=>x.id===vehicleId);
-    const menuItems = (ev.menu||[]).map(name=>({
-      id:`${name}-menu`.replace(/\s+/g,"-"), name, category:"🍽 Food",
-      source: ["sweets","chaat","chaat_master"].includes(getCatIdForDish(name))?"AE Kitchen":"AP Kitchen",
-      cold: COLD_ITEMS.some(ci=>name.toLowerCase().includes(ci.toLowerCase())), checked:false,
-    }));
+    const menuItems = (ev.menu||[]).map(name=>{
+      const meta = _getDishMeta(name);
+      return {
+        id:`${name}-menu`.replace(/\s+/g,"-"), name, category:"🍽 Food",
+        source: ["sweets","chaat","chaat_master"].includes(meta.catId)?"AE Kitchen":"AP Kitchen",
+        cold: meta.cold, checked:false,
+      };
+    });
     if(v?.type==="cold") return [...menuItems.filter(i=>i.cold),{id:"dairy-cold",name:"Dairy & cold items",category:"❄ Cold",source:"AE Kitchen",cold:true,checked:false}];
     if(v?.type==="dry")  return [...menuItems.filter(i=>!i.cold),
       {id:"chafing",name:"Chafing dishes + stands",category:"🔧 Equipment",source:"AP Kitchen",cold:false,checked:false},
@@ -47,17 +65,21 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   function makeManifest(ev,vid){
     const menu=safeArr(ev.menu);
     const v=VEHICLES.find(x=>x.id===vid);
-    if(v?.type==="cold") return menu.filter(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
-    return menu.filter(d=>!COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
+    if(v?.type==="cold") return menu.filter(d=>_getDishMeta(d).cold);
+    return menu.filter(d=>!_getDishMeta(d).cold);
   }
 
   const initDispatches = () => safeEvs.map(ev=>({
     evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:ev.menu||[],
-    assignments: autoVehicles(ev).map(vid=>({
-      vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:T2("Planning"),
-      manifest:makeManifest(ev,vid), loadingList:buildChecklist(ev,vid),
-      unloadingList:buildChecklist(ev,vid).map(i=>({...i,id:"u-"+i.id,checked:false})),
-    })),
+    assignments: autoVehicles(ev).map(vid=>{
+      // Build checklist ONCE per (ev,vid), clone for unloading — the previous code called buildChecklist twice, doubling the fuzzy-match cost
+      const loading = buildChecklist(ev,vid);
+      return {
+        vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:T2("Planning"),
+        manifest:makeManifest(ev,vid), loadingList:loading,
+        unloadingList:loading.map(i=>({...i,id:"u-"+i.id,checked:false})),
+      };
+    }),
   }));
 
   const [dispatches, setDispatches] = useState(initDispatches);
