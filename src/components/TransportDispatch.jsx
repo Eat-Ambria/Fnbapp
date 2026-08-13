@@ -10,7 +10,10 @@ import { logActivity } from './ActivityLog.jsx';
 
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
-  const safeEvs = Array.isArray(events) ? events : [];
+  // Only work with events in a rolling window (today - 2d to future). Past events don't need dispatch state — they froze the mount when the queue included all 179+ historical events.
+  const DISPATCH_CUTOFF = new Date(Date.now() - 2*864e5).toISOString().slice(0,10);
+  const allEventsRaw = Array.isArray(events) ? events : [];
+  const safeEvs = allEventsRaw.filter(e => e && e.date && e.date >= DISPATCH_CUTOFF);
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
   const VCOL = {dry:"#C07010", cold:"#185FA5", quick:"#2B8A50"};
 
@@ -58,6 +61,17 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   }));
 
   const [dispatches, setDispatches] = useState(initDispatches);
+
+  // One-shot cleanup: drop transport queue items older than 7 days on mount (prevents unbounded growth)
+  useEffect(function(){
+    if(!setTransportQueue || !Array.isArray(transportQueue) || transportQueue.length===0) return;
+    var PRUNE_CUTOFF = new Date(Date.now() - 7*864e5).toISOString().slice(0,10);
+    var kept = transportQueue.filter(function(item){return item.eventDate && item.eventDate >= PRUNE_CUTOFF;});
+    if(kept.length !== transportQueue.length){
+      setTransportQueue(kept);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   const [dishLU, setDishLU] = useState({});
   const [selFnId, setSelFnId] = useState(()=>{
     const td=new Date().toISOString().slice(0,10);
@@ -253,8 +267,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
       {/* ── FROM KITCHEN — READY FOR PICKUP ── */}
       {(function(){
-        var pending=(transportQueue||[]).filter(function(item){return item.status==='Pending Pickup'||item.status==='Ready';});
-        var pickedUp=(transportQueue||[]).filter(function(item){return item.status==='Picked Up';});
+        // Only show queue items whose eventDate is in the active window; drop pre-eventDate legacy items too (they can't be verified)
+        var isRecent=function(item){return item.eventDate && item.eventDate >= DISPATCH_CUTOFF;};
+        var pending=(transportQueue||[]).filter(function(item){return isRecent(item) && (item.status==='Pending Pickup'||item.status==='Ready');});
+        var pickedUp=(transportQueue||[]).filter(function(item){return isRecent(item) && item.status==='Picked Up';});
         if(!pending.length&&!pickedUp.length) return null;
         return (
           <div style={{marginBottom:14,border:`1.5px solid ${C.wine}`,borderRadius:12,overflow:'hidden'}}>
