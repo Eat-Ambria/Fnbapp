@@ -38,7 +38,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var T2 = function(s) { return T(s, lang); };
   var canCreate  = hasPermission(currentUser, 'proposals.create');
   var canViewAll = hasPermission(currentUser, 'proposals.view_all');
-  var canConvert = hasPermission(currentUser, 'proposals.convert');
+
   var repId      = (currentUser && (currentUser.staff_id || currentUser.staffListId || currentUser.id)) || 'unknown';
 
   var [proposals, setProposals] = useState([]);
@@ -512,12 +512,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                         style={{ padding: "5px 8px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         ⧉
                       </button>
-                      {p.status === 'won' && canConvert && (
-                        <button disabled title={T2("Convert ships in Phase 7")}
-                          style={{ padding: "5px 8px", borderRadius: 6, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "not-allowed", opacity: 0.55 }}>
-                          →📅
-                        </button>
-                      )}
+
                       <button onClick={function(){ deleteProposal(p); }} title={T2("Delete")}
                         style={{ padding: "5px 8px", borderRadius: 6, background: C.surface, border: "1px solid " + (C.redBorder||'#F0B8B8'), color: C.red||'#A52828', fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         🗑

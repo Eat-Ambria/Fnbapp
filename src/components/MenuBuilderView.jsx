@@ -11,12 +11,14 @@ import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET
 import { supabase } from '../lib/supabase.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
 import TotalPanel from './TotalPanel.jsx';
+import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
 
   var [activeDept, setActiveDept]   = useState('kit');
   var [activeSubTab, setActiveSubTab] = useState('items'); // 'items' | 'configs' | 'total'
+  var [showPreview, setShowPreview] = useState(false);
   var [dishItems, setDishItems]     = useState([]);        // proposal_items rows
   var [salesMeta, setSalesMeta]     = useState({});        // { [dish_name]: {diet_tag, sales_dept, sales_description, hero_image_url} }
   var [loading, setLoading]         = useState(true);
@@ -274,6 +276,21 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     ? { color: templateInfo.tier === 'magnum' ? '#8A70C8' : '#D4A843', bg: templateInfo.tier === 'magnum' ? '#EADFF5' : '#F5EBD7' }
     : null;
 
+  // Preview takes over the viewport when open
+  if (showPreview) {
+    return (
+      <MenuBuilderPreview
+        proposal={proposal}
+        dishItems={dishItems}
+        salesMeta={salesMeta}
+        templateInfo={templateInfo}
+        onClose={function(){ setShowPreview(false); }}
+        lang={lang}
+        currentUser={currentUser}
+      />
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: C.bg }}>
       {/* ── Top bar ── */}
@@ -297,8 +314,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             )}
           </div>
         </div>
-        <button disabled title={T2("Preview ships in Phase 6")}
-          style={{ padding: "8px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "not-allowed", opacity: 0.55 }}>
+        <button onClick={function(){ setShowPreview(true); }}
+          disabled={dishItems.length === 0}
+          title={dishItems.length === 0 ? T2("Add items first before previewing") : T2("Open client preview")}
+          style={{ padding: "8px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: dishItems.length === 0 ? "not-allowed" : "pointer", opacity: dishItems.length === 0 ? 0.55 : 1, boxShadow: "0 1px 3px " + C.shadow }}>
           👁 {T2("Preview")}
         </button>
       </div>
