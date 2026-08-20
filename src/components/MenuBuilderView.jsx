@@ -10,6 +10,7 @@ import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../d
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
+import TotalPanel from './TotalPanel.jsx';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
@@ -389,6 +390,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   lang={lang}
                 />
               )}
+
+              {activeSubTab === 'total' && (
+                <TotalPanel
+                  proposal={proposal}
+                  activeDept={activeDept}
+                  dishItems={dishItems}
+                  salesMeta={salesMeta}
+                  templateInfo={templateInfo}
+                  lang={lang}
+                />
+              )}
             </div>
           )}
 
@@ -584,7 +596,11 @@ function SubTabStrip({ T2, activeSubTab, setActiveSubTab, hasItems, hasConfigs, 
           onClick={function(){ setActiveSubTab('configs'); }}
         />
       )}
-      <SubTab label={"📊 " + T2("Total")} disabled title={T2("Ships in Phase 5C")} />
+      <SubTab
+        label={"📊 " + T2("Total")}
+        active={activeSubTab === 'total'}
+        onClick={function(){ setActiveSubTab('total'); }}
+      />
     </div>
   );
 }
