@@ -8,6 +8,13 @@ let MENU_PACKAGES = {};
 let MENU_PACKAGE_NAMES = [];
 let DISH_GROUPS = {};
 
+// Legacy section overlay — kept for backward compatibility with recipeData.js and
+// MenuPackagesView.jsx delete operations. Not actively populated in the current
+// data pipeline; the sections JSONB lives on menu_packages rows and is loaded via
+// getSectionsForPackage() in recipeData.js. Do NOT remove this export without
+// first grepping the codebase for MENU_PACKAGE_SECTIONS references.
+let MENU_PACKAGE_SECTIONS = {};
+
 // V70: side-channel for package metadata beyond dishes[]
 // Shape: { [pkgName]: { tier: 'luxury'|'magnum'|null, id: string|null } }
 let MENU_PACKAGE_META = {};
@@ -28,4 +35,4 @@ function hydrateMenuPackages(pkgMap, groups, meta) {
   }
 }
 
-export { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS, MENU_PACKAGE_META, hydrateMenuPackages };
+export { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_META, hydrateMenuPackages };
