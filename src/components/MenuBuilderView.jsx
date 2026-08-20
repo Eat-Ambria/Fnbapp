@@ -214,7 +214,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return counts;
   }, [allDishes, salesMeta, selectedSet]);
 
-  // ── Dishes for active dept (Kitchen filters everything without meta into it) ──
+  // ── Dishes for active dept (dishes without meta fall to DEFAULT_DEPT = 'kit') ──
   var deptDishes = useMemo(function(){
     return allDishes.filter(function(d){
       var meta = salesMeta[d.name];
@@ -222,6 +222,15 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       return dept === activeDept;
     });
   }, [allDishes, salesMeta, activeDept]);
+
+  // ── Template dishes scoped to active dept ──
+  var templateDishesInDept = useMemo(function(){
+    return templateInfo.dishes.filter(function(name){
+      var meta = salesMeta[name];
+      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      return dept === activeDept;
+    });
+  }, [templateInfo.dishes, salesMeta, activeDept]);
 
   // ── Diet-annotated + filtered + searched ──
   var visibleDishes = useMemo(function(){
@@ -298,7 +307,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
           {SALES_DEPTS.map(function(d){
             var isActive = activeDept === d.id;
             var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-            var isFunctional = d.id === 'kit'; // Phase 3: kitchen only
+            var isFunctional = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0; // Phase 4: kit/bev/bak/frt
             return (
               <button key={d.id} onClick={function(){ setActiveDept(d.id); setActiveSubTab('items'); }}
                 style={{
@@ -334,9 +343,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             </div>
           )}
 
-          {!loading && activeDept === 'kit' && (
-            <KitchenItemsTab
+          {!loading && ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0 && (
+            <ItemsTab
               T2={T2}
+              activeDept={activeDept}
               searchQ={searchQ} setSearchQ={setSearchQ}
               dietFilter={dietFilter} setDietFilter={setDietFilter}
               showAddons={showAddons} setShowAddons={setShowAddons}
@@ -347,11 +357,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
               salesMeta={salesMeta}
               onToggle={toggleDish}
               templateInfo={templateInfo}
-              deptCounts={deptCounts.kit}
+              templateDishesInDept={templateDishesInDept}
+              deptCounts={deptCounts[activeDept]}
             />
           )}
 
-          {!loading && activeDept !== 'kit' && (
+          {!loading && ITEM_HAVING_DEPTS.indexOf(activeDept) < 0 && (
             <ComingSoonPlaceholder T2={T2} dept={SALES_DEPT_MAP[activeDept]} />
           )}
         </div>
@@ -361,10 +372,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 }
 
 // ═══════════════════════════════════════════════════════════════
-// KITCHEN ITEMS TAB
+// ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function KitchenItemsTab({ T2, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, deptCounts }) {
+function ItemsTab({ T2, activeDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts }) {
   var totalSel = deptCounts ? deptCounts.sel : 0;
+  var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
+  var deptTotal = deptCounts ? deptCounts.total : 0;
+  var addonsAvailable = Math.max(0, deptTotal - templateCountInDept);
 
   return (
     <div>
@@ -397,12 +411,12 @@ function KitchenItemsTab({ T2, searchQ, setSearchQ, dietFilter, setDietFilter, s
         </label>
       </div>
 
-      {/* Template summary bar */}
+      {/* Template summary bar (per-dept scoped counts) */}
       {templateInfo.name && (
         <div style={{ padding: "10px 14px", marginBottom: 14, borderRadius: 10, background: C.bg, border: "1px solid " + C.border, fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span>📋 <b style={{ color: C.text }}>{templateInfo.name}</b> · {templateInfo.dishes.length} {T2("template dishes")}</span>
+          <span>📋 <b style={{ color: C.text }}>{templateInfo.name}</b> · {templateCountInDept} {T2("template dishes in this dept")} <span style={{ opacity: 0.7 }}>({templateInfo.dishes.length} {T2("total")})</span></span>
           <span style={{ marginLeft: "auto" }}>
-            ✓ {totalSel} {T2("selected")} · ✨ {(deptCounts ? deptCounts.total - templateInfo.dishes.length : 0)} {T2("add-ons available")}
+            ✓ {totalSel} {T2("selected")} · ✨ {addonsAvailable} {T2("add-ons available")}
           </span>
         </div>
       )}
@@ -505,10 +519,10 @@ function ComingSoonPlaceholder({ T2, dept }) {
     <div style={{ padding: "60px 20px", textAlign: "center", background: C.surface, borderRadius: 14, border: "1px dashed " + C.border }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{dept.icon}</div>
       <div style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", marginBottom: 6 }}>
-        {dept.name} — {T2("Phase 4/5")}
+        {dept.name} — {T2("Phase 5")}
       </div>
       <div style={{ fontSize: 13, color: C.muted, maxWidth: 460, margin: "0 auto", lineHeight: 1.5 }}>
-        {T2("This department's items and configs ship in the next phases. Kitchen is fully functional today.")}
+        {T2("Service, Crockery, and Transport are configuration-only departments (no items to pick). Their config tabs — glassware, ratios, vehicles, uniforms — ship in Phase 5.")}
       </div>
     </div>
   );

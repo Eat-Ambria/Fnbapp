@@ -1322,17 +1322,37 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
         function aggSecIngredientsD1(dishes) {
           const bucket = {}; let totalKg = 0;
+          // Unit families for merging kg↔gm and L↔ml on the same ingredient.
+          // WEIGHT_G / VOLUME_ML = multiplier to normalize into grams / millilitres.
+          const WEIGHT_G  = { g: 1, gm: 1, kg: 1000 };
+          const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
+          const familyOf = (u) => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
+          const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
           dishes.forEach(dish => {
             if (dish.eventDayOnly) return;
             const {ing, effKg} = getScaledIngredients(dish.name, dish.fEvId);
             if (effKg) totalKg += effKg;
             if (!ing) return;
             ing.filter(i => i.q > 0).forEach(i => {
-              const k = (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
-              if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", u: i.u, q: 0 };
+              const fam = familyOf(i.u);
+              // Bucket key is name|family so kg + gm collapse to one row, ml + L collapse, pcs stays separate
+              const k = (i.n || "").toLowerCase().trim() + "|" + fam;
+              if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", fam: fam, _base: 0, u: i.u, q: 0 };
               else if (!bucket[k].h && i.h) bucket[k].h = i.h;
-              bucket[k].q += Number(i.q) || 0;
+              bucket[k]._base += toBase(i.q, i.u);
             });
+          });
+          // Emit each bucket in the smartest unit for its magnitude
+          Object.values(bucket).forEach(b => {
+            if (b.fam === 'w') {
+              if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'kg'; }
+              else                 { b.q = b._base;        b.u = 'gm'; }
+            } else if (b.fam === 'v') {
+              if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'L'; }
+              else                 { b.q = b._base;        b.u = 'ml'; }
+            } else {
+              b.q = b._base; // pcs and other non-convertible units — no change
+            }
           });
           return { items: Object.values(bucket).sort((a,b) => (a.n || "").localeCompare(b.n || "")), totalKg };
         }
@@ -1362,7 +1382,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               )}
               {agg.items.length > 0 && (() => {
                 const itemsDone = secStore.items_done || {};
-                const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
+                // Key by (name, family) so kg↔gm flips don't lose checkbox state
+                const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
                 const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                 const total = agg.items.length;
                 const pct = total > 0 ? Math.round(collected / total * 100) : 0;
@@ -1376,8 +1397,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   return (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
                     i.u === "ml" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " L" : Math.round(raw) + " ml") :
                     i.u === "pcs" ? Math.ceil(raw) + " pcs" :
-                    i.u === "kg" ? (raw.toFixed(1).replace(/\.0$/,"")) + " kg" :
-                    i.u === "L" ? (raw.toFixed(1).replace(/\.0$/,"")) + " L" :
+                    i.u === "kg" ? (raw < 1 ? Math.round(raw*1000) + " g" : (raw.toFixed(1).replace(/\.0$/,"")) + " kg") :
+                    i.u === "L"  ? (raw < 1 ? Math.round(raw*1000) + " ml" : (raw.toFixed(1).replace(/\.0$/,"")) + " L") :
                     Math.round(raw) + " " + i.u;
                 };
                 return (
@@ -1588,7 +1609,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                       {warn==='no_base_yield'&&<div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:8,padding:"6px 10px",background:C.redBg,borderRadius:8,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Recipe missing base_yield — using legacy pax scaling. Chef must set base_yield in SOP.")}</div>}
                                       <div style={{fontSize:14,fontWeight:700,color:C.muted,marginBottom:8}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
-                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw<1?Math.round(raw*1000)+" g":(raw.toFixed(1).replace(/\.0$/,""))+" kg"):i.u==="L"?(raw<1?Math.round(raw*1000)+" ml":(raw.toFixed(1).replace(/\.0$/,""))+" L"):Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
                                     </div>);})()}
                                   <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
                                   {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx,dish.name);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
@@ -1721,7 +1742,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                     {warn==='no_base_yield'&&<div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:5,padding:"3px 6px",background:C.redBg,borderRadius:5,border:`1px solid ${C.redBorder}`}}>? {T2("Missing base_yield in SOP")}</div>}
                                     <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:5}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
-                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw.toFixed(1).replace(/\.0$/,""))+" kg":i.u==="L"?(raw.toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw<1?Math.round(raw*1000)+" g":(raw.toFixed(1).replace(/\.0$/,""))+" kg"):i.u==="L"?(raw<1?Math.round(raw*1000)+" ml":(raw.toFixed(1).replace(/\.0$/,""))+" L"):Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
                                   </div>);})()}
                                 <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
                                 {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx,dish.name);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
