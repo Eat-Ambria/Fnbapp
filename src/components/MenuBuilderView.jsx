@@ -7,8 +7,9 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_META } from '../data/menuPackages.js';
 import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
-import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT } from '../data/salesConfig.js';
+import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
+import ConfigsPanel from './ConfigsPanel.jsx';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
@@ -22,6 +23,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
   var [showAddons, setShowAddons]   = useState(false);
+
+  // ── Per-active-dept capability flags ──
+  var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
+  var hasConfigs = !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
 
   // ── Template dishes: resolved from proposal.tier_package_id ──
   var templateInfo = useMemo(function(){
@@ -307,9 +312,15 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
           {SALES_DEPTS.map(function(d){
             var isActive = activeDept === d.id;
             var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-            var isFunctional = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0; // Phase 4: kit/bev/bak/frt
+            var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+            var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+            var isFunctional   = deptHasItems || deptHasConfigs; // Phase 5A: kit/bev/bak/frt (items) + bev/svc (configs so far)
             return (
-              <button key={d.id} onClick={function(){ setActiveDept(d.id); setActiveSubTab('items'); }}
+              <button key={d.id} onClick={function(){
+                  setActiveDept(d.id);
+                  // Default to Items sub-tab if this dept has items, otherwise Configs
+                  setActiveSubTab(deptHasItems ? 'items' : 'configs');
+                }}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, width: "100%",
                   padding: "10px 12px", marginBottom: 3, borderRadius: 8,
@@ -343,26 +354,45 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             </div>
           )}
 
-          {!loading && ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0 && (
-            <ItemsTab
-              T2={T2}
-              activeDept={activeDept}
-              searchQ={searchQ} setSearchQ={setSearchQ}
-              dietFilter={dietFilter} setDietFilter={setDietFilter}
-              showAddons={showAddons} setShowAddons={setShowAddons}
-              deptDishes={deptDishes}
-              groupedByCat={groupedByCat}
-              templateSet={templateSet}
-              selectedSet={selectedSet}
-              salesMeta={salesMeta}
-              onToggle={toggleDish}
-              templateInfo={templateInfo}
-              templateDishesInDept={templateDishesInDept}
-              deptCounts={deptCounts[activeDept]}
-            />
+          {!loading && (hasItems || hasConfigs) && (
+            <div>
+              <SubTabStrip
+                T2={T2}
+                activeSubTab={activeSubTab} setActiveSubTab={setActiveSubTab}
+                hasItems={hasItems} hasConfigs={hasConfigs}
+                totalSel={(deptCounts[activeDept] || {}).sel || 0}
+              />
+
+              {hasItems && activeSubTab === 'items' && (
+                <ItemsTab
+                  T2={T2}
+                  activeDept={activeDept}
+                  searchQ={searchQ} setSearchQ={setSearchQ}
+                  dietFilter={dietFilter} setDietFilter={setDietFilter}
+                  showAddons={showAddons} setShowAddons={setShowAddons}
+                  deptDishes={deptDishes}
+                  groupedByCat={groupedByCat}
+                  templateSet={templateSet}
+                  selectedSet={selectedSet}
+                  salesMeta={salesMeta}
+                  onToggle={toggleDish}
+                  templateInfo={templateInfo}
+                  templateDishesInDept={templateDishesInDept}
+                  deptCounts={deptCounts[activeDept]}
+                />
+              )}
+
+              {hasConfigs && activeSubTab === 'configs' && (
+                <ConfigsPanel
+                  proposal={proposal}
+                  activeDept={activeDept}
+                  lang={lang}
+                />
+              )}
+            </div>
           )}
 
-          {!loading && ITEM_HAVING_DEPTS.indexOf(activeDept) < 0 && (
+          {!loading && !hasItems && !hasConfigs && (
             <ComingSoonPlaceholder T2={T2} dept={SALES_DEPT_MAP[activeDept]} />
           )}
         </div>
@@ -382,13 +412,6 @@ function ItemsTab({ T2, activeDept, searchQ, setSearchQ, dietFilter, setDietFilt
 
   return (
     <div>
-      {/* Sub-tab strip (Phase 3: only Items functional) */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid " + C.border }}>
-        <SubTab label={"🍛 " + T2("Items") + (totalSel > 0 ? " · " + totalSel : '')} active={true} />
-        <SubTab label={"⚙ " + T2("Configs")} disabled title={T2("Ships in Phase 5")} />
-        <SubTab label={"📊 " + T2("Total")} disabled title={T2("Ships in Phase 5")} />
-      </div>
-
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
@@ -531,7 +554,7 @@ function ComingSoonPlaceholder({ T2, dept }) {
 // ═══════════════════════════════════════════════════════════════
 // Small UI bits
 // ═══════════════════════════════════════════════════════════════
-function SubTab({ label, active, disabled, title }) {
+function SubTab({ label, active, disabled, title, onClick }) {
   var style = {
     padding: "10px 14px", background: "transparent", border: "none",
     borderBottom: "2.5px solid " + (active ? (C.gold || "#D4A843") : "transparent"),
@@ -541,7 +564,29 @@ function SubTab({ label, active, disabled, title }) {
     opacity: disabled ? 0.5 : 1,
     marginBottom: -1,
   };
-  return <button style={style} disabled={disabled} title={title || ''}>{label}</button>;
+  return <button style={style} disabled={disabled} title={title || ''} onClick={onClick}>{label}</button>;
+}
+
+function SubTabStrip({ T2, activeSubTab, setActiveSubTab, hasItems, hasConfigs, totalSel }) {
+  return (
+    <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid " + C.border }}>
+      {hasItems && (
+        <SubTab
+          label={"🍛 " + T2("Items") + (totalSel > 0 ? " · " + totalSel : '')}
+          active={activeSubTab === 'items'}
+          onClick={function(){ setActiveSubTab('items'); }}
+        />
+      )}
+      {hasConfigs && (
+        <SubTab
+          label={"⚙ " + T2("Configs")}
+          active={activeSubTab === 'configs'}
+          onClick={function(){ setActiveSubTab('configs'); }}
+        />
+      )}
+      <SubTab label={"📊 " + T2("Total")} disabled title={T2("Ships in Phase 5C")} />
+    </div>
+  );
 }
 
 function DietChip({ active, onClick, color, label }) {

@@ -173,6 +173,8 @@ export async function loadAllConfig() {
     dishStoreMapRaw,
     teamDeptsRaw,
     teamSectionsRaw,
+    salesConfigDefsRaw,
+    salesConfigOptionsRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
@@ -191,6 +193,8 @@ export async function loadAllConfig() {
     loadTable('dish_store_map',        [], null),
     loadTable('team_departments',      [], null),
     loadTable('team_sections',         [], null),
+    loadTable('sales_config_defs',     [], null),
+    loadTable('sales_config_options',  [], null),
   ]);
 
   // Join team_departments + team_sections into [{id,label,icon,sections:[names]}]
@@ -246,9 +250,42 @@ export async function loadAllConfig() {
     }
   });
 
+  // V70 Phase 5B follow-up: nest sales_config_options under their defs, shape into DEPT_CONFIGS
+  const salesConfigs = (function() {
+    const byDept = {};
+    (salesConfigDefsRaw || [])
+      .filter(function(d){ return d.is_active !== false; })
+      .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); })
+      .forEach(function(def){
+        if (!byDept[def.dept_id]) byDept[def.dept_id] = [];
+        const cfg = { key: def.config_key, label: def.label, icon: def.icon || '', type: def.type };
+        const opts = (salesConfigOptionsRaw || [])
+          .filter(function(o){ return o.dept_id === def.dept_id && o.config_key === def.config_key && o.is_active !== false; })
+          .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); });
+        if (def.type === 'ratio') {
+          cfg.allowExtras = !!def.allow_extras;
+          cfg.ratios = opts.map(function(o){
+            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name };
+          });
+        } else if (def.type === 'count') {
+          cfg.min  = def.min_val != null ? def.min_val : 0;
+          cfg.max  = def.max_val != null ? def.max_val : 999;
+          cfg.step = def.step_val || 1;
+        } else {
+          // options, radio, multi_count, tags
+          cfg.options = opts.map(function(o){
+            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '' };
+          });
+        }
+        byDept[def.dept_id].push(cfg);
+      });
+    return byDept;
+  })();
+
   return {
     vehicles,
     coldItems,
+    salesConfigs,
     menuPackages:       transformMenuPackages(menuPackagesRaw),
     menuPackageNames:   Object.keys(transformMenuPackages(menuPackagesRaw)),
     menuPackageMeta:    (function() { var m = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ m[r.name] = { tier: r.tier || null, id: r.id || null }; }); return m; })(),

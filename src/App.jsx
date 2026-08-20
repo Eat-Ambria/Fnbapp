@@ -8,6 +8,7 @@ import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 // Data
 import { C, hydrateConstants } from './data/constants.js';
 import { MENU_PACKAGES, hydrateMenuPackages } from './data/menuPackages.js';
+import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
@@ -223,6 +224,7 @@ export default function App() {
         const cfg = await loadAllConfig();
         hydrateConstants(cfg);
         hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
+        hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);

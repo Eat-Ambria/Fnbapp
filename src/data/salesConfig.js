@@ -1,9 +1,9 @@
 // Ambria FnB — Sales module configuration
-// V70 Phase 3: dept meta only. Phase 5 will add config option constants (glassware, ratios, etc).
+// V70 Phase 3-5A: dept meta + Phase 5A DEPT_CONFIGS (Beverage + Service placeholders).
+// Ambria will edit option lists directly in this file — treat placeholders as starting points.
 // Place in: src/data/salesConfig.js
 
 // ── 7 F&B sub-departments (order = sidebar order) ──
-// id must match sales_items_meta.sales_dept CHECK constraint values.
 export const SALES_DEPTS = [
   { id: 'kit', name: 'Kitchen',    icon: '👨‍🍳', color: '#D4A843', bg: '#F5EBD7' },
   { id: 'bev', name: 'Beverage',   icon: '🥤',   color: '#50B0A0', bg: '#DEF0EC' },
@@ -14,14 +14,10 @@ export const SALES_DEPTS = [
   { id: 'trn', name: 'Transport',  icon: '🚛',   color: '#8B5E28', bg: '#EFE3D3' },
 ];
 
-// Quick lookup: id → dept meta
 export const SALES_DEPT_MAP = SALES_DEPTS.reduce(function(m, d){ m[d.id] = d; return m; }, {});
 
-// Depts that have an Items sub-tab (dish picker) in the menu builder.
-// Others get only config sub-tabs (Phase 5).
 export const ITEM_HAVING_DEPTS = ['kit', 'bev', 'bak', 'frt'];
 
-// Diet tag options (must match sales_items_meta.diet_tag CHECK constraint values).
 export const DIET_TAGS = [
   { id: 'veg',    label: 'Veg',      icon: '🟢', color: '#2A7A48' },
   { id: 'nonveg', label: 'Non-veg',  icon: '🔴', color: '#A52828' },
@@ -31,6 +27,38 @@ export const DIET_TAGS = [
 
 export const DIET_TAG_MAP = DIET_TAGS.reduce(function(m, d){ m[d.id] = d; return m; }, {});
 
-// Default fallback for dishes with no sales_items_meta row.
 export const DEFAULT_DIET = 'veg';
 export const DEFAULT_DEPT = 'kit';
+
+// ═══════════════════════════════════════════════════════════════
+// V70 Phase 5: dept-level config schema
+// ═══════════════════════════════════════════════════════════════
+// Panel types available:
+//   'options'      → single-select card grid. Uses `options: [{id,name,desc,icon?}]`.
+//                    config_value shape: { selected_id: '<id>' }
+//   'ratio'        → 3-card ratio picker + optional extras spinner. Uses `ratios: [{id,num,den,label}]`
+//                    and `allowExtras: bool`.
+//                    config_value shape: { ratio_id: '<id>', extras: <int> }
+//   'count'        → number stepper. Uses `min, max, step`.
+//                    config_value shape: { count: <int> }
+//   'multi_count'  → rows of {checkbox + count}. Uses `options: [{id,name,desc?}]`.
+//                    config_value shape: { items: [{ id, count }] }
+//   'radio'        → radio-styled cards. Uses `options: [{id,name,desc}]`.
+//                    config_value shape: { selected_id: '<id>' }
+//   'tags'         → multi-select pill toggles. Uses `options: [{id,name,icon?}]`.
+//                    config_value shape: { selected_ids: ['<id>', ...] }
+//
+// Phase 5A ships bev + svc. Phase 5B fills the remaining 5 depts.
+// ═══════════════════════════════════════════════════════════════
+// V70 Phase 5B follow-up: DEPT_CONFIGS is now populated from Supabase on boot via
+// hydrateSalesConfigs() (called from App.jsx after loadAllConfig). This keeps the
+// binding stable — consumers importing DEPT_CONFIGS get the hydrated data on read.
+// Edit the config catalogue by editing rows in sales_config_defs + sales_config_options
+// tables in Supabase; changes reflect on next page load.
+export const DEPT_CONFIGS = {};
+
+export function hydrateSalesConfigs(deptConfigs) {
+  if (!deptConfigs || typeof deptConfigs !== 'object') return;
+  Object.keys(DEPT_CONFIGS).forEach(function(k){ delete DEPT_CONFIGS[k]; });
+  Object.assign(DEPT_CONFIGS, deptConfigs);
+}
