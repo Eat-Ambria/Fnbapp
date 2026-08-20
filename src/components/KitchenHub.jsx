@@ -114,6 +114,103 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>{const items=[...f.items];const t2=idx+dir;if(t2<0||t2>=items.length)return f;[items[idx],items[t2]]=[items[t2],items[idx]];return{...f,items};});
     setIngDirty(true);
   }
+  // 9A — Change ingredient row type (raw / inv / bg). Resets type-specific fields.
+  function ingChangeType(idx, newType) {
+    setIngForm(f => {
+      const items = [...f.items];
+      const cur = items[idx];
+      if (!cur || cur.isSection) return f;
+      const base = { qty: cur.qty || 0 };
+      if (cur.notes) base.notes = cur.notes;
+      if (newType === 'raw') {
+        items[idx] = { name: cur.name || "", hi: cur.hi || "", unit: cur.unit || "kg", ...base };
+      } else if (newType === 'inv') {
+        items[idx] = { type:'inv', name: cur.name || "", hi: cur.hi || "", unit: cur.unit || "kg", ops_inventory_id: cur.ops_inventory_id || null, ...base };
+      } else if (newType === 'bg') {
+        items[idx] = { type:'bg', name: cur.name || "", unit: (cur.unit === 'L' ? 'L' : 'kg'), ...base };
+      }
+      return { ...f, items };
+    });
+    setIngDirty(true);
+    setTypePickerIdx(null);
+    if (newType === 'inv') { setOpsPickerIdx(idx); setOpsPickerSearch(""); loadOpsPickerItems(); }
+    else if (newType === 'bg') { setBgPickerIdx(idx); setBgPickerSearch(""); }
+  }
+  // 9A — Lazy-load Ops items on first modal open, cached for session
+  async function loadOpsPickerItems() {
+    if (opsPickerItems.length > 0 || opsPickerLoading) return;
+    setOpsPickerLoading(true);
+    try {
+      const mod = await import('../lib/opsSupabase.js');
+      if (!mod.opsSupabase) { setOpsPickerLoading(false); return; }
+      const { data, error } = await mod.opsSupabase
+        .from('catering_store_items')
+        .select('id, inventory_id, name, name_hindi, unit, categories(name)')
+        .eq('status', 'approved')
+        .order('name', { ascending: true });
+      if (error) console.error('Ops picker load err:', error);
+      else setOpsPickerItems((data||[]).map(it => ({
+        invId: it.inventory_id || "",
+        name: it.name || "",
+        hi: it.name_hindi || "",
+        unit: it.unit || "kg",
+        cat: it.categories?.name || "",
+      })));
+    } catch(e){ console.error('Ops picker load failed:', e); }
+    setOpsPickerLoading(false);
+  }
+  // 9A — Commit Ops item selection into the row
+  function selectOpsItem(item) {
+    if (opsPickerIdx == null) return;
+    const idx = opsPickerIdx;
+    setIngForm(f => {
+      const items = [...f.items];
+      const cur = items[idx] || {};
+      items[idx] = {
+        type: 'inv',
+        name: item.name,
+        hi: item.hi,
+        unit: item.unit || cur.unit || "kg",
+        qty: cur.qty || 0,
+        ops_inventory_id: item.invId || null,
+        ...(cur.notes ? { notes: cur.notes } : {}),
+      };
+      return { ...f, items };
+    });
+    setIngDirty(true);
+    setOpsPickerIdx(null);
+    setOpsPickerSearch("");
+  }
+  // 9A — Commit BG recipe selection into the row
+  function selectBgRecipe(recipe) {
+    if (bgPickerIdx == null) return;
+    const idx = bgPickerIdx;
+    setIngForm(f => {
+      const items = [...f.items];
+      const cur = items[idx] || {};
+      items[idx] = {
+        type: 'bg',
+        name: recipe.n,
+        unit: (cur.unit === 'L' ? 'L' : 'kg'),
+        qty: cur.qty || 0,
+        ...(cur.notes ? { notes: cur.notes } : {}),
+      };
+      return { ...f, items };
+    });
+    setIngDirty(true);
+    setBgPickerIdx(null);
+    setBgPickerSearch("");
+  }
+  // 9A — All bg=true recipes across categories, for the BG picker list
+  function getAllBgRecipes() {
+    const out = [];
+    for (const cat of safeArr(RECIPE_DB.cats)) {
+      for (const r of safeArr(RECIPE_DB.recipes[cat.id])) {
+        if (r.bg) out.push({ n: r.n, catId: cat.id, catName: cat.name || cat.id });
+      }
+    }
+    return out;
+  }
   // -- Bridge: resolve ingredients for any dish (new JSONB ? old format fallback) --
   
   function findRecipeAndCat(dishName) {
@@ -138,13 +235,39 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         if((yKg&&yKg>0)||(yPcs&&yPcs>0)) row.yield = {kg:yKg||null, pcs:yPcs||null};
         return row;
       }
+      const t = it.type;
+      const qtyN = typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0;
+      // 9A — type='inv': carries ops_inventory_id, still keeps name/hi/unit for display + fallback
+      if (t === 'inv') {
+        const row = {
+          type: 'inv',
+          name: it.name.trim(),
+          hi: (it.hi||"").trim(),
+          unit: it.unit || "kg",
+          qty: qtyN,
+        };
+        if (it.ops_inventory_id) row.ops_inventory_id = it.ops_inventory_id;
+        if (it.notes) row.notes = it.notes;
+        return row;
+      }
+      // 9A — type='bg': name = bg recipe name; unit locked to kg or L
+      if (t === 'bg') {
+        const row = {
+          type: 'bg',
+          name: it.name.trim(),
+          unit: (it.unit === 'L' ? 'L' : 'kg'),
+          qty: qtyN,
+        };
+        if (it.notes) row.notes = it.notes;
+        return row;
+      }
+      // Default: raw (no type key, back-compat)
       const row = {
         name: it.name.trim(),
         hi: (it.hi||"").trim(),
         unit: it.unit || "kg",
-        qty: typeof it.qty === 'number' ? it.qty : parseFloat(it.qty) || 0,
+        qty: qtyN,
       };
-      
       if (it.notes) row.notes = it.notes;
       return row;
     });
@@ -277,6 +400,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [closeExcludeUI, setCloseExcludeUI] = useState(false); // event-level "don't affect ordering" toggle (derived from any row on load)
   const [ingModal, setIngModal] = useState(null);
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
+  // 9A — type picker + Ops/BG picker state
+  const [typePickerIdx, setTypePickerIdx] = useState(null);   // row idx showing type dropdown
+  const [opsPickerIdx, setOpsPickerIdx]   = useState(null);   // row idx picking Ops item
+  const [bgPickerIdx, setBgPickerIdx]     = useState(null);   // row idx picking BG recipe
+  const [opsPickerItems, setOpsPickerItems] = useState([]);   // lazy cache
+  const [opsPickerLoading, setOpsPickerLoading] = useState(false);
+  const [opsPickerSearch, setOpsPickerSearch] = useState("");
+  const [bgPickerSearch, setBgPickerSearch] = useState("");
   const [ingDirty, setIngDirty] = useState(false);
   const [csvImport, setCsvImport] = useState(null); // {recipe, catId, recipeName, basePax, currentCount, parsedItems, warnings} | null
   const [ingDragIdx, setIngDragIdx] = useState(null);
@@ -1946,38 +2077,78 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
                         </tr></thead>
                         <tbody>
-                          {ingForm.items.map((item,idx)=>item.isSection?(
-                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
-                              <td colSpan={4} style={{padding:"4px 6px"}}>
-                                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                                  <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section —" style={{width:140,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                  <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:C.surface,border:`1.5px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ 300 pax">
-                                    <span style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:.3}}>Yield</span>
-                                    <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:70,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                    <span style={{fontSize:10,color:C.gold,fontWeight:600}}>kg</span>
-                                    <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:60,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                    <span style={{fontSize:10,color:C.gold,fontWeight:600}}>pcs</span>
+                          {ingForm.items.map((item,idx)=>{
+                            if (item.isSection) return (
+                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
+                                <td colSpan={4} style={{padding:"4px 6px"}}>
+                                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section —" style={{width:140,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
+                                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
+                                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:C.surface,border:`1.5px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ 300 pax">
+                                      <span style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:.3}}>Yield</span>
+                                      <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:70,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
+                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>kg</span>
+                                      <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:60,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
+                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>pcs</span>
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
-                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
-                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
-                              </td>
-                            </tr>
-                          ):(
-                            <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${C.borderLight}`,background:idx%2===0?C.surface:C.darkCard,opacity:ingDragIdx===idx?0.4:1}}>
-                              <td style={{padding:"3px 4px"}}><input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 4px"}}><input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 2px"}}><select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:10,color:C.text,background:C.surface,minHeight:28}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select></td>
-                              <td style={{padding:"3px 3px",borderLeft:`1px solid ${C.borderLight}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,textAlign:"right",color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/></td>
-                              <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
-                                <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
-                                <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
-                              </td>
-                            </tr>
-                          ))}
+                                </td>
+                                <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
+                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
+                                  <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
+                                </td>
+                              </tr>
+                            );
+                            // 9A — non-section row: raw / inv / bg with Option C tinting
+                            const tRow = item.type || 'raw';
+                            const isInv = tRow === 'inv';
+                            const isBg  = tRow === 'bg';
+                            const rowBg = isInv ? C.blueBg : isBg ? C.amberBg : (idx%2===0?C.surface:C.darkCard);
+                            const rowBrd = isInv ? C.blueBorder : isBg ? C.amberBorder : C.borderLight;
+                            const rowFg  = isInv ? C.blue : isBg ? C.amber : C.text;
+                            const tIcon  = isInv ? "📦" : isBg ? "🥘" : "📝";
+                            const nameLocked = isInv || isBg;
+                            return (
+                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${rowBrd}`,background:rowBg,opacity:ingDragIdx===idx?0.4:1}}>
+                                <td style={{padding:"3px 4px",position:"relative"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                    <button onClick={()=>setTypePickerIdx(typePickerIdx===idx?null:idx)} title={"Type: "+tRow} style={{width:24,height:24,padding:0,border:`1px solid ${rowBrd}`,borderRadius:5,background:C.surface,cursor:"pointer",fontSize:11,lineHeight:"22px",color:rowFg,flexShrink:0}}>{tIcon}</button>
+                                    {nameLocked
+                                      ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title="Click to re-pick" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,fontWeight:600,color:rowFg,background:C.surface,cursor:"pointer",minHeight:28,lineHeight:"20px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:C.muted,fontStyle:"italic",fontWeight:400}}>— pick {isInv?"item":"gravy"} —</span>}</div>
+                                      : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
+                                    }
+                                  </div>
+                                  {typePickerIdx===idx && (<>
+                                    <div onClick={()=>setTypePickerIdx(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:15,background:"transparent"}}/>
+                                    <div style={{position:"absolute",top:32,left:2,zIndex:20,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
+                                      {[{k:'raw',label:'📝 Raw'},{k:'inv',label:'📦 Inv'},{k:'bg',label:'🥘 BG'}].map(o=>(
+                                        <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} style={{display:"block",width:"100%",padding:"6px 10px",textAlign:"left",background:tRow===o.k?C.goldBg:"transparent",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,color:C.text,fontWeight:tRow===o.k?700:500}}>{o.label}{tRow===o.k?" ✓":""}</button>
+                                      ))}
+                                    </div>
+                                  </>)}
+                                </td>
+                                <td style={{padding:"3px 4px"}}>
+                                  {isBg
+                                    ? <div style={{padding:"4px 6px",fontSize:11,color:C.muted,fontStyle:"italic"}}>— from recipe —</div>
+                                    : nameLocked
+                                      ? <div style={{padding:"4px 6px",fontSize:11,color:C.blue,fontStyle:"italic"}}>{item.hi||<span style={{color:C.muted}}>— auto —</span>}</div>
+                                      : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
+                                  }
+                                </td>
+                                <td style={{padding:"3px 2px"}}>
+                                  {isBg
+                                    ? <select value={item.unit==='L'?'L':'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,background:C.surface,minHeight:28,fontWeight:700}}>{["kg","L"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    : <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${isInv?C.blueBorder:C.borderLight}`,fontSize:10,color:isInv?C.blue:C.text,background:C.surface,minHeight:28,fontWeight:isInv?600:400}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                  }
+                                </td>
+                                <td style={{padding:"3px 3px",borderLeft:`1px solid ${rowBrd}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,textAlign:"right",color:rowFg,background:"transparent",boxSizing:"border-box",minHeight:28,fontWeight:nameLocked?600:400}}/></td>
+                                <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
+                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
+                                  <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1989,6 +2160,67 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
                       <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
                     </div>}
+                    {/* 9A — Ops picker modal (type='inv') */}
+                    {opsPickerIdx!==null&&(
+                      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setOpsPickerIdx(null);setOpsPickerSearch("");}}>
+                        <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",border:`2px solid ${C.blueBorder}`}}>
+                          <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.blueBg}}>
+                            <div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:4}}>📦 Pick from Ops Inventory</div>
+                            <input value={opsPickerSearch} onChange={e=>setOpsPickerSearch(e.target.value)} placeholder="Search Ops items..." autoFocus style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${C.blueBorder}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div style={{overflow:"auto",flex:1,padding:"6px 0"}}>
+                            {opsPickerLoading?(<div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12}}>Loading Ops items…</div>):
+                              opsPickerItems.filter(it=>{
+                                if(!opsPickerSearch)return true;
+                                const s=opsPickerSearch.toLowerCase();
+                                return (it.name||"").toLowerCase().includes(s)||(it.hi||"").includes(opsPickerSearch)||(it.cat||"").toLowerCase().includes(s)||(it.invId||"").toLowerCase().includes(s);
+                              }).slice(0,80).map((it,i)=>(
+                                <div key={i} onClick={()=>selectOpsItem(it)} style={{padding:"9px 16px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseOver={e=>e.currentTarget.style.background=C.blueBg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                                  <div style={{minWidth:0,flex:1}}>
+                                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{it.name}{it.hi?<span style={{color:C.muted,fontWeight:400,marginLeft:6}}>({it.hi})</span>:null}</div>
+                                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>{it.cat} · {it.unit}{it.invId?<span style={{marginLeft:6,color:C.blue,fontWeight:600}}>{it.invId}</span>:null}</div>
+                                  </div>
+                                </div>
+                              ))
+                            }
+                            {!opsPickerLoading&&opsPickerItems.length===0&&(<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No Ops items loaded. Check Ops connection.</div>)}
+                            {!opsPickerLoading&&opsPickerItems.length>0&&opsPickerItems.filter(it=>{if(!opsPickerSearch)return true;const s=opsPickerSearch.toLowerCase();return (it.name||"").toLowerCase().includes(s)||(it.hi||"").includes(opsPickerSearch)||(it.cat||"").toLowerCase().includes(s)||(it.invId||"").toLowerCase().includes(s);}).length===0&&(<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No matches</div>)}
+                          </div>
+                          <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
+                            <button onClick={()=>{setOpsPickerIdx(null);setOpsPickerSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* 9A — BG recipe picker modal (type='bg') */}
+                    {bgPickerIdx!==null&&(
+                      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setBgPickerIdx(null);setBgPickerSearch("");}}>
+                        <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",border:`2px solid ${C.amberBorder}`}}>
+                          <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.amberBg}}>
+                            <div style={{fontSize:14,fontWeight:700,color:C.amber,marginBottom:4}}>🥘 Pick a Base Gravy</div>
+                            <input value={bgPickerSearch} onChange={e=>setBgPickerSearch(e.target.value)} placeholder="Search base gravy recipes..." autoFocus style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${C.amberBorder}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
+                          </div>
+                          <div style={{overflow:"auto",flex:1,padding:"6px 0"}}>
+                            {(() => {
+                              const bgs = getAllBgRecipes().filter(r => !opsPickerIdx && (!bgPickerSearch || r.n.toLowerCase().includes(bgPickerSearch.toLowerCase()) || (r.catName||"").toLowerCase().includes(bgPickerSearch.toLowerCase())));
+                              if (bgs.length === 0) return (<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>No base-gravy recipes found. Mark a recipe with 🥘 Base Gravy in its SOP first.</div>);
+                              return bgs.map((r,i)=>(
+                                <div key={i} onClick={()=>selectBgRecipe(r)} style={{padding:"10px 16px",cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseOver={e=>e.currentTarget.style.background=C.amberBg} onMouseOut={e=>e.currentTarget.style.background="transparent"}>
+                                  <div>
+                                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{r.n}</div>
+                                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>{r.catName}</div>
+                                  </div>
+                                  <div style={{fontSize:11,color:C.amber,fontWeight:700}}>🥘</div>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                          <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
+                            <button onClick={()=>{setBgPickerIdx(null);setBgPickerSearch("");}} style={{width:"100%",padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ):sopRecipe.ingredients?.items?.length>0?(()=>{
                   const ing2=sopRecipe.ingredients;

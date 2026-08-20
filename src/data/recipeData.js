@@ -407,16 +407,19 @@ function getIngrForDish(dishName, targetPax) {
   const rec = findRecipeForDish(dishName);
   const items = rec?.ingredients?.items;
   if (items?.length > 0) {
+    // 9A — skip type='bg' rows here; 9B will do the recursive resolution
+    const firstQtyRow = items.find(it => !it.isSection && it.type !== 'bg');
     // NEW schema (post-V48): scalar qty at base_pax=300
-    if (typeof items[0]?.qty === 'number' || items[0]?.qty === null) {
+    if (firstQtyRow && (typeof firstQtyRow.qty === 'number' || firstQtyRow.qty === null)) {
       const basePax = rec.ingredients.base_pax || 300;
       const factor = (targetPax || basePax) / basePax;
-      return items.map(it => ({
+      return items.filter(it => it.type !== 'bg').map(it => ({
         n: it.name,
         h: readHi(it),
         q: (it.qty || 0) * factor,
         u: it.unit || "kg",
-        _newFmt: true
+        _newFmt: true,
+        ...(it.type === 'inv' ? { _type: 'inv', ops_inventory_id: it.ops_inventory_id || null } : {})
       }));
     }
     // LEGACY schema (pre-V48): qty[] array indexed by pax_sizes
@@ -441,7 +444,8 @@ function getIngrForYield(dishName, targetKg, sectionFactors) {
   const globalFactor = (baseKg && targetKg) ? targetKg / baseKg : null;
   if (globalFactor == null && !sectionFactors) return null;
   let currentSectionFactor = globalFactor;
-  return items.map(it => {
+  // 9A — skip type='bg' rows; 9B adds recursive resolution
+  return items.filter(it => it.type !== 'bg').map(it => {
     if (it.isSection) {
       if (sectionFactors && sectionFactors[it.name] != null) currentSectionFactor = sectionFactors[it.name];
       else currentSectionFactor = globalFactor;
@@ -454,7 +458,8 @@ function getIngrForYield(dishName, targetKg, sectionFactors) {
       q: f == null ? 0 : (it.qty || 0) * f,
       u: it.unit || "kg",
       _newFmt: true,
-      _yieldBased: true
+      _yieldBased: true,
+      ...(it.type === 'inv' ? { _type: 'inv', ops_inventory_id: it.ops_inventory_id || null } : {})
     };
   });
 }

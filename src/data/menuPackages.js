@@ -15,11 +15,7 @@ let DISH_GROUPS = {};
 // first grepping the codebase for MENU_PACKAGE_SECTIONS references.
 let MENU_PACKAGE_SECTIONS = {};
 
-// V70: side-channel for package metadata beyond dishes[]
-// Shape: { [pkgName]: { tier: 'luxury'|'magnum'|null, id: string|null } }
-let MENU_PACKAGE_META = {};
-
-function hydrateMenuPackages(pkgMap, groups, meta) {
+function hydrateMenuPackages(pkgMap, groups) {
   if (pkgMap && typeof pkgMap === 'object' && Object.keys(pkgMap).length > 0) {
     Object.keys(MENU_PACKAGES).forEach(k => delete MENU_PACKAGES[k]);
     Object.assign(MENU_PACKAGES, pkgMap);
@@ -29,10 +25,6 @@ function hydrateMenuPackages(pkgMap, groups, meta) {
     Object.keys(DISH_GROUPS).forEach(k => delete DISH_GROUPS[k]);
     Object.assign(DISH_GROUPS, groups);
   }
-  if (meta && typeof meta === 'object') {
-    Object.keys(MENU_PACKAGE_META).forEach(k => delete MENU_PACKAGE_META[k]);
-    Object.assign(MENU_PACKAGE_META, meta);
-  }
 }
 
-export { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_META, hydrateMenuPackages };
+export { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS, MENU_PACKAGE_SECTIONS, hydrateMenuPackages };

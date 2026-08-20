@@ -162,6 +162,15 @@ function recipeNameOf(r, lang){
   return r.n || '';
 }
 
+// V71 — auto-detect a menu package's diet from its name
+// "Bliss Non-Veg" → 'nonveg', "Bliss Veg" → 'veg', "Deluxe Feast" → null
+function detectPackageDiet(name){
+  const s = (name || "").toLowerCase();
+  if (/non[\s-]?veg/.test(s)) return 'nonveg';
+  if (/\bveg\b/.test(s)) return 'veg';
+  return null;
+}
+
 function transliterateName(txt){
   if (!txt || typeof txt !== 'string' || !_sanscript) return '';
   try {
@@ -171,4 +180,4 @@ function transliterateName(txt){
   } catch(e) { return ''; }
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet };

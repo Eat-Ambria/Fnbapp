@@ -223,7 +223,7 @@ export default function App() {
       try {
         const cfg = await loadAllConfig();
         hydrateConstants(cfg);
-        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
+        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups);
         hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
         hydrateRecipeData(cfg);

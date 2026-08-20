@@ -7,13 +7,20 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
 import { AMBRIA_VENUES } from '../data/constants.js';
-import { MENU_PACKAGES, MENU_PACKAGE_META } from '../data/menuPackages.js';
+import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { detectPackageDiet } from '../data/helpers.js';
 import { supabase } from '../lib/supabase.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
 // ── Local enums for form pickers (kept here so no schema/DB coupling) ──
 const EVENT_TYPES  = ["Wedding","Engagement","Reception","Sangeet","Cocktail","Birthday","Anniversary","Corporate","Baby Shower","Naming Ceremony","Retirement","Other"];
 const SOURCES      = ["Instagram","Website","Referral","Walk-in","Repeat Client","Wedding Portal","Google","Other"];
+// V71 — guest's diet requirement, filters the package picker
+const DIET_OPTIONS = [
+  { value: '',       label: 'Both' },
+  { value: 'veg',    label: '🥬 Veg only' },
+  { value: 'nonveg', label: '🍗 Non-Veg' },
+];
 // Sales venue codes = 4 catering venues (ODC excluded — proposals convert to on-property events)
 const SALES_VENUES = AMBRIA_VENUES.filter(function(v){ return v.code !== 'ODC'; });
 
@@ -29,7 +36,8 @@ function emptyForm() {
     guest_name: "", phone: "", email: "",
     event_type: "", venue: "", event_date: "", pax: "",
     source: "",
-    tier_package_id: null, tier_package_name: "",
+    menu_diet: "",                        // '' | 'veg' | 'nonveg'
+    tier_package_id: null,                // repurposed as menu_package_id (DB col name kept)
     notes: "",
   };
 }
@@ -90,22 +98,44 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   // eslint-disable-next-line
   }, [canViewAll, repId]);
 
-  // ── Filter tier packages for the picker ──
-  var tierPackages = useMemo(function(){
+  // V71 — all packages, sorted alphabetically, with auto-detected diet.
+  // The picker below filters this list by form.menu_diet.
+  // Note: we don't have package IDs in MENU_PACKAGES (name-keyed), so we derive
+  // id from the loaded proposals table if any row already references this package.
+  // Backup: query menu_packages once for the id map at mount time.
+  var [pkgIdMap, setPkgIdMap] = useState({});   // { name → id }
+  useEffect(function(){
+    (async function(){
+      try {
+        var res = await supabase.from('menu_packages').select('id,name').eq('is_active', true);
+        if (res.error) { console.warn('[Proposals] pkg id map load failed:', res.error); return; }
+        var m = {};
+        (res.data || []).forEach(function(r){ m[r.name] = r.id; });
+        setPkgIdMap(m);
+      } catch(e){ console.warn('[Proposals] pkg id map err:', e); }
+    })();
+  }, []);
+  var allPackages = useMemo(function(){
     var out = [];
-    Object.keys(MENU_PACKAGE_META).forEach(function(name){
-      var m = MENU_PACKAGE_META[name];
-      if (m && m.tier) {
-        var dishes = MENU_PACKAGES[name] || [];
-        out.push({ name: name, id: m.id, tier: m.tier, dishCount: dishes.length });
-      }
+    Object.keys(MENU_PACKAGES).forEach(function(name){
+      var dishes = MENU_PACKAGES[name] || [];
+      out.push({
+        name: name,
+        id: pkgIdMap[name] || null,
+        diet: detectPackageDiet(name),
+        dishCount: dishes.length,
+      });
     });
-    out.sort(function(a,b){
-      if (a.tier !== b.tier) return a.tier === 'magnum' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+    out.sort(function(a,b){ return a.name.localeCompare(b.name); });
     return out;
-  }, [proposals.length]); // eslint-disable-line
+  }, [pkgIdMap]);
+  var filteredPackages = useMemo(function(){
+    if (!form.menu_diet) return allPackages;                // 'Both' → all
+    return allPackages.filter(function(p){
+      if (!p.diet) return true;                             // unclassified show in both
+      return p.diet === form.menu_diet;
+    });
+  }, [allPackages, form.menu_diet]);
 
   // ── Filtered list ──
   var repNameLookup = useMemo(function(){
@@ -148,11 +178,8 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       event_type: p.event_type || "", venue: p.venue || "",
       event_date: p.event_date || "", pax: p.pax != null ? String(p.pax) : "",
       source: p.source || "",
+      menu_diet: p.menu_diet || "",
       tier_package_id: p.tier_package_id || null,
-      tier_package_name: (function(){
-        var found = Object.keys(MENU_PACKAGE_META).find(function(n){ return MENU_PACKAGE_META[n].id === p.tier_package_id; });
-        return found || "";
-      })(),
       notes: p.notes || "",
     });
     setEditingId(p.id);
@@ -177,7 +204,6 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
   function pickTemplate(pkg) {
     updateForm('tier_package_id', pkg.id);
-    updateForm('tier_package_name', pkg.name);
   }
 
   async function saveProposal(newStatus) {
@@ -195,6 +221,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       event_date: form.event_date || null,
       pax: form.pax ? parseInt(form.pax, 10) : null,
       source: form.source || null,
+      menu_diet: form.menu_diet || null,
       tier_package_id: form.tier_package_id || null,
       notes: form.notes.trim() || null,
       updated_at: new Date().toISOString(),
@@ -232,6 +259,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       phone: p.phone, email: p.email,
       event_type: p.event_type, venue: p.venue,
       event_date: null, pax: p.pax, source: p.source,
+      menu_diet: p.menu_diet,
       tier_package_id: p.tier_package_id,
       notes: p.notes,
       status: 'draft',
@@ -323,19 +351,38 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
             <SelectField label={T2("Source")} value={form.source} onChange={function(v){ updateForm('source', v); }} options={SOURCES} placeholder={T2("How did they find us?")} />
           </div>
 
-          {/* Template picker */}
+          {/* V71 — Menu diet + template picker */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
-              {T2("Menu template")} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {T2("optional starting point")}</span>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                {T2("Menu template")} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {T2("optional starting point")}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{T2("Guest diet")}:</span>
+                {DIET_OPTIONS.map(function(opt){
+                  var isSel = form.menu_diet === opt.value;
+                  return (
+                    <button key={opt.value || 'both'} type="button" onClick={function(){ updateForm('menu_diet', opt.value); }}
+                      style={{
+                        padding: "4px 10px", borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                        background: isSel ? (opt.value === 'nonveg' ? '#FAE5E5' : opt.value === 'veg' ? '#E5F5EA' : '#F5F0E8') : C.surface,
+                        color:      isSel ? (opt.value === 'nonveg' ? '#A52828' : opt.value === 'veg' ? '#2A7A48' : C.text) : C.muted,
+                        border: "1px solid " + (isSel ? (opt.value === 'nonveg' ? '#F0B8B8' : opt.value === 'veg' ? '#B8E0C6' : (C.gold || '#D4A843')) : C.border),
+                      }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            {tierPackages.length === 0 && (
+            {allPackages.length === 0 && (
               <div style={{ padding: "16px 14px", background: C.amberBg || "#FFF4D9", border: "1px dashed " + (C.amberBorder || "#F2D98A"), borderRadius: 10, fontSize: 12, color: C.muted }}>
-                {T2("No packages tagged with a tier yet. Go to Menu Packages, edit a package, and set its tier to Luxury or Magnum to make it selectable here.")}
+                {T2("No menu packages yet. Create some in Menu Packages first.")}
               </div>
             )}
-            {tierPackages.length > 0 && (
+            {allPackages.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-                <button type="button" onClick={function(){ updateForm('tier_package_id', null); updateForm('tier_package_name', ''); }}
+                <button type="button" onClick={function(){ updateForm('tier_package_id', null); }}
                   style={{
                     padding: "14px 12px", borderRadius: 10,
                     background: !form.tier_package_id ? "#F5F0E8" : C.surface,
@@ -345,28 +392,37 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 2 }}>✨ {T2("Start from scratch")}</div>
                   <div style={{ fontSize: 11, color: C.muted }}>{T2("Build menu without a template")}</div>
                 </button>
-                {tierPackages.map(function(pkg){
+                {filteredPackages.map(function(pkg){
                   var isSel = form.tier_package_id === pkg.id;
-                  var tierColor = pkg.tier === 'magnum' ? '#8A70C8' : '#D4A843';
-                  var tierBg = pkg.tier === 'magnum' ? '#EADFF5' : '#F5EBD7';
+                  var dietBg = pkg.diet === 'nonveg' ? '#FAE5E5' : pkg.diet === 'veg' ? '#E5F5EA' : '#F0F0F0';
+                  var dietFg = pkg.diet === 'nonveg' ? '#A52828' : pkg.diet === 'veg' ? '#2A7A48' : '#666';
+                  var dietLabel = pkg.diet === 'nonveg' ? '🍗 Non-Veg' : pkg.diet === 'veg' ? '🥬 Veg' : '❓';
                   return (
                     <button key={pkg.id || pkg.name} type="button" onClick={function(){ pickTemplate(pkg); }}
+                      disabled={!pkg.id}
+                      title={!pkg.id ? T2('Package id not loaded yet — refresh?') : ''}
                       style={{
                         padding: "14px 12px", borderRadius: 10,
-                        background: isSel ? tierBg : C.surface,
-                        border: isSel ? ("1.5px solid " + tierColor) : ("1px solid " + C.border),
-                        textAlign: "left", cursor: "pointer",
+                        background: isSel ? "#F5F0E8" : C.surface,
+                        border: isSel ? ("1.5px solid " + (C.gold || "#D4A843")) : ("1px solid " + C.border),
+                        textAlign: "left", cursor: pkg.id ? "pointer" : "not-allowed",
+                        opacity: pkg.id ? 1 : 0.55,
                       }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>{pkg.name}</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: tierColor, color: "#fff", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                          {pkg.tier}
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: dietBg, color: dietFg, whiteSpace: "nowrap" }}>
+                          {dietLabel}
                         </span>
                       </div>
                       <div style={{ fontSize: 11, color: C.muted }}>{pkg.dishCount} {T2("dishes")}</div>
                     </button>
                   );
                 })}
+                {filteredPackages.length === 0 && (
+                  <div style={{ gridColumn: "1 / -1", padding: "14px", textAlign: "center", fontSize: 12, color: C.muted, background: C.bg, borderRadius: 10, border: "1px dashed " + C.border }}>
+                    {T2("No packages match this diet. Rename your package to include 'Veg' or 'Non-Veg', or pick a different diet.")}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -456,7 +512,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                 <div>{T2("Venue")}</div>
                 <div>{T2("Date")}</div>
                 <div style={{ textAlign: "right" }}>{T2("Pax")}</div>
-                <div>{T2("Tier")}</div>
+                <div>{T2("Diet")}</div>
                 {canViewAll && <div>{T2("Rep")}</div>}
                 <div>{T2("Status")}</div>
                 <div style={{ textAlign: "right" }}>{T2("Actions")}</div>
@@ -464,12 +520,10 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
               {filteredList.map(function(p){
                 var meta = STATUS_META[p.status] || STATUS_META.draft;
-                var pkgTier = "";
-                if (p.tier_package_id) {
-                  var found = Object.keys(MENU_PACKAGE_META).find(function(n){ return MENU_PACKAGE_META[n].id === p.tier_package_id; });
-                  if (found) pkgTier = MENU_PACKAGE_META[found].tier;
-                }
-                var tierColor = pkgTier === 'magnum' ? '#8A70C8' : (pkgTier === 'luxury' ? '#D4A843' : C.muted);
+                var pDiet = p.menu_diet || null;
+                var dietBg = pDiet === 'nonveg' ? '#FAE5E5' : pDiet === 'veg' ? '#E5F5EA' : '#F0F0F0';
+                var dietFg = pDiet === 'nonveg' ? '#A52828' : pDiet === 'veg' ? '#2A7A48' : C.muted;
+                var dietLabel = pDiet === 'nonveg' ? '🍗 Non-Veg' : pDiet === 'veg' ? '🥬 Veg' : '—';
                 return (
                   <div key={p.id}
                     style={{ display: "grid", gridTemplateColumns: canViewAll ? "1.4fr 0.7fr 1fr 0.5fr 0.7fr 0.7fr 0.8fr 1fr" : "1.6fr 0.8fr 1.1fr 0.5fr 0.8fr 0.8fr 1fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
@@ -483,8 +537,8 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                     <div style={{ fontSize: 12 }}>{p.event_date || <span style={{color:C.muted}}>—</span>}</div>
                     <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.pax != null ? p.pax : '—'}</div>
                     <div style={{ fontSize: 11 }}>
-                      {pkgTier
-                        ? <span style={{ padding: "2px 6px", borderRadius: 4, background: tierColor, color: "#fff", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{pkgTier}</span>
+                      {pDiet
+                        ? <span style={{ padding: "2px 6px", borderRadius: 4, background: dietBg, color: dietFg, fontWeight: 700, whiteSpace: "nowrap" }}>{dietLabel}</span>
                         : <span style={{ color: C.muted }}>—</span>}
                     </div>
                     {canViewAll && (
