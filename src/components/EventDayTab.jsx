@@ -134,6 +134,11 @@ function EventDayTab({
   // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
   function aggSecIngredients(dishes) {
     const bucket = {}; let totalKg = 0;
+    // Unit families to merge kg↔gm and L↔ml on the same ingredient.
+    const WEIGHT_G  = { g: 1, gm: 1, kg: 1000 };
+    const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
+    const familyOf = (u) => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
+    const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
     dishes.forEach(dish => {
       const evObj = todayEvs.find(e => e.id === dish.fEvId);
       if (!evObj) return;
@@ -158,10 +163,24 @@ function EventDayTab({
       if (effKg) totalKg += effKg;
       if (!ing) return;
       ing.filter(i => i.q > 0).forEach(i => {
-        const k = (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
-        if (!bucket[k]) bucket[k] = { n: i.n, u: i.u, q: 0 };
-        bucket[k].q += Number(i.q) || 0;
+        const fam = familyOf(i.u);
+        // Bucket key = name|family so kg + gm collapse to one row, ml + L collapse, pcs stays separate
+        const k = (i.n || "").toLowerCase().trim() + "|" + fam;
+        if (!bucket[k]) bucket[k] = { n: i.n, fam: fam, _base: 0, u: i.u, q: 0 };
+        bucket[k]._base += toBase(i.q, i.u);
       });
+    });
+    // Emit each bucket in the smartest unit for its magnitude
+    Object.values(bucket).forEach(b => {
+      if (b.fam === 'w') {
+        if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'kg'; }
+        else                 { b.q = b._base;        b.u = 'gm'; }
+      } else if (b.fam === 'v') {
+        if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'L'; }
+        else                 { b.q = b._base;        b.u = 'ml'; }
+      } else {
+        b.q = b._base; // pcs and other non-convertible units — no change
+      }
     });
     return { items: Object.values(bucket).sort((a,b) => (a.n || "").localeCompare(b.n || "")), totalKg: totalKg };
   }
@@ -409,7 +428,8 @@ function EventDayTab({
                     )}
                     {agg.items.length > 0 && (() => {
                       const itemsDone = secStore2.items_done || {};
-                      const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.u || "");
+                      // Key by (name, family) so kg↔gm flips don't lose checkbox state
+                      const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
                       const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                       const total = agg.items.length;
                       const pct = total > 0 ? Math.round(collected / total * 100) : 0;
@@ -420,11 +440,11 @@ function EventDayTab({
                       };
                       const fmtQty = (i) => {
                         const raw = i.q;
-                        return i.u === "g" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
+                        return (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
                           i.u === "ml" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " L" : Math.round(raw) + " ml") :
                           i.u === "pcs" ? Math.ceil(raw) + " pcs" :
-                          i.u === "kg" ? (raw.toFixed(1).replace(/\.0$/,"")) + " kg" :
-                          i.u === "L" ? (raw.toFixed(1).replace(/\.0$/,"")) + " L" :
+                          i.u === "kg" ? (raw < 1 ? Math.round(raw*1000) + " g" : (raw.toFixed(1).replace(/\.0$/,"")) + " kg") :
+                          i.u === "L" ? (raw < 1 ? Math.round(raw*1000) + " ml" : (raw.toFixed(1).replace(/\.0$/,"")) + " L") :
                           Math.round(raw) + " " + i.u;
                       };
                       return (
