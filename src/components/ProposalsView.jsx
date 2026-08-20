@@ -8,7 +8,7 @@ import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
 import { AMBRIA_VENUES } from '../data/constants.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
-import { detectPackageDiet } from '../data/helpers.js';
+import { detectPackageDiet } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 

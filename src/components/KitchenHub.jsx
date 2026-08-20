@@ -988,7 +988,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   //   warn: 'no_base_yield' | null — recipe missing base_yield.kg (needs SOP fix)
   //   planned: true if chef set an explicit plan; false if auto-defaulted from base_yield — pax
   const evById = useMemo(()=>Object.fromEntries((evList||[]).map(e=>[e.id,e])),[evList]);
-  function getScaledIngredients(dishName, evOrId){
+  function getScaledIngredients(dishName, evOrId, opts){
+    opts = opts || {};
+    // 9C — bg pseudo-dishes bypass pax scaling; totalKg is authoritative
+    if (opts.overrideKg && opts.overrideKg > 0) {
+      const ing = getIngrForYield(dishName, opts.overrideKg);
+      if (ing && ing.length) return { ing, effKg: opts.overrideKg, warn: null, planned: true };
+      // Fallback if bg recipe missing base_yield: still return the pax-scaled version
+      // as a last-ditch; will be less accurate but non-empty.
+      const fbIng = getIngrForDish(dishName, 300);
+      return { ing: fbIng, effKg: null, warn: 'bg_no_yield', planned: false };
+    }
     const ev = typeof evOrId === "string" ? evById[evOrId] : evOrId;
     const rec = findRecipeForDish(dishName);
     const baseKg = rec?.ingredients?.base_yield?.kg || null;
@@ -1600,21 +1610,77 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           if(!bySecD1[groupKey])bySecD1[groupKey]=[];
           bySecD1[groupKey].push({name:n,...info});
         });
-        // Inject base-gravy recipes at the front of each section that has bookings
+        // 9C — Demand-driven bg injection: scan dishes for type='bg' rows,
+        // sum kg per bg recipe, inject each summed bg as ONE pseudo-dish with totalKg.
         Object.keys(bySecD1).forEach(catId=>{
-          const bgRecipes = safeArr(RECIPE_DB.recipes[catId]).filter(r=>r.bg);
-          if(bgRecipes.length===0) return;
           const secDishes = bySecD1[catId];
-          const seenEv = new Set(); const fnsUnion = [];
-          secDishes.forEach(d=>(d.fns||[]).forEach(fn=>{ if(!seenEv.has(fn.evId)){seenEv.add(fn.evId);fnsUnion.push(fn);} }));
-          const bgPax = fnsUnion.reduce((s,fn)=>s+(+fn.p||0),0);
+          if (!secDishes || secDishes.length === 0) return;
+          // {bgName: {totalKg, unit, refFns:Set<{evId,fn}>}}
+          const bgDemand = {};
+          secDishes.forEach(d=>{
+            const rec = findRecipeForDish(d.name);
+            if (!rec?.ingredients?.items?.length) return;
+            const baseKg = rec.ingredients.base_yield?.kg || null;
+            const ev = evById[d.fEvId];
+            const mult = Number(ev?.yield_multiplier) || 1.0;
+            const evPax = Number(ev?.pax) || 0;
+            let bgs = [];
+            if (baseKg) {
+              const planRow = evPlanRows?.[ev?.id]?.[d.name] || null;
+              const planned = Number(planRow?.target_yield_kg) || null;
+              const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
+              const effKg = (planned || defaultYield) * mult;
+              const sectionYieldsPlan = planRow?.section_yields || null;
+              let sectionFactors = null;
+              if (sectionYieldsPlan) {
+                const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+                const acc = {};
+                recSections.forEach(sec=>{
+                  const planKg = Number(sectionYieldsPlan[sec.name]);
+                  if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
+                });
+                if (Object.keys(acc).length>0) sectionFactors = acc;
+              }
+              bgs = getBgDemandForYield(d.name, effKg, sectionFactors);
+            } else {
+              const adjPax = Math.round(evPax * mult);
+              bgs = getBgDemandForDish(d.name, adjPax || evPax);
+            }
+            bgs.forEach(b=>{
+              if (!b.bgName || b.qty <= 0) return;
+              const key = b.bgName;
+              if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
+              // Treat L as kg for summing (chef signal only; density 1:1 assumption)
+              bgDemand[key].totalKg += Number(b.qty) || 0;
+              (d.fns||[]).forEach(fn=>{
+                if (!bgDemand[key].fns.some(x=>x.evId===fn.evId)) bgDemand[key].fns.push(fn);
+              });
+            });
+          });
+          const bgEntries = [];
+          let fIdx = 9000;
           const anchor = secDishes[0];
-          const bgEntries = bgRecipes.map((r,i)=>({
-            name:r.n, sec:anchor.sec, catId, totalPax:bgPax,
-            fns:fnsUnion, fEvId:anchor.fEvId, fIdx:9000+i,
-            specials:[], isBaseGravy:true,
-          }));
-          bySecD1[catId] = [...bgEntries, ...secDishes];
+          Object.keys(bgDemand).forEach(bgName=>{
+            const dem = bgDemand[bgName];
+            if (dem.totalKg <= 0) return;
+            const bgRec = findRecipeForDish(bgName);
+            if (!bgRec || !bgRec.bg) { console.warn('[bg-inject] not a bg recipe:', bgName); return; }
+            bgEntries.push({
+              name: bgName,
+              sec: anchor.sec,
+              catId,
+              totalPax: 0,
+              totalKg: dem.totalKg,
+              fns: dem.fns.length > 0 ? dem.fns : (anchor.fns || []),
+              fEvId: anchor.fEvId,
+              fIdx: fIdx++,
+              specials: [],
+              isBaseGravy: true,
+            });
+          });
+          if (bgEntries.length > 0) {
+            bySecD1[catId] = [...bgEntries, ...secDishes];
+          }
         });
         const allSecs = Object.keys(bySecD1).sort();
 

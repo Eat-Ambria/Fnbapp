@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp } from '../utils/helpers.js';
-import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, findRecipeForDish, dishLabel } from '../data/recipeData.js';
+import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
 // ── Strip hardcoded quantities from SOP step text ──
@@ -255,21 +255,63 @@ function EventDayTab({
     if (!bySec[groupKey]) bySec[groupKey] = [];
     bySec[groupKey].push({ name: n, ...info });
   });
-  // Inject base-gravy recipes at the front of each section that has bookings
+  // 9C — Demand-driven bg injection: sum kg per bg recipe from dishes' type='bg' rows,
+  // inject each summed bg as ONE pseudo-dish with totalKg. Skip bgs with zero demand.
   Object.keys(bySec).forEach(catId => {
-    const bgRecipes = (RECIPE_DB.recipes[catId] || []).filter(r => r.bg);
-    if (bgRecipes.length === 0) return;
     const secDishes = bySec[catId];
-    const seenEv = new Set(); const fnsUnion = [];
-    secDishes.forEach(d => (d.fns || []).forEach(fn => { if (!seenEv.has(fn.evId)) { seenEv.add(fn.evId); fnsUnion.push(fn); } }));
-    const bgPax = fnsUnion.reduce((s, fn) => s + (+fn.p || 0), 0);
+    if (!secDishes || secDishes.length === 0) return;
+    const bgDemand = {}; // {bgName: {totalKg, fns:[]}}
+    secDishes.forEach(d => {
+      const rec = findRecipeForDish(d.name);
+      if (!rec?.ingredients?.items?.length) return;
+      const evObj = todayEvs.find(e => e.id === d.fEvId);
+      if (!evObj) return;
+      const pax = +evObj.pax || 0;
+      const baseKg = rec.ingredients.base_yield?.kg || null;
+      const basePax = rec.ingredients.base_pax || 300;
+      const mult = Number(evObj.yield_multiplier) || 1.0;
+      let bgs = [];
+      if (baseKg) {
+        const plannedKg = Number(evPlanRows?.[evObj.id]?.[d.name]?.target_yield_kg) || null;
+        const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+        const effKg = plannedKg ? plannedKg : defaultYield * mult;
+        bgs = getBgDemandForYield(d.name, effKg);
+      } else {
+        const adjPax = Math.round(pax * mult);
+        bgs = getBgDemandForDish(d.name, adjPax || pax);
+      }
+      bgs.forEach(b => {
+        if (!b.bgName || b.qty <= 0) return;
+        if (!bgDemand[b.bgName]) bgDemand[b.bgName] = { totalKg: 0, fns: [] };
+        bgDemand[b.bgName].totalKg += Number(b.qty) || 0;
+        (d.fns || []).forEach(fn => {
+          if (!bgDemand[b.bgName].fns.some(x => x.evId === fn.evId)) bgDemand[b.bgName].fns.push(fn);
+        });
+      });
+    });
+    const bgEntries = [];
+    let fIdx = 9000;
     const anchor = secDishes[0];
-    const bgEntries = bgRecipes.map((r, i) => ({
-      name: r.n, catId, totalPax: bgPax,
-      fns: fnsUnion, fEvId: anchor.fEvId, fIdx: 9000 + i,
-      specials: [], isBaseGravy: true,
-    }));
-    bySec[catId] = [...bgEntries, ...secDishes];
+    Object.keys(bgDemand).forEach(bgName => {
+      const dem = bgDemand[bgName];
+      if (dem.totalKg <= 0) return;
+      const bgRec = findRecipeForDish(bgName);
+      if (!bgRec || !bgRec.bg) { console.warn('[EventDay bg-inject] not a bg recipe:', bgName); return; }
+      bgEntries.push({
+        name: bgName,
+        catId,
+        totalPax: 0,
+        totalKg: dem.totalKg,
+        fns: dem.fns.length > 0 ? dem.fns : (anchor.fns || []),
+        fEvId: anchor.fEvId,
+        fIdx: fIdx++,
+        specials: [],
+        isBaseGravy: true,
+      });
+    });
+    if (bgEntries.length > 0) {
+      bySec[catId] = [...bgEntries, ...secDishes];
+    }
   });
   const secKeys = Object.keys(bySec).sort();
   const totalDishes = Object.keys(byDish).length;
@@ -559,6 +601,31 @@ function EventDayTab({
 
                           {/* Per-dish ingredient list — READ-ONLY reference (section-level collect now gates the flow) */}
                           {(() => {
+                            let ing = null, effKg = null, warn = null, planned = false;
+                            // 9C — bg pseudo-dishes: totalKg is authoritative
+                            if (dish.isBaseGravy && dish.totalKg > 0) {
+                              effKg = dish.totalKg;
+                              ing = getIngrForYield(dish.name, dish.totalKg);
+                              planned = true;
+                              if (!ing || ing.length === 0) return null;
+                              const yieldLbl = `${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`;
+                              return (
+                                <div style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 8, border: `1px solid ${C.goldBorder}`, opacity: 0.85 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, marginBottom: 5 }}>
+                                    🥘 {T2("Base gravy — summed demand")} — {yieldLbl}
+                                  </div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
+                                    {ing.filter(i => i.q > 0).map((i, ii) => {
+                                      const raw = i.q;
+                                      const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
+                                        i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
+                                          i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;
+                                      return (<span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n} <span style={{ color: C.muted }}>{qty}</span></span>);
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
                             const evObj = todayEvs.find(e => e.id === dish.fEvId);
                             if (!evObj) return null;
                             const pax = +evObj.pax || 0;
@@ -567,7 +634,6 @@ function EventDayTab({
                             const basePax = rec?.ingredients?.base_pax || 300;
                             const mult = Number(evObj.yield_multiplier) || 1.0;
 
-                            let ing = null, effKg = null, warn = null, planned = false;
                             if (baseKg) {
                               const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
                               const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;

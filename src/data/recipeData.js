@@ -464,6 +464,49 @@ function getIngrForYield(dishName, targetKg, sectionFactors) {
   });
 }
 
+// V71 (9C) — scan a dish's ingredients for type='bg' consumption rows,
+// scale each by the dish's own pax/factor, return demand entries.
+// Consumers: KitchenHub + EventDayTab bg injection loop.
+function getBgDemandForDish(dishName, targetPax) {
+  const rec = findRecipeForDish(dishName);
+  const items = rec?.ingredients?.items;
+  if (!items?.length) return [];
+  const basePax = rec.ingredients.base_pax || 300;
+  const factor = (targetPax || basePax) / basePax;
+  const out = [];
+  items.forEach(it => {
+    if (it.type !== 'bg') return;
+    const nm = (it.name || '').trim();
+    if (!nm) return;
+    out.push({ bgName: nm, qty: (it.qty || 0) * factor, unit: it.unit || 'kg' });
+  });
+  return out;
+}
+
+function getBgDemandForYield(dishName, targetKg, sectionFactors) {
+  const rec = findRecipeForDish(dishName);
+  const items = rec?.ingredients?.items;
+  if (!items?.length) return [];
+  const baseKg = rec.ingredients.base_yield?.kg;
+  const globalFactor = (baseKg && targetKg) ? targetKg / baseKg : null;
+  if (globalFactor == null && !sectionFactors) return [];
+  let currentSectionFactor = globalFactor;
+  const out = [];
+  items.forEach(it => {
+    if (it.isSection) {
+      if (sectionFactors && sectionFactors[it.name] != null) currentSectionFactor = sectionFactors[it.name];
+      else currentSectionFactor = globalFactor;
+      return;
+    }
+    if (it.type !== 'bg') return;
+    const nm = (it.name || '').trim();
+    if (!nm) return;
+    const f = currentSectionFactor;
+    out.push({ bgName: nm, qty: f == null ? 0 : (it.qty || 0) * f, unit: it.unit || 'kg' });
+  });
+  return out;
+}
+
 function resolveDishHindi(dishName) {
   if (!dishName) return '';
   const key = typeof dishName === 'string' ? dishName : (dishName.name || dishName.n || '');
