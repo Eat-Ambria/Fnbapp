@@ -399,8 +399,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
       for (const recipe of (RECIPE_DB.recipes[catId] || [])) {
         if (recipe.ingredients?.items?.length > 0) {
           recipe.ingredients.items.forEach(it => {
+            if (it.isSection) return;
+            if (it.type === 'bg') return;                          // 9D — bg refs aren't shopped for
             const n = it.name;
-            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || "", unit: it.unit || "", dishes: [] };
+            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || it.hi || "", unit: it.unit || "", dishes: [], hasInv: false, ops_inventory_id: null };
+            // 9D — mark inv-mapped when any usage carries embedded ops_inventory_id
+            if (it.type === 'inv') {
+              seen[n].hasInv = true;
+              if (!seen[n].ops_inventory_id && it.ops_inventory_id) seen[n].ops_inventory_id = it.ops_inventory_id;
+            }
             seen[n].dishes.push(recipe.n);
           });
         }
@@ -504,6 +511,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion };
   }
 
+  // 9D — direct stock lookup by inv-prefix id (for type='inv' rows, bypasses ingredient_item_map)
+  function getStockByInventoryId(invId) {
+    if (!invId) return null;
+    const storeItem = items.find(i => i.inventoryId === invId);
+    if (!storeItem) return null;
+    return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion: 1 };
+  }
+
   
 
   async function saveIngredientMapping(ingName, ingHindi, opsItem, conversion) {
@@ -591,11 +606,24 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const rawQty = isNew ? ing.q : ing.q * pax;
           if (!evBags[ev.id].sections[sec].items[k]) {
             const norm = normalizeToBaseUnit(rawQty, ing.u);
-            evBags[ev.id].sections[sec].items[k] = { name: ing.n, hindi: ing.h || "", unit: norm.unit, totalQty: norm.qty };
+            evBags[ev.id].sections[sec].items[k] = {
+              name: ing.n,
+              hindi: ing.h || "",
+              unit: norm.unit,
+              totalQty: norm.qty,
+              // 9D — preserve inv metadata so shortage build can use ops_inventory_id directly
+              _type: ing._type || null,
+              ops_inventory_id: ing.ops_inventory_id || null,
+            };
           } else {
             const merged = addQtyWithUnitNorm(evBags[ev.id].sections[sec].items[k], rawQty, ing.u);
             evBags[ev.id].sections[sec].items[k].totalQty = merged.totalQty;
             evBags[ev.id].sections[sec].items[k].unit = merged.unit;
+            // 9D — if this contributing row is inv, promote the bucket to inv
+            if (!evBags[ev.id].sections[sec].items[k]._type && ing._type === 'inv') {
+              evBags[ev.id].sections[sec].items[k]._type = 'inv';
+              evBags[ev.id].sections[sec].items[k].ops_inventory_id = ing.ops_inventory_id || null;
+            }
           }
         });
       });
@@ -1159,11 +1187,24 @@ function StoreModule({events, lang="en", currentUser=null}) {
               Object.values(evBags).forEach(({ev, sections})=>{
                 Object.entries(sections).forEach(([sec, secObj])=>{
                   Object.values(secObj.items).forEach(ing=>{
-                    const mapping = ingredientMap[ing.name];
-                    if(!mapping) return;
-                    const stock = getStockForIngredient(ing.name);
-                    if(!stock) return;
-                    if(!seenIng[ing.name]){var _oi=allRecipeIngredients.find(function(a){return a.name===ing.name;});seenIng[ing.name]={name:ing.name,unit:ing.unit,origUnit:_oi?_oi.unit:ing.unit,storeUnit:stock.unit,opsItemId:mapping.ops_item_id,opsItemName:mapping.ops_item_name,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};}
+                    // 9D — inv-typed rows bypass ingredient_item_map, use their embedded ops_inventory_id directly
+                    let stock = null, opsItemId = null, opsItemName = null, invIdDirect = null;
+                    if (ing._type === 'inv' && ing.ops_inventory_id) {
+                      stock = getStockByInventoryId(ing.ops_inventory_id);
+                      if (!stock) return;
+                      opsItemId = stock.item._opsId || null;
+                      opsItemName = stock.item.name || ing.name;
+                      invIdDirect = ing.ops_inventory_id;
+                    } else {
+                      const mapping = ingredientMap[ing.name];
+                      if(!mapping) return;
+                      stock = getStockForIngredient(ing.name);
+                      if(!stock) return;
+                      opsItemId = mapping.ops_item_id;
+                      opsItemName = mapping.ops_item_name;
+                      invIdDirect = mapping.ops_inventory_id || null;
+                    }
+                    if(!seenIng[ing.name]){var _oi=allRecipeIngredients.find(function(a){return a.name===ing.name;});seenIng[ing.name]={name:ing.name,unit:ing.unit,origUnit:_oi?_oi.unit:ing.unit,storeUnit:stock.unit,opsItemId:opsItemId,opsItemName:opsItemName,ops_inventory_id:invIdDirect,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};}
                     var sMerged=addQtyWithUnitNorm({totalQty:seenIng[ing.name].required,unit:seenIng[ing.name].unit},ing.totalQty,ing.unit);
                     seenIng[ing.name].required=sMerged.totalQty;
                     seenIng[ing.name].unit=sMerged.unit;
@@ -1230,13 +1271,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {/* ── INGREDIENT MAP (admin) ── */}
       {tab==="ingmap"&&(()=>{
         const total = allRecipeIngredients.length;
-        const mappedCount = allRecipeIngredients.filter(i => ingredientMap[i.name]).length;
+        // 9D — inv-mapped counts as mapped (skips ingredient_item_map)
+        const mappedCount = allRecipeIngredients.filter(i => i.hasInv || ingredientMap[i.name]).length;
         const unmappedCount = total - mappedCount;
 
         // Filter + search
         let filtered = allRecipeIngredients;
-        if (mapTabFilter === "mapped") filtered = filtered.filter(i => ingredientMap[i.name]);
-        if (mapTabFilter === "unmapped") filtered = filtered.filter(i => !ingredientMap[i.name]);
+        if (mapTabFilter === "mapped") filtered = filtered.filter(i => i.hasInv || ingredientMap[i.name]);
+        if (mapTabFilter === "unmapped") filtered = filtered.filter(i => !i.hasInv && !ingredientMap[i.name]);
         if (mapTabSearch) {
           const s = mapTabSearch.toLowerCase();
           filtered = filtered.filter(i => i.name.toLowerCase().includes(s) || (i.hindi||"").includes(s));
@@ -1271,7 +1313,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
             {/* Auto-link all suggestions button */}
             {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
-              const suggestions = allRecipeIngredients.filter(i=>!ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
+              const suggestions = allRecipeIngredients.filter(i=>!i.hasInv && !ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
               if(suggestions.length===0) return null;
               return(
                 <button onClick={async()=>{

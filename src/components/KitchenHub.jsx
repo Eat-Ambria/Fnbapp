@@ -76,7 +76,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const i500 = sizes.indexOf(500);
           qty = i500 >= 0 ? (it.qty[i500] || 0) : (it.qty[0] || 0);
         }
-        return { name: it.name || "", hi: it.hi ?? it.hindi ?? "", unit: it.unit || "kg", qty, notes: it.notes || "" };
+        // 9A round-trip fix — preserve type + ops_inventory_id so inv/bg rows survive re-open
+        const base = { name: it.name || "", hi: it.hi ?? it.hindi ?? "", unit: it.unit || "kg", qty, notes: it.notes || "" };
+        if (it.type) base.type = it.type;
+        if (it.ops_inventory_id) base.ops_inventory_id = it.ops_inventory_id;
+        return base;
       });
       setIngForm({
         base_pax: ex.base_pax || 300,
@@ -88,6 +92,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     }
     setIngModal({recipeName:recipe.n, catId});
     setIngDirty(false);
+    loadIimMapOnce();   // 9E — kick off IIM load so migration chips can appear on eligible raw rows
   }
   function ingAddItem() {
     setIngForm(f=>({...f,items:[...f.items,{name:"",hi:"",unit:"kg",qty:0,notes:""}]}));
@@ -200,6 +205,49 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngDirty(true);
     setBgPickerIdx(null);
     setBgPickerSearch("");
+  }
+  // 9E — lazy-load ingredient_item_map once per session for migration-nudge chips
+  async function loadIimMapOnce() {
+    if (iimLoaded) return;
+    try {
+      const mod = await import('../lib/supabase.js');
+      if (!mod.supabase) return;
+      const { data, error } = await mod.supabase
+        .from('ingredient_item_map')
+        .select('ingredient_name, ops_inventory_id, ops_item_name');
+      if (error) { console.warn('[9E] IIM load err:', error); return; }
+      const m = {};
+      (data || []).forEach(r => {
+        if (r.ingredient_name && r.ops_inventory_id) {
+          m[r.ingredient_name.toLowerCase().trim()] = {
+            ops_inventory_id: r.ops_inventory_id,
+            ops_item_name: r.ops_item_name || null,
+          };
+        }
+      });
+      setIimMap(m);
+      setIimLoaded(true);
+    } catch(e){ console.warn('[9E] IIM load failed:', e); }
+  }
+  // 9E — one-click upgrade a raw row to type='inv' using an ingredient_item_map hit
+  function convertRowToInvFromIim(idx, iimHit) {
+    if (!iimHit || !iimHit.ops_inventory_id) return;
+    setIngForm(f => {
+      const items = [...f.items];
+      const cur = items[idx] || {};
+      if (cur.isSection) return f;
+      items[idx] = {
+        type: 'inv',
+        name: iimHit.ops_item_name || cur.name || "",
+        hi: cur.hi || "",
+        unit: cur.unit || "kg",
+        qty: cur.qty || 0,
+        ops_inventory_id: iimHit.ops_inventory_id,
+        ...(cur.notes ? { notes: cur.notes } : {}),
+      };
+      return { ...f, items };
+    });
+    setIngDirty(true);
   }
   // 9A — All bg=true recipes across categories, for the BG picker list
   function getAllBgRecipes() {
@@ -408,6 +456,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [opsPickerLoading, setOpsPickerLoading] = useState(false);
   const [opsPickerSearch, setOpsPickerSearch] = useState("");
   const [bgPickerSearch, setBgPickerSearch] = useState("");
+  // 9E — ingredient_item_map cache for migration nudges (lazy loaded on ing editor open)
+  const [iimMap, setIimMap] = useState({});                    // {ingredient_name_lowercase: {ops_inventory_id, ops_item_name}}
+  const [iimLoaded, setIimLoaded] = useState(false);
   const [ingDirty, setIngDirty] = useState(false);
   const [csvImport, setCsvImport] = useState(null); // {recipe, catId, recipeName, basePax, currentCount, parsedItems, warnings} | null
   const [ingDragIdx, setIngDragIdx] = useState(null);
@@ -2183,6 +2234,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title="Click to re-pick" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,fontWeight:600,color:rowFg,background:C.surface,cursor:"pointer",minHeight:28,lineHeight:"20px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:C.muted,fontStyle:"italic",fontWeight:400}}>— pick {isInv?"item":"gravy"} —</span>}</div>
                                       : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
                                     }
+                                    {(() => {
+                                      // 9E — migration nudge: raw rows with a matching ingredient_item_map entry get a one-click upgrade chip
+                                      if (nameLocked) return null;
+                                      const nm = (item.name || "").toLowerCase().trim();
+                                      if (!nm) return null;
+                                      const hit = iimMap[nm];
+                                      if (!hit) return null;
+                                      return (
+                                        <button onClick={()=>convertRowToInvFromIim(idx, hit)}
+                                          title={"Link to inventory: " + (hit.ops_item_name || hit.ops_inventory_id)}
+                                          style={{padding:"3px 8px",borderRadius:5,background:C.blueBg,border:`1px solid ${C.blueBorder}`,color:C.blue,fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,minHeight:24,lineHeight:"18px"}}>
+                                          🔗 Link
+                                        </button>
+                                      );
+                                    })()}
                                   </div>
                                   {typePickerIdx===idx && (<>
                                     <div onClick={()=>setTypePickerIdx(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:15,background:"transparent"}}/>
