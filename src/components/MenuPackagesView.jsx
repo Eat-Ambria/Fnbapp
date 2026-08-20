@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_META } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
@@ -118,6 +118,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
   var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
+  var [editorTier, setEditorTier]         = useState(''); // V70: '', 'luxury', 'magnum'
 
   useEffect(function() {
     if (selPkg) {
@@ -148,6 +149,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       setAddDishInput({});
       setSelectedDishes({});
     }
+    // V70: hydrate tier from meta side-channel
+    setEditorTier(selPkg ? ((MENU_PACKAGE_META[selPkg] && MENU_PACKAGE_META[selPkg].tier) || '') : '');
   }, [selPkg]);
 
   function genSecId() { return 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
@@ -270,10 +273,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSaving(true);
     try {
       var res = await supabase.from('menu_packages')
-        .update({ dishes: flatDishes, sections: serialized })
+        .update({ dishes: flatDishes, sections: serialized, tier: editorTier || null })
         .eq('name', selPkg);
       if (res.error) throw res.error;
       setPackageSections(selPkg, serialized, flatDishes);
+      // V70: mirror tier into in-memory meta so UI reflects without full reload
+      if (MENU_PACKAGE_META[selPkg]) {
+        MENU_PACKAGE_META[selPkg].tier = editorTier || null;
+      } else {
+        MENU_PACKAGE_META[selPkg] = { tier: editorTier || null, id: null };
+      }
       clearMenuPackageCaches();
       setEditorSections(serialized);
       setDirty(false);
@@ -769,6 +778,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                       {dirty && (
                         <span style={{ fontSize: 11, color: C.amber, padding: "3px 8px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, fontWeight: 600 }}>● {T2("unsaved")}</span>
+                      )}
+                      {isAdmin && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: editorTier ? (editorTier === 'luxury' ? '#F5EBD7' : '#EADFF5') : C.surface, border: "1px solid " + (editorTier ? (editorTier === 'luxury' ? '#D4A843' : '#8A70C8') : C.border) }} title={T2("Sales tier — shown to sales reps as template starting point")}>
+                          <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>🏷️ {T2("Tier")}:</span>
+                          <select value={editorTier} onChange={function(e){ setEditorTier(e.target.value); setDirty(true); }}
+                            style={{ padding: "2px 4px", borderRadius: 4, border: "none", background: "transparent", fontSize: 12, color: C.text, fontWeight: 600, cursor: "pointer" }}>
+                            <option value="">{T2("None")}</option>
+                            <option value="luxury">Luxury</option>
+                            <option value="magnum">Magnum</option>
+                          </select>
+                        </div>
                       )}
                       {isAdmin && (
                         <button onClick={addSection}

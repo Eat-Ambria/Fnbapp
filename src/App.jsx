@@ -36,6 +36,8 @@ import { AccessManager } from './components/AccessManager.jsx';
 import { GateKiosk } from './components/GateKiosk.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
 import { ODCModule } from './components/ODCModule.jsx';
+import { ProposalsView } from './components/ProposalsView.jsx';
+import { SalesCatalogueView } from './components/SalesCatalogueView.jsx';
 
 // ── LMS menu name normalization ──
 // LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg"
@@ -220,7 +222,7 @@ export default function App() {
       try {
         const cfg = await loadAllConfig();
         hydrateConstants(cfg);
-        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuSections);
+        hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
@@ -428,10 +430,15 @@ export default function App() {
   },[]);
 
   // Admin skips dept selector — go straight to Management Dashboard
+  // Sales roles skip to Sales dept — go straight to Proposals list
   useEffect(function(){
-    if (currentUser && currentUser.role === 'admin' && !activeDept) {
+    if (!currentUser || activeDept) return;
+    if (currentUser.role === 'admin') {
       setActiveDept('management');
       setScreen('dashboard');
+    } else if (currentUser.role === 'sales' || currentUser.role === 'sales_manager') {
+      setActiveDept('sales');
+      setScreen('proposals');
     }
   }, [currentUser]);
 
@@ -524,10 +531,18 @@ export default function App() {
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
+      {id:"_divider_sales",label:"SALES",icon:"",divider:true},
+      {id:"proposals",label:"Proposals",icon:"📝"},
+      {id:"sales_catalogue",label:"Sales Catalogue",icon:"🏷️"},
       {id:"_divider_mgmt",label:"MANAGEMENT",icon:"",divider:true},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"access",label:"Access Manager",icon:"🔐"},
       {id:"logs",label:"Activity Log",icon:"📋"},
+    ],
+    sales: [
+      {id:"_divider_s1",label:"SALES",icon:"",divider:true},
+      {id:"proposals",label:"Proposals",icon:"📝"},
+      {id:"sales_catalogue",label:"Sales Catalogue",icon:"🏷️"},
     ],
   };
 
@@ -539,6 +554,7 @@ export default function App() {
     transport:{name:"Transportation",icon:"🚛",color:"#D4A843"},
     odc:{name:"ODC",icon:"🏕️",color:C.gold},
     management:{name:"Management",icon:"🔐",color:"#9060C8"},
+    sales:{name:"Sales",icon:"📝",color:"#B85450"},
   };
 
   const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
@@ -681,6 +697,8 @@ export default function App() {
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
       case "dept_odc":       return <ODCModule events={events} lang={lang} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
+      case "proposals":       return <ProposalsView lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      case "sales_catalogue": return <SalesCatalogueView lang={lang} currentUser={currentUser}/>;
       default: return <div style={{padding:40,textAlign:"center",color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:C.red,color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
     }
   }

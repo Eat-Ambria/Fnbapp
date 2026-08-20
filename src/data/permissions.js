@@ -18,6 +18,8 @@ const SCREEN_PERMISSIONS = {
   dept_beverages: {label:"Beverages Ops",       icon:"🥤", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
   dept_odc:       {label:"ODC Operations",      icon:"🏕", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
   access:         {label:"Access Manager",      icon:"🔐", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
+  proposals:        {label:"Proposals",           icon:"📝", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
+  sales_catalogue:  {label:"Sales Catalogue",     icon:"🏷️", perms:[{id:"sales_catalogue.view",type:"view",label:"View sales catalogue"},{id:"sales_catalogue.edit",type:"action",label:"Edit item meta/images"}]},
 };
 
 // ── ROLE HIERARCHY ──
@@ -28,7 +30,7 @@ const PRESET_ROLES = {
   admin: {
     label: "Admin — Full Access",
     tier: 4,
-    screens: ["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc"],
+    screens: ["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc","proposals","sales_catalogue"],
     // Admin gets everything — no need to list elevated actions
   },
   head_chef: {
@@ -76,6 +78,8 @@ const PRESET_ROLES = {
   section_continental: {label:"Continental Section",  tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
   section_bakery:      {label:"Bakery Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
   staff:               {label:"Staff",                tier:1, screens:["dashboard","kitchen","repair"], elevated:[]},
+  sales:               {label:"Sales Rep",            tier:2, screens:["dashboard","proposals"], elevated:["proposals.create","proposals.edit","proposals.delete"]},
+  sales_manager:       {label:"Sales Manager",        tier:3, screens:["dashboard","proposals","sales_catalogue","menus"], elevated:["proposals.create","proposals.edit","proposals.delete","proposals.view_all","proposals.convert","sales_catalogue.edit"]},
 };
 
 // ── CORE FUNCTIONS ──
