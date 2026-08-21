@@ -2100,17 +2100,59 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>}
                   </div>);})}
               </div>
-            ):(
+            ):(()=>{
+              const allR=safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).sort((a,b)=>(a.n||"").localeCompare(b.n||""));
+              const bgR=allR.filter(r=>!!r.bg);
+              const nrmR=allR.filter(r=>!r.bg);
+              const yieldStatus=(recipe)=>{
+                const items=recipe.ingredients?.items;
+                if(!items||!items.length) return null;
+                const hasOverall=!!(recipe.ingredients?.base_yield?.kg||recipe.ingredients?.base_yield?.pcs);
+                const sections=items.filter(i=>i.isSection);
+                const secMissing=sections.filter(s=>!s.yield?.kg&&!s.yield?.pcs).length;
+                return {hasOverall,secTotal:sections.length,secMissing};
+              };
+              const RecipeCard=({recipe,ri,isBg})=>{
+                const ys=yieldStatus(recipe);
+                const pills=[];
+                if(ys){
+                  if(!ys.hasOverall) pills.push({tone:"warn",icon:"⚠",text:"no yield"});
+                  else if(ys.secMissing>0) pills.push({tone:"warnSoft",icon:"⚠",text:ys.secTotal===1?"section yield missing":`${ys.secMissing} of ${ys.secTotal} sections missing yield`});
+                }
+                return(
+                <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:isBg?C.goldBg:C.surface,border:`1px solid ${isBg?C.goldBorder:C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
+                  {pills.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>{pills.map((p,pi)=>(
+                    <span key={pi} style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:999,background:p.tone==="warn"?C.redBg:C.amberBg,color:p.tone==="warn"?C.red:C.amber}}>{p.icon} {p.text}</span>
+                  ))}</div>}
+                </button>);
+              };
+              return(
               <div>
                 <button onClick={()=>{setSopCat(null);setSopSearch("");}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("All Categories")}</button>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).sort((a,b)=>(a.n||"").localeCompare(b.n||"")).map((recipe,ri)=>(
-                    <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
-                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div><div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
-                    </button>))}
-                </div>
-              </div>
-            )
+                {bgR.length>0&&<>
+                  <div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 2px 8px"}}>
+                    <span style={{fontSize:14}}>🥘</span>
+                    <span style={{fontSize:13,fontWeight:700,color:C.gold}}>Base gravies</span>
+                    <span style={{fontSize:11,color:C.muted}}>· {bgR.length}</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:18}}>
+                    {bgR.map((r,ri)=><RecipeCard key={"bg"+ri} recipe={r} ri={ri} isBg={true}/>)}
+                  </div>
+                </>}
+                {nrmR.length>0&&<>
+                  {bgR.length>0&&<div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 2px 8px"}}>
+                    <span style={{fontSize:14}}>🍽️</span>
+                    <span style={{fontSize:13,fontWeight:700,color:C.text}}>Recipes</span>
+                    <span style={{fontSize:11,color:C.muted}}>· {nrmR.length}</span>
+                  </div>}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {nrmR.map((r,ri)=><RecipeCard key={"n"+ri} recipe={r} ri={ri} isBg={false}/>)}
+                  </div>
+                </>}
+              </div>);
+            })()
           ):(
             <div>
               <button onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("Back")}</button>
