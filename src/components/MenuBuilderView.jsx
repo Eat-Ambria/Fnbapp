@@ -5,7 +5,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_META } from '../data/menuPackages.js';
+import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { detectPackageDiet } from '../utils/helpers.js';
 import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
@@ -31,13 +32,26 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
   var hasConfigs = !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
 
-  // ── Template dishes: resolved from proposal.tier_package_id ──
+  // ── Template dishes: resolved from proposal.tier_package_id via live pkg id→name map ──
+  // V71 — tier concept removed; diet is auto-detected from package name.
+  var [pkgIdToName, setPkgIdToName] = useState({});
+  useEffect(function(){
+    (async function(){
+      try {
+        var res = await supabase.from('menu_packages').select('id,name').eq('is_active', true);
+        if (res.error) { console.warn('[MenuBuilder] pkg id map load failed:', res.error); return; }
+        var m = {};
+        (res.data || []).forEach(function(r){ m[r.id] = r.name; });
+        setPkgIdToName(m);
+      } catch(e){ console.warn('[MenuBuilder] pkg id map err:', e); }
+    })();
+  }, []);
   var templateInfo = useMemo(function(){
-    if (!proposal || !proposal.tier_package_id) return { name: null, dishes: [], tier: null };
-    var name = Object.keys(MENU_PACKAGE_META).find(function(n){ return MENU_PACKAGE_META[n].id === proposal.tier_package_id; });
-    if (!name) return { name: null, dishes: [], tier: null };
-    return { name: name, dishes: MENU_PACKAGES[name] || [], tier: MENU_PACKAGE_META[name].tier };
-  }, [proposal]);
+    if (!proposal || !proposal.tier_package_id) return { name: null, dishes: [], diet: null };
+    var name = pkgIdToName[proposal.tier_package_id] || null;
+    if (!name) return { name: null, dishes: [], diet: null };
+    return { name: name, dishes: MENU_PACKAGES[name] || [], diet: detectPackageDiet(name) };
+  }, [proposal, pkgIdToName]);
 
   var templateSet = useMemo(function(){
     var s = {}; templateInfo.dishes.forEach(function(d){ s[d] = true; }); return s;
@@ -272,8 +286,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   }, [visibleDishes]);
 
   // ── RENDER ──
-  var tierMeta = templateInfo.tier
-    ? { color: templateInfo.tier === 'magnum' ? '#8A70C8' : '#D4A843', bg: templateInfo.tier === 'magnum' ? '#EADFF5' : '#F5EBD7' }
+  // V71 — diet chip replaces tier badge
+  var dietMeta = templateInfo.diet
+    ? {
+        color: templateInfo.diet === 'nonveg' ? '#A52828' : '#2A7A48',
+        bg:    templateInfo.diet === 'nonveg' ? '#FAE5E5' : '#E5F5EA',
+        label: templateInfo.diet === 'nonveg' ? '🍗 Non-Veg' : '🥬 Veg',
+      }
     : null;
 
   // Preview takes over the viewport when open
@@ -308,8 +327,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             {templateInfo.name && (
               <>
                 {' · '}
-                <span style={{ padding: "1px 6px", borderRadius: 3, background: (tierMeta && tierMeta.color) || '#999', color: "#fff", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{templateInfo.tier}</span>
-                {' ' + templateInfo.name}
+                {dietMeta && (
+                  <span style={{ padding: "1px 6px", borderRadius: 3, background: dietMeta.bg, color: dietMeta.color, fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", marginRight: 4 }}>{dietMeta.label}</span>
+                )}
+                {templateInfo.name}
               </>
             )}
           </div>
