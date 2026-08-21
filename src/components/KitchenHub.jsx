@@ -2396,11 +2396,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               </tr>);
                             }
                             const hi=ing.hi??ing.hindi;
+                            const rowType=ing.type==='inv'?'inv':ing.type==='bg'?'bg':'raw';
+                            const typeIcon=rowType==='inv'?'📦':rowType==='bg'?'🥘':'📝';
+                            const typeTitle=rowType==='inv'?'Inventory-mapped item':rowType==='bg'?'Base gravy':'Raw ingredient';
+                            const typeColor=rowType==='inv'?C.blue:rowType==='bg'?C.amber:C.faint;
+                            const rowBg=rowType==='inv'?C.blueBg:rowType==='bg'?C.amberBg:(ii%2===0?C.surface:C.darkCard);
                             return(
-                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
+                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:rowBg}}>
                               <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
-                                <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
-                                {hi&&<div style={{fontSize:9,color:C.faint}}>{hi}</div>}
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <span title={typeTitle} style={{fontSize:11,color:typeColor,flexShrink:0,cursor:"help"}}>{typeIcon}</span>
+                                  <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
+                                </div>
+                                {hi&&<div style={{fontSize:9,color:C.faint,marginLeft:19}}>{hi}</div>}
                               </td>
                               <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.unit}</td>
                               {isNewSchema
