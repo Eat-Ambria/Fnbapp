@@ -1,5 +1,6 @@
 ﻿// Ambria FnB — Kitchen Hub (Overview, Prep Tracking, Prep Plan, Recipe SOPs)
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf } from '../utils/helpers.js';
@@ -2292,8 +2293,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
                       <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
                     </div>}
-                    {/* 9A — Ops picker modal (type='inv') */}
-                    {opsPickerIdx!==null&&(
+                    {/* 9A — Ops picker modal (type='inv') — portal to body to escape ancestor containing block */}
+                    {opsPickerIdx!==null&&createPortal((
                       <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setOpsPickerIdx(null);setOpsPickerSearch("");}}>
                         <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",border:`2px solid ${C.blueBorder}`}}>
                           <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.blueBg}}>
@@ -2323,9 +2324,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                         </div>
                       </div>
-                    )}
-                    {/* 9A — BG recipe picker modal (type='bg') */}
-                    {bgPickerIdx!==null&&(
+                    ),document.body)}
+                    {/* 9A — BG recipe picker modal (type='bg') — portal to body */}
+                    {bgPickerIdx!==null&&createPortal((
                       <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setBgPickerIdx(null);setBgPickerSearch("");}}>
                         <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden",border:`2px solid ${C.amberBorder}`}}>
                           <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.amberBg}}>
@@ -2352,7 +2353,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                         </div>
                       </div>
-                    )}
+                    ),document.body)}
                   </div>
                 ):sopRecipe.ingredients?.items?.length>0?(()=>{
                   const ing2=sopRecipe.ingredients;
