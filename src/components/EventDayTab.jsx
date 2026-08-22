@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp, fmtQty } from '../utils/helpers.js';
 import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
@@ -480,15 +480,7 @@ function EventDayTab({
                         const cur = ssRead(sec).items_done || {};
                         ssWrite(sec, { items_done: { ...cur, [k]: !cur[k] } });
                       };
-                      const fmtQty = (i) => {
-                        const raw = i.q;
-                        return (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
-                          i.u === "ml" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " L" : Math.round(raw) + " ml") :
-                          i.u === "pcs" ? Math.ceil(raw) + " pcs" :
-                          i.u === "kg" ? (raw < 1 ? Math.round(raw*1000) + " g" : (raw.toFixed(1).replace(/\.0$/,"")) + " kg") :
-                          i.u === "L" ? (raw < 1 ? Math.round(raw*1000) + " ml" : (raw.toFixed(1).replace(/\.0$/,"")) + " L") :
-                          Math.round(raw) + " " + i.u;
-                      };
+                      // fmtQty now imported from helpers.js
                       return (
                         <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty } from '../utils/helpers.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
@@ -1585,15 +1585,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const cur = ssReadD1(catId).items_done || {};
                   ssWriteD1(catId, { items_done: { ...cur, [k]: !cur[k] } });
                 };
-                const fmtQty = (i) => {
-                  const raw = i.q;
-                  return (i.u === "g" || i.u === "gm") ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " kg" : Math.round(raw) + " g") :
-                    i.u === "ml" ? (raw >= 1000 ? ((raw/1000).toFixed(1).replace(/\.0$/,"")) + " L" : Math.round(raw) + " ml") :
-                    i.u === "pcs" ? Math.ceil(raw) + " pcs" :
-                    i.u === "kg" ? (raw < 1 ? Math.round(raw*1000) + " g" : (raw.toFixed(1).replace(/\.0$/,"")) + " kg") :
-                    i.u === "L"  ? (raw < 1 ? Math.round(raw*1000) + " ml" : (raw.toFixed(1).replace(/\.0$/,"")) + " L") :
-                    Math.round(raw) + " " + i.u;
-                };
+                // fmtQty now imported from helpers.js (case-insensitive, family-normalized)
                 return (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -1858,7 +1850,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                       {warn==='no_base_yield'&&<div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:8,padding:"6px 10px",background:C.redBg,borderRadius:8,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Recipe missing base_yield — using legacy pax scaling. Chef must set base_yield in SOP.")}</div>}
                                       <div style={{fontSize:14,fontWeight:700,color:C.muted,marginBottom:8}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
-                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw<1?Math.round(raw*1000)+" g":(raw.toFixed(1).replace(/\.0$/,""))+" kg"):i.u==="L"?(raw<1?Math.round(raw*1000)+" ml":(raw.toFixed(1).replace(/\.0$/,""))+" L"):Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
+                                      <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>(<span key={ii} style={{fontSize:14,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{fmtQty(i)}</b></span>))}</div>
                                     </div>);})()}
                                   <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Steps")} — {steps.length}</div>
                                   {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx,dish.name);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;
@@ -1991,7 +1983,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                     {warn==='no_base_yield'&&<div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:5,padding:"3px 6px",background:C.redBg,borderRadius:5,border:`1px solid ${C.redBorder}`}}>? {T2("Missing base_yield in SOP")}</div>}
                                     <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:5}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
-                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>{const raw=i.q;const qty=i.u==="g"||i.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):i.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):i.u==="pcs"?Math.ceil(raw)+" pcs":i.u==="kg"?(raw<1?Math.round(raw*1000)+" g":(raw.toFixed(1).replace(/\.0$/,""))+" kg"):i.u==="L"?(raw<1?Math.round(raw*1000)+" ml":(raw.toFixed(1).replace(/\.0$/,""))+" L"):Math.round(raw)+" "+i.u;return <span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{qty}</b></span>;})}</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>{ing.filter(i=>i.q>0).map((i,ii)=>(<span key={ii} style={{fontSize:11,color:C.text}}>{i.n}: <b style={{color:C.gold+"cc"}}>{fmtQty(i)}</b></span>))}</div>
                                   </div>);})()}
                                 <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
                                 {steps.map((step,si)=>{const d2d=ds(dish.fEvId,dish.fIdx,dish.name);const sk="step_"+si;const hasSubs=Array.isArray(step.subs)&&step.subs.length>0;

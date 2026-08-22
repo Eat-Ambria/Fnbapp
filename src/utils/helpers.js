@@ -180,4 +180,37 @@ function transliterateName(txt){
   } catch(e) { return ''; }
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet };
+// V72 — normalize a {q, u} quantity for display. Case-insensitive on units.
+// Weight family (g/kg/kilo/gram/…): downgrades <1kg → g, upgrades ≥1000g → kg.
+// Volume family (ml/l/ltr/litre/…): downgrades <1L → ml, upgrades ≥1000ml → L.
+// Never renders "0 <unit>" for a positive value — floors to "<1 g" / "<1 ml".
+function fmtQty(input, maybeU) {
+  const raw = Number(input && typeof input === 'object' ? input.q : input);
+  const unitIn = String((input && typeof input === 'object' ? input.u : maybeU) || '').toLowerCase().trim();
+  if (!isFinite(raw)) return "";
+  const isG   = /^(g|gm|gms|gram|grams)$/.test(unitIn);
+  const isKg  = /^(kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(unitIn);
+  const isMl  = /^(ml|mls|millilitre|milliliter|millilitres|milliliters)$/.test(unitIn);
+  const isL   = /^(l|lt|ltr|litre|liter|litres|liters)$/.test(unitIn);
+  const isPcs = /^(pcs|pc|nos|no|piece|pieces|count)$/.test(unitIn);
+  if (isG || isKg) {
+    const grams = isKg ? raw * 1000 : raw;
+    if (grams === 0) return "0 g";
+    if (grams < 0) return Math.round(grams) + " g";
+    if (grams >= 1000) { const kg = grams / 1000; return (kg >= 10 ? Math.round(kg) : kg.toFixed(1).replace(/\.0$/, "")) + " kg"; }
+    if (grams < 1) return "<1 g";
+    return Math.round(grams) + " g";
+  }
+  if (isMl || isL) {
+    const ml = isL ? raw * 1000 : raw;
+    if (ml === 0) return "0 ml";
+    if (ml < 0) return Math.round(ml) + " ml";
+    if (ml >= 1000) { const L = ml / 1000; return (L >= 10 ? Math.round(L) : L.toFixed(1).replace(/\.0$/, "")) + " L"; }
+    if (ml < 1) return "<1 ml";
+    return Math.round(ml) + " ml";
+  }
+  if (isPcs) return Math.ceil(raw) + " pcs";
+  return Math.round(raw) + " " + unitIn;
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty };
