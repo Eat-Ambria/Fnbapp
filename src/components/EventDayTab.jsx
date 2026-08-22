@@ -607,13 +607,9 @@ function EventDayTab({
                                     🥘 {T2("Base gravy — summed demand")} — {yieldLbl}
                                   </div>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
-                                    {ing.filter(i => i.q > 0).map((i, ii) => {
-                                      const raw = i.q;
-                                      const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
-                                        i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
-                                          i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;
-                                      return (<span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n} <span style={{ color: C.muted }}>{qty}</span></span>);
-                                    })}
+                                    {ing.filter(i => i.q > 0).map((i, ii) => (
+                                      <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n} <span style={{ color: C.muted }}>{fmtQty(i)}</span></span>
+                                    ))}
                                   </div>
                                 </div>
                               );
@@ -651,13 +647,9 @@ function EventDayTab({
                                   {planned ? <span style={{ fontSize: 10, color: C.purple, marginLeft: 6 }}>· {T2("planned")}</span> : effKg ? <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>· {T2("auto")}</span> : null}
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px" }}>
-                                  {ing.filter(i => i.q > 0).map((i, ii) => {
-                                    const raw = i.q;
-                                    const qty = i.u === "g" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " kg" : Math.round(raw) + " g") :
-                                      i.u === "ml" ? (raw >= 1000 ? ((raw / 1000).toFixed(1).replace(/\.0$/, "")) + " L" : Math.round(raw) + " ml") :
-                                        i.u === "pcs" ? Math.ceil(raw) + " pcs" : Math.round(raw) + " " + i.u;
-                                    return <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n}: <b style={{ color: C.gold + "cc" }}>{qty}</b></span>;
-                                  })}
+                                  {ing.filter(i => i.q > 0).map((i, ii) => (
+                                    <span key={ii} style={{ fontSize: 11, color: C.text }}>{i.n}: <b style={{ color: C.gold + "cc" }}>{fmtQty(i)}</b></span>
+                                  ))}
                                 </div>
                               </div>
                             );

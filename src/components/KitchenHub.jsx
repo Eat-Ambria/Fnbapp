@@ -2472,7 +2472,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <tbody>
                           {fallbackIng.filter(ig=>ig.q>0).map((ing,ii)=>{
                             const raw=ing._newFmt?ing.q:ing.q*500;
-                            const fmt=ing.u==="g"||ing.u==="gm"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" kg":Math.round(raw)+" g"):ing.u==="ml"?(raw>=1000?((raw/1000).toFixed(1).replace(/\.0$/,""))+" L":Math.round(raw)+" ml"):ing.u==="pcs"?Math.ceil(raw)+" pcs":Math.round(raw)+" "+ing.u;
+                            const fmt=fmtQty(ing);
                             return(
                             <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:ii%2===0?C.surface:C.darkCard}}>
                               <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
