@@ -1,4 +1,4 @@
-// Ambria FnB Operations — Root App Component
+﻿// Ambria FnB Operations — Root App Component
 // Decomposed: all screens, data, and utilities are in separate modules
 
 import React, { useState, useRef, useEffect } from "react";
@@ -31,7 +31,7 @@ import { TeamHub } from './components/TeamHub.jsx';
 import { TransportDispatch } from './components/TransportDispatch.jsx';
 import { StoreModule } from './components/StoreModule.jsx';
 import { MenuPackagesView } from './components/MenuPackagesView.jsx';
-import { RepairMaintenance } from './components/RepairMaintenance.jsx';
+
 import { VendorDirectory } from './components/VendorDirectory.jsx';
 import { AccessManager } from './components/AccessManager.jsx';
 import { GateKiosk } from './components/GateKiosk.jsx';
@@ -57,7 +57,6 @@ export default function App() {
   const [screen,setScreen]           = useState("dashboard");
   const [lang,setLang]               = useState("en");
   const [sideOpen,setSideOpen]       = useState(true);
-  const [repairs,setRepairs]         = useState([]);
   const [allocRules,setAllocRules]   = useState({});
   const [dbChecklists,setDbChecklists] = useState({});
   const [tabletScreen,setTabletScreen] = useState("kitchen");
@@ -231,12 +230,11 @@ export default function App() {
         if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
 
-      const [staffData, eventsData, attData, lvData, repairData, ktData, tqData] = await Promise.all([
+      const [staffData, eventsData, attData, lvData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),
         dbLoad('events', []),
         dbLoad('attendance', []),
         dbLoad('leaves', []),
-        dbLoad('repair_tickets', []),
         dbLoad('kitchen_tracking', []),
         dbLoad('transport_queue', []),
       ]);
@@ -316,7 +314,6 @@ export default function App() {
       const todayAtt = attData.filter(a=>a.date===TODAY);
       setAttendance_raw(todayAtt.map(normalizeAtt));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
-      setRepairs(repairData.map(t=>({...t,assignTo:t.assign_to||t.assignTo,createdBy:t.created_by||t.createdBy,updates:t.updates||[]})));
       if(ktData.length>0){
         const ktObj={};
         ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data||{};});
@@ -368,12 +365,6 @@ export default function App() {
         setAttendance_raw(p=>{const key=r.staff_id;const ex=p.some(a=>(a.staff_id||a.staffId)===key&&a.date===r.date);return ex?p.map(a=>(a.staff_id||a.staffId)===key&&a.date===r.date?r:a):[...p,r];});
       }
       if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>(a.staff_id||a.staffId)!==payload.old.staff_id||a.date!==payload.old.date));
-    });
-    const u3 = dbSubscribe('repair_tickets', (payload) => {
-      const t=payload.new?{...payload.new,assignTo:payload.new.assign_to,createdBy:payload.new.created_by,updates:payload.new.updates||[]}:null;
-      if(payload.eventType==='INSERT'&&t) setRepairs(p=>{if(p.some(x=>x.id===t.id))return p;return[t,...p];});
-      if(payload.eventType==='UPDATE'&&t) setRepairs(p=>p.map(x=>x.id===t.id?t:x));
-      if(payload.eventType==='DELETE') setRepairs(p=>p.filter(x=>x.id!==payload.old.id));
     });
     const u4 = dbSubscribe('events', (payload) => {
       let ev=null;
@@ -483,7 +474,6 @@ export default function App() {
       {id:"kitchen",label:"Kitchen",icon:"👨‍🍳"},
       {id:"_divider_k2",label:"OPERATIONS",icon:"",divider:true},
       {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
       {id:"_divider_k3",label:"MANAGEMENT",icon:"",divider:true},
       {id:"team",label:"Team & Attendance",icon:"👥"},
     ],
@@ -492,14 +482,12 @@ export default function App() {
       {id:"dept_service",label:"Service Operations",icon:"🍽️"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     crockery: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_crockery",label:"Crockery Operations",icon:"🍶"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     beverages: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
@@ -507,17 +495,14 @@ export default function App() {
       {id:"menus",label:"Menu",icon:"📜"},
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     odc: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ],
     management: [
       {id:"_divider_kitchen",label:"KITCHEN",icon:"",divider:true},
@@ -528,7 +513,6 @@ export default function App() {
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
       {id:"dept_service",label:"Service Ops",icon:"🍽"},
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
@@ -591,7 +575,6 @@ export default function App() {
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"repair",label:"Repair & Maintenance",icon:"🔧"},
     ].filter(function(n){ return canAccessScreen(currentUser, n.id); });
     const _cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
     const _catObjs = _cats.map(function(c){ return (RECIPE_DB.cats||[]).find(function(x){ return x.id===c; }); }).filter(Boolean);
@@ -601,10 +584,9 @@ export default function App() {
     const _title = currentUser.name || _catNames || currentUser.section || 'Kitchen';
     function tabletContent(scr){
       switch(scr){
-        case "dashboard": return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+        case "dashboard": return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
         case "kitchen": return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
         case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
-        case "repair": return <RepairMaintenance lang={lang} currentDept="kitchen" currentUser={currentUser}/>;
         default: return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       }
     }
@@ -685,13 +667,12 @@ export default function App() {
   function renderScreen(s){
     if (!canAccessScreen(currentUser, s)) return LOCK_SCREEN;
     switch(s){
-      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} repairs={repairs} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
-      case "repair":         return <RepairMaintenance lang={lang} currentDept="management" currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "logs":           return <ActivityLog lang={lang} currentUser={currentUser} empDb={empDb} attendance={attendance} kitchenTracking={kitchenTracking} events={events}/>;
@@ -820,3 +801,5 @@ export default function App() {
     </div>
   );
 }
+
+

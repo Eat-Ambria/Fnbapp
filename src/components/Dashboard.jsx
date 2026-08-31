@@ -1,4 +1,4 @@
-// Ambria FnB — Dashboard (light mode redesign)
+﻿// Ambria FnB — Dashboard (light mode redesign)
 import React, { useState } from "react";
 import { C, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
@@ -9,7 +9,7 @@ import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 
-function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,repairs=[],lang="en",currentUser=null,empDb=[]}) {
+function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const [lmsSyncing, setLmsSyncing] = useState(false);
   const [lmsResult, setLmsResult] = useState(null); // {status,events_upserted,...} or {status:'error',message}
@@ -101,7 +101,6 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const onLeave = safeArr(leaves).filter(l=>l.status==="Approved"&&l.from<=todayStr&&l.to>=todayStr).length;
   const totalActive = safeArr(empDb).filter(s=>s.is_active!==false&&s.role!=='kiosk_gate'&&s.role!=='admin'&&!s.role?.startsWith('section_')).length;
   const totalStaff = totalActive || Math.max(staffPresent+staffAbsent, 1);
-  const openRepairs = safeArr(repairs).filter(t=>t.status==="Open"||t.status==="In Progress").length;
 
   // Helpers
   function genId(){const ns=safeEvs.map(e=>+(e.id||"").replace(/\D/g,"")).filter(Boolean);return `FP-${new Date().getFullYear()}-${String(Math.max(0,...ns)+1).padStart(3,"0")}`;}
@@ -514,14 +513,11 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
           <div style={{fontSize:22,fontWeight:500,color:C.text}}>{fyEvs.length} <span style={{fontSize:13,fontWeight:400,color:C.muted}}>events</span></div>
           <div style={{fontSize:12,color:C.muted}}>{fyEvs.reduce((s,e)=>s+(+e.pax||0),0).toLocaleString()} pax</div>
         </div>
-        <div style={{background:"#fff",border:`0.5px solid ${C.border}`,borderRadius:12,padding:"14px 18px",cursor:"pointer"}} onClick={()=>setScreen&&setScreen("repair")}>
-          <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Open issues</div>
-          <div style={{fontSize:22,fontWeight:500,color:openRepairs>0?"#D64040":"#1D9E75"}}>{openRepairs}</div>
-          <div style={{fontSize:12,color:C.muted}}>repair tickets</div>
-        </div>
+
       </div>
     </div>
   );
 }
 
 export { Dashboard };
+

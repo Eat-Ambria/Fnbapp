@@ -1,4 +1,4 @@
-// Ambria FnB — Department View / Selector
+﻿// Ambria FnB — Department View / Selector
 import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
@@ -190,12 +190,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // Tabs per department
   const DEPT_TABS = {
-    kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
-    service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
-    crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
-    beverages:[{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
-    transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
-    odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`},{v:"repair",l:`🔧 ${T2("Repair")}`}],
+    kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
+    service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
+    crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
+    beverages:[{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
+    transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`}],
+    odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`}],
   };
   const tabs = DEPT_TABS[selDept]||DEPT_TABS.kitchen;
   const activeTab = (deptTab && tabs.some(t=>t.v===deptTab)) ? deptTab : (tabs[0]?.v || "attendance");
@@ -1175,11 +1175,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         );
       })()}
 
-      {/* ══════ REPAIR & MAINTENANCE TAB (all depts) ══════ */}
-      {activeTab==="repair"&&<RepairMaintenance lang={lang} currentDept={selDept||forceDept||"kitchen"}/>}
+
 
     </div>
   );
 }
 
 export { DeptView };
+
+

@@ -10,6 +10,7 @@ import { AMBRIA_VENUES } from '../data/constants.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
 // ── Local enums for form pickers (kept here so no schema/DB coupling) ──
@@ -64,11 +65,12 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   async function loadProposals() {
     setLoading(true);
     try {
-      var q = supabase.from('proposals').select('*').order('created_at', { ascending: false });
-      if (!canViewAll) q = q.eq('rep_emp_id', repId);
-      var res = await q;
-      if (res.error) throw res.error;
-      setProposals(res.data || []);
+      var rows = await fetchAllRows(function(){
+        var q = supabase.from('proposals').select('*').order('created_at', { ascending: false });
+        if (!canViewAll) q = q.eq('rep_emp_id', repId);
+        return q;
+      });
+      setProposals(rows);
     } catch (e) {
       console.error('[Proposals] load failed:', e);
       setProposals([]);

@@ -1,4 +1,4 @@
-// Ambria FnB — Simplified RBAC permissions
+﻿// Ambria FnB — Simplified RBAC permissions
 // Role hierarchy: Chef → Head Chef → Manager → Admin
 // Each role auto-gets tab access + action permissions
 // Custom overrides: toggle individual screens on/off per user
@@ -9,7 +9,7 @@ const SCREEN_PERMISSIONS = {
   kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"}]},
   store:          {label:"Store & Inventory",   icon:"📦", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
   transport:      {label:"Transport",           icon:"🚛", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
-  repair:         {label:"Repair & Maintenance",icon:"🔧", perms:[{id:"repair.view",type:"view",label:"View tickets"},{id:"repair.create",type:"action",label:"Raise ticket"},{id:"repair.update",type:"action",label:"Post updates"},{id:"repair.reassign",type:"action",label:"Reassign tickets"},{id:"repair.change_status",type:"action",label:"Change status"},{id:"repair.complete_photo",type:"action",label:"Complete with photo"},{id:"repair.delete",type:"action",label:"Delete tickets"}]},
+
   team:           {label:"Team & Attendance",   icon:"👥", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.attendance_mark",type:"action",label:"Mark attendance"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"},{id:"team.daily_wages",type:"action",label:"Add daily wages staff"},{id:"team.export_attendance",type:"action",label:"Export attendance"}]},
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
   vendors:        {label:"Vendor Directory",    icon:"📇", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
@@ -30,38 +30,38 @@ const PRESET_ROLES = {
   admin: {
     label: "Admin — Full Access",
     tier: 4,
-    screens: ["dashboard","kitchen","store","team","transport","repair","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc","proposals","sales_catalogue"],
+    screens: ["dashboard","kitchen","store","team","transport","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc","proposals","sales_catalogue"],
     // Admin gets everything — no need to list elevated actions
   },
   head_chef: {
     label: "Head Chef",
     tier: 3,
-    screens: ["dashboard","kitchen","menus","store","team","transport","repair"],
-    elevated: ["kitchen.scaling_apply","team.leave_approve","repair.reassign","repair.change_status","repair.delete"],
+    screens: ["dashboard","kitchen","menus","store","team","transport"],
+    elevated: ["kitchen.scaling_apply","team.leave_approve"],
   },
   service: {
     label: "Service Dept",
     tier: 2,
-    screens: ["dashboard","dept_service","team","vendors","repair"],
-    elevated: ["repair.create"],
+    screens: ["dashboard","dept_service","team","vendors"],
+    elevated: [],
   },
   crockery: {
     label: "Crockery Dept",
     tier: 2,
-    screens: ["dashboard","dept_crockery","team","store","repair"],
-    elevated: ["repair.create"],
+    screens: ["dashboard","dept_crockery","team","store"],
+    elevated: [],
   },
   beverages: {
     label: "Beverages Dept",
     tier: 2,
-    screens: ["dashboard","dept_beverages","menus","team","store","repair"],
-    elevated: ["repair.create"],
+    screens: ["dashboard","dept_beverages","menus","team","store"],
+    elevated: [],
   },
   transport: {
     label: "Transport",
     tier: 2,
-    screens: ["dashboard","transport","repair"],
-    elevated: ["repair.create"],
+    screens: ["dashboard","transport"],
+    elevated: [],
   },
   kiosk_gate: {
     label: "Gate Kiosk",
@@ -69,15 +69,15 @@ const PRESET_ROLES = {
     screens: ["team"],
     elevated: ["team.attendance_mark"],
   },
-  section_tablet:      {label:"Section Tablet",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_indian:      {label:"Indian Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_chinese:     {label:"Chinese Section",      tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_tandoor:     {label:"Tandoor Section",      tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_chaat:       {label:"Chaat Section",        tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_sweets:      {label:"Sweets Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_continental: {label:"Continental Section",  tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  section_bakery:      {label:"Bakery Section",       tier:1, screens:["kitchen","repair"], elevated:["repair.create"]},
-  staff:               {label:"Staff",                tier:1, screens:["dashboard","kitchen","repair"], elevated:[]},
+  section_tablet:      {label:"Section Tablet",       tier:1, screens:["kitchen"], elevated:[]},
+  section_indian:      {label:"Indian Section",       tier:1, screens:["kitchen"], elevated:[]},
+  section_chinese:     {label:"Chinese Section",      tier:1, screens:["kitchen"], elevated:[]},
+  section_tandoor:     {label:"Tandoor Section",      tier:1, screens:["kitchen"], elevated:[]},
+  section_chaat:       {label:"Chaat Section",        tier:1, screens:["kitchen"], elevated:[]},
+  section_sweets:      {label:"Sweets Section",       tier:1, screens:["kitchen"], elevated:[]},
+  section_continental: {label:"Continental Section",  tier:1, screens:["kitchen"], elevated:[]},
+  section_bakery:      {label:"Bakery Section",       tier:1, screens:["kitchen"], elevated:[]},
+  staff:               {label:"Staff",                tier:1, screens:["dashboard","kitchen"], elevated:[]},
   sales:               {label:"Sales Rep",            tier:2, screens:["dashboard","proposals"], elevated:["proposals.create","proposals.edit","proposals.delete"]},
   sales_manager:       {label:"Sales Manager",        tier:3, screens:["dashboard","proposals","sales_catalogue","menus"], elevated:["proposals.create","proposals.edit","proposals.delete","proposals.view_all","proposals.convert","sales_catalogue.edit"]},
 };
@@ -165,3 +165,4 @@ function permsFromScreens(screenIds) {
 }
 
 export { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
+

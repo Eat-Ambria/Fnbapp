@@ -7,6 +7,7 @@ import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { getCatForDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
@@ -269,11 +270,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
     async function loadIssueState() {
       setIssueLoading(true);
       try {
-        const [aRes, iRes, mRes] = await Promise.all([
-          supabase.from('store_issue_assignments').select('*'),
-          supabase.from('store_issues').select('*'),
-          supabase.from('ingredient_item_map').select('*'),
+        const [aData, iData, mData] = await Promise.all([
+          fetchAllRows(() => supabase.from('store_issue_assignments').select('*')),
+          fetchAllRows(() => supabase.from('store_issues').select('*')),
+          fetchAllRows(() => supabase.from('ingredient_item_map').select('*')),
         ]);
+        const aRes = { data: aData }, iRes = { data: iData }, mRes = { data: mData };
         if (aRes.data) {
           const map = {};
           aRes.data.forEach(r => { map[r.event_id + "::" + r.section_name] = r.venue_code; });

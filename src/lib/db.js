@@ -79,6 +79,35 @@ export async function dbInsert(table, record) {
   }
 }
 
+/**
+ * Paginate a Supabase select through PostgREST's 1000-row cap.
+ * Pass a builder function that returns a fresh query each call
+ * (helper appends .range() per page). Throws on error.
+ *
+ *   const rows = await fetchAllRows(() =>
+ *     supabase.from('attendance').select('*').gte('date', s).lte('date', e).order('date')
+ *   );
+ */
+export async function fetchAllRows(builder, opts = {}) {
+  const pageSize = opts.pageSize || 1000;
+  const maxRows  = opts.maxRows  || 100000;
+  const all = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await builder().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = data || [];
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+    if (all.length >= maxRows) {
+      console.warn('[fetchAllRows] maxRows cap hit at', maxRows, '— increase opts.maxRows if intentional');
+      break;
+    }
+  }
+  return all;
+}
+
 export function dbSubscribe(table, callback) {
   if (!supabase) return () => {};
   const channel = supabase

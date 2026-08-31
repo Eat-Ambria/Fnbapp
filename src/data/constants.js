@@ -1,4 +1,4 @@
-// Ambria FnB — Constants & configuration data
+﻿// Ambria FnB — Constants & configuration data
 // App config (colors, sections, nav) stays here.
 // Operational data (vendors, vehicles, cold items) → empty, hydrated from Supabase.
 
@@ -58,7 +58,7 @@ const NAV_ADMIN = [
   {id:"menus",      label:"Menu",        icon:"📜"},
   {id:"transport",  label:"Transport & Dispatch", icon:"🚛"},
   {id:"store",      label:"Store & Inventory",    icon:"📦"},
-  {id:"repair",     label:"Repair & Maintenance",  icon:"🔧"},
+
   {id:"vendors",    label:"Vendor Directory",      icon:"🤝"},
 ];
 const NAV = NAV_ADMIN;

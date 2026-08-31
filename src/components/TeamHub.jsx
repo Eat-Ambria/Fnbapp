@@ -1,6 +1,7 @@
 // Ambria FnB — Team & Attendance Hub
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
@@ -69,31 +70,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     var lastDay=new Date(y,mo,0).getDate();
     var end=m+'-'+String(lastDay).padStart(2,'0');
     if(end>TODAY) end=TODAY;
-    // Paginate: PostgREST caps at 1000 rows/query. 153 staff × 31 days ≈ 4700 rows,
-    // so a single .select() silently truncated at ~day 13. Loop in 1000-row pages.
-    (async function(){
-      try{
-        var PAGE=1000, all=[], from=0, done=false;
-        while(!done){
-          var res = await supabase.from('attendance').select('*')
-            .gte('date',start).lte('date',end)
-            .order('date',{ascending:true}).order('in_time',{ascending:true})
-            .range(from, from+PAGE-1);
-          if(res.error) throw res.error;
-          var batch = res.data||[];
-          all = all.concat(batch);
-          if(batch.length<PAGE) done=true;
-          else from += PAGE;
-          if(all.length>50000){done=true;} // hard safety cap
-        }
-        setMonthData(all);
-      }catch(err){
-        console.error('fetchMonthData failed:',err);
-        setMonthData([]);
-      }finally{
-        setMonthLoading(false);
-      }
-    })();
+    fetchAllRows(function(){
+      return supabase.from('attendance').select('*')
+        .gte('date',start).lte('date',end)
+        .order('date',{ascending:true}).order('in_time',{ascending:true});
+    })
+      .then(function(rows){ setMonthData(rows); })
+      .catch(function(err){ console.error('fetchMonthData failed:',err); setMonthData([]); })
+      .finally(function(){ setMonthLoading(false); });
   }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);

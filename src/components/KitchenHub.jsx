@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty } from '../utils/helpers.js';
+import { fetchAllRows } from '../lib/db.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
@@ -539,7 +540,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
-  function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>{mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds).then(({data})=>{setUsageLogs(data||[]);});}).catch(()=>setUsageLogs([]));}
+  function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>fetchAllRows(()=>mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds))).then(data=>setUsageLogs(data||[])).catch(()=>setUsageLogs([]));}
   useEffect(()=>{
     if(tab!=="analytics"||!analyticsEvId) return;
     const aEvs=safeArr(events);
@@ -619,10 +620,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!ids.length){ setEvPlanRows({}); return; }
     let cancelled=false;
     import('../lib/supabase.js').then(mod=>{
-      return mod.supabase.from('production_plans').select('*').in('event_id', ids);
-    }).then(({data,error})=>{
+      return fetchAllRows(()=>mod.supabase.from('production_plans').select('*').in('event_id', ids));
+    }).then((data)=>{
       if(cancelled) return;
-      if(error){ console.error('[evPlanRows load]', error); return; }
       const map={};
       (data||[]).forEach(row=>{
         if(!map[row.event_id]) map[row.event_id]={};
