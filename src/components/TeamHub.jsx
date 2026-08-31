@@ -69,10 +69,31 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     var lastDay=new Date(y,mo,0).getDate();
     var end=m+'-'+String(lastDay).padStart(2,'0');
     if(end>TODAY) end=TODAY;
-    supabase.from('attendance').select('*').gte('date',start).lte('date',end)
-      .order('date',{ascending:true})
-      .then(function(res){setMonthData(res.data||[]);setMonthLoading(false);})
-      .catch(function(){setMonthData([]);setMonthLoading(false);});
+    // Paginate: PostgREST caps at 1000 rows/query. 153 staff × 31 days ≈ 4700 rows,
+    // so a single .select() silently truncated at ~day 13. Loop in 1000-row pages.
+    (async function(){
+      try{
+        var PAGE=1000, all=[], from=0, done=false;
+        while(!done){
+          var res = await supabase.from('attendance').select('*')
+            .gte('date',start).lte('date',end)
+            .order('date',{ascending:true}).order('in_time',{ascending:true})
+            .range(from, from+PAGE-1);
+          if(res.error) throw res.error;
+          var batch = res.data||[];
+          all = all.concat(batch);
+          if(batch.length<PAGE) done=true;
+          else from += PAGE;
+          if(all.length>50000){done=true;} // hard safety cap
+        }
+        setMonthData(all);
+      }catch(err){
+        console.error('fetchMonthData failed:',err);
+        setMonthData([]);
+      }finally{
+        setMonthLoading(false);
+      }
+    })();
   }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);
