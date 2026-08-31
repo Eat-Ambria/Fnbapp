@@ -8,6 +8,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
+import DishSectionsEditor from './DishSectionsEditor.jsx';
 import {
   getAllDishes, upsertDishMaster, deactivateDish,
   RECIPE_DB,
@@ -30,6 +31,7 @@ function DishLibrary(props) {
   var isAdmin        = currentUser && (currentUser.role === 'admin' || currentUser.role === 'headchef');
 
   // ── State ────────────────────────────────────────────────────────
+  var [view, setView]         = useState('library'); // 'library' | 'sections'
   var [q, setQ]               = useState('');
   var [filter, setFilter]     = useState('all'); // all | sop | inv | unmapped | unused
   var [showRetired, setShowRetired] = useState(false);
@@ -352,6 +354,34 @@ function DishLibrary(props) {
   return (
     <div>
 
+      {/* TABS */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '0.5px solid ' + C.border, marginBottom: 16 }}>
+        {[
+          { id: 'library',  label: T2('All dishes') },
+          { id: 'sections', label: T2('Sections') },
+        ].map(function(t){
+          var active = view === t.id;
+          return (
+            <button key={t.id} onClick={function(){ setView(t.id); }}
+              style={{
+                padding: '10px 18px', background: 'transparent', border: 0,
+                borderBottom: '2px solid ' + (active ? C.gold : 'transparent'),
+                color: active ? C.text : C.muted,
+                fontSize: 13, fontWeight: active ? 500 : 400, cursor: 'pointer',
+                marginBottom: -1,
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {view === 'sections' && (
+        <DishSectionsEditor lang={lang} currentUser={currentUser} />
+      )}
+
+      {view === 'library' && <>
+
       {/* SUMMARY STRIP */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
         <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
@@ -586,6 +616,7 @@ function DishLibrary(props) {
         allowDeactivate={true}
       />
 
+      </>}
     </div>
   );
 }
