@@ -492,6 +492,39 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             {(monthSearch||monthDeptFilter!=='All')&&
               <button onClick={function(){setMonthSearch('');setMonthDeptFilter('All');}}
                 style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>✕ Clear</button>}
+            <div style={{flex:1}}></div>
+            <button onClick={function(){
+              var esc=function(v){var s=String(v==null?'':v);return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+              var fmtHrs=function(h){var m=Math.round((h||0)*60);return Math.floor(m/60)+'h '+(m%60)+'m';};
+              var lines=[];
+              lines.push(['Monthly Attendance']);
+              lines.push([monthLabel, daysInRange+' days', filteredRows.length+'/'+rows.length+' staff', 'Dept: '+monthDeptFilter]);
+              lines.push([]);
+              lines.push(['Summary']);
+              lines.push(['Avg Days/Person', fAvgAtt]);
+              lines.push(['Total Present Days', fPresent]);
+              lines.push(['Half Days', fHalf]);
+              lines.push(['Incomplete', fInc]);
+              lines.push([]);
+              lines.push(['Name','Dept','Section','Present','Half','Absent','Incomplete','Total Hrs','Avg Hrs/Day']);
+              filteredRows.forEach(function(r){
+                lines.push([r.name, r.dept, r.section||'', r.present, r.halfDay, r.absent, r.incomplete, fmtHrs(r.totalHrs), (r.avgHrs||0).toFixed(1)]);
+              });
+              lines.push([]);
+              lines.push(['Totals', filteredRows.length+' staff', '', fPresent, fHalf, filteredRows.reduce(function(a,r){return a+r.absent;},0), fInc,
+                fmtHrs(filteredRows.reduce(function(a,r){return a+(r.totalHrs||0);},0)), '']);
+              var csv='\ufeff'+lines.map(function(row){return row.map(esc).join(',');}).join('\r\n');
+              var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+              var url=URL.createObjectURL(blob);
+              var a=document.createElement('a');
+              var slug=monthStr+(monthDeptFilter!=='All'?'_'+monthDeptFilter.toLowerCase().replace(/\s+/g,'-'):'');
+              a.href=url; a.download='attendance_'+slug+'.csv';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              setTimeout(function(){URL.revokeObjectURL(url);},100);
+            }}
+              style={{padding:'7px 14px',borderRadius:8,border:'1px solid '+C.green,background:C.greenBg,color:C.green,fontSize:11,fontWeight:600,cursor:'pointer'}}>
+              📥 Export Excel
+            </button>
           </div>
           {monthLoading&&<div style={{padding:30,textAlign:'center',color:C.muted,fontSize:12}}>Loading…</div>}
           {!monthLoading&&monthData&&<div>
