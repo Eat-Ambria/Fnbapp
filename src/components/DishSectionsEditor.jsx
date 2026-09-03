@@ -20,6 +20,9 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const DEPTS = [
   { id: 'kitchen',  label: 'Kitchen',  icon: '🍲' },
@@ -27,6 +30,20 @@ const DEPTS = [
   { id: 'bakery',   label: 'Bakery',   icon: '🥧' },
   { id: 'fruits',   label: 'Fruits',   icon: '🍎' },
 ];
+
+// V73: stable module-level wrapper so useSortable's state survives parent re-renders.
+// Uses render-prop pattern — child function receives { ref, style, dragAttrs, dragListeners }
+// and applies them to the drag handle + outer container.
+function SortableItem(props) {
+  const s = useSortable({ id: props.id });
+  const style = {
+    transform: CSS.Transform.toString(s.transform),
+    transition: s.transition,
+    opacity: s.isDragging ? 0.5 : 1,
+    zIndex: s.isDragging ? 10 : 0,
+  };
+  return props.children({ ref: s.setNodeRef, style: style, dragAttrs: s.attributes, dragListeners: s.listeners });
+}
 
 function DishSectionsEditor(props) {
   const lang = props.lang || 'en';
@@ -138,18 +155,46 @@ function DishSectionsEditor(props) {
     finally { setSaving(false); }
   }
 
-  async function moveSection(sec, dir) {
+  // V73: drag-and-drop replaces click-based section reorder.
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  async function onSectionDragEnd(event) {
     if (!isAdmin) return;
-    const idx = sections.findIndex(function(s){ return s.id === sec.id; });
-    const targetIdx = idx + dir;
-    if (targetIdx < 0 || targetIdx >= sections.length) return;
-    const target = sections[targetIdx];
+    const active = event.active;
+    const over = event.over;
+    if (!over || active.id === over.id) return;
+    const oldIdx = sections.findIndex(function(s){ return s.id === active.id; });
+    const newIdx = sections.findIndex(function(s){ return s.id === over.id; });
+    if (oldIdx < 0 || newIdx < 0) return;
+
+    const prevSections = sections;
+    const reordered = arrayMove(sections, oldIdx, newIdx);
+    // Renumber to keep 10-step spacing so future single-row inserts fit between neighbours.
+    const renumbered = reordered.map(function(s, i){ return { ...s, sort_order: (i + 1) * 10 }; });
+
+    // Optimistic local update — realtime on dish_catalogue_sections may not be enabled.
+    setSections(renumbered);
     setSaving(true);
     try {
-      await supabase.from('dish_catalogue_sections').update({ sort_order: target.sort_order }).eq('id', sec.id);
-      await supabase.from('dish_catalogue_sections').update({ sort_order: sec.sort_order }).eq('id', target.id);
-    } catch (e) { alert('Move failed: ' + e.message); }
-    finally { setSaving(false); }
+      // Only write the rows whose sort_order actually changed (minimises churn).
+      const changed = renumbered.filter(function(s){
+        const orig = prevSections.find(function(p){ return p.id === s.id; });
+        return !orig || orig.sort_order !== s.sort_order;
+      });
+      if (changed.length > 0) {
+        const payload = changed.map(function(s){ return { id: s.id, sort_order: s.sort_order }; });
+        const { data, error } = await supabase.from('dish_catalogue_sections')
+          .upsert(payload, { onConflict: 'id' })
+          .select('id');
+        if (error) throw error;
+        if (!data || data.length !== changed.length) {
+          console.warn('[Sections] upsert row-count mismatch — check RLS');
+        }
+      }
+    } catch (e) {
+      alert('Reorder failed: ' + e.message);
+      setSections(prevSections); // revert local
+    } finally { setSaving(false); }
   }
 
   async function moveDish(dishName, direction, currentSectionId) {
@@ -281,22 +326,22 @@ function DishSectionsEditor(props) {
     );
   }
 
-  function sectionRow(sec) {
+  function sectionRow(sec, drag) {
     const dishes = dishesBySection[sec.id] || [];
     const isExpanded = expanded.has(sec.id);
     const isRenaming = renamingId === sec.id;
     const otherCount = sections.length - 1;
     const printPos = Math.floor((sec.sort_order || 0) / 10);
+    // V73: drag ref/style applied to outer container; listeners applied to grip handle only.
     return (
-      <div key={sec.id} style={{ background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px' }}>
-          {isAdmin && (
-            <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
-              <button onClick={function(){ moveSection(sec, -1); }} disabled={saving} title="Move up"
-                style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: 0, fontSize: 10, color: C.muted, lineHeight: 1 }}>▲</button>
-              <button onClick={function(){ moveSection(sec, 1); }} disabled={saving} title="Move down"
-                style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: 0, fontSize: 10, color: C.muted, lineHeight: 1 }}>▼</button>
-            </div>
+          {isAdmin && drag && (
+            <span {...drag.dragAttrs} {...drag.dragListeners}
+              title="Drag to reorder"
+              style={{ cursor: 'grab', userSelect: 'none', padding: '2px 4px', fontSize: 13, color: C.muted, lineHeight: 1, touchAction: 'none' }}>
+              ⋮⋮
+            </span>
           )}
           <span style={{ cursor: 'pointer', color: C.muted, fontSize: 11, padding: '0 2px' }} onClick={function(){ toggleExpand(sec.id); }}>
             {isExpanded ? '▾' : '▸'}
@@ -397,7 +442,19 @@ function DishSectionsEditor(props) {
         </div>
       )}
 
-      {!loading && sections.length > 0 && sections.map(sectionRow)}
+      {!loading && sections.length > 0 && (
+        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
+          <SortableContext items={sections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+            {sections.map(function(sec){
+              return (
+                <SortableItem key={sec.id} id={sec.id}>
+                  {function(drag){ return sectionRow(sec, drag); }}
+                </SortableItem>
+              );
+            })}
+          </SortableContext>
+        </DndContext>
+      )}
 
       {/* Unassigned bucket */}
       {!loading && unassignedList.length > 0 && (
