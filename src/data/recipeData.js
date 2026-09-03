@@ -562,16 +562,18 @@ function getAllDishes(opts) {
     const mapped = DISH_NAME_MAP[name];
     const mappedResolves = mapped && mapped !== '__none__' && recipeNameSet.has(mapped);
     out.push({
-      dish_name:    name,
-      is_active:    row.is_active !== false,
-      notes:        row.notes || '',
-      image_url:    row.image_url || '',
+      dish_name:       name,
+      is_active:       row.is_active !== false,
+      notes:           row.notes || '',
+      image_url:       row.image_url || '',
       catId,
-      catName:      catId ? (catIdToName[catId] || catId) : null,
-      hasRecipe:    recipeNameSet.has(name) || mappedResolves,
-      mappedTo:     mappedResolves ? mapped : null,
-      explicitNone: mapped === '__none__',
-      hindi:        DISH_HINDI_MAP[name] || ''
+      catName:         catId ? (catIdToName[catId] || catId) : null,
+      hasRecipe:       recipeNameSet.has(name) || mappedResolves,
+      mappedTo:        mappedResolves ? mapped : null,
+      explicitNone:    mapped === '__none__',
+      hindi:           DISH_HINDI_MAP[name] || '',
+      section_id:      row.section_id || null,
+      sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section)
     });
   });
   return out.sort((a, b) => a.dish_name.localeCompare(b.dish_name));

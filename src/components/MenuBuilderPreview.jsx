@@ -2,12 +2,13 @@
 // V70 Phase 6: client-facing menu card + Print/Save-as-PDF via window.print().
 // Place in: src/components/MenuBuilderPreview.jsx
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 
 // Print stylesheet — injected inline so Preview is self-contained (no global CSS changes).
 // Hides everything except the print card + resets margins/backgrounds for clean PDF output.
@@ -64,12 +65,126 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     return deptsWithSortedCats;
   }, [dishItems, salesMeta]);
 
-  // Sort depts in the sidebar order, filter to only those with items
+  // ── V72 Phase 2C: dish_catalogue_sections (kitchen dept only) ──
+  var [sections, setSections] = useState([]);
+  useEffect(function(){
+    var cancelled = false;
+    (async function(){
+      try {
+        var rows = await fetchAllRows(function(){
+          return supabase.from('dish_catalogue_sections')
+            .select('id, name, sort_order, sop_category_hint')
+            .eq('dept', 'kitchen')
+            .order('sort_order', { ascending: true });
+        });
+        if (!cancelled) setSections(rows || []);
+      } catch (e) {
+        console.warn('[Preview] sections load failed, falling back to cat grouping:', e);
+      }
+    })();
+    return function(){ cancelled = true; };
+  }, []);
+
+  // Dish → { section_id, sort_in_section } lookup, built once from hydrated master.
+  var dishSectionMap = useMemo(function(){
+    var m = {};
+    (getAllDishes ? getAllDishes({ includeInactive: true }) : []).forEach(function(d){
+      m[d.dish_name] = {
+        section_id:      d.section_id || null,
+        sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
+      };
+    });
+    return m;
+  }, []);
+
+  // ── Kitchen section groups (V72 Phase 2C) ──
+  // Groups kitchen-dept dishItems by dish_catalogue_sections.
+  // Within each section: pinned block (in package's dishes[] order) + rest
+  //   (sort_in_section asc, then A→Z). Unassigned + orphaned dishes fall into
+  //   an Extras bucket at the bottom, rendered WITHOUT a section header (per V72
+  //   design lock). Returns [] until sections load — caller falls back to
+  //   byDeptByCat['kit'] in that window.
+  var kitSectionGroups = useMemo(function(){
+    if (!sections || sections.length === 0) return [];
+
+    // Kitchen items only
+    var kitItems = (dishItems || []).filter(function(it){
+      var meta = salesMeta[it.dish_name];
+      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      return dept === 'kit';
+    });
+    if (kitItems.length === 0) return [];
+
+    var pkgOrder = {};
+    ((templateInfo && templateInfo.dishes) || []).forEach(function(d, i){ pkgOrder[d] = i; });
+
+    var validSectionIds = {};
+    sections.forEach(function(s){ validSectionIds[s.id] = true; });
+
+    var bySection = {};
+    var extras = [];
+    kitItems.forEach(function(it){
+      var map = dishSectionMap[it.dish_name];
+      var sid = map ? map.section_id : null;
+      if (sid && validSectionIds[sid]) {
+        if (!bySection[sid]) bySection[sid] = [];
+        bySection[sid].push(it);
+      } else {
+        extras.push(it);
+      }
+    });
+
+    function sortWithin(list) {
+      var pinned = [];
+      var rest = [];
+      list.forEach(function(it){
+        if (it.dish_name in pkgOrder) pinned.push(it);
+        else rest.push(it);
+      });
+      pinned.sort(function(a, b){ return pkgOrder[a.dish_name] - pkgOrder[b.dish_name]; });
+      rest.sort(function(a, b){
+        var ma = dishSectionMap[a.dish_name];
+        var mb = dishSectionMap[b.dish_name];
+        var sa = (ma && ma.sort_in_section != null) ? ma.sort_in_section : 999999;
+        var sb = (mb && mb.sort_in_section != null) ? mb.sort_in_section : 999999;
+        if (sa !== sb) return sa - sb;
+        return a.dish_name.localeCompare(b.dish_name);
+      });
+      return pinned.concat(rest);
+    }
+
+    function iconFor(s) {
+      if (!s.sop_category_hint) return '';
+      var cat = (RECIPE_DB.cats || []).find(function(c){
+        return c.name === s.sop_category_hint || c.id === s.sop_category_hint;
+      });
+      return (cat && cat.icon) ? cat.icon : '';
+    }
+
+    var out = [];
+    sections.forEach(function(s){
+      var list = bySection[s.id] || [];
+      if (list.length === 0) return;
+      out.push({ id: s.id, name: s.name, icon: iconFor(s), items: sortWithin(list) });
+    });
+    if (extras.length > 0) {
+      // Extras block: no section header rendered (unlabeled per V72 lock).
+      out.push({ id: '__extras__', name: '', icon: '', items: sortWithin(extras) });
+    }
+    return out;
+  }, [sections, dishItems, salesMeta, templateInfo, dishSectionMap]);
+
+  // Sort depts in the sidebar order, filter to only those with items.
+  // Kitchen may have items only via kitSectionGroups when sections just loaded;
+  // check both to avoid a false-empty during that window.
   var deptSections = useMemo(function(){
     return SALES_DEPTS.filter(function(d){
-      return ITEM_HAVING_DEPTS.indexOf(d.id) >= 0 && byDeptByCat[d.id] && byDeptByCat[d.id].length > 0;
+      if (ITEM_HAVING_DEPTS.indexOf(d.id) < 0) return false;
+      var hasCat = byDeptByCat[d.id] && byDeptByCat[d.id].length > 0;
+      var hasSec = d.id === 'kit' && kitSectionGroups && kitSectionGroups.length > 0;
+      return hasCat || hasSec;
     });
-  }, [byDeptByCat]);
+  }, [byDeptByCat, kitSectionGroups]);
 
   var totalItems = (dishItems || []).length;
 
@@ -205,7 +320,9 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
 
         {/* Dept sections */}
         {deptSections.map(function(dept){
-          var cats = byDeptByCat[dept.id] || [];
+          // V72 Phase 2C: kitchen groups by dish_catalogue_sections when available.
+          var useSec = (dept.id === 'kit' && kitSectionGroups && kitSectionGroups.length > 0);
+          var cats = useSec ? kitSectionGroups : (byDeptByCat[dept.id] || []);
           return (
             <div key={dept.id} className="ambria-print-dept" style={{ marginBottom: 32 }}>
               {/* Dept header */}
@@ -220,17 +337,20 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
                 </span>
               </div>
 
-              {/* Categories in this dept */}
+              {/* Categories / sections in this dept */}
               {cats.map(function(cat){
+                var isExtras = cat.id === '__extras__';
                 return (
                   <div key={cat.id} className="ambria-print-cat" style={{ marginBottom: 20 }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 700, color: "#8a7a5d",
-                      textTransform: "uppercase", letterSpacing: 2,
-                      marginBottom: 8, paddingLeft: 4,
-                    }}>
-                      {cat.icon} {cat.name}
-                    </div>
+                    {!isExtras && (
+                      <div style={{
+                        fontSize: 12, fontWeight: 700, color: "#8a7a5d",
+                        textTransform: "uppercase", letterSpacing: 2,
+                        marginBottom: 8, paddingLeft: 4,
+                      }}>
+                        {cat.icon ? (cat.icon + ' ') : ''}{cat.name}
+                      </div>
+                    )}
                     <div style={{ paddingLeft: 20 }}>
                       {cat.items.map(function(item, ii){
                         var meta = salesMeta[item.dish_name];

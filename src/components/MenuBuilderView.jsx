@@ -10,6 +10,7 @@ import { detectPackageDiet } from '../utils/helpers.js';
 import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
 import TotalPanel from './TotalPanel.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
@@ -60,21 +61,72 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // ── All dishes (from dishes_master via getAllDishes) ──
   var allDishes = useMemo(function(){
     var raw = getAllDishes ? getAllDishes({ includeInactive: false }) : [];
-    // Enrich each dish with resolved category + hindi
+    // Enrich each dish with resolved category + hindi + section metadata
     return raw.map(function(d){
       var catId = getCatIdForDish(d.dish_name) || 'other';
       var catObj = (RECIPE_DB.cats || []).find(function(c){ return c.id === catId; });
       return {
-        name:    d.dish_name,
-        hindi:   resolveDishHindi ? resolveDishHindi(d.dish_name) : '',
-        catId:   catId,
-        catName: catObj ? catObj.name : 'Other',
-        catIcon: catObj ? (catObj.icon || '🍽') : '🍽',
-        image:   d.image_url || '',
-        notes:   d.notes || '',
+        name:            d.dish_name,
+        hindi:           resolveDishHindi ? resolveDishHindi(d.dish_name) : '',
+        catId:           catId,
+        catName:         catObj ? catObj.name : 'Other',
+        catIcon:         catObj ? (catObj.icon || '🍽') : '🍽',
+        image:           d.image_url || '',
+        notes:           d.notes || '',
+        section_id:      d.section_id || null,
+        sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
       };
     });
   }, []);
+
+  // ── V72 Phase 2: kitchen dish_catalogue_sections ──
+  // Fetched once on mount. If load fails or empty, section grouping falls back to
+  // category grouping (existing behaviour). Non-kitchen depts always use category grouping.
+  var [sections, setSections] = useState([]);
+  useEffect(function(){
+    var cancelled = false;
+    (async function(){
+      try {
+        var rows = await fetchAllRows(function(){
+          return supabase.from('dish_catalogue_sections')
+            .select('id, name, sort_order, sop_category_hint')
+            .eq('dept', 'kitchen')
+            .order('sort_order', { ascending: true });
+        });
+        if (!cancelled) setSections(rows || []);
+      } catch (e) {
+        console.warn('[MenuBuilder] sections load failed, falling back to cat grouping:', e);
+      }
+    })();
+    return function(){ cancelled = true; };
+  }, []);
+
+  // ── V72 Phase 2: phantom dishes ──
+  // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
+  // sales can see catalogue mismatches without losing the pre-seeded proposal item.
+  // Kitchen dept only — non-kitchen depts inherit category grouping and no phantom logic.
+  var phantomDishes = useMemo(function(){
+    if (activeDept !== 'kit') return [];
+    if (!templateInfo.dishes || templateInfo.dishes.length === 0) return [];
+    var nameSet = {};
+    allDishes.forEach(function(d){ nameSet[d.name] = true; });
+    return templateInfo.dishes
+      .filter(function(name){ return !nameSet[name]; })
+      .map(function(name){
+        return {
+          name:            name,
+          hindi:           '',
+          catId:           'other',
+          catName:         'Extras',
+          catIcon:         '⚠',
+          image:           '',
+          notes:           '',
+          section_id:      null,
+          sort_in_section: null,
+          isPhantom:       true,
+        };
+      });
+  }, [activeDept, allDishes, templateInfo.dishes]);
 
   // ── Load sales_items_meta ──
   async function loadSalesMeta() {
@@ -237,13 +289,18 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   }, [allDishes, salesMeta, selectedSet]);
 
   // ── Dishes for active dept (dishes without meta fall to DEFAULT_DEPT = 'kit') ──
+  // V72 Phase 2: for kitchen, append phantomDishes so catalogue orphans still render.
   var deptDishes = useMemo(function(){
-    return allDishes.filter(function(d){
+    var base = allDishes.filter(function(d){
       var meta = salesMeta[d.name];
       var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
-  }, [allDishes, salesMeta, activeDept]);
+    if (activeDept === 'kit' && phantomDishes.length > 0) {
+      return base.concat(phantomDishes);
+    }
+    return base;
+  }, [allDishes, salesMeta, activeDept, phantomDishes]);
 
   // ── Template dishes scoped to active dept ──
   var templateDishesInDept = useMemo(function(){
@@ -284,6 +341,73 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     Object.keys(groups).forEach(function(id){ if (order.indexOf(id) < 0) sorted.push({ id: id, ...groups[id] }); });
     return sorted;
   }, [visibleDishes]);
+
+  // ── V72 Phase 2: group visible dishes by dish_catalogue_sections (kitchen only) ──
+  // Returns null when not applicable — caller falls back to groupedByCat.
+  // Within each section: pinned block (template dishes in package order) first, then rest.
+  // Rest sorted by sort_in_section (nullish last), then alphabetical.
+  // Unassigned + phantom + orphaned dishes fall into an Extras bucket at the bottom.
+  var groupedBySection = useMemo(function(){
+    if (activeDept !== 'kit') return null;
+    if (!sections || sections.length === 0) return null;
+
+    // Package dish → order index (for pinned block ordering)
+    var pkgOrder = {};
+    (templateInfo.dishes || []).forEach(function(d, i){ pkgOrder[d] = i; });
+
+    // Valid section id set (dishes with section_id not in this set fall to Extras)
+    var validSectionIds = {};
+    sections.forEach(function(s){ validSectionIds[s.id] = true; });
+
+    // Bucket
+    var bySection = {};
+    var extras = [];
+    visibleDishes.forEach(function(d){
+      if (d.section_id && validSectionIds[d.section_id]) {
+        if (!bySection[d.section_id]) bySection[d.section_id] = [];
+        bySection[d.section_id].push(d);
+      } else {
+        extras.push(d);
+      }
+    });
+
+    function sortWithin(list) {
+      var pinned = [];
+      var rest = [];
+      list.forEach(function(d){
+        if (d.name in pkgOrder) pinned.push(d);
+        else rest.push(d);
+      });
+      pinned.sort(function(a, b){ return pkgOrder[a.name] - pkgOrder[b.name]; });
+      rest.sort(function(a, b){
+        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
+        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name);
+      });
+      return pinned.concat(rest);
+    }
+
+    // Resolve section icon from sop_category_hint (via RECIPE_DB.cats lookup)
+    function iconFor(s) {
+      if (!s.sop_category_hint) return '🍽';
+      var cat = (RECIPE_DB.cats || []).find(function(c){
+        return c.name === s.sop_category_hint || c.id === s.sop_category_hint;
+      });
+      return (cat && cat.icon) ? cat.icon : '🍽';
+    }
+
+    var out = [];
+    sections.forEach(function(s){
+      var list = bySection[s.id] || [];
+      if (list.length === 0) return; // skip empty sections
+      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(list) });
+    });
+    if (extras.length > 0) {
+      out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
+    }
+    return out;
+  }, [activeDept, sections, visibleDishes, templateInfo.dishes]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -412,7 +536,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   dietFilter={dietFilter} setDietFilter={setDietFilter}
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
-                  groupedByCat={groupedByCat}
+                  groupedByCat={(activeDept === 'kit' && groupedBySection) ? groupedBySection : groupedByCat}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
@@ -541,9 +665,16 @@ function ItemsTab({ T2, activeDept, searchQ, setSearchQ, dietFilter, setDietFilt
                       transition: "transform 0.08s ease",
                     }}>
                     {/* ADD-ON badge */}
-                    {!inT && isSel && (
+                    {!inT && isSel && !d.isPhantom && (
                       <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
                         ADD-ON
+                      </span>
+                    )}
+                    {/* PHANTOM badge — dish in package but not in catalogue */}
+                    {d.isPhantom && (
+                      <span title="Not in dish catalogue — edit in Dish Library"
+                        style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+                        ⚠ NO CAT
                       </span>
                     )}
                     {/* Checkbox */}

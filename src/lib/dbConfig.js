@@ -227,9 +227,11 @@ export async function loadAllConfig() {
   (dishMasterRaw || []).forEach(r => {
     if (r && r.dish_name) {
       dishMaster[r.dish_name] = {
-        is_active: r.is_active !== false,
-        notes:     r.notes || '',
-        image_url: r.image_url || ''
+        is_active:       r.is_active !== false,
+        notes:           r.notes || '',
+        image_url:       r.image_url || '',
+        section_id:      r.section_id || null,
+        sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section)
       };
     }
   });
