@@ -20,6 +20,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import { SALES_DEPTS, ITEM_HAVING_DEPTS } from '../data/salesConfig.js';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -156,10 +157,22 @@ function DishSectionsEditor(props) {
     if (!window.confirm(msg)) return;
     setSaving(true);
     try {
+      // V73: orphan dishes to Unassigned in DB FIRST, then delete the section.
+      // Without this the dishes keep a section_id pointing at a deleted row and
+      // disappear from both the section (which is gone) and the Unassigned bucket.
+      const assignedNames = Object.keys(dishAssignments).filter(function(n){
+        return dishAssignments[n] && dishAssignments[n].section_id === sec.id;
+      });
+      if (assignedNames.length > 0) {
+        const { error: uErr } = await supabase.from('dishes_master')
+          .update({ section_id: null, sort_in_section: null })
+          .in('dish_name', assignedNames);
+        if (uErr) throw uErr;
+      }
       const { data, error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id).select('id');
       if (error) throw error;
       if (!data || data.length === 0) { alert('Delete failed: 0 rows deleted (RLS?)'); return; }
-      // V73: optimistic local removal + orphan the dish assignments locally
+      // Optimistic local removal + orphan the dish assignments locally
       setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== sec.id; }); });
       setDishAssignments(function(prev){
         const next = { ...(prev || {}) };
@@ -174,6 +187,25 @@ function DishSectionsEditor(props) {
 
   // V73: drag-and-drop replaces click-based section reorder.
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // V73: route a section's dishes to a specific Menu Builder sidebar tab.
+  // null = default to 'kit' (kitchen). Only ITEM_HAVING_DEPTS make sense (kit/bev/bak/frt).
+  async function setSalesDept(sectionId, salesDept) {
+    if (!isAdmin) return;
+    const val = salesDept || null;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.from('dish_catalogue_sections')
+        .update({ sales_dept: val })
+        .eq('id', sectionId)
+        .select('id');
+      if (error) throw error;
+      if (!data || data.length === 0) { alert('Route failed: 0 rows updated (RLS?)'); return; }
+      // Optimistic local update
+      setSections(function(prev){ return (prev || []).map(function(s){ return s.id === sectionId ? { ...s, sales_dept: val } : s; }); });
+    } catch (e) { alert('Route failed: ' + e.message); }
+    finally { setSaving(false); }
+  }
 
   async function onSectionDragEnd(event) {
     if (!isAdmin) return;
@@ -383,6 +415,17 @@ function DishSectionsEditor(props) {
             <>
               <span style={{ fontSize: 13, fontWeight: 500, color: C.text, flex: 1, cursor: 'pointer' }} onClick={function(){ toggleExpand(sec.id); }}>{sec.name}</span>
               {sec.sop_category_hint && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: '#E7F0F7', color: '#1E5A8F', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>SOP · {sec.sop_category_hint}</span>}
+              {isAdmin && (
+                <select value={sec.sales_dept || ''}
+                  onChange={function(e){ setSalesDept(sec.id, e.target.value); }}
+                  title="Which Menu Builder sidebar tab shows this section"
+                  style={{ fontSize: 10, padding: '2px 6px', border: '1px solid ' + C.border, borderRadius: 999, background: sec.sales_dept ? '#F4EEDA' : C.surface, color: sec.sales_dept ? '#7A5B12' : C.muted, cursor: 'pointer', fontWeight: sec.sales_dept ? 600 : 400 }}>
+                  <option value="">→ Kitchen tab (default)</option>
+                  {SALES_DEPTS.filter(function(d){ return ITEM_HAVING_DEPTS.indexOf(d.id) >= 0; }).map(function(d){
+                    return <option key={d.id} value={d.id}>→ {d.name} tab</option>;
+                  })}
+                </select>
+              )}
               <span style={{ fontSize: 11, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
               {isAdmin && (
                 <div style={{ display: 'flex', gap: 2 }}>

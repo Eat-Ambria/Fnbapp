@@ -65,7 +65,9 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     return deptsWithSortedCats;
   }, [dishItems, salesMeta]);
 
-  // ── V72 Phase 2C: dish_catalogue_sections (kitchen dept only) ──
+  // ── V72/V73: dish_catalogue_sections (all depts) ──
+  // Each section may carry a sales_dept override that routes it to a specific
+  // sidebar tab. Null override defaults to 'kit'.
   var [sections, setSections] = useState([]);
   useEffect(function(){
     var cancelled = false;
@@ -73,8 +75,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint')
-            .eq('dept', 'kitchen')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -84,6 +85,13 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     })();
     return function(){ cancelled = true; };
   }, []);
+
+  // V73: sectionId → effective sales_dept (override or 'kit' default)
+  var sectionSalesDeptMap = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
+    return m;
+  }, [sections]);
 
   // Dish → { section_id, sort_in_section } lookup, built once from hydrated master.
   var dishSectionMap = useMemo(function(){
@@ -97,42 +105,26 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     return m;
   }, []);
 
-  // ── Kitchen section groups (V72 Phase 2C) ──
-  // Groups kitchen-dept dishItems by dish_catalogue_sections.
-  // Within each section: pinned block (in package's dishes[] order) + rest
-  //   (sort_in_section asc, then A→Z). Unassigned + orphaned dishes fall into
-  //   an Extras bucket at the bottom, rendered WITHOUT a section header (per V72
-  //   design lock). Returns [] until sections load — caller falls back to
-  //   byDeptByCat['kit'] in that window.
-  var kitSectionGroups = useMemo(function(){
-    if (!sections || sections.length === 0) return [];
-
-    // Kitchen items only
-    var kitItems = (dishItems || []).filter(function(it){
-      var meta = salesMeta[it.dish_name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
-      return dept === 'kit';
-    });
-    if (kitItems.length === 0) return [];
+  // ── V73: section groups for any dept ──
+  // { deptId: [ { id, name, icon, items }, ..., { id: '__extras__', ..., items } ] }
+  // A section belongs to the dept given by its sales_dept override (or 'kit' default).
+  // A dish's effective dept = section override (if section-assigned) or dish meta sales_dept.
+  // Extras bucket collects: (a) items whose effective dept matches but section_id is unset
+  // /orphaned, (b) phantoms (dish_name not in catalogue). Rendered unlabeled per V72 lock.
+  var sectionGroupsByDept = useMemo(function(){
+    var byDept = {};
+    if (!sections || sections.length === 0 || !dishItems || dishItems.length === 0) return byDept;
 
     var pkgOrder = {};
     ((templateInfo && templateInfo.dishes) || []).forEach(function(d, i){ pkgOrder[d] = i; });
 
-    var validSectionIds = {};
-    sections.forEach(function(s){ validSectionIds[s.id] = true; });
-
-    var bySection = {};
-    var extras = [];
-    kitItems.forEach(function(it){
-      var map = dishSectionMap[it.dish_name];
-      var sid = map ? map.section_id : null;
-      if (sid && validSectionIds[sid]) {
-        if (!bySection[sid]) bySection[sid] = [];
-        bySection[sid].push(it);
-      } else {
-        extras.push(it);
-      }
-    });
+    function iconFor(s) {
+      if (!s.sop_category_hint) return '';
+      var cat = (RECIPE_DB.cats || []).find(function(c){
+        return c.name === s.sop_category_hint || c.id === s.sop_category_hint;
+      });
+      return (cat && cat.icon) ? cat.icon : '';
+    }
 
     function sortWithin(list) {
       var pinned = [];
@@ -153,38 +145,65 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       return pinned.concat(rest);
     }
 
-    function iconFor(s) {
-      if (!s.sop_category_hint) return '';
-      var cat = (RECIPE_DB.cats || []).find(function(c){
-        return c.name === s.sop_category_hint || c.id === s.sop_category_hint;
-      });
-      return (cat && cat.icon) ? cat.icon : '';
-    }
-
-    var out = [];
-    sections.forEach(function(s){
-      var list = bySection[s.id] || [];
-      if (list.length === 0) return;
-      out.push({ id: s.id, name: s.name, icon: iconFor(s), items: sortWithin(list) });
+    // Compute effective dept per item once
+    var itemDept = {};
+    dishItems.forEach(function(it){
+      var map = dishSectionMap[it.dish_name];
+      var sid = map ? map.section_id : null;
+      var override = sid ? sectionSalesDeptMap[sid] : null;
+      var meta = salesMeta[it.dish_name];
+      itemDept[it.dish_name] = override || (meta && meta.sales_dept) || DEFAULT_DEPT;
     });
-    if (extras.length > 0) {
-      // Extras block: no section header rendered (unlabeled per V72 lock).
-      out.push({ id: '__extras__', name: '', icon: '', items: sortWithin(extras) });
-    }
-    return out;
-  }, [sections, dishItems, salesMeta, templateInfo, dishSectionMap]);
+
+    // For each dept, bucket into sections + extras
+    var deptIds = {};
+    dishItems.forEach(function(it){ deptIds[itemDept[it.dish_name]] = true; });
+
+    Object.keys(deptIds).forEach(function(deptId){
+      var deptSections = sections.filter(function(s){ return (s.sales_dept || 'kit') === deptId; });
+      var validSectionIds = {};
+      deptSections.forEach(function(s){ validSectionIds[s.id] = true; });
+
+      var bySection = {};
+      var extras = [];
+      dishItems.forEach(function(it){
+        if (itemDept[it.dish_name] !== deptId) return;
+        var map = dishSectionMap[it.dish_name];
+        var sid = map ? map.section_id : null;
+        if (sid && validSectionIds[sid]) {
+          if (!bySection[sid]) bySection[sid] = [];
+          bySection[sid].push(it);
+        } else {
+          extras.push(it);
+        }
+      });
+
+      var out = [];
+      deptSections.forEach(function(s){
+        var list = bySection[s.id] || [];
+        if (list.length === 0) return;
+        out.push({ id: s.id, name: s.name, icon: iconFor(s), items: sortWithin(list) });
+      });
+      if (extras.length > 0) {
+        out.push({ id: '__extras__', name: '', icon: '', items: sortWithin(extras) });
+      }
+      if (out.length > 0) byDept[deptId] = out;
+    });
+
+    return byDept;
+  }, [sections, dishItems, salesMeta, templateInfo, dishSectionMap, sectionSalesDeptMap]);
 
   // Sort depts in the sidebar order, filter to only those with items.
-  // Kitchen may have items only via kitSectionGroups when sections just loaded;
-  // check both to avoid a false-empty during that window.
+  // V73: check both byDeptByCat and sectionGroupsByDept — a dept may have items
+  // only via section routing during initial load or if all its items are routed.
   var deptSections = useMemo(function(){
     return SALES_DEPTS.filter(function(d){
       if (ITEM_HAVING_DEPTS.indexOf(d.id) < 0) return false;
       var hasCat = byDeptByCat[d.id] && byDeptByCat[d.id].length > 0;
-      var hasSec = d.id === 'kit' && kitSectionGroups && kitSectionGroups.length > 0;
+      var hasSec = sectionGroupsByDept[d.id] && sectionGroupsByDept[d.id].length > 0;
       return hasCat || hasSec;
     });
-  }, [byDeptByCat, kitSectionGroups]);
+  }, [byDeptByCat, sectionGroupsByDept]);
 
   var totalItems = (dishItems || []).length;
 
@@ -320,9 +339,10 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
 
         {/* Dept sections */}
         {deptSections.map(function(dept){
-          // V72 Phase 2C: kitchen groups by dish_catalogue_sections when available.
-          var useSec = (dept.id === 'kit' && kitSectionGroups && kitSectionGroups.length > 0);
-          var cats = useSec ? kitSectionGroups : (byDeptByCat[dept.id] || []);
+          // V73: any dept can use section grouping when its sales_dept-routed sections exist.
+          var secGroups = sectionGroupsByDept[dept.id];
+          var useSec = secGroups && secGroups.length > 0;
+          var cats = useSec ? secGroups : (byDeptByCat[dept.id] || []);
           return (
             <div key={dept.id} className="ambria-print-dept" style={{ marginBottom: 32 }}>
               {/* Dept header */}

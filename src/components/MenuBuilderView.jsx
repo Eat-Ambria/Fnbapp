@@ -79,9 +79,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
   }, []);
 
-  // ── V72 Phase 2: kitchen dish_catalogue_sections ──
-  // Fetched once on mount. If load fails or empty, section grouping falls back to
-  // category grouping (existing behaviour). Non-kitchen depts always use category grouping.
+  // ── V72/V73: dish_catalogue_sections (all depts) ──
+  // Fetched once on mount. Each section may carry a sales_dept override that routes
+  // its dishes to a specific Menu Builder sidebar tab. Null override defaults to 'kit'.
   var [sections, setSections] = useState([]);
   useEffect(function(){
     var cancelled = false;
@@ -89,8 +89,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint')
-            .eq('dept', 'kitchen')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -100,6 +99,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     })();
     return function(){ cancelled = true; };
   }, []);
+
+  // V73: sectionId → effective sales_dept (override or 'kit' default)
+  var sectionSalesDeptMap = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
+    return m;
+  }, [sections]);
 
   // ── V72 Phase 2: phantom dishes ──
   // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
@@ -288,19 +294,21 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return counts;
   }, [allDishes, salesMeta, selectedSet]);
 
-  // ── Dishes for active dept (dishes without meta fall to DEFAULT_DEPT = 'kit') ──
-  // V72 Phase 2: for kitchen, append phantomDishes so catalogue orphans still render.
+  // ── Dishes for active dept ──
+  // V73: effective dept = section's sales_dept override (if dish is in a routed section)
+  // else dish's own meta.sales_dept else DEFAULT_DEPT ('kit').
   var deptDishes = useMemo(function(){
     var base = allDishes.filter(function(d){
+      var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
       var meta = salesMeta[d.name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = override || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
     if (activeDept === 'kit' && phantomDishes.length > 0) {
       return base.concat(phantomDishes);
     }
     return base;
-  }, [allDishes, salesMeta, activeDept, phantomDishes]);
+  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap]);
 
   // ── Template dishes scoped to active dept ──
   var templateDishesInDept = useMemo(function(){
@@ -348,8 +356,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // Rest sorted by sort_in_section (nullish last), then alphabetical.
   // Unassigned + phantom + orphaned dishes fall into an Extras bucket at the bottom.
   var groupedBySection = useMemo(function(){
-    if (activeDept !== 'kit') return null;
     if (!sections || sections.length === 0) return null;
+    // V73: only include sections whose effective sales_dept matches activeDept.
+    var deptSections = sections.filter(function(s){ return (s.sales_dept || 'kit') === activeDept; });
+    if (deptSections.length === 0) return null;
 
     // Package dish → order index (for pinned block ordering)
     var pkgOrder = {};
@@ -357,7 +367,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
     // Valid section id set (dishes with section_id not in this set fall to Extras)
     var validSectionIds = {};
-    sections.forEach(function(s){ validSectionIds[s.id] = true; });
+    deptSections.forEach(function(s){ validSectionIds[s.id] = true; });
 
     // Bucket
     var bySection = {};
@@ -398,7 +408,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
 
     var out = [];
-    sections.forEach(function(s){
+    deptSections.forEach(function(s){
       var list = bySection[s.id] || [];
       if (list.length === 0) return; // skip empty sections
       out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(list) });
@@ -536,7 +546,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   dietFilter={dietFilter} setDietFilter={setDietFilter}
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
-                  groupedByCat={(activeDept === 'kit' && groupedBySection) ? groupedBySection : groupedByCat}
+                  groupedByCat={groupedBySection || groupedByCat}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
