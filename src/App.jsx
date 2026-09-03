@@ -137,7 +137,13 @@ export default function App() {
         }
       });
       prevMap.forEach((_,id) => {
-        if(!nextMap.has(id)) dbDelete("events","id",id).catch(e=>console.error("ev del:",e));
+        if(!nextMap.has(id)) {
+          // V72 soft-delete: mark tombstone instead of hard delete so LMS sync
+          // (which upserts by id) can't resurrect the row on the next pull.
+          supabase.from("events").update({is_deleted:true}).eq("id",id)
+            .then(({error})=>{ if(error) console.error("ev soft-del:",error); })
+            .catch(e=>console.error("ev soft-del:",e));
+        }
       });
       return next;
     });
@@ -264,7 +270,9 @@ export default function App() {
       } catch(e) {}
 
       // Use whatever Supabase returns (empty is fine — LMS sync will populate)
-      const finalEvents = eventsData;
+      // V72 soft-delete: filter tombstones on hydration so deleted events don't
+      // flash back into the UI on refresh.
+      const finalEvents = (eventsData || []).filter(function(e){ return !e.is_deleted; });
       setEvents_raw(finalEvents.map(e=>{
         let menu = e.menu;
         if (!Array.isArray(menu)) {
@@ -375,8 +383,15 @@ export default function App() {
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
         ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[],odc_location:payload.new.odc_location||null,odc_address:payload.new.odc_address||null,odc_contact_phone:payload.new.odc_contact_phone||null,odc_transport_cost:payload.new.odc_transport_cost||null,odc_lead:payload.new.odc_lead||null,site_recce:payload.new.site_recce||null,odc_menu_confirmed:payload.new.odc_menu_confirmed??false,custom_menu_confirmed:payload.new.custom_menu_confirmed??false,yield_multiplier:Number(payload.new.yield_multiplier)||1.0};
       }
-      if(payload.eventType==='INSERT'&&ev) setEvents_raw(p=>p.some(e=>e.id===ev.id)?p.map(e=>e.id===ev.id?ev:e):[...p,ev]);
-      if(payload.eventType==='UPDATE'&&ev) setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e));
+      // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state
+      if(payload.eventType==='INSERT'&&ev){
+        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
+        else { setEvents_raw(p=>p.some(e=>e.id===ev.id)?p.map(e=>e.id===ev.id?ev:e):[...p,ev]); }
+      }
+      if(payload.eventType==='UPDATE'&&ev){
+        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
+        else { setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e)); }
+      }
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
     const u5 = dbSubscribe('kitchen_tracking', (payload) => {

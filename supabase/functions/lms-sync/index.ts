@@ -378,9 +378,19 @@ Deno.serve(async (req) => {
     // Dedup by event ID (same contract+date could appear on multiple pages)
     const deduped = new Map<string, any>();
     allEvents.forEach((ev) => { deduped.set(ev.id, ev); });
-    const finalEvents = Array.from(deduped.values());
 
-    console.log(`Events to upsert: ${finalEvents.length} (skipped: ${skipped})`);
+    // V72 soft-delete: fetch tombstones and exclude them from the upsert so
+    // user-deleted events don't resurrect on the next LMS sync.
+    const { data: tombstones } = await sb
+      .from("events")
+      .select("id")
+      .eq("is_deleted", true);
+    const deletedIds = new Set<string>((tombstones || []).map((r: any) => r.id));
+    console.log(`Tombstones to skip: ${deletedIds.size}`);
+
+    const finalEvents = Array.from(deduped.values()).filter((ev) => !deletedIds.has(ev.id));
+
+    console.log(`Events to upsert: ${finalEvents.length} (skipped: ${skipped}, tombstoned: ${deduped.size - finalEvents.length})`);
 
     // ── Preserve admin-customized menus ──
     // If an existing row has menu_package=null (admin explicitly cleared it) and a
