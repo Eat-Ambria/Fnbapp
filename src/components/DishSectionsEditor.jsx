@@ -321,6 +321,53 @@ function DishSectionsEditor(props) {
     finally { setSaving(false); }
   }
 
+  // V73: bulk selection + move ─────────────────────────────────────
+  const [bulkSel, setBulkSel] = useState(new Set());
+  function toggleBulk(dishName) {
+    setBulkSel(function(prev){
+      const next = new Set(prev);
+      if (next.has(dishName)) next.delete(dishName); else next.add(dishName);
+      return next;
+    });
+  }
+  function clearBulk() { setBulkSel(new Set()); }
+
+  // targetSectionId: a section id or '__unassign__'
+  async function bulkMoveTo(targetSectionId) {
+    if (!isAdmin || bulkSel.size === 0) return;
+    const isUnassign = targetSectionId === '__unassign__';
+    const names = Array.from(bulkSel);
+    setSaving(true);
+    try {
+      let baseSort = 0;
+      if (!isUnassign) {
+        const targetList = dishesBySection[targetSectionId] || [];
+        baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
+      }
+      const updates = {};
+      let ok = 0;
+      for (let i = 0; i < names.length; i++) {
+        const name = names[i];
+        const newSectionId = isUnassign ? null : targetSectionId;
+        const newSort = isUnassign ? null : baseSort + (i + 1) * 10;
+        const { data, error } = await supabase.from('dishes_master')
+          .update({ section_id: newSectionId, sort_in_section: newSort })
+          .eq('dish_name', name)
+          .select('dish_name');
+        if (error) throw error;
+        if (data && data.length > 0) {
+          updates[name] = { section_id: newSectionId, sort_in_section: newSort };
+          ok += 1;
+        }
+      }
+      // Optimistic local update
+      setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
+      clearBulk();
+      if (ok < names.length) alert('Moved ' + ok + '/' + names.length + ' dishes (some rows blocked — check RLS)');
+    } catch (e) { alert('Bulk move failed: ' + e.message); }
+    finally { setSaving(false); }
+  }
+
   async function doMerge() {
     if (!isAdmin || !mergeModal || !mergeTargetId) return;
     const targetList = dishesBySection[mergeTargetId] || [];
@@ -356,8 +403,15 @@ function DishSectionsEditor(props) {
   // ── Render ────────────────────────────────────────────────────────
   function dishRow(dish, sectionId, idx, total) {
     const isUnassigned = sectionId === '__unassigned__';
+    const isPicked = bulkSel.has(dish.name);
     return (
-      <div key={dish.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px 6px 40px', borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12 }}>
+      <div key={dish.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px 6px 40px', borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12, background: isPicked ? '#F1F6FC' : 'transparent' }}>
+        {isAdmin && (
+          <input type="checkbox" checked={isPicked}
+            onChange={function(){ toggleBulk(dish.name); }}
+            title="Select for bulk move"
+            style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
+        )}
         {isAdmin && !isUnassigned && (
           <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
             <button onClick={function(){ moveDish(dish.name, -1, sectionId); }} disabled={saving || idx === 0}
@@ -504,6 +558,27 @@ function DishSectionsEditor(props) {
       {!loading && sections.length === 0 && (
         <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12, background: C.surface, border: '0.5px dashed ' + C.border, borderRadius: 10 }}>
           No sections defined for {DEPTS.find(function(d){ return d.id === dept; }).label} yet. Click <b>+ Add section</b> to create the first one.
+        </div>
+      )}
+
+      {/* V73: bulk-move toolbar */}
+      {isAdmin && bulkSel.size > 0 && (
+        <div style={{ position: 'sticky', top: 0, zIndex: 20, marginBottom: 10, padding: '10px 14px', background: '#EAF2FA', border: '1.5px solid #7FA9D4', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1E5A8F' }}>{bulkSel.size} selected</span>
+          <span style={{ fontSize: 12, color: C.muted }}>· Move to:</span>
+          <select value=""
+            onChange={function(e){ const v = e.target.value; if (v) bulkMoveTo(v); e.target.value = ''; }}
+            style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #7FA9D4', background: C.surface, fontSize: 12, color: C.text, cursor: 'pointer', fontWeight: 600 }}>
+            <option value="">— pick section —</option>
+            {sections.map(function(s){
+              return <option key={s.id} value={s.id}>{s.name}</option>;
+            })}
+            <option value="__unassign__">— Unassign —</option>
+          </select>
+          <button onClick={clearBulk}
+            style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+            Clear
+          </button>
         </div>
       )}
 
