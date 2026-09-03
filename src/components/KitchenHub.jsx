@@ -134,7 +134,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       } else if (newType === 'inv') {
         items[idx] = { type:'inv', name: cur.name || "", hi: cur.hi || "", unit: cur.unit || "kg", ops_inventory_id: cur.ops_inventory_id || null, ...base };
       } else if (newType === 'bg') {
-        items[idx] = { type:'bg', name: cur.name || "", unit: (cur.unit === 'L' ? 'L' : 'kg'), ...base };
+        // V72: preserve cur.unit — user can pick any unit, aggregation converts kg/gm and L/ml
+        items[idx] = { type:'bg', name: cur.name || "", unit: cur.unit || "kg", ...base };
       }
       return { ...f, items };
     });
@@ -198,7 +199,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       items[idx] = {
         type: 'bg',
         name: recipe.n,
-        unit: (cur.unit === 'L' ? 'L' : 'kg'),
+        // V72: preserve cur.unit — was locked to kg/L; now full list allowed
+        unit: cur.unit || "kg",
         qty: cur.qty || 0,
         ...(cur.notes ? { notes: cur.notes } : {}),
       };
@@ -300,12 +302,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         if (it.notes) row.notes = it.notes;
         return row;
       }
-      // 9A — type='bg': name = bg recipe name; unit locked to kg or L
+      // 9A — type='bg': name = bg recipe name.
+      // V72: unit was formerly locked to kg/L; now any unit allowed. Demand
+      // aggregation is unit-aware (kg↔gm, L↔ml). Non-mass/volume units
+      // (pcs/slice/tsp/tbsp/Bot/tin/bunch/dozen) won't aggregate in the
+      // demand scanner (see chef signal at bg demand pass).
       if (t === 'bg') {
         const row = {
           type: 'bg',
           name: it.name.trim(),
-          unit: (it.unit === 'L' ? 'L' : 'kg'),
+          unit: it.unit || "kg",
           qty: qtyN,
         };
         if (it.notes) row.notes = it.notes;
@@ -1694,8 +1700,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               if (!b.bgName || b.qty <= 0) return;
               const key = b.bgName;
               if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
-              // Treat L as kg for summing (chef signal only; density 1:1 assumption)
-              bgDemand[key].totalKg += Number(b.qty) || 0;
+              // V72: unit-aware conversion. kg/L → 1:1 (density assumption for chef
+              // signal); gm → /1000; ml → /1000. Non-mass/volume units (pcs, slice,
+              // tsp, tbsp, Bot, tin, bunch, dozen) are skipped from totalKg with
+              // a one-time console warning per key.
+              const bu = String(b.unit || 'kg').toLowerCase();
+              const bq = Number(b.qty) || 0;
+              let deltaKg = 0;
+              if (bu === 'kg' || bu === 'l')       deltaKg = bq;
+              else if (bu === 'gm' || bu === 'ml') deltaKg = bq / 1000;
+              else {
+                if (!bgDemand[key]._warned) {
+                  console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
+                  bgDemand[key]._warned = true;
+                }
+              }
+              bgDemand[key].totalKg += deltaKg;
               (d.fns||[]).forEach(fn=>{
                 if (!bgDemand[key].fns.some(x=>x.evId===fn.evId)) bgDemand[key].fns.push(fn);
               });
@@ -2304,7 +2324,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"3px 2px"}}>
                                   {isBg
-                                    ? <select value={item.unit==='L'?'L':'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,background:C.surface,minHeight:28,fontWeight:700}}>{["kg","L"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    ? <select value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,background:C.surface,minHeight:28,fontWeight:700}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                     : <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${isInv?C.blueBorder:C.borderLight}`,fontSize:10,color:isInv?C.blue:C.text,background:C.surface,minHeight:28,fontWeight:isInv?600:400}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                   }
                                 </td>
