@@ -119,10 +119,13 @@ function DishSectionsEditor(props) {
     setSaving(true);
     try {
       const maxSort = sections.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
-      const { error } = await supabase.from('dish_catalogue_sections').insert({
+      const { data, error } = await supabase.from('dish_catalogue_sections').insert({
         dept: dept, name: newSectionName.trim(), sort_order: maxSort + 10
-      });
+      }).select('*').single();
       if (error) throw error;
+      if (!data) { alert('Add failed: no row returned (RLS?)'); return; }
+      // V73: optimistic append — realtime may not be enabled on dish_catalogue_sections
+      setSections(function(prev){ return [...(prev || []), data]; });
       setNewSectionName(''); setAddingSection(false);
     } catch (e) { alert('Add failed: ' + e.message); }
     finally { setSaving(false); }
@@ -130,11 +133,15 @@ function DishSectionsEditor(props) {
 
   async function renameSection(id) {
     if (!isAdmin || !renameValue.trim()) return;
+    const newName = renameValue.trim();
     setSaving(true);
     try {
-      const { error } = await supabase.from('dish_catalogue_sections')
-        .update({ name: renameValue.trim(), updated_at: new Date().toISOString() }).eq('id', id);
+      const { data, error } = await supabase.from('dish_catalogue_sections')
+        .update({ name: newName, updated_at: new Date().toISOString() }).eq('id', id).select('id');
       if (error) throw error;
+      if (!data || data.length === 0) { alert('Rename failed: 0 rows updated (RLS?)'); return; }
+      // V73: optimistic local update
+      setSections(function(prev){ return (prev || []).map(function(s){ return s.id === id ? { ...s, name: newName } : s; }); });
       setRenamingId(null); setRenameValue('');
     } catch (e) { alert('Rename failed: ' + e.message); }
     finally { setSaving(false); }
@@ -149,8 +156,18 @@ function DishSectionsEditor(props) {
     if (!window.confirm(msg)) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id);
+      const { data, error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id).select('id');
       if (error) throw error;
+      if (!data || data.length === 0) { alert('Delete failed: 0 rows deleted (RLS?)'); return; }
+      // V73: optimistic local removal + orphan the dish assignments locally
+      setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== sec.id; }); });
+      setDishAssignments(function(prev){
+        const next = { ...(prev || {}) };
+        Object.keys(next).forEach(function(k){
+          if (next[k] && next[k].section_id === sec.id) next[k] = { section_id: null, sort_in_section: null };
+        });
+        return next;
+      });
     } catch (e) { alert('Delete failed: ' + e.message); }
     finally { setSaving(false); }
   }
@@ -177,19 +194,24 @@ function DishSectionsEditor(props) {
     setSaving(true);
     try {
       // Only write the rows whose sort_order actually changed (minimises churn).
+      // Direct UPDATE per row — upsert would validate all NOT NULL columns
+      // (INSERT path) even when the conflict resolves to UPDATE.
       const changed = renumbered.filter(function(s){
         const orig = prevSections.find(function(p){ return p.id === s.id; });
         return !orig || orig.sort_order !== s.sort_order;
       });
-      if (changed.length > 0) {
-        const payload = changed.map(function(s){ return { id: s.id, sort_order: s.sort_order }; });
+      let touched = 0;
+      for (let i = 0; i < changed.length; i++) {
+        const s = changed[i];
         const { data, error } = await supabase.from('dish_catalogue_sections')
-          .upsert(payload, { onConflict: 'id' })
+          .update({ sort_order: s.sort_order })
+          .eq('id', s.id)
           .select('id');
         if (error) throw error;
-        if (!data || data.length !== changed.length) {
-          console.warn('[Sections] upsert row-count mismatch — check RLS');
-        }
+        if (data && data.length > 0) touched += 1;
+      }
+      if (touched === 0 && changed.length > 0) {
+        console.warn('[Sections] 0 rows updated — check RLS on dish_catalogue_sections');
       }
     } catch (e) {
       alert('Reorder failed: ' + e.message);
