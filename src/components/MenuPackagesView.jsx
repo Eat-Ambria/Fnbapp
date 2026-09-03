@@ -12,6 +12,9 @@ import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishLibrary from './DishLibrary.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // ── CSV utilities (V63 5e) ─────────────────────────────────────────
 // Handles quoted fields, escaped double-quotes, commas inside quotes, CRLF/LF.
@@ -40,6 +43,26 @@ function downloadCSV(filename, text) {
   var a = document.createElement('a'); a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// Module-level render-prop wrapper — keeps sortable identity stable across
+// parent re-renders (same pattern as DishSectionsEditor V73).
+function SortableSection({ id, disabled, children }) {
+  var s = useSortable({ id: id, disabled: !!disabled });
+  var style = {
+    transform: CSS.Transform.toString(s.transform),
+    transition: s.transition,
+    opacity: s.isDragging ? 0.5 : 1,
+    zIndex: s.isDragging ? 10 : 'auto',
+    position: 'relative',
+  };
+  return children({
+    setNodeRef: s.setNodeRef,
+    style: style,
+    attributes: s.attributes,
+    listeners: s.listeners,
+    isDragging: s.isDragging,
+  });
 }
 
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
@@ -258,6 +281,26 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!sec) return;
     if (sec.dishes.length > 0 && !window.confirm('Delete section "' + (sec.name||'') + '" with ' + sec.dishes.length + ' dishes? Dishes will be removed from this package (but stay in the Dish Library).')) return;
     setEditorSections(function(prev) { return prev.filter(function(s) { return s.id !== secId; }); });
+    setDirty(true);
+  }
+
+  // ── Section drag-and-drop reorder (V74) ──────────────────────────
+  // Sections live inside the sections JSONB on menu_packages, so reorder is
+  // purely a local array move; existing savePackage() persists on Save click.
+  var dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  function handleSectionDragEnd(event) {
+    var active = event.active;
+    var over = event.over;
+    if (!over || active.id === over.id) return;
+    setEditorSections(function(prev) {
+      var oldIdx = prev.findIndex(function(s){ return s.id === active.id; });
+      var newIdx = prev.findIndex(function(s){ return s.id === over.id; });
+      if (oldIdx < 0 || newIdx < 0) return prev;
+      return arrayMove(prev, oldIdx, newIdx);
+    });
     setDirty(true);
   }
   function addDishToSection(secId, name) {
@@ -888,11 +931,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </div>
                     )}
 
+                    <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
+                    <SortableContext items={editorSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
                     {editorSections.map(function(sec) {
                       return (
-                        <div key={sec.id} style={{ border: "1px solid " + C.border, borderRadius: 10, background: C.surface }}>
+                        <SortableSection key={sec.id} id={sec.id} disabled={!isAdmin}>
+                        {function(dnd) { return (
+                        <div ref={dnd.setNodeRef} style={{ ...dnd.style, border: "1px solid " + C.border, borderRadius: 10, background: C.surface, marginBottom: 10 }}>
                           {/* Section header */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: "10px 10px 0 0", borderBottom: "1px solid " + C.border, flexWrap: "wrap" }}>
+                            {isAdmin && (
+                              <span {...dnd.attributes} {...dnd.listeners}
+                                title={T2("Drag to reorder")}
+                                style={{ cursor: dnd.isDragging ? 'grabbing' : 'grab', color: C.muted, fontSize: 14, padding: '0 4px', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
+                            )}
                             <input
                               value={sec.name}
                               onChange={function(e) { renameSection(sec.id, e.target.value); }}
@@ -981,8 +1033,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             )}
                           </div>
                         </div>
+                        ); }}
+                        </SortableSection>
                       );
                     })}
+                    </SortableContext>
+                    </DndContext>
                   </div>
 
                   {/* Save bar (5d wires up) */}
