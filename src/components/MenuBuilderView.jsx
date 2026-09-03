@@ -35,7 +35,15 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
   // ── Template dishes: resolved from proposal.tier_package_id via live pkg id→name map ──
   // V71 — tier concept removed; diet is auto-detected from package name.
+  // V74 — pkgVer bump forces re-fetch of id→name map and re-eval of templateInfo
+  // whenever the Packages tab writes (fires 'ambria:menu-packages-refreshed').
   var [pkgIdToName, setPkgIdToName] = useState({});
+  var [pkgVer, setPkgVer] = useState(0);
+  useEffect(function(){
+    var h = function(){ setPkgVer(function(v){ return v + 1; }); };
+    window.addEventListener('ambria:menu-packages-refreshed', h);
+    return function(){ window.removeEventListener('ambria:menu-packages-refreshed', h); };
+  }, []);
   useEffect(function(){
     (async function(){
       try {
@@ -46,13 +54,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         setPkgIdToName(m);
       } catch(e){ console.warn('[MenuBuilder] pkg id map err:', e); }
     })();
-  }, []);
+  }, [pkgVer]);
   var templateInfo = useMemo(function(){
     if (!proposal || !proposal.tier_package_id) return { name: null, dishes: [], diet: null };
     var name = pkgIdToName[proposal.tier_package_id] || null;
     if (!name) return { name: null, dishes: [], diet: null };
     return { name: name, dishes: MENU_PACKAGES[name] || [], diet: detectPackageDiet(name) };
-  }, [proposal, pkgIdToName]);
+  }, [proposal, pkgIdToName, pkgVer]);
 
   var templateSet = useMemo(function(){
     var s = {}; templateInfo.dishes.forEach(function(d){ s[d] = true; }); return s;

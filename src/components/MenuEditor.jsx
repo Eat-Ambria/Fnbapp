@@ -1,7 +1,7 @@
 // Ambria FnB — Menu Editor Component (Option C: Two-column transfer list)
 // Available dishes left, selected menu right, grouped by SOP category
 // Place in: src/components/MenuEditor.jsx
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { RECIPE_DB, getCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster } from '../data/recipeData.js';
@@ -15,6 +15,13 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
   var [customSaving, setCustomSaving] = useState(false);
   var [openCats, setOpenCats] = useState({});
   var [openSelCats, setOpenSelCats] = useState({});
+  // Force re-render when Packages tab refreshes MENU_PACKAGES (see menuPackages.js)
+  var [pkgVer, setPkgVer] = useState(0);
+  useEffect(function(){
+    var h = function(){ setPkgVer(function(v){ return v + 1; }); };
+    window.addEventListener('ambria:menu-packages-refreshed', h);
+    return function(){ window.removeEventListener('ambria:menu-packages-refreshed', h); };
+  }, []);
   var [typeFilter, setTypeFilter] = useState("all");   // all | sop | inv | unmapped
   var [libBump, setLibBump] = useState(0);
 

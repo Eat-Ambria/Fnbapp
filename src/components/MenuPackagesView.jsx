@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
@@ -331,6 +331,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       setPackageSections(selPkg, serialized, flatDishes);
 
       clearMenuPackageCaches();
+      await refreshMenuPackages();
       setEditorSections(serialized);
       setDirty(false);
     } catch (e) {
@@ -354,6 +355,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       if (res.error) throw res.error;
       setPackageSections(name, [], []);
       clearMenuPackageCaches();
+      await refreshMenuPackages();
       setSelPkg(name);
     } catch (e) {
       console.error('createPackage failed:', e);
@@ -383,6 +385,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       if (res.error) throw res.error;
       setPackageSections(name, serialized, flatDishes);
       clearMenuPackageCaches();
+      await refreshMenuPackages();
       setSelPkg(name);
     } catch (e) {
       console.error('duplicatePackage failed:', e);
@@ -409,6 +412,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       delete MENU_PACKAGES[selPkg];
       delete MENU_PACKAGE_SECTIONS[selPkg];
       clearMenuPackageCaches();
+      await refreshMenuPackages();
       setSelPkg(null);
     } catch (e) {
       console.error('deletePackage failed:', e);
@@ -622,6 +626,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       }
 
       clearMenuPackageCaches();
+      await refreshMenuPackages();
       alert('Import complete: ' + csvRows.length + ' rows into ' + Object.keys(byPkg).length + ' package(s).');
       setCsvOpen(false);
       if (byPkg[selPkg]) { setEditorSections(getSectionsForPackage(selPkg)); setDirty(false); }
