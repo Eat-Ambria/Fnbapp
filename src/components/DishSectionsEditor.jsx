@@ -159,12 +159,26 @@ function DishSectionsEditor(props) {
     const targetIdx = idx + direction;
     if (targetIdx < 0 || targetIdx >= list.length) return;
     const target = list[targetIdx];
+    const dishSort = target.sort;
+    const targetSort = list[idx].sort;
     setSaving(true);
     try {
-      await Promise.all([
-        supabase.from('dishes_master').update({ sort_in_section: target.sort }).eq('dish_name', dishName),
-        supabase.from('dishes_master').update({ sort_in_section: list[idx].sort }).eq('dish_name', target.name)
+      const [r1, r2] = await Promise.all([
+        supabase.from('dishes_master').update({ sort_in_section: dishSort }).eq('dish_name', dishName).select('dish_name'),
+        supabase.from('dishes_master').update({ sort_in_section: targetSort }).eq('dish_name', target.name).select('dish_name')
       ]);
+      if (r1.error) throw r1.error;
+      if (r2.error) throw r2.error;
+      if (!r1.data?.length || !r2.data?.length) { alert('Reorder failed: 0 rows updated (RLS or dish not found)'); return; }
+      // V73: optimistic local update — don't wait for realtime
+      setDishAssignments(function(prev){
+        const cur = prev || {};
+        return {
+          ...cur,
+          [dishName]:    { ...(cur[dishName]    || {}), sort_in_section: dishSort   },
+          [target.name]: { ...(cur[target.name] || {}), sort_in_section: targetSort },
+        };
+      });
     } catch (e) { alert('Reorder failed: ' + e.message); }
     finally { setSaving(false); }
   }
@@ -175,10 +189,17 @@ function DishSectionsEditor(props) {
     try {
       const targetList = dishesBySection[newSectionId] || [];
       const maxSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
-      const { error } = await supabase.from('dishes_master')
-        .update({ section_id: newSectionId, sort_in_section: maxSort + 10 })
-        .eq('dish_name', dishName);
+      const newSort = maxSort + 10;
+      const { data, error } = await supabase.from('dishes_master')
+        .update({ section_id: newSectionId, sort_in_section: newSort })
+        .eq('dish_name', dishName)
+        .select('dish_name');
       if (error) throw error;
+      if (!data || data.length === 0) { alert('Move failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      // V73: optimistic local update — realtime on dishes_master may not be enabled
+      setDishAssignments(function(prev){
+        return { ...(prev || {}), [dishName]: { section_id: newSectionId, sort_in_section: newSort } };
+      });
     } catch (e) { alert('Move failed: ' + e.message); }
     finally { setSaving(false); }
   }
@@ -187,10 +208,16 @@ function DishSectionsEditor(props) {
     if (!isAdmin) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('dishes_master')
+      const { data, error } = await supabase.from('dishes_master')
         .update({ section_id: null, sort_in_section: null })
-        .eq('dish_name', dishName);
+        .eq('dish_name', dishName)
+        .select('dish_name');
       if (error) throw error;
+      if (!data || data.length === 0) { alert('Unassign failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      // V73: optimistic local update
+      setDishAssignments(function(prev){
+        return { ...(prev || {}), [dishName]: { section_id: null, sort_in_section: null } };
+      });
     } catch (e) { alert('Unassign failed: ' + e.message); }
     finally { setSaving(false); }
   }
@@ -202,15 +229,22 @@ function DishSectionsEditor(props) {
     const sourceDishes = dishesBySection[mergeModal.sourceId] || [];
     setSaving(true);
     try {
+      const movedUpdates = {};
       for (let i = 0; i < sourceDishes.length; i++) {
         const d = sourceDishes[i];
-        const { error } = await supabase.from('dishes_master')
-          .update({ section_id: mergeTargetId, sort_in_section: maxSort + (i + 1) * 10 })
-          .eq('dish_name', d.name);
+        const newSort = maxSort + (i + 1) * 10;
+        const { data, error } = await supabase.from('dishes_master')
+          .update({ section_id: mergeTargetId, sort_in_section: newSort })
+          .eq('dish_name', d.name)
+          .select('dish_name');
         if (error) throw error;
+        if (data && data.length > 0) movedUpdates[d.name] = { section_id: mergeTargetId, sort_in_section: newSort };
       }
       const { error: delErr } = await supabase.from('dish_catalogue_sections').delete().eq('id', mergeModal.sourceId);
       if (delErr) throw delErr;
+      // V73: optimistic local update
+      setDishAssignments(function(prev){ return { ...(prev || {}), ...movedUpdates }; });
+      setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== mergeModal.sourceId; }); });
       setMergeModal(null); setMergeTargetId('');
     } catch (e) { alert('Merge failed: ' + e.message); }
     finally { setSaving(false); }
