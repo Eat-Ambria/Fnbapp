@@ -118,6 +118,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
   var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
+  // V73: catalogue section picker — bring dish_catalogue_sections into a package
+  var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
+  var [catPickerOpen, setCatPickerOpen]         = useState(false);
+  var [catPickerLoading, setCatPickerLoading]   = useState(false);
 
 
   useEffect(function() {
@@ -191,6 +195,55 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       return [...prev, { id: genSecId(), name: 'New section', sop_category: '', dishes: [] }];
     });
     setDirty(true);
+  }
+
+  // V73: fetch catalogue sections + their dishes once, cached for the session.
+  async function loadCatalogueForPicker() {
+    if (catalogueSections.length > 0 || catPickerLoading) return;
+    setCatPickerLoading(true);
+    try {
+      var results = await Promise.all([
+        supabase.from('dish_catalogue_sections')
+          .select('id, name, dept, sales_dept, sop_category_hint, sort_order')
+          .order('sort_order', { ascending: true }),
+        supabase.from('dishes_master')
+          .select('dish_name, section_id, sort_in_section')
+          .eq('is_active', true)
+          .not('section_id', 'is', null),
+      ]);
+      if (results[0].error) throw results[0].error;
+      if (results[1].error) throw results[1].error;
+      var bySection = {};
+      (results[1].data || []).forEach(function(d) {
+        if (!bySection[d.section_id]) bySection[d.section_id] = [];
+        bySection[d.section_id].push({ name: d.dish_name, sort: d.sort_in_section || 0 });
+      });
+      Object.keys(bySection).forEach(function(k) {
+        bySection[k].sort(function(a, b) { return (a.sort - b.sort) || a.name.localeCompare(b.name); });
+      });
+      var enriched = (results[0].data || []).map(function(s) {
+        return { ...s, dishes: (bySection[s.id] || []).map(function(d) { return d.name; }) };
+      });
+      setCatalogueSections(enriched);
+    } catch (e) {
+      alert('Failed to load catalogue sections: ' + e.message);
+    } finally { setCatPickerLoading(false); }
+  }
+
+  // V73: append a package section pre-populated from a catalogue section.
+  // Stores catalogue_section_id linkback for future features (badge, resync, etc.).
+  function addSectionFromCatalogue(catSec) {
+    setEditorSections(function(prev) {
+      return [...prev, {
+        id: genSecId(),
+        name: catSec.name,
+        sop_category: catSec.sop_category_hint || '',
+        dishes: catSec.dishes.slice(),
+        catalogue_section_id: catSec.id,
+      }];
+    });
+    setDirty(true);
+    setCatPickerOpen(false);
   }
   function renameSection(secId, newName) {
     setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, name: newName } : s; }); });
@@ -779,6 +832,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           style={{ padding: "6px 12px", borderRadius: 6, background: C.wine, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ {T2("Section")}</button>
                       )}
                       {isAdmin && (
+                        <button onClick={function(){ setCatPickerOpen(true); loadCatalogueForPicker(); }}
+                          title={T2("Pull a section (and its dishes) in from the master catalogue")}
+                          style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: "1px solid " + C.wine, color: C.wine, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          📚 {T2("From catalogue")}
+                        </button>
+                      )}
+                      {isAdmin && (
                         <button onClick={duplicatePackage} disabled={saving || dirty}
                           title={dirty ? T2("Save changes first") : T2("Duplicate package")}
                           style={{ padding: "6px 10px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: (saving || dirty) ? "not-allowed" : "pointer", opacity: (saving || dirty) ? 0.5 : 1 }}>⧉ {T2("Duplicate")}</button>
@@ -950,6 +1010,50 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           currentUser={currentUser}
           onJumpToPackage={function(pkgName) { setMainTab("packages"); setSelPkg(pkgName); }}
         />
+      )}
+
+      {/* V73: Catalogue section picker modal */}
+      {catPickerOpen && (
+        <div onClick={function(){ setCatPickerOpen(false); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 640, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{T2('Pick a catalogue section')}</span>
+              <span style={{ flex: 1 }} />
+              <button onClick={function(){ setCatPickerOpen(false); }}
+                style={{ background: 'transparent', border: 0, cursor: 'pointer', fontSize: 20, color: C.muted, padding: '2px 8px', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>
+              {T2('All dishes in the picked section will be added to this package. You can remove any afterwards.')}
+            </div>
+            {catPickerLoading && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>{T2('Loading…')}</div>}
+            {!catPickerLoading && catalogueSections.length === 0 && (
+              <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>
+                {T2('No catalogue sections found. Set them up in Dish Library → Sections first.')}
+              </div>
+            )}
+            {!catPickerLoading && catalogueSections.map(function(s){
+              var alreadyLinked = editorSections.some(function(ex){ return ex.catalogue_section_id === s.id; });
+              var effDept = s.sales_dept || 'kit';
+              return (
+                <div key={s.id}
+                  onClick={function(){ if (!alreadyLinked) addSectionFromCatalogue(s); }}
+                  style={{ padding: '10px 12px', marginBottom: 6, borderRadius: 8, border: '1px solid ' + C.border, background: alreadyLinked ? C.bg : C.surface, cursor: alreadyLinked ? 'not-allowed' : 'pointer', opacity: alreadyLinked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                      {s.dishes.length} {T2('dishes')}
+                      {effDept !== 'kit' && <> · <span style={{ color: '#7A5B12', fontWeight: 600 }}>→ {effDept.toUpperCase()} tab</span></>}
+                      {s.sop_category_hint && <> · SOP: {s.sop_category_hint}</>}
+                    </div>
+                  </div>
+                  {alreadyLinked && <span style={{ fontSize: 10, color: C.muted, fontStyle: 'italic' }}>{T2('already added')}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* V66: Shared dish mapping modal — opens on dish row click from Packages tab */}
