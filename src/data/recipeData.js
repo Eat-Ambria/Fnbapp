@@ -611,7 +611,8 @@ function getSectionsForPackage(pkgName) {
       id: s.id || ('sec_' + Math.random().toString(36).slice(2, 8)),
       name: s.name || '',
       sop_category: s.sop_category || s.name || '',
-      dishes: Array.isArray(s.dishes) ? s.dishes.slice() : []
+      dishes: Array.isArray(s.dishes) ? s.dishes.slice() : [],
+      catalogue_section_id: s.catalogue_section_id || null
     }));
   }
   // Derive from flat dishes[]

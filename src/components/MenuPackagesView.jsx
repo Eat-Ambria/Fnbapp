@@ -145,6 +145,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
   var [catPickerOpen, setCatPickerOpen]         = useState(false);
   var [catPickerLoading, setCatPickerLoading]   = useState(false);
+  // V74: linkback badge/resync/unlink — cache of catalogue_section_id -> name
+  var [catSecNames, setCatSecNames]             = useState({});
+  var [resyncing, setResyncing]                 = useState({}); // { [secId]: true }
 
 
   useEffect(function() {
@@ -178,6 +181,28 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     }
 
   }, [selPkg]);
+
+  // V74: resolve catalogue_section_id -> name for the 🔗 badge tooltip.
+  // Fetches only ids not already cached; cache persists across package switches.
+  useEffect(function() {
+    var missing = [];
+    editorSections.forEach(function(s) {
+      if (s.catalogue_section_id && !catSecNames[s.catalogue_section_id]) missing.push(s.catalogue_section_id);
+    });
+    missing = Array.from(new Set(missing));
+    if (missing.length === 0) return;
+    (async function() {
+      try {
+        var res = await supabase.from('dish_catalogue_sections').select('id, name').in('id', missing);
+        if (res.error) throw res.error;
+        setCatSecNames(function(prev) {
+          var next = { ...prev };
+          (res.data || []).forEach(function(r) { next[r.id] = r.name; });
+          return next;
+        });
+      } catch (e) { console.error('Failed to resolve catalogue section names:', e); }
+    })();
+  }, [editorSections]);
 
   function genSecId() { return 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
 
@@ -268,6 +293,37 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setDirty(true);
     setCatPickerOpen(false);
   }
+
+  // V74: pull any new dishes added to the catalogue section since this package
+  // section was created/last resynced. Appends only — never reorders or removes.
+  async function resyncSection(sec) {
+    if (!sec.catalogue_section_id || resyncing[sec.id]) return;
+    setResyncing(function(p) { return { ...p, [sec.id]: true }; });
+    try {
+      var res = await supabase.from('dishes_master')
+        .select('dish_name, is_active, sort_in_section')
+        .eq('section_id', sec.catalogue_section_id)
+        .order('sort_in_section', { ascending: true });
+      if (res.error) throw res.error;
+      var liveNames = (res.data || []).filter(function(d) { return d.is_active !== false; }).map(function(d) { return d.dish_name; });
+      var have = {}; (sec.dishes || []).forEach(function(d) { have[d] = true; });
+      var toAdd = liveNames.filter(function(n) { return !have[n]; });
+      if (toAdd.length === 0) { alert(T2('Already in sync')); return; }
+      setEditorSections(function(prev) {
+        return prev.map(function(s) { return s.id === sec.id ? { ...s, dishes: (s.dishes || []).concat(toAdd) } : s; });
+      });
+      setDirty(true);
+      alert(T2('Added') + ' ' + toAdd.length + ' ' + T2('dish(es) from catalogue'));
+    } catch (e) {
+      alert(T2('Resync failed') + ': ' + (e.message || e));
+    } finally {
+      setResyncing(function(p) { var n = { ...p }; delete n[sec.id]; return n; });
+    }
+  }
+  function unlinkSection(secId) {
+    setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, catalogue_section_id: null } : s; }); });
+    setDirty(true);
+  }
   function renameSection(secId, newName) {
     setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, name: newName } : s; }); });
     setDirty(true);
@@ -345,12 +401,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // Strip client-only cruft before persisting. Keeps id (stable ref).
   function serializeSections(secs) {
     return (secs || []).map(function(s) {
-      return {
+      var out = {
         id: s.id || genSecId(),
         name: (s.name || '').trim() || 'Untitled',
         sop_category: s.sop_category || '',
         dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
       };
+      if (s.catalogue_section_id) out.catalogue_section_id = s.catalogue_section_id;
+      return out;
     });
   }
 
@@ -952,6 +1010,26 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               disabled={!isAdmin}
                               style={{ padding: "4px 8px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 13, fontWeight: 600, color: C.text, minWidth: 140, flex: "0 1 auto" }}
                             />
+                            {sec.catalogue_section_id && (
+                              <span title={T2("Linked to catalogue section") + (catSecNames[sec.catalogue_section_id] ? ": " + catSecNames[sec.catalogue_section_id] : "")}
+                                style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: "1px solid " + C.blueBorder, cursor: "default" }}>
+                                🔗
+                              </span>
+                            )}
+                            {sec.catalogue_section_id && isAdmin && (
+                              <button onClick={function() { resyncSection(sec); }} disabled={!!resyncing[sec.id]}
+                                title={T2("Resync from catalogue")}
+                                style={{ padding: "2px 5px", background: "transparent", border: "none", color: C.faint, cursor: resyncing[sec.id] ? "wait" : "pointer", fontSize: 13, lineHeight: 1 }}>
+                                {resyncing[sec.id] ? "…" : "↻"}
+                              </button>
+                            )}
+                            {sec.catalogue_section_id && isAdmin && (
+                              <button onClick={function() { if (window.confirm(T2("Unlink this section from the catalogue? Dishes stay, but future resyncs stop."))) unlinkSection(sec.id); }}
+                                title={T2("Unlink from catalogue")}
+                                style={{ padding: "2px 4px", background: "transparent", border: "none", color: C.faint, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>
+                                ×
+                              </button>
+                            )}
                             <span style={{ fontSize: 11, color: C.muted }}>{T2("default")}:</span>
                             <select
                               value={sec.sop_category || ''}

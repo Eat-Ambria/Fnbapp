@@ -3353,9 +3353,27 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const useSections = recSections.length>0;
                           const rowStyle = (isLast)=>({padding:"10px 12px",borderBottom:!isLast?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"});
                           const isLastGroupRow = i===g.items.length-1;
+                          const secMult = yieldAdjustPct/100;
+                          // V74: click dish name on any section row → one combined ingredient modal for all sections
+                          let sectionFactors = null, sectionsTotalKg = 0, anySectionOverridden = false;
+                          if(useSections){
+                            sectionFactors = {};
+                            recSections.forEach(sec=>{
+                              const secAutoRaw = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
+                              const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                              const isSecOverride = savedVal!=null && savedVal!=="";
+                              const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
+                              sectionsTotalKg += (effKgSec || 0);
+                              if(isSecOverride) anySectionOverridden = true;
+                              sectionFactors[sec.name] = sec.yield.kg > 0 ? (effKgSec / sec.yield.kg) : 0;
+                            });
+                            sectionsTotalKg = Math.round(sectionsTotalKg * 10) / 10;
+                          }
+                          const canOpenSectioned = useSections && st.recipe && !!st.recipe?.ingredients?.items?.length;
+                          const openIngrSectioned = () => { if(canOpenSectioned) setPlanIngrModal({dish: it.dish, effKg: sectionsTotalKg, mult: secMult, isOverride: anySectionOverridden, yieldAdjustPct: yieldAdjustPct, pax: selEv.pax, sectionFactors: sectionFactors}); };
                           if(useSections){
                             // Expand into N sub-rows, one per section. Same auto/pinned model as single-row.
-                            const secMult = yieldAdjustPct/100;
                             return recSections.map((sec,si)=>{
                               const secAutoRaw = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
                               const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
@@ -3368,8 +3386,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const revertSecToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;}); savePlanYield(it.dish, "", rowCtx, sec.name); };
                               return(
                                 <div key={i+"-"+si} style={{...rowStyle(isLast),background:isSecOverride?C.purpleBg+"60":"transparent"}}>
-                                  <div style={{flex:"1 1 200px",minWidth:0}}>
-                                    <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish} <span style={{color:C.gold,fontWeight:600}}>→ {sec.name}</span></div>
+                                  <div onClick={openIngrSectioned} title={canOpenSectioned ? T2("View scaled ingredients") : undefined} style={{flex:"1 1 200px",minWidth:0,cursor:canOpenSectioned?"pointer":"default"}}>
+                                    <div style={{fontSize:12,color:C.text,fontWeight:500}}><span style={{textDecoration:canOpenSectioned?"underline":"none",textDecorationColor:canOpenSectioned?C.faint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</span> <span style={{color:C.gold,fontWeight:600}}>→ {sec.name}</span></div>
                                     <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                       {mappedName && si===0 && <span>📖 {mappedName}</span>}
                                       {isSecOverride && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {secAutoScaled} kg</span>}
@@ -3996,7 +4014,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* V74 — Planning tab: scaled-ingredient preview modal (read-only). Reuses usageModal styling. */}
       {planIngrModal && (function(){
-        const ingr = getIngrForYield(planIngrModal.dish, planIngrModal.effKg);
+        const ingr = getIngrForYield(planIngrModal.dish, planIngrModal.effKg, planIngrModal.sectionFactors);
         const roundQ = (q) => {
           if (q == null) return "";
           if (q >= 10) return Math.round(q * 10) / 10;
@@ -4011,7 +4029,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div style={{fontSize:12,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                   <span style={{color:C.text,fontWeight:600}}>{planIngrModal.dish}</span>
                   <span>·</span>
-                  <span>{T2("scaled for")} <span style={{color:C.text,fontWeight:600}}>{planIngrModal.effKg} kg</span></span>
+                  {planIngrModal.sectionFactors ? (
+                    <span>{Object.keys(planIngrModal.sectionFactors).length} {T2("sections")} · <span style={{color:C.text,fontWeight:600}}>{planIngrModal.effKg} kg {T2("total")}</span></span>
+                  ) : (
+                    <span>{T2("scaled for")} <span style={{color:C.text,fontWeight:600}}>{planIngrModal.effKg} kg</span></span>
+                  )}
                   {planIngrModal.isOverride && <span style={{color:C.purple,fontWeight:600}}>({T2("pinned")})</span>}
                   {!planIngrModal.isOverride && planIngrModal.mult !== 1 && <span>({planIngrModal.yieldAdjustPct}%)</span>}
                   <span>·</span>
