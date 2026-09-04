@@ -292,12 +292,24 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var deptCounts = useMemo(function(){
     var counts = {};
     SALES_DEPTS.forEach(function(d){ counts[d.id] = { sel: 0, total: 0 }; });
+    var counted = {};
     allDishes.forEach(function(d){
       var meta = salesMeta[d.name];
       var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].total += 1;
       if (selectedSet[d.name]) counts[dept].sel += 1;
+      counted[d.name] = true;
+    });
+    // V74 — Phantoms: selected dishes not present in the catalogue (retired,
+    // renamed, or template-only names never added to dishes_master). Attribute
+    // them to their saved dept or DEFAULT_DEPT so the sidebar sel badge is honest.
+    Object.keys(selectedSet).forEach(function(name){
+      if (counted[name]) return;
+      var meta = salesMeta[name];
+      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
+      counts[dept].sel += 1;
     });
     return counts;
   }, [allDishes, salesMeta, selectedSet]);
@@ -598,7 +610,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts }) {
   var totalSel = deptCounts ? deptCounts.sel : 0;
   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
   var deptTotal = deptCounts ? deptCounts.total : 0;
@@ -639,17 +651,37 @@ function ItemsTab({ T2, activeDept, searchQ, setSearchQ, dietFilter, setDietFilt
       )}
 
       {/* Category groups */}
-      {groupedByCat.length === 0 && (
-        <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted, background: C.surface, borderRadius: 12, border: "1px dashed " + C.border }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>{T2("No dishes match")}</div>
-          <div style={{ fontSize: 12 }}>
-            {!showAddons && templateInfo.name
-              ? T2("Enable Show add-ons to browse the full catalogue.")
-              : T2("Try clearing filters or search.")}
+      {groupedByCat.length === 0 && (function(){
+        // V74 — If empty on this dept but the user has selections elsewhere,
+        // send them to the busiest dept so they don't feel lost. Otherwise
+        // fall back to the standard filter / add-on hint.
+        var elsewhere = (allDeptCounts ? SALES_DEPTS : []).filter(function(d){
+          return d.id !== activeDept && ITEM_HAVING_DEPTS.indexOf(d.id) >= 0 && (allDeptCounts[d.id] || {}).sel > 0;
+        }).sort(function(a, b){ return (allDeptCounts[b.id].sel || 0) - (allDeptCounts[a.id].sel || 0); });
+        var top = elsewhere[0];
+        var elsewhereTotal = elsewhere.reduce(function(n, d){ return n + (allDeptCounts[d.id].sel || 0); }, 0);
+        return (
+          <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted, background: C.surface, borderRadius: 12, border: "1px dashed " + C.border }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>{top ? '📌' : '🔍'}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+              {top ? T2("Nothing selected in this department") : T2("No dishes match")}
+            </div>
+            <div style={{ fontSize: 12 }}>
+              {top
+                ? (elsewhereTotal + ' ' + T2("selected in") + ' ' + top.label + (elsewhere.length > 1 ? ' ' + T2("and others") : ''))
+                : (!showAddons && templateInfo.name
+                    ? T2("Enable Show add-ons to browse the full catalogue.")
+                    : T2("Try clearing filters or search."))}
+            </div>
+            {top && setActiveDept && (
+              <button onClick={function(){ setActiveDept(top.id); }}
+                style={{ marginTop: 12, padding: "6px 14px", borderRadius: 6, background: C.surface, border: "1px solid " + C.wine, color: C.wine, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Go to")} {top.label} →
+              </button>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {groupedByCat.map(function(grp){
         return (

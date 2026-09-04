@@ -320,7 +320,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
           )}
           {templateInfo && templateInfo.name && (
             <div style={{ fontSize: 11, color: "#8a7a5d", marginTop: 6, letterSpacing: 1, textTransform: "uppercase" }}>
-              {templateInfo.tier === 'magnum' ? '✦ ' : ''}{templateInfo.name}{templateInfo.tier === 'magnum' ? ' ✦' : ''}
+              {templateInfo.name}
             </div>
           )}
         </div>
