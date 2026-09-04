@@ -9,11 +9,14 @@ let MENU_PACKAGES = {};
 let MENU_PACKAGE_NAMES = [];
 let DISH_GROUPS = {};
 
-// Legacy section overlay — kept for backward compatibility with recipeData.js and
-// MenuPackagesView.jsx delete operations. Not actively populated in the current
-// data pipeline; the sections JSONB lives on menu_packages rows and is loaded via
-// getSectionsForPackage() in recipeData.js. Do NOT remove this export without
-// first grepping the codebase for MENU_PACKAGE_SECTIONS references.
+// V74 — Section overlay is the primary source of section structure for
+// package editing (id, name, sop_category, ordered dishes). Hydrated on boot
+// via hydrateMenuPackageSections from menu_packages.sections JSONB column, and
+// kept fresh mid-session by setPackageSections after per-package saves and by
+// refreshMenuPackages after any package write. Before V74 this map was empty
+// on boot, so getSectionsForPackage silently fell back to synthesizing sections
+// from the flat dishes[] — which erased empty sections and any custom naming
+// or ordering on refresh.
 let MENU_PACKAGE_SECTIONS = {};
 
 // V70: side-channel for package metadata beyond dishes[]
@@ -36,9 +39,18 @@ function hydrateMenuPackages(pkgMap, groups, meta) {
   }
 }
 
-// V74 — Re-fetch menu_packages from Supabase and re-hydrate the in-memory maps.
-// Fires 'ambria:menu-packages-refreshed' on window so React consumers can re-render.
-// Safe to call after any menu_packages write (save/create/duplicate/delete/CSV import).
+// V74 — Populate MENU_PACKAGE_SECTIONS from a { [pkgName]: sectionsArray } map.
+// Overwrites the entire map (last write wins).
+function hydrateMenuPackageSections(sectionsMap) {
+  if (!sectionsMap || typeof sectionsMap !== 'object') return;
+  Object.keys(MENU_PACKAGE_SECTIONS).forEach(k => delete MENU_PACKAGE_SECTIONS[k]);
+  Object.assign(MENU_PACKAGE_SECTIONS, sectionsMap);
+}
+
+// V74 — Re-fetch menu_packages from Supabase and re-hydrate the in-memory maps
+// including the sections overlay. Fires 'ambria:menu-packages-refreshed' on
+// window so React consumers can re-render. Safe to call after any menu_packages
+// write (save/create/duplicate/delete/CSV import).
 async function refreshMenuPackages() {
   try {
     const res = await supabase.from('menu_packages').select('*');
@@ -48,12 +60,19 @@ async function refreshMenuPackages() {
     const pkgMap = {};
     const groups = {};
     const meta   = {};
+    const sections = {};
     rows.forEach(r => {
       pkgMap[r.name] = typeof r.dishes === 'string' ? JSON.parse(r.dishes || '[]') : (r.dishes || []);
       groups[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups || '{}') : (r.dish_groups || {});
       meta[r.name]   = { tier: r.tier || null, id: r.id || null };
+      if (r.sections != null) {
+        try {
+          sections[r.name] = typeof r.sections === 'string' ? JSON.parse(r.sections) : r.sections;
+        } catch(e) { console.warn('[menuPackages] sections parse failed for', r.name, e); }
+      }
     });
     hydrateMenuPackages(pkgMap, groups, meta);
+    hydrateMenuPackageSections(sections);
     try { window.dispatchEvent(new Event('ambria:menu-packages-refreshed')); } catch(e) {}
     return true;
   } catch (e) {
@@ -62,4 +81,13 @@ async function refreshMenuPackages() {
   }
 }
 
-export { MENU_PACKAGES, MENU_PACKAGE_NAMES, DISH_GROUPS, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_META, hydrateMenuPackages, refreshMenuPackages };
+export {
+  MENU_PACKAGES,
+  MENU_PACKAGE_NAMES,
+  DISH_GROUPS,
+  MENU_PACKAGE_SECTIONS,
+  MENU_PACKAGE_META,
+  hydrateMenuPackages,
+  hydrateMenuPackageSections,
+  refreshMenuPackages
+};
