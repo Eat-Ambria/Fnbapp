@@ -580,6 +580,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planDrafts, setPlanDrafts] = useState({});      // {dishName: string being edited}
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
   const [planLoading, setPlanLoading] = useState(false);
+  const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
 
   // Load production_plans whenever the selected event changes
   useEffect(()=>{
@@ -3366,10 +3367,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKgRaw ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
                           const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); savePlanYield(it.dish, "", rowCtx); };
+                          // V74: click dish name → open scaled ingredient modal
+                          const effKg = isOverride ? overrideEff : suggested;
+                          const canOpen = st.recipe && !!st.recipe?.ingredients?.items?.length && effKg != null;
+                          const openIngr = () => { if (canOpen) setPlanIngrModal({dish: it.dish, effKg: effKg, mult: mult, isOverride: isOverride, yieldAdjustPct: yieldAdjustPct, pax: selEv.pax}); };
                           return [(
                             <div key={i} style={{...rowStyle(isLastGroupRow),background:isOverride?C.purpleBg+"60":"transparent"}}>
-                              <div style={{flex:"1 1 200px",minWidth:0}}>
-                                <div style={{fontSize:12,color:C.text,fontWeight:500}}>{it.dish}</div>
+                              <div onClick={openIngr} title={canOpen ? T2("View scaled ingredients") : undefined} style={{flex:"1 1 200px",minWidth:0,cursor:canOpen?"pointer":"default"}}>
+                                <div style={{fontSize:12,color:C.text,fontWeight:500,textDecoration:canOpen?"underline":"none",textDecorationColor:canOpen?C.faint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</div>
                                 <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {mappedName && <span>📖 {mappedName}</span>}
                                   {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
@@ -3947,6 +3952,73 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           </div>
         </div>
       )}
+
+      {/* V74 — Planning tab: scaled-ingredient preview modal (read-only). Reuses usageModal styling. */}
+      {planIngrModal && (function(){
+        const ingr = getIngrForYield(planIngrModal.dish, planIngrModal.effKg);
+        const roundQ = (q) => {
+          if (q == null) return "";
+          if (q >= 10) return Math.round(q * 10) / 10;
+          if (q >= 1)  return Math.round(q * 100) / 100;
+          return Math.round(q * 1000) / 1000;
+        };
+        return (
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPlanIngrModal(null)}>
+            <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid "+C.border}}>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredients")}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{color:C.text,fontWeight:600}}>{planIngrModal.dish}</span>
+                  <span>·</span>
+                  <span>{T2("scaled for")} <span style={{color:C.text,fontWeight:600}}>{planIngrModal.effKg} kg</span></span>
+                  {planIngrModal.isOverride && <span style={{color:C.purple,fontWeight:600}}>({T2("pinned")})</span>}
+                  {!planIngrModal.isOverride && planIngrModal.mult !== 1 && <span>({planIngrModal.yieldAdjustPct}%)</span>}
+                  <span>·</span>
+                  <span>{planIngrModal.pax} pax</span>
+                </div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:"0 20px"}}>
+                <div style={{display:"flex",padding:"10px 0 6px",borderBottom:"2px solid "+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5}}>
+                  <div style={{flex:2}}>{T2("Ingredient")}</div>
+                  <div style={{flex:1,textAlign:"right"}}>{T2("Quantity")}</div>
+                </div>
+                {(!ingr || ingr.length === 0) ? (
+                  <div style={{padding:"20px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>
+                    {T2("No ingredient list on recipe")}
+                  </div>
+                ) : (
+                  ingr.map((ing, i) => {
+                    if (ing._isSection) {
+                      return (
+                        <div key={i} style={{padding:"12px 0 4px",fontSize:10,fontWeight:700,color:C.text,textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid "+C.border,marginTop:i>0?4:0}}>
+                          {ing.n}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={i} style={{display:"flex",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.borderLight,fontSize:12}}>
+                        <div style={{flex:2}}>
+                          <div style={{color:C.text,fontWeight:500,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <span>{ing.n}</span>
+                            {ing._type === "inv" && <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#E1F5EE",color:"#0F6E56",fontWeight:700,letterSpacing:0.3}}>INV</span>}
+                          </div>
+                          {ing.h && <div style={{fontSize:10,color:C.muted,marginTop:1}}>{ing.h}</div>}
+                        </div>
+                        <div style={{flex:1,textAlign:"right",color:C.text,fontSize:12,fontWeight:600}}>
+                          {roundQ(ing.q)} <span style={{color:C.muted,fontWeight:400}}>{ing.u || ""}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div style={{padding:"12px 20px",borderTop:"1px solid "+C.border}}>
+                <button onClick={()=>setPlanIngrModal(null)} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {usageModal && (
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
