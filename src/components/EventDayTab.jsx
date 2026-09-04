@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp, fmtQty } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER } from '../utils/helpers.js';
 import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel } from '../data/recipeData.js';
 import { Card } from './SharedUI.jsx';
 
@@ -113,6 +113,11 @@ function EventDayTab({
       return o;
     });
   }
+  // V74 — per-section ingredient panel UI state (session-local, not synced across tablets)
+  const [secIngrOpen, setSecIngrOpen] = useState({});   // { [sec]: bool }
+  const [secSearch,   setSecSearch]   = useState({});   // { [sec]: string }
+  const [secSort,     setSecSort]     = useState({});   // { [sec]: 'qty'|'name' }
+
   // ── Section-level "Collect from store" (scope: combined vs per-function) ──
   function ssKey(catId) { return "__sec_" + catId; }
   function ssRead(catId) {
@@ -470,7 +475,7 @@ function EventDayTab({
                     )}
                     {agg.items.length > 0 && (() => {
                       const itemsDone = secStore2.items_done || {};
-                      // Key by (name, family) so kg↔gm flips don't lose checkbox state
+                      // Key by (name, family) so kg↔gm flips don't lose collected state
                       const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
                       const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                       const total = agg.items.length;
@@ -480,43 +485,80 @@ function EventDayTab({
                         const cur = ssRead(sec).items_done || {};
                         ssWrite(sec, { items_done: { ...cur, [k]: !cur[k] } });
                       };
-                      // fmtQty now imported from helpers.js
+                      // V74 — collapsible + searchable + categorized
+                      const listOpen = !!secIngrOpen[sec];
+                      const searchQ  = (secSearch[sec] || '').toLowerCase().trim();
+                      const sortMode = secSort[sec] || 'qty';
+                      const filtered = searchQ ? agg.items.filter(i => (i.n || '').toLowerCase().includes(searchQ)) : agg.items;
+                      const byCat = {};
+                      filtered.forEach(i => { const c = categorizeIngredient(i.n); (byCat[c] = byCat[c] || []).push(i); });
+                      Object.keys(byCat).forEach(c => {
+                        byCat[c].sort((a, b) => sortMode === 'qty' ? (b._base || 0) - (a._base || 0) : (a.n || '').localeCompare(b.n || ''));
+                      });
+                      const orderedCats = INGR_CATEGORY_ORDER.filter(c => byCat[c] && byCat[c].length > 0);
                       return (
                         <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                          {/* Collapse toggle strip — click to expand ingredient list */}
+                          <div onClick={() => setSecIngrOpen(p => ({ ...p, [sec]: !listOpen }))}
+                               style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer" }}>
+                            <span style={{ fontSize: 14 }}>{ssDone?"📊":"🧺"}</span>
                             <div style={{ fontSize: isTablet?13:12, fontWeight: 700, color: ssDone?C.green:C.gold, whiteSpace: "nowrap" }}>
-                              {ssDone?"📊":"🧺"} {collected} / {total} {T2("collected")}
+                              {collected} / {total} {T2("collected")}
                             </div>
                             <div style={{ flex: 1, height: 5, background: C.border, borderRadius: 3, overflow: "hidden" }}>
                               <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? C.green : C.gold, borderRadius: 3, transition: "width .3s" }}/>
                             </div>
-                            <div style={{ fontSize: 11, color: C.muted, minWidth: 30, textAlign: "right" }}>{pct}%</div>
+                            <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: .5, whiteSpace: "nowrap" }}>{yieldLbl}</div>
+                            <span style={{ fontSize: 12, color: C.muted, transition: "transform .15s", transform: listOpen ? "rotate(180deg)" : "rotate(0deg)", display: "inline-block" }}>▾</span>
                           </div>
-                          <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: .5 }}>{yieldLbl}</div>
-                          <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${isTablet?180:150}px, 1fr))`, gap: 6 }}>
-                            {agg.items.map((i, ii) => {
-                              const done = !!itemsDone[itemKey(i)];
-                              return (
-                                <div key={ii} onClick={() => toggle(i)} style={{
-                                  display: "flex", alignItems: "center", gap: 8,
-                                  padding: "7px 10px", borderRadius: 8, cursor: "pointer",
-                                  background: done ? C.greenBg : C.bg,
-                                  border: `1px solid ${done ? C.greenBorder : C.border}`,
-                                  transition: "background .15s"
-                                }}>
-                                  <div style={{
-                                    width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-                                    background: done ? C.green : "transparent",
-                                    border: `1.5px solid ${done ? C.green : C.faint}`,
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    fontSize: 11, color: "#fff", fontWeight: 700
-                                  }}>{done ? "✓" : ""}</div>
-                                  <div style={{ flex: 1, fontSize: isTablet?13:12, color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
-                                  <div style={{ fontSize: isTablet?13:12, fontWeight: 700, color: done ? C.green : C.gold, whiteSpace: "nowrap" }}>{fmtQty(i)}</div>
+                          {listOpen && (
+                            <div style={{ marginTop: 10 }}>
+                              {/* Search + sort */}
+                              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+                                <div style={{ flex: 1, position: "relative" }}>
+                                  <input placeholder={T2("Search ingredient…")} value={secSearch[sec] || ''}
+                                         onChange={e => setSecSearch(p => ({ ...p, [sec]: e.target.value }))}
+                                         style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, color: C.text, boxSizing: "border-box" }} />
+                                  <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: C.muted }}>🔍</span>
                                 </div>
-                              );
-                            })}
-                          </div>
+                                <select value={sortMode} onChange={e => setSecSort(p => ({ ...p, [sec]: e.target.value }))}
+                                        style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, color: C.text, cursor: "pointer" }}>
+                                  <option value="qty">{T2("Qty (high → low)")}</option>
+                                  <option value="name">{T2("Name (A → Z)")}</option>
+                                </select>
+                              </div>
+                              {/* Grouped list */}
+                              {orderedCats.length === 0 ? (
+                                <div style={{ textAlign: "center", padding: 16, color: C.muted, fontSize: 12, fontStyle: "italic" }}>{T2("No matches")}</div>
+                              ) : orderedCats.map(cat => (
+                                <div key={cat} style={{ marginBottom: 8 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 2px 4px", borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: .5 }}>{T2(cat)}</span>
+                                    <span style={{ fontSize: 10, color: C.faint, fontWeight: 500 }}>{byCat[cat].length}</span>
+                                  </div>
+                                  <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${isTablet?200:160}px, 1fr))`, gap: 2 }}>
+                                    {byCat[cat].map((i, ii) => {
+                                      const done = !!itemsDone[itemKey(i)];
+                                      return (
+                                        <div key={ii} onClick={() => toggle(i)} style={{
+                                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                                          padding: "6px 10px", borderRadius: 6, cursor: "pointer",
+                                          background: done ? C.greenBg : "transparent",
+                                          transition: "background .15s"
+                                        }}>
+                                          <span style={{ fontSize: isTablet?13:12, color: done ? C.green : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{i.n}</span>
+                                          <span style={{ fontSize: isTablet?13:12, fontWeight: 700, color: done ? C.green : C.text, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4, marginLeft: 6 }}>
+                                            {done && <span style={{ color: C.green }}>✓</span>}
+                                            {fmtQty(i)}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}

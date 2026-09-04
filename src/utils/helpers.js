@@ -213,4 +213,24 @@ function fmtQty(input, maybeU) {
   return Math.round(raw) + " " + unitIn;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty };
+// V74 — Heuristic ingredient → category classifier for the Collect from store view.
+// First-hit-wins: order matters. If nothing matches, returns 'Other'.
+// Categories chosen to roughly map to store walking order.
+const INGR_CAT_RULES = [
+  { cat: 'Meat & seafood',        re: /\b(chicken|mutton|lamb|goat|fish|prawn|shrimp|crab|beef|pork|ham|bacon|sausage|kheema|keema|mince)\b/ },
+  { cat: 'Dairy & eggs',          re: /\b(paneer|cream|butter|ghee|curd|dahi|yogurt|yoghurt|cheese|khoya|mawa|malai|egg|eggs|milk)\b/ },
+  { cat: 'Grains & flour',        re: /\b(rice|basmati|atta|maida|flour|cornflour|semolina|suji|sooji|noodle|noodles|pasta|bread|pav|bun|papad|poha|oats|barley|wheat|besan|rava)\b/ },
+  { cat: 'Spices & seasonings',   re: /\b(salt|pepper|chilli|chili|masala|turmeric|haldi|cumin|jeera|dhania|garam|kasuri|methi|hing|asafoetida|cardamom|elaichi|cinnamon|dalchini|clove|laung|nutmeg|jaifal|mace|bay leaf|tej patta|saffron|kesar|fennel|saunf|kalonji|ajwain|paprika|oregano|thyme|rosemary|dill|sesame|til|poppy|aromat|aromatic|seasoning|spice)\b/ },
+  { cat: 'Oils, sauces & sweets', re: /\b(oil|sauce|soy|vinegar|ketchup|mayonnaise|dressing|syrup|honey|jaggery|gur|sugar|jam|marmalade|mustard|paste|chutney)\b/ },
+  { cat: 'Vegetables & herbs',    re: /\b(onion|garlic|ginger|tomato|potato|carrot|cabbage|cauliflower|beetroot|beet|radish|mooli|capsicum|corn|beans|peas|matar|palak|spinach|okra|bhindi|lettuce|celery|coriander|dhaniya|mint|pudina|lemon|lime|cucumber|kheera|pumpkin|kaddu|brinjal|baingan|drumstick|leek|shallot|scallion|leaf|leaves|mushroom|kale|broccoli|asparagus|zucchini|banana|apple|fruit|vegetable|veg|avacado|avocado|basil|dill)\b/ },
+  { cat: 'Liquids & stocks',      re: /\b(water|stock|broth|wine|beer|juice|soda|coconut milk)\b/ },
+];
+function categorizeIngredient(name) {
+  const s = (name || '').toLowerCase();
+  for (var i = 0; i < INGR_CAT_RULES.length; i++) if (INGR_CAT_RULES[i].re.test(s)) return INGR_CAT_RULES[i].cat;
+  return 'Other';
+}
+// Display order (matches typical store walking order: produce → cold → dry → spices → liquid)
+const INGR_CATEGORY_ORDER = ['Vegetables & herbs', 'Dairy & eggs', 'Meat & seafood', 'Grains & flour', 'Spices & seasonings', 'Oils, sauces & sweets', 'Liquids & stocks', 'Other'];
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER };

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
@@ -581,6 +581,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
   const [planLoading, setPlanLoading] = useState(false);
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
+  // V74 — per-section ingredient panel UI state for Prep Day Collect from store view (session-local)
+  const [d1SecIngrOpen, setD1SecIngrOpen] = useState({});   // { [catId]: bool }
+  const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
+  const [d1SecSort,     setD1SecSort]     = useState({});   // { [catId]: 'qty'|'name' }
 
   // Load production_plans whenever the selected event changes
   useEffect(()=>{
@@ -1582,7 +1586,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               )}
               {agg.items.length > 0 && (() => {
                 const itemsDone = secStore.items_done || {};
-                // Key by (name, family) so kg↔gm flips don't lose checkbox state
+                // Key by (name, family) so kg↔gm flips don't lose collected state
                 const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
                 const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                 const total = agg.items.length;
@@ -1592,46 +1596,83 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const cur = ssReadD1(catId).items_done || {};
                   ssWriteD1(catId, { items_done: { ...cur, [k]: !cur[k] } });
                 };
-                // fmtQty now imported from helpers.js (case-insensitive, family-normalized)
+                // V74 — collapsible + searchable + categorized
+                const listOpen = !!d1SecIngrOpen[catId];
+                const searchQ  = (d1SecSearch[catId] || '').toLowerCase().trim();
+                const sortMode = d1SecSort[catId] || 'qty';
+                const filtered = searchQ ? agg.items.filter(i => (i.n || '').toLowerCase().includes(searchQ) || (i.h || '').toLowerCase().includes(searchQ)) : agg.items;
+                const byCat = {};
+                filtered.forEach(i => { const c = categorizeIngredient(i.n); (byCat[c] = byCat[c] || []).push(i); });
+                Object.keys(byCat).forEach(c => {
+                  byCat[c].sort((a, b) => sortMode === 'qty' ? (b._base || 0) - (a._base || 0) : (a.n || '').localeCompare(b.n || ''));
+                });
+                const orderedCats = INGR_CATEGORY_ORDER.filter(c => byCat[c] && byCat[c].length > 0);
                 return (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderLight}` }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    {/* Collapse toggle strip */}
+                    <div onClick={() => setD1SecIngrOpen(p => ({ ...p, [catId]: !listOpen }))}
+                         style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer" }}>
+                      <span style={{ fontSize: 14 }}>{ssDone?"📊":"🧺"}</span>
                       <div style={{ fontSize: large?13:12, fontWeight: 700, color: ssDone?C.green:C.gold, whiteSpace: "nowrap" }}>
-                        {ssDone?"📊":"🧺"} {collected} / {total} {T2("collected")}
+                        {collected} / {total} {T2("collected")}
                       </div>
                       <div style={{ flex: 1, height: 5, background: C.border, borderRadius: 3, overflow: "hidden" }}>
                         <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? C.green : C.gold, borderRadius: 3, transition: "width .3s" }}/>
                       </div>
-                      <div style={{ fontSize: 11, color: C.muted, minWidth: 30, textAlign: "right" }}>{pct}%</div>
+                      <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: .5, whiteSpace: "nowrap" }}>{yieldLbl}</div>
+                      <span style={{ fontSize: 12, color: C.muted, transition: "transform .15s", transform: listOpen ? "rotate(180deg)" : "rotate(0deg)", display: "inline-block" }}>▾</span>
                     </div>
-                    <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: .5 }}>{yieldLbl}</div>
-                    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${large?180:150}px, 1fr))`, gap: 6 }}>
-                      {agg.items.map((i, ii) => {
-                        const done = !!itemsDone[itemKey(i)];
-                        return (
-                          <div key={ii} onClick={() => toggle(i)} style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            padding: "7px 10px", borderRadius: 8, cursor: "pointer",
-                            background: done ? C.greenBg : C.surface,
-                            border: `1px solid ${done ? C.greenBorder : C.border}`,
-                            transition: "background .15s"
-                          }}>
-                            <div style={{
-                              width: 16, height: 16, borderRadius: 4, flexShrink: 0,
-                              background: done ? C.green : "transparent",
-                              border: `1.5px solid ${done ? C.green : C.faint}`,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 11, color: "#fff", fontWeight: 700
-                            }}>{done ? "✓" : ""}</div>
-                            <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-                              <div style={{ fontSize: large?13:12, color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
-                              {i.h && <div style={{ fontSize: large?11:10, color: done ? C.faint : C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.h}</div>}
-                            </div>
-                            <div style={{ fontSize: large?13:12, fontWeight: 700, color: done ? C.green : C.gold, whiteSpace: "nowrap" }}>{fmtQty(i)}</div>
+                    {listOpen && (
+                      <div style={{ marginTop: 10 }}>
+                        {/* Search + sort */}
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+                          <div style={{ flex: 1, position: "relative" }}>
+                            <input placeholder={T2("Search ingredient…")} value={d1SecSearch[catId] || ''}
+                                   onChange={e => setD1SecSearch(p => ({ ...p, [catId]: e.target.value }))}
+                                   style={{ width: "100%", padding: "6px 10px 6px 28px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, color: C.text, boxSizing: "border-box" }} />
+                            <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: C.muted }}>🔍</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <select value={sortMode} onChange={e => setD1SecSort(p => ({ ...p, [catId]: e.target.value }))}
+                                  style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, color: C.text, cursor: "pointer" }}>
+                            <option value="qty">{T2("Qty (high → low)")}</option>
+                            <option value="name">{T2("Name (A → Z)")}</option>
+                          </select>
+                        </div>
+                        {/* Grouped list */}
+                        {orderedCats.length === 0 ? (
+                          <div style={{ textAlign: "center", padding: 16, color: C.muted, fontSize: 12, fontStyle: "italic" }}>{T2("No matches")}</div>
+                        ) : orderedCats.map(cat => (
+                          <div key={cat} style={{ marginBottom: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 2px 4px", borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: .5 }}>{T2(cat)}</span>
+                              <span style={{ fontSize: 10, color: C.faint, fontWeight: 500 }}>{byCat[cat].length}</span>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${large?200:160}px, 1fr))`, gap: 2 }}>
+                              {byCat[cat].map((i, ii) => {
+                                const done = !!itemsDone[itemKey(i)];
+                                return (
+                                  <div key={ii} onClick={() => toggle(i)} style={{
+                                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                                    padding: "6px 10px", borderRadius: 6, cursor: "pointer",
+                                    background: done ? C.greenBg : "transparent",
+                                    transition: "background .15s"
+                                  }}>
+                                    <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                                      <div style={{ fontSize: large?13:12, color: done ? C.green : C.text, textDecoration: done ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.n}</div>
+                                      {i.h && <div style={{ fontSize: large?11:10, color: done ? C.faint : C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.h}</div>}
+                                    </div>
+                                    <div style={{ fontSize: large?13:12, fontWeight: 700, color: done ? C.green : C.text, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4, marginLeft: 6 }}>
+                                      {done && <span style={{ color: C.green }}>✓</span>}
+                                      {fmtQty(i)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
