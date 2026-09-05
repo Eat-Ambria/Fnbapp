@@ -71,11 +71,11 @@ function DishSectionsEditor(props) {
     try {
       const results = await Promise.all([
         fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').eq('dept', dept).order('sort_order', { ascending: true }); }),
-        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active').eq('is_active', true); })
+        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active, is_veg').eq('is_active', true); })
       ]);
       setSections(results[0] || []);
       const assignments = {};
-      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0 }; });
+      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg }; });
       setDishAssignments(assignments);
     } catch (e) {
       console.error('[Sections] load failed:', e);
@@ -104,7 +104,7 @@ function DishSectionsEditor(props) {
       const a = dishAssignments[dishName];
       const key = a.section_id || '__unassigned__';
       if (!map[key]) map[key] = [];
-      map[key].push({ name: dishName, sort: a.sort_in_section || 0 });
+      map[key].push({ name: dishName, sort: a.sort_in_section || 0, is_veg: a.is_veg == null ? null : !!a.is_veg });
     });
     Object.keys(map).forEach(function(k){
       map[k].sort(function(a, b){ return (a.sort - b.sort) || a.name.localeCompare(b.name); });
@@ -297,7 +297,8 @@ function DishSectionsEditor(props) {
       if (!data || data.length === 0) { alert('Move failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
       // V73: optimistic local update — realtime on dishes_master may not be enabled
       setDishAssignments(function(prev){
-        return { ...(prev || {}), [dishName]: { section_id: newSectionId, sort_in_section: newSort } };
+        const p = prev || {};
+        return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: newSectionId, sort_in_section: newSort } };
       });
     } catch (e) { alert('Move failed: ' + e.message); }
     finally { setSaving(false); }
@@ -315,9 +316,30 @@ function DishSectionsEditor(props) {
       if (!data || data.length === 0) { alert('Unassign failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
       // V73: optimistic local update
       setDishAssignments(function(prev){
-        return { ...(prev || {}), [dishName]: { section_id: null, sort_in_section: null } };
+        const p = prev || {};
+        return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: null, sort_in_section: null } };
       });
     } catch (e) { alert('Unassign failed: ' + e.message); }
+    finally { setSaving(false); }
+  }
+
+  // V74: veg/non-veg classification — null (unclassified) → veg → non-veg → back to null.
+  async function cycleDishVeg(dishName, current) {
+    if (!isAdmin) return;
+    const next = current == null ? true : (current === true ? false : null);
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.from('dishes_master')
+        .update({ is_veg: next })
+        .eq('dish_name', dishName)
+        .select('dish_name');
+      if (error) throw error;
+      if (!data || data.length === 0) { alert('Update failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      setDishAssignments(function(prev){
+        const p = prev || {};
+        return { ...p, [dishName]: { ...(p[dishName] || {}), is_veg: next } };
+      });
+    } catch (e) { alert('Update failed: ' + e.message); }
     finally { setSaving(false); }
   }
 
@@ -419,6 +441,18 @@ function DishSectionsEditor(props) {
             <button onClick={function(){ moveDish(dish.name, 1, sectionId); }} disabled={saving || idx === total - 1}
               style={{ background: 'transparent', border: 0, cursor: idx === total - 1 ? 'not-allowed' : 'pointer', padding: 0, fontSize: 9, color: C.muted, lineHeight: 1, opacity: idx === total - 1 ? 0.3 : 1 }}>▼</button>
           </div>
+        )}
+        {isAdmin ? (
+          <button onClick={function(){ cycleDishVeg(dish.name, dish.is_veg); }} disabled={saving}
+            title={dish.is_veg === true ? 'Veg — click to mark non-veg' : dish.is_veg === false ? 'Non-veg — click to clear' : 'Unclassified — click to mark veg'}
+            style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: saving ? 'wait' : 'pointer',
+              background: dish.is_veg === true ? '#1D9E75' : dish.is_veg === false ? '#D64040' : 'transparent',
+              border: dish.is_veg == null ? '1.5px solid ' + C.faint : 'none' }} />
+        ) : (
+          dish.is_veg != null && (
+            <span title={dish.is_veg ? 'Veg' : 'Non-veg'}
+              style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dish.is_veg ? '#1D9E75' : '#D64040' }} />
+          )
         )}
         <span style={{ flex: 1, color: C.text }}>{dish.name}</span>
         {isAdmin && (

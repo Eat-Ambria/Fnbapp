@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
-import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
@@ -467,6 +467,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (resolveDishStore(name)) return 'inventory';
     if (findRecipeForDish(name)) return 'sop';
     return 'unmapped';
+  }
+
+  // V74: forces a re-render with no data reload — for badges/dots computed live from
+  // module-level caches (DISH_MASTER, RECIPE_DB, DISH_STORE_MAP) that this component
+  // doesn't hold as React state. Bump after any write to those caches (veg toggle,
+  // SOP/Inventory/no-SOP mapping) instead of re-deriving editorSections from source,
+  // which would silently discard unsaved section/dish edits still sitting in local state.
+  var [dishCacheTick, setDishCacheTick] = useState(0);
+  async function cycleDishVeg(dishName, current) {
+    if (!isAdmin) return;
+    var next = current == null ? true : (current === true ? false : null);
+    try {
+      var res = await supabase.from('dishes_master').update({ is_veg: next }).eq('dish_name', dishName).select('dish_name');
+      if (res.error) throw res.error;
+      if (!res.data || res.data.length === 0) { alert('Update failed: dish not found in catalogue (mark it there first via Dish Library).'); return; }
+      upsertDishMaster(dishName, { is_veg: next });
+      setDishCacheTick(function(v) { return v + 1; });
+    } catch (e) { alert('Update failed: ' + (e.message || e)); }
   }
 
   // ── Save / lifecycle (5d) ─────────────────────────────────────────
@@ -1000,9 +1018,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   {/* Header — pinned while scrolling a long section list (V74) */}
                   <div style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
-                    position: "sticky", top: 0, zIndex: 5, background: C.surface, borderRadius: "12px 12px 0 0",
-                    marginLeft: -18, marginRight: -18, marginTop: -16, marginBottom: 14,
-                    paddingLeft: 18, paddingRight: 18, paddingTop: 16, paddingBottom: 14,
+                    position: "sticky", top: 0, zIndex: 5, background: C.surface,
+                    marginBottom: 14, paddingBottom: 14,
                     borderBottom: "1px solid " + C.borderLight,
                   }}>
                     <div>
@@ -1145,7 +1162,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
                               var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
-                              var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
+                              var veg = resolveDishVeg(d); // true=veg, false=non-veg, null=unclassified — dishCacheTick forces re-read
                               var isPicked = !!selectedDishes[d];
                               var isEditingThis = !!editingDish && editingDish.secId === sec.id && editingDish.name === d;
                               return (
@@ -1166,7 +1183,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                         onClick={function(e) { e.stopPropagation(); }}
                                         style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
                                     )}
-                                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}></span>
+                                    {isAdmin ? (
+                                      <button data-nomap onClick={function() { cycleDishVeg(d, veg); }}
+                                        title={veg === true ? T2("Veg — click to mark non-veg") : veg === false ? T2("Non-veg — click to clear") : T2("Unclassified — click to mark veg")}
+                                        style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer",
+                                          background: veg === true ? C.green : veg === false ? C.red : "transparent",
+                                          border: veg == null ? "1.5px solid " + C.faint : "none" }} />
+                                    ) : (
+                                      veg != null && (
+                                        <span title={veg ? T2("Veg") : T2("Non-veg")}
+                                          style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: veg ? C.green : C.red }}></span>
+                                      )
+                                    )}
                                     {isEditingThis ? (
                                       <input data-nomap autoFocus value={editDishValue}
                                         onChange={function(e) { setEditDishValue(e.target.value); }}
@@ -1312,8 +1340,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         currentUser={currentUser}
         onClose={function() { setMappingDish(''); }}
         onChange={function() {
-          // Refresh section view so pill/badge reflects new mapping
-          if (selPkg) setEditorSections(getSectionsForPackage(selPkg));
+          // Bug fix: this used to call setEditorSections(getSectionsForPackage(selPkg)),
+          // which reloads sections from the last SAVED state — silently discarding any
+          // unsaved local edits (a just-added section, a rename, a reorder...) the moment
+          // you mapped a dish's SOP/Inventory/no-SOP status. The SOP/Inventory/Unmapped
+          // badge is computed live from getDishType(d) on every render regardless, so all
+          // that's actually needed is a re-render — never touch editorSections here.
+          setDishCacheTick(function(v) { return v + 1; });
         }}
         onJumpToPackage={function(pkgName) { setMappingDish(''); setMainTab("packages"); setSelPkg(pkgName); }}
         allowDeactivate={false}
