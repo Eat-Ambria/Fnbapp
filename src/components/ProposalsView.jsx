@@ -7,7 +7,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
 import { AMBRIA_VENUES } from '../data/constants.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -47,6 +47,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var T2 = function(s) { return T(s, lang); };
   var canCreate  = hasPermission(currentUser, 'proposals.create');
   var canViewAll = hasPermission(currentUser, 'proposals.view_all');
+  var canConvert = hasPermission(currentUser, 'proposals.convert');
 
   var repId      = (currentUser && (currentUser.staff_id || currentUser.staffListId || currentUser.id)) || 'unknown';
 
@@ -202,6 +203,76 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
     loadProposals();
     setMenuBuilderProposal(null);
     setMode('list');
+  }
+
+  // V79 — Won proposals become real booked functions: creates an events row,
+  // copies proposal_items into event_items (mirrors the same table shape the
+  // Booked Functions editor uses), and seeds events.menu with just the Kitchen-
+  // dept subset (same dept resolution EventMenuBuilderView uses: package
+  // section's own sales_dept first, then sales_items_meta, else Kitchen default)
+  // so Kitchen Hub's production planning sees the right menu immediately.
+  async function convertToBooking(p) {
+    if (!canConvert || p.converted_event_id || p.status !== 'won') return;
+    if (!window.confirm(T2('Convert') + ' "' + p.guest_name + '" ' + T2('to a booked function? This creates a real event from this proposal.'))) return;
+
+    var eventId = 'PROP-' + p.id;
+    try {
+      var pkgName = Object.keys(pkgIdMap).find(function(n){ return pkgIdMap[n] === p.tier_package_id; }) || null;
+
+      var itemsRes = await supabase.from('proposal_items').select('*').eq('proposal_id', p.id);
+      if (itemsRes.error) throw itemsRes.error;
+      var items = itemsRes.data || [];
+
+      var pkgSecs = pkgName ? MENU_PACKAGE_SECTIONS[pkgName] : null;
+      var dishNameToPkgDept = {};
+      if (pkgSecs) {
+        pkgSecs.forEach(function(sec){
+          var dept = sec.sales_dept || 'kit';
+          (sec.dishes || []).forEach(function(name){ if (name) dishNameToPkgDept[name] = dept; });
+        });
+      }
+      var metaRes = items.length > 0
+        ? await supabase.from('sales_items_meta').select('dish_name, sales_dept').in('dish_name', items.map(function(it){ return it.dish_name; }))
+        : { data: [] };
+      var metaByName = {};
+      (metaRes.data || []).forEach(function(r){ metaByName[r.dish_name] = r.sales_dept; });
+      var kitchenNames = items.filter(function(it){
+        var dept = dishNameToPkgDept[it.dish_name] || metaByName[it.dish_name] || 'kit';
+        return dept === 'kit';
+      }).map(function(it){ return it.dish_name; });
+
+      var evRes = await supabase.from('events').insert({
+        id: eventId,
+        guest: p.guest_name,
+        venue: p.venue,
+        date: p.event_date,
+        type: p.event_type,
+        pax: p.pax,
+        menu_package: pkgName,
+        menu: kitchenNames,
+        special: p.notes || null,
+        event_items_initialized: true,
+      }).select().single();
+      if (evRes.error) throw evRes.error;
+
+      if (items.length > 0) {
+        var rows = items.map(function(it){ return { event_id: eventId, dish_name: it.dish_name, is_addon: it.is_addon, ordering: it.ordering }; });
+        var insRes = await supabase.from('event_items').insert(rows);
+        if (insRes.error) throw insRes.error;
+      }
+
+      if (p.notes) {
+        await supabase.from('event_function_plans').upsert({ event_id: eventId, general_notes: p.notes }, { onConflict: 'event_id' });
+      }
+
+      var updRes = await supabase.from('proposals').update({ converted_event_id: eventId }).eq('id', p.id).select().single();
+      if (updRes.error) throw updRes.error;
+      setProposals(function(prev){ return prev.map(function(x){ return x.id === p.id ? updRes.data : x; }); });
+      alert(T2('Converted — find it under Booked Functions.'));
+    } catch (e) {
+      console.error('[Proposals] convertToBooking failed:', e);
+      alert(T2('Failed to convert:') + ' ' + (e.message || e));
+    }
   }
 
   function pickTemplate(pkg) {
@@ -564,6 +635,19 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                         style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                         🍽 {T2("Menu")}
                       </button>
+                      {canConvert && p.status === 'won' && (
+                        p.converted_event_id ? (
+                          <span title={T2("Already converted to a booking")}
+                            style={{ padding: "5px 10px", borderRadius: 6, background: "#E5F5EA", border: "1px solid #B8E0C6", color: "#2A7A48", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+                            ✓ {T2("Booked")}
+                          </span>
+                        ) : (
+                          <button onClick={function(){ convertToBooking(p); }} title={T2("Convert to a booked function")}
+                            style={{ padding: "5px 10px", borderRadius: 6, background: "#2A7A48", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                            📅 {T2("Convert")}
+                          </button>
+                        )
+                      )}
                       <button onClick={function(){ duplicateProposal(p); }} title={T2("Duplicate")}
                         style={{ padding: "5px 8px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                         ⧉

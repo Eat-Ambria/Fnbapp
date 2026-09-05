@@ -259,6 +259,18 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // V79 — self-heal once right after the initial load finishes (using the fresh,
+  // post-render salesMeta/dishNameToPkgDept — not the stale closures still in
+  // scope inside boot() itself). Covers events whose items arrived by some path
+  // other than a toggle in this editor (e.g. converted from a won proposal), so
+  // Kitchen Hub sees the right menu the moment anyone opens this event, not only
+  // after the next manual toggle.
+  useEffect(function(){
+    if (loading || !event || !event.id) return;
+    mirrorKitchenMenu(dishItems);
+  // eslint-disable-next-line
+  }, [loading]);
+
   // ── V78: Function Plan (event_function_plans, one row per event) ──
   useEffect(function(){
     if (!event || !event.id) return;
