@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
@@ -439,6 +439,78 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return out;
   }, [activeDept, sections, visibleDishes, templateInfo.dishes]);
 
+  // ── V75: every catalogue dish by name, dept-unfiltered — used only to figure out
+  // where a package dish with NO catalogue row should route (see effectiveDept below).
+  var allDishesByName = useMemo(function(){
+    var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
+  }, [allDishes]);
+
+  // ── V75: group by the SELECTED PACKAGE's own sections (as configured in the
+  // Packages tab) instead of the shared catalogue taxonomy — so a package's
+  // "Chaat Station" in the proposal always matches exactly what that package
+  // defines, not every dish that happens to share that catalogue section.
+  // Sales intentionally gives dishes fancier names in the package than the
+  // underlying SOP/catalogue entry (mapped separately in Packages) — a package
+  // dish with no exact-name catalogue row is still first-class here, not flagged
+  // as broken; it just has no image/notes/hindi until someone adds it to the
+  // catalogue under that name.
+  // Returns null when the package has no sections overlay yet (legacy packages),
+  // so the caller falls back to groupedBySection / groupedByCat.
+  var groupedByPkgSection = useMemo(function(){
+    var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
+    if (!pkgSecs || pkgSecs.length === 0) return null;
+
+    var byExact = {};
+    var byLoose = {};
+    visibleDishes.forEach(function(d){
+      byExact[d.name] = d;
+      var k = (d.name || '').toLowerCase().trim();
+      if (!byLoose[k]) byLoose[k] = d;
+    });
+    var consumed = {};
+
+    function iconFor(sopCat) {
+      if (!sopCat) return '🍽';
+      var cat = (RECIPE_DB.cats || []).find(function(c){ return c.name === sopCat || c.id === sopCat; });
+      return (cat && cat.icon) ? cat.icon : '🍽';
+    }
+
+    // No catalogue row anywhere for this exact name — decide which dept tab it
+    // belongs on the same way the rest of the app does (section override →
+    // saved sales meta → app default), since there's no dishes_master row to ask.
+    function effectiveDept(name) {
+      var catRow = allDishesByName[name];
+      var override = catRow && catRow.section_id ? sectionSalesDeptMap[catRow.section_id] : null;
+      var meta = salesMeta[name];
+      return override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+    }
+
+    var out = [];
+    pkgSecs.forEach(function(sec){
+      var list = (sec.dishes || []).filter(Boolean).map(function(name){
+        var match = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
+        if (match) {
+          // Clear any stale phantom flag from the old catalogue-diff check — this
+          // dish's identity is the package's own name, shown normally here.
+          return match.isPhantom ? { ...match, catName: sec.name, catIcon: iconFor(sec.sop_category), isPhantom: false } : match;
+        }
+        if (effectiveDept(name) !== activeDept) return null; // belongs on a different dept tab
+        return { name: name, hindi: '', catId: 'other', catName: sec.name, catIcon: iconFor(sec.sop_category),
+          image: '', notes: '', section_id: null, sort_in_section: null };
+      }).filter(Boolean);
+      if (list.length === 0) return;
+      list.forEach(function(d){ consumed[d.name] = true; });
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });
+    });
+    if (out.length === 0) return null;
+
+    var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
+    if (leftover.length > 0) {
+      out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
+    }
+    return out;
+  }, [templateInfo.name, visibleDishes, activeDept, allDishesByName, salesMeta, sectionSalesDeptMap]);
+
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
   var dietMeta = templateInfo.diet
@@ -566,7 +638,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   dietFilter={dietFilter} setDietFilter={setDietFilter}
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
-                  groupedByCat={groupedBySection || groupedByCat}
+                  groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
