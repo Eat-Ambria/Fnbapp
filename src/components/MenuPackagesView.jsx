@@ -7,6 +7,7 @@ import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
+import { SALES_DEPTS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
@@ -188,6 +189,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   function toggleSecExpanded(secId) {
     setExpandedSecs(function(p) { var n = { ...p }; if (n[secId]) delete n[secId]; else n[secId] = true; return n; });
   }
+  // V75: section header row was getting crowded (link badge, resync, unlink, SOP
+  // default, sales dept…) — those all moved into a per-section settings modal.
+  var [secSettingsOpen, setSecSettingsOpen] = useState(null); // section id, or null
   // V73: catalogue section picker — bring dish_catalogue_sections into a package
   var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
   var [catPickerOpen, setCatPickerOpen]         = useState(false);
@@ -288,7 +292,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   function addSection() {
     var newId = genSecId();
     setEditorSections(function(prev) {
-      return [...prev, { id: newId, name: 'New section', sop_category: '', dishes: [] }];
+      return [...prev, { id: newId, name: 'New section', sop_category: '', sales_dept: 'kit', dishes: [] }];
     });
     setExpandedSecs(function(p) { return { ...p, [newId]: true }; }); // V74: new section starts expanded, not hidden
     setDirty(true);
@@ -336,6 +340,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         id: newId,
         name: catSec.name,
         sop_category: catSec.sop_category_hint || '',
+        sales_dept: catSec.sales_dept || 'kit', // quick-fill default from the catalogue section — editable per package after
         dishes: catSec.dishes.slice(),
         catalogue_section_id: catSec.id,
       }];
@@ -381,6 +386,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   }
   function setSectionCategory(secId, catName) {
     setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, sop_category: catName } : s; }); });
+    setDirty(true);
+  }
+  // V75: which Proposal-builder dept tab this section's dishes show up under —
+  // set explicitly per package section (independent of any catalogue section's
+  // own sales_dept, which is just a quick-fill convenience for building packages).
+  function setSectionDept(secId, deptId) {
+    setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, sales_dept: deptId } : s; }); });
     setDirty(true);
   }
   function deleteSection(secId) {
@@ -507,6 +519,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         id: s.id || genSecId(),
         name: (s.name || '').trim() || 'Untitled',
         sop_category: s.sop_category || '',
+        sales_dept: s.sales_dept || 'kit',
         dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
       };
       if (s.catalogue_section_id) out.catalogue_section_id = s.catalogue_section_id;
@@ -1142,31 +1155,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 🔗
                               </span>
                             )}
-                            {sec.catalogue_section_id && isAdmin && (
-                              <button data-noexpand onClick={function() { resyncSection(sec); }} disabled={!!resyncing[sec.id]}
-                                title={T2("Resync from catalogue")}
-                                style={{ padding: "2px 5px", background: "transparent", border: "none", color: C.faint, cursor: resyncing[sec.id] ? "wait" : "pointer", fontSize: 13, lineHeight: 1 }}>
-                                {resyncing[sec.id] ? "…" : "↻"}
-                              </button>
-                            )}
-                            {sec.catalogue_section_id && isAdmin && (
-                              <button data-noexpand onClick={function() { if (window.confirm(T2("Unlink this section from the catalogue? Dishes stay, but future resyncs stop."))) unlinkSection(sec.id); }}
-                                title={T2("Unlink from catalogue")}
-                                style={{ padding: "2px 4px", background: "transparent", border: "none", color: C.faint, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>
-                                ×
-                              </button>
-                            )}
-                            <span style={{ fontSize: 11, color: C.muted }}>{T2("default")}:</span>
-                            <select data-noexpand
-                              value={sec.sop_category || ''}
-                              onChange={function(e) { setSectionCategory(sec.id, e.target.value); }}
-                              onClick={function(e) { e.stopPropagation(); }}
-                              disabled={!isAdmin}
-                              style={{ padding: "3px 6px", borderRadius: 10, border: "1px solid " + C.blueBorder, background: C.blueBg, fontSize: 11, color: C.blue, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
-                              <option value="">— {T2("pick default")} —</option>
-                              {catOptions.map(function(c) { return <option key={c} value={c}>SOP · {c}</option>; })}
-                              <option value="__inventory__">{T2("Inventory (Stores)")}</option>
-                            </select>
+                            <button data-noexpand onClick={function() { setSecSettingsOpen(sec.id); }}
+                              title={T2("Section settings")}
+                              style={{ padding: "3px 7px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border, color: C.muted, cursor: "pointer", fontSize: 13, lineHeight: 1 }}>
+                              ⚙
+                            </button>
                             <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sec.dishes.length} {T2("dishes")}</span>
                             {isAdmin && (
                               <button data-noexpand onClick={function() { deleteSection(sec.id); }}
@@ -1365,6 +1358,70 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
         </div>
       )}
+
+      {/* V75: Section settings modal — SOP default, sales dept, catalogue link management.
+          Moved out of the header row so it doesn't get crowded with selects/buttons. */}
+      {secSettingsOpen && (function(){
+        var sec = editorSections.find(function(s) { return s.id === secSettingsOpen; });
+        if (!sec) return null;
+        return (
+          <div onClick={function(){ setSecSettingsOpen(null); }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div onClick={function(e){ e.stopPropagation(); }}
+              style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>⚙ {sec.name || T2('Section settings')}</span>
+                <span style={{ flex: 1 }} />
+                <button onClick={function(){ setSecSettingsOpen(null); }}
+                  style={{ background: 'transparent', border: 0, cursor: 'pointer', fontSize: 20, color: C.muted, padding: '2px 8px', lineHeight: 1 }}>×</button>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('SOP / Inventory default')}</div>
+                <select value={sec.sop_category || ''}
+                  onChange={function(e) { setSectionCategory(sec.id, e.target.value); }}
+                  disabled={!isAdmin}
+                  style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.blueBorder, background: C.blueBg, fontSize: 12, color: C.blue, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
+                  <option value="">— {T2("pick default")} —</option>
+                  {catOptions.map(function(c) { return <option key={c} value={c}>SOP · {c}</option>; })}
+                  <option value="__inventory__">{T2("Inventory (Stores)")}</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: sec.catalogue_section_id ? 14 : 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Proposal builder tab')}</div>
+                <select value={sec.sales_dept || 'kit'}
+                  onChange={function(e) { setSectionDept(sec.id, e.target.value); }}
+                  disabled={!isAdmin}
+                  style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.goldBorder, background: C.goldBg, fontSize: 12, color: C.gold, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
+                  {SALES_DEPTS.map(function(d) { return <option key={d.id} value={d.id}>{d.icon} {d.name}</option>; })}
+                </select>
+                <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2("Which dept tab this section's dishes show up under when building a proposal from this package.")}</div>
+              </div>
+
+              {sec.catalogue_section_id && (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 6 }}>
+                    🔗 {T2('Linked to catalogue section')}{catSecNames[sec.catalogue_section_id] ? ': ' + catSecNames[sec.catalogue_section_id] : ''}
+                  </div>
+                  {isAdmin && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={function() { resyncSection(sec); }} disabled={!!resyncing[sec.id]}
+                        style={{ flex: 1, padding: "7px 10px", borderRadius: 7, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: resyncing[sec.id] ? "wait" : "pointer" }}>
+                        {resyncing[sec.id] ? T2('Syncing…') : '↻ ' + T2('Resync from catalogue')}
+                      </button>
+                      <button onClick={function() { if (window.confirm(T2("Unlink this section from the catalogue? Dishes stay, but future resyncs stop."))) { unlinkSection(sec.id); setSecSettingsOpen(null); } }}
+                        style={{ padding: "7px 10px", borderRadius: 7, background: "transparent", border: "1px solid " + C.border, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        {T2('Unlink')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* V66: Shared dish mapping modal — opens on dish row click from Packages tab */}
       <DishMappingModal

@@ -118,9 +118,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // ── V72 Phase 2: phantom dishes ──
   // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
   // sales can see catalogue mismatches without losing the pre-seeded proposal item.
-  // Kitchen dept only — non-kitchen depts inherit category grouping and no phantom logic.
+  // V75 — dept-agnostic now (also feeds visibleDishesAnyDept for package-section
+  // grouping); the kit-only restriction moved to deptDishes, its only other consumer.
   var phantomDishes = useMemo(function(){
-    if (activeDept !== 'kit') return [];
     if (!templateInfo.dishes || templateInfo.dishes.length === 0) return [];
     var nameSet = {};
     allDishes.forEach(function(d){ nameSet[d.name] = true; });
@@ -140,7 +140,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
           isPhantom:       true,
         };
       });
-  }, [activeDept, allDishes, templateInfo.dishes]);
+  }, [allDishes, templateInfo.dishes]);
 
   // ── Load sales_items_meta ──
   async function loadSalesMeta() {
@@ -439,16 +439,33 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return out;
   }, [activeDept, sections, visibleDishes, templateInfo.dishes]);
 
-  // ── V75: every catalogue dish by name, dept-unfiltered — used only to figure out
-  // where a package dish with NO catalogue row should route (see effectiveDept below).
-  var allDishesByName = useMemo(function(){
-    var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
-  }, [allDishes]);
+  // ── V75: same visibility rules as visibleDishes (diet filter, search, template/
+  // selected/add-on visibility) but WITHOUT the per-dept restriction — needed so a
+  // package section can be matched against its dishes regardless of which dept tab
+  // those dishes' own catalogue rows happen to route to. Which dept TAB a package
+  // section shows up under is now a single explicit choice (sec.sales_dept, set in
+  // the Packages tab) — not re-derived from the catalogue.
+  var visibleDishesAnyDept = useMemo(function(){
+    var q = (searchQ || '').trim().toLowerCase();
+    return allDishes.concat(phantomDishes).filter(function(d){
+      var meta = salesMeta[d.name];
+      var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+      if (dietFilter !== 'all' && diet !== dietFilter) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
+      var inT = !!templateSet[d.name];
+      var isSel = !!selectedSet[d.name];
+      if (!inT && !isSel && !showAddons) return false;
+      return true;
+    });
+  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
 
   // ── V75: group by the SELECTED PACKAGE's own sections (as configured in the
   // Packages tab) instead of the shared catalogue taxonomy — so a package's
   // "Chaat Station" in the proposal always matches exactly what that package
-  // defines, not every dish that happens to share that catalogue section.
+  // defines, not every dish that happens to share that catalogue section. Each
+  // section shows up under the ONE dept tab it was explicitly assigned in the
+  // Packages tab (sec.sales_dept) — the shared Dish Library catalogue sections are
+  // just a quick-fill convenience for building packages, not the routing source.
   // Sales intentionally gives dishes fancier names in the package than the
   // underlying SOP/catalogue entry (mapped separately in Packages) — a package
   // dish with no exact-name catalogue row is still first-class here, not flagged
@@ -462,7 +479,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
     var byExact = {};
     var byLoose = {};
-    visibleDishes.forEach(function(d){
+    visibleDishesAnyDept.forEach(function(d){
       byExact[d.name] = d;
       var k = (d.name || '').toLowerCase().trim();
       if (!byLoose[k]) byLoose[k] = d;
@@ -475,18 +492,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       return (cat && cat.icon) ? cat.icon : '🍽';
     }
 
-    // No catalogue row anywhere for this exact name — decide which dept tab it
-    // belongs on the same way the rest of the app does (section override →
-    // saved sales meta → app default), since there's no dishes_master row to ask.
-    function effectiveDept(name) {
-      var catRow = allDishesByName[name];
-      var override = catRow && catRow.section_id ? sectionSalesDeptMap[catRow.section_id] : null;
-      var meta = salesMeta[name];
-      return override || (meta && meta.sales_dept) || DEFAULT_DEPT;
-    }
-
     var out = [];
     pkgSecs.forEach(function(sec){
+      if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
       var list = (sec.dishes || []).filter(Boolean).map(function(name){
         var match = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
         if (match) {
@@ -494,10 +502,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
           // dish's identity is the package's own name, shown normally here.
           return match.isPhantom ? { ...match, catName: sec.name, catIcon: iconFor(sec.sop_category), isPhantom: false } : match;
         }
-        if (effectiveDept(name) !== activeDept) return null; // belongs on a different dept tab
         return { name: name, hindi: '', catId: 'other', catName: sec.name, catIcon: iconFor(sec.sop_category),
           image: '', notes: '', section_id: null, sort_in_section: null };
-      }).filter(Boolean);
+      });
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
       out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });
@@ -509,7 +516,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishes, activeDept, allDishesByName, salesMeta, sectionSalesDeptMap]);
+  }, [templateInfo.name, visibleDishesAnyDept, visibleDishes, activeDept]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge

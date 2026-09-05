@@ -618,6 +618,7 @@ function getSectionsForPackage(pkgName) {
       id: s.id || ('sec_' + Math.random().toString(36).slice(2, 8)),
       name: s.name || '',
       sop_category: s.sop_category || s.name || '',
+      sales_dept: s.sales_dept || 'kit',
       dishes: Array.isArray(s.dishes) ? s.dishes.slice() : [],
       catalogue_section_id: s.catalogue_section_id || null
     }));
