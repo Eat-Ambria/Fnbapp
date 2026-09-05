@@ -459,18 +459,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
   }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
 
-  // ── V75: group by the SELECTED PACKAGE's own sections (as configured in the
-  // Packages tab) instead of the shared catalogue taxonomy — so a package's
-  // "Chaat Station" in the proposal always matches exactly what that package
-  // defines, not every dish that happens to share that catalogue section. Each
-  // section shows up under the ONE dept tab it was explicitly assigned in the
-  // Packages tab (sec.sales_dept) — the shared Dish Library catalogue sections are
-  // just a quick-fill convenience for building packages, not the routing source.
-  // Sales intentionally gives dishes fancier names in the package than the
-  // underlying SOP/catalogue entry (mapped separately in Packages) — a package
-  // dish with no exact-name catalogue row is still first-class here, not flagged
-  // as broken; it just has no image/notes/hindi until someone adds it to the
-  // catalogue under that name.
+  // ── V76: group by the SELECTED PACKAGE's own sections (as configured in the
+  // Packages tab) instead of the shared catalogue taxonomy directly — so section
+  // NAMES, ORDER and dept routing (sec.sales_dept) always follow the package, not
+  // the shared catalogue. But membership is browse-friendly: when a section was
+  // built "From catalogue" (sec.catalogue_section_id set), sales sees the FULL
+  // catalogue section (e.g. all 6 Refreshing Station dishes) with the package's own
+  // subset (e.g. 2) pinned first and already selected (seedTemplateIfNeeded handles
+  // the actual pre-selection) — so they can swap in any catalogue alternative
+  // without leaving the section. A section with no catalogue link (hand-built, or
+  // a dish typed in with no catalogue row) just shows its own dish list, same as
+  // before — there's no broader set to browse from.
   // Returns null when the package has no sections overlay yet (legacy packages),
   // so the caller falls back to groupedBySection / groupedByCat.
   var groupedByPkgSection = useMemo(function(){
@@ -479,10 +478,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
     var byExact = {};
     var byLoose = {};
+    var byCatSectionId = {};
     visibleDishesAnyDept.forEach(function(d){
       byExact[d.name] = d;
       var k = (d.name || '').toLowerCase().trim();
       if (!byLoose[k]) byLoose[k] = d;
+      if (d.section_id) { if (!byCatSectionId[d.section_id]) byCatSectionId[d.section_id] = []; byCatSectionId[d.section_id].push(d); }
     });
     var consumed = {};
 
@@ -491,20 +492,47 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       var cat = (RECIPE_DB.cats || []).find(function(c){ return c.name === sopCat || c.id === sopCat; });
       return (cat && cat.icon) ? cat.icon : '🍽';
     }
+    function resolveOrSynth(name, sec) {
+      var match = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
+      if (match) {
+        // Clear any stale phantom flag from the old catalogue-diff check — this
+        // dish's identity is the package's own name, shown normally here.
+        return match.isPhantom ? { ...match, catName: sec.name, catIcon: iconFor(sec.sop_category), isPhantom: false } : match;
+      }
+      return { name: name, hindi: '', catId: 'other', catName: sec.name, catIcon: iconFor(sec.sop_category),
+        image: '', notes: '', section_id: null, sort_in_section: null };
+    }
 
     var out = [];
     pkgSecs.forEach(function(sec){
       if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
-      var list = (sec.dishes || []).filter(Boolean).map(function(name){
-        var match = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
-        if (match) {
-          // Clear any stale phantom flag from the old catalogue-diff check — this
-          // dish's identity is the package's own name, shown normally here.
-          return match.isPhantom ? { ...match, catName: sec.name, catIcon: iconFor(sec.sop_category), isPhantom: false } : match;
-        }
-        return { name: name, hindi: '', catId: 'other', catName: sec.name, catIcon: iconFor(sec.sop_category),
-          image: '', notes: '', section_id: null, sort_in_section: null };
-      });
+      var pkgDishNames = (sec.dishes || []).filter(Boolean);
+      var catDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+
+      var list;
+      if (catDishes && catDishes.length > 0) {
+        var pkgNameSet = {};
+        pkgDishNames.forEach(function(n){ pkgNameSet[n] = true; });
+        var pinned = [], rest = [];
+        catDishes.forEach(function(d){ (pkgNameSet[d.name] ? pinned : rest).push(d); });
+        pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
+        rest.sort(function(a, b){
+          var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
+          var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
+          if (sa !== sb) return sa - sb;
+          return a.name.localeCompare(b.name);
+        });
+        // Package dish names that don't exist among this catalogue section's own
+        // dishes (name mismatch, or added to the package from elsewhere) — resolve
+        // or synthesize them too, so the package's own count is never short.
+        var foundNames = {};
+        catDishes.forEach(function(d){ foundNames[d.name] = true; });
+        var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
+        list = missing.concat(pinned).concat(rest);
+      } else {
+        list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
+      }
+
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
       out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });

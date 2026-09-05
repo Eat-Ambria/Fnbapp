@@ -380,6 +380,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, catalogue_section_id: null } : s; }); });
     setDirty(true);
   }
+  // V76: attach an EXISTING (hand-built) section to a catalogue section, without
+  // touching its current dish list — non-destructive alternative to recreating the
+  // section via "From catalogue". Enables catalogue-browse + pre-select in proposals.
+  function linkSectionToCatalogue(secId, catSecId) {
+    setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, catalogue_section_id: catSecId || null } : s; }); });
+    setDirty(true);
+  }
   function renameSection(secId, newName) {
     setEditorSections(function(prev) { return prev.map(function(s) { return s.id === secId ? { ...s, name: newName } : s; }); });
     setDirty(true);
@@ -1163,7 +1170,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 🔗
                               </span>
                             )}
-                            <button data-noexpand onClick={function() { setSecSettingsOpen(sec.id); }}
+                            <button data-noexpand onClick={function() { setSecSettingsOpen(sec.id); loadCatalogueForPicker(); }}
                               title={T2("Section settings")}
                               style={{ padding: "3px 7px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border, color: C.muted, cursor: "pointer", fontSize: 13, lineHeight: 1 }}>
                               ⚙
@@ -1383,7 +1390,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 </select>
               </div>
 
-              <div style={{ marginBottom: sec.catalogue_section_id ? 14 : 4 }}>
+              <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Proposal builder tab')}</div>
                 <select value={sec.sales_dept || 'kit'}
                   onChange={function(e) { setSectionDept(sec.id, e.target.value); }}
@@ -1394,7 +1401,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2("Which dept tab this section's dishes show up under when building a proposal from this package.")}</div>
               </div>
 
-              {sec.catalogue_section_id && (
+              {sec.catalogue_section_id ? (
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 6 }}>
                     🔗 {T2('Linked to catalogue section')}{catSecNames[sec.catalogue_section_id] ? ': ' + catSecNames[sec.catalogue_section_id] : ''}
@@ -1411,6 +1418,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </button>
                     </div>
                   )}
+                </div>
+              ) : isAdmin && (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, border: "1px dashed " + C.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 2 }}>{T2('Not linked to a catalogue section')}</div>
+                  <div style={{ fontSize: 10, color: C.faint, marginBottom: 8 }}>
+                    {T2("Link this section so proposals can browse the full catalogue list here, with this section's own dishes pre-selected. Its current dishes stay as-is.")}
+                  </div>
+                  <select value=""
+                    onChange={function(e) { var v = e.target.value; if (v) linkSectionToCatalogue(sec.id, v); }}
+                    disabled={catPickerLoading}
+                    style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, fontWeight: 600, cursor: catPickerLoading ? "wait" : "pointer" }}>
+                    <option value="">{catPickerLoading ? T2('Loading…') : '— ' + T2('pick catalogue section') + ' —'}</option>
+                    {catalogueSections.map(function(s) { return <option key={s.id} value={s.id}>{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
+                  </select>
                 </div>
               )}
             </div>
