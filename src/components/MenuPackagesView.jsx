@@ -996,10 +996,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
 
           {/* RIGHT PANE — editor placeholder */}
-          {/* V74: bounded height + its own scrollbar, so the pinned header below has one
-              unambiguous scroll container to stick against instead of bubbling up through
-              the grid into the page scroll (that ambiguity is what caused the gap/overlap glitch). */}
-          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300, maxHeight: "calc(100vh - 170px)", overflowY: "auto" }}>
+          {/* V74: natural height, same as the left rail — no local scrollbar. A bounded
+              maxHeight+overflowY:auto was tried here to give the sticky header below an
+              unambiguous scroll container, but it made this column visually truncate
+              against the taller, uncapped left rail, and reintroduced the same glitch via
+              two independent scroll positions (this box's own scrollbar vs. the page
+              scroll) getting out of sync. Plain page-level sticky (no bounded box, no
+              negative margins) is what actually works. */}
+          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300 }}>
             {!selPkg && (
               <div style={{ padding: "60px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
