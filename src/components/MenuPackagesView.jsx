@@ -1364,6 +1364,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       {secSettingsOpen && (function(){
         var sec = editorSections.find(function(s) { return s.id === secSettingsOpen; });
         if (!sec) return null;
+        var catOptions = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
         return (
           <div onClick={function(){ setSecSettingsOpen(null); }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
