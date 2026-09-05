@@ -18,6 +18,14 @@ import { ItemsTab, DietChip, ComingSoonPlaceholder } from './MenuBuilderView.jsx
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 
+// V79 — events.menu_package is free text (LMS sync, manual entry...) and often
+// doesn't match a MENU_PACKAGES key byte-for-byte (e.g. "Multi-Cuisine Veg" vs
+// the canonical "Multi Cuisine Veg") even though it's clearly the same package.
+// Normalize punctuation/case before comparing so this still resolves.
+function normalizePkgName(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
 
@@ -45,13 +53,26 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     window.addEventListener('ambria:menu-packages-refreshed', h);
     return function(){ window.removeEventListener('ambria:menu-packages-refreshed', h); };
   }, []);
+  // MENU_PACKAGES is hydrated once at app boot (no per-component fetch/race like
+  // proposals' id→name lookup needed) — pkgVer just forces a re-eval after edits.
+  var pkgNameIndex = useMemo(function(){
+    var m = {};
+    Object.keys(MENU_PACKAGES).forEach(function(name){ m[normalizePkgName(name)] = name; });
+    return m;
+  // eslint-disable-next-line
+  }, [pkgVer]);
+  function resolvePkgName(raw) {
+    if (!raw) return null;
+    if (MENU_PACKAGES[raw]) return raw;
+    return pkgNameIndex[normalizePkgName(raw)] || null;
+  }
   var templateInfo = useMemo(function(){
     var raw = event && (event.menu_package || event.menuPackage) || null;
-    var name = raw && MENU_PACKAGES[raw] ? raw : null;
+    var name = resolvePkgName(raw);
     if (!name) return { name: null, dishes: [], diet: null };
     return { name: name, dishes: MENU_PACKAGES[name] || [], diet: detectPackageDiet(name) };
   // eslint-disable-next-line
-  }, [event, pkgVer]);
+  }, [event, pkgVer, pkgNameIndex]);
 
   var templateSet = useMemo(function(){
     var s = {}; templateInfo.dishes.forEach(function(d){ s[d] = true; }); return s;
@@ -158,7 +179,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // dishes only, same as it's always been) into event_items, once. ──
   async function seedFromLegacyMenuIfNeeded() {
     if (!event || !event.id) return [];
-    var evRes = await supabase.from('events').select('event_items_initialized, menu').eq('id', event.id).single();
+    var evRes = await supabase.from('events').select('event_items_initialized, menu, menu_package').eq('id', event.id).single();
     if (evRes.error) throw evRes.error;
     if (evRes.data.event_items_initialized) return await loadItems();
 
@@ -169,14 +190,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
 
     var legacyMenu = Array.isArray(evRes.data.menu) ? evRes.data.menu.filter(Boolean) : [];
-    if (legacyMenu.length === 0) {
+    var seedNames = legacyMenu;
+    if (seedNames.length === 0) {
+      // Raw events.menu can be legitimately empty for LMS-synced events that were
+      // never manually customized — the real menu only exists as the resolved
+      // package's dish list (same as App.jsx resolves it for display elsewhere).
+      var pkgName = resolvePkgName(evRes.data.menu_package);
+      if (pkgName) seedNames = MENU_PACKAGES[pkgName] || [];
+    }
+    if (seedNames.length === 0) {
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', event.id);
       return [];
     }
 
     setSeeding(true);
     try {
-      var rows = legacyMenu.map(function(d, i){ return { event_id: event.id, dish_name: d, is_addon: false, ordering: i }; });
+      var rows = seedNames.map(function(d, i){ return { event_id: event.id, dish_name: d, is_addon: false, ordering: i }; });
       var ins = await supabase.from('event_items').insert(rows).select();
       if (ins.error) throw ins.error;
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', event.id);
