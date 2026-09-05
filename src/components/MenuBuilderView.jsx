@@ -39,6 +39,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // whenever the Packages tab writes (fires 'ambria:menu-packages-refreshed').
   var [pkgIdToName, setPkgIdToName] = useState({});
   var [pkgVer, setPkgVer] = useState(0);
+  // V76: whether the id→name map has resolved at least once. The seed-on-open
+  // effect below MUST wait for this — otherwise it reads templateInfo.dishes on
+  // the very first render (before this fetch resolves), sees an empty list, and
+  // permanently marks the proposal as "initialized" with zero items seeded.
+  var [pkgMapLoaded, setPkgMapLoaded] = useState(false);
   useEffect(function(){
     var h = function(){ setPkgVer(function(v){ return v + 1; }); };
     window.addEventListener('ambria:menu-packages-refreshed', h);
@@ -53,6 +58,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         (res.data || []).forEach(function(r){ m[r.id] = r.name; });
         setPkgIdToName(m);
       } catch(e){ console.warn('[MenuBuilder] pkg id map err:', e); }
+      finally { setPkgMapLoaded(true); }
     })();
   }, [pkgVer]);
   var templateInfo = useMemo(function(){
@@ -214,6 +220,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   }
 
   useEffect(function(){
+    if (!pkgMapLoaded) return; // wait for templateInfo to reflect the real package before seeding decides there's nothing to seed
     var cancelled = false;
     async function boot(){
       setLoading(true);
@@ -230,7 +237,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     boot();
     return function(){ cancelled = true; };
   // eslint-disable-next-line
-  }, [proposal && proposal.id]);
+  }, [proposal && proposal.id, pkgMapLoaded]);
 
   // ── Realtime for proposal_items on this proposal ──
   useEffect(function(){
@@ -285,6 +292,33 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         await loadItems().then(setDishItems);
         alert(T2('Failed to add dish:') + ' ' + (e.message || e));
       }
+    }
+  }
+
+  // V76: manual re-seed — recovers proposals stuck with 0 selected because
+  // seedTemplateIfNeeded's one-shot auto-seed fired before pkgMapLoaded resolved
+  // (a pre-existing race, now fixed above, but already-affected proposals were
+  // permanently marked menu_initialized with nothing seeded). Also just generally
+  // useful as a "bring back anything from the package I removed" action — only
+  // ever ADDS missing template dishes, never touches existing selections.
+  async function loadPackageDefaults() {
+    if (!proposal || !proposal.id || templateInfo.dishes.length === 0 || seeding) return;
+    var have = {};
+    dishItems.forEach(function(x){ have[x.dish_name] = true; });
+    var toAdd = templateInfo.dishes.filter(function(d){ return !have[d]; });
+    if (toAdd.length === 0) { alert(T2('All package dishes are already selected.')); return; }
+    setSeeding(true);
+    try {
+      var rows = toAdd.map(function(d, i){ return { proposal_id: proposal.id, dish_name: d, is_addon: false, ordering: dishItems.length + i }; });
+      var ins = await supabase.from('proposal_items').insert(rows).select();
+      if (ins.error) throw ins.error;
+      setDishItems(function(prev){ return prev.concat(ins.data || []); });
+      await supabase.from('proposals').update({ menu_initialized: true }).eq('id', proposal.id);
+    } catch (e) {
+      console.error('[MenuBuilder] loadPackageDefaults failed:', e);
+      alert(T2('Failed to load package defaults:') + ' ' + (e.message || e));
+    } finally {
+      setSeeding(false);
     }
   }
 
@@ -459,6 +493,23 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
   }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
 
+  // ── V76: every catalogue dish (diet filter + search still apply, since those are
+  // explicit choices) with NO template/selected/showAddons gate — a package-linked
+  // section's browse list must show every alternative in that catalogue section
+  // regardless of "Show add-ons", since browsing IS the point of linking a section
+  // to the catalogue. "Show add-ons" still gates truly unrelated catalogue dishes
+  // (the Extras bucket, via visibleDishes/visibleDishesAnyDept above).
+  var catalogueBrowsePool = useMemo(function(){
+    var q = (searchQ || '').trim().toLowerCase();
+    return allDishes.filter(function(d){
+      var meta = salesMeta[d.name];
+      var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+      if (dietFilter !== 'all' && diet !== dietFilter) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [allDishes, salesMeta, dietFilter, searchQ]);
+
   // ── V76: group by the SELECTED PACKAGE's own sections (as configured in the
   // Packages tab) instead of the shared catalogue taxonomy directly — so section
   // NAMES, ORDER and dept routing (sec.sales_dept) always follow the package, not
@@ -478,11 +529,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
     var byExact = {};
     var byLoose = {};
-    var byCatSectionId = {};
     visibleDishesAnyDept.forEach(function(d){
       byExact[d.name] = d;
       var k = (d.name || '').toLowerCase().trim();
       if (!byLoose[k]) byLoose[k] = d;
+    });
+    var byCatSectionId = {};
+    catalogueBrowsePool.forEach(function(d){
       if (d.section_id) { if (!byCatSectionId[d.section_id]) byCatSectionId[d.section_id] = []; byCatSectionId[d.section_id].push(d); }
     });
     var consumed = {};
@@ -544,7 +597,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, visibleDishes, activeDept]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -681,6 +734,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   templateInfo={templateInfo}
                   templateDishesInDept={templateDishesInDept}
                   deptCounts={deptCounts[activeDept]}
+                  onLoadDefaults={loadPackageDefaults}
+                  seeding={seeding}
                 />
               )}
 
@@ -717,7 +772,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding }) {
   var totalSel = deptCounts ? deptCounts.sel : 0;
   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
   var deptTotal = deptCounts ? deptCounts.total : 0;
@@ -751,6 +806,13 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       {templateInfo.name && (
         <div style={{ padding: "10px 14px", marginBottom: 14, borderRadius: 10, background: C.bg, border: "1px solid " + C.border, fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span>📋 <b style={{ color: C.text }}>{templateInfo.name}</b> · {templateCountInDept} {T2("template dishes in this dept")} <span style={{ opacity: 0.7 }}>({templateInfo.dishes.length} {T2("total")})</span></span>
+          {onLoadDefaults && (
+            <button onClick={onLoadDefaults} disabled={!!seeding}
+              title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
+              style={{ padding: "4px 10px", borderRadius: 7, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: seeding ? "wait" : "pointer" }}>
+              {seeding ? T2("Loading…") : "↺ " + T2("Load package defaults")}
+            </button>
+          )}
           <span style={{ marginLeft: "auto" }}>
             ✓ {totalSel} {T2("selected")} · ✨ {addonsAvailable} {T2("add-ons available")}
           </span>
