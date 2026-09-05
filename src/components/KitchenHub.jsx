@@ -3107,6 +3107,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick a date, then an event. Enter target yield (kg) per dish. Auto-saves as draft on blur.")}</div>
             </div>
 
+            {/* Calendar + selected-date event list, side by side */}
+            <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap",marginBottom:16}}>
+
             {/* Calendar */}
             {(()=>{
               const MO_FULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -3124,7 +3127,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const prevMo = ()=>{if(planCalMo===0){setPlanCalMo(11);setPlanCalYr(y=>y-1);}else setPlanCalMo(m=>m-1);};
               const nextMo = ()=>{if(planCalMo===11){setPlanCalMo(0);setPlanCalYr(y=>y+1);}else setPlanCalMo(m=>m+1);};
               return(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:12,maxWidth:400}}>
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",flex:"0 0 400px",maxWidth:400}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <button onClick={prevMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
@@ -3161,31 +3164,40 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               );
             })()}
 
-            {/* Selected date ? event cards */}
+            {/* Selected date ? event cards — sits to the right of the calendar now that there's room */}
             {planSelDate && (()=>{
               const dateEvs = upcomingEvs.filter(e=>e.date===planSelDate);
               if(dateEvs.length===0) return(
-                <div style={{padding:"14px 16px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.bg,fontSize:12,color:C.faint,marginBottom:16,textAlign:"center"}}>
+                <div style={{flex:"1 1 320px",minWidth:280,padding:"14px 16px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.bg,fontSize:12,color:C.faint,textAlign:"center"}}>
                   {T2("No upcoming events on")} {fmtDate(planSelDate)}
                 </div>
               );
               return(
-                <div style={{marginBottom:16}}>
+                <div style={{flex:"1 1 320px",minWidth:280}}>
                   <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>
                     {fmtDate(planSelDate)} — {dateEvs.length} {T2("event")}{dateEvs.length!==1?"s":""}
                   </div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
                     {dateEvs.map(ev=>{
                       const isSel = planEvId===ev.id;
                       const vc = anaGp(ev.venue);
                       const mc = menuArr(ev).length;
                       return(
                         <button key={ev.id} onClick={()=>setPlanEvId(isSel?null:ev.id)}
-                          style={{padding:"10px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?600:400,cursor:"pointer",
-                            background:isSel?vc.c:"transparent",color:isSel?"#fff":C.text,
-                            border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:44,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
-                          <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                          <div style={{fontSize:10,opacity:.85,marginTop:2}}>{fmtTime(ev.time)||"—"} — {ev.pax} pax — {mc} dishes — {ev.venue||""}</div>
+                          style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,padding:"14px 18px",borderRadius:12,cursor:"pointer",
+                            background:isSel?vc.c:C.surface,color:isSel?"#fff":C.text,
+                            border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:64,textAlign:"left",borderLeft:`4px solid ${vc.c}`}}>
+                          <div style={{minWidth:0,flex:1}}>
+                            <div style={{fontSize:15,fontWeight:700}}>{ev.guest||T2("Function")}</div>
+                            <div style={{fontSize:12,opacity:.85,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+                              <span>🕐 {fmtTime(ev.time)||"—"}</span>
+                              <span>👥 {ev.pax} {T2("pax")}</span>
+                              <span>🍽 {mc} {T2("dishes")}</span>
+                            </div>
+                            <div style={{fontSize:11,opacity:.75,marginTop:3}}>📍 {ev.venue||"—"}</div>
+                          </div>
+                          <div style={{flexShrink:0,padding:"3px 9px",borderRadius:8,fontSize:10,fontWeight:700,letterSpacing:.4,
+                            background:isSel?"rgba(255,255,255,.25)":vc.c+"1A",color:isSel?"#fff":vc.c}}>{vc.code}</div>
                         </button>
                       );
                     })}
@@ -3193,6 +3205,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>
               );
             })()}
+
+            </div>{/* end calendar + event list row */}
 
             {/* Selected event summary + grouped dish list */}
             {selEv && (()=>{
@@ -3342,8 +3356,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   });
                   const rows = Object.values(ingrMap).sort((a,b)=>a.n.localeCompare(b.n));
                   const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
-                  const thStyle = {padding:"8px 10px",textAlign:"right",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
-                  const tdStyle = {padding:"6px 10px",textAlign:"right",color:C.text,whiteSpace:"nowrap"};
+                  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
+                  const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
+                  const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
                   return(
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowOrderingSheet(false)}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
@@ -3376,19 +3391,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {rows.length===0 ? (
                             <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>
                           ) : (
-                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
+                              <colgroup>
+                                <col style={{width:140}}/>
+                                <col style={{width:44}}/>
+                                {orderedGroups.map(g=><col key={g.cat.id} style={{width:56}}/>)}
+                                <col style={{width:56}}/>
+                              </colgroup>
                               <thead>
                                 <tr>
                                   <th style={{...thStyle,textAlign:"left",position:"sticky",left:0,background:C.surface}}>{T2("Item")}</th>
                                   <th style={thStyle}>{T2("UM")}</th>
-                                  {orderedGroups.map(g=><th key={g.cat.id} style={thStyle}>{g.cat.icon} {g.cat.name}</th>)}
-                                  <th style={{...thStyle,color:C.text}}>{T2("Total")}</th>
+                                  {orderedGroups.map(g=><th key={g.cat.id} style={secThStyle} title={g.cat.name}>{g.cat.icon} {g.cat.name}</th>)}
+                                  <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {rows.map((r,i)=>(
                                   <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface}}>{r.n}</td>
+                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word"}}>{r.n}</td>
                                     <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
                                     {orderedGroups.map(g=><td key={g.cat.id} style={tdStyle}>{roundQ(r.bySection[g.cat.id])}</td>)}
                                     <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(r.total)}</td>

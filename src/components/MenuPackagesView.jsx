@@ -490,9 +490,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!isAdmin) return;
     var next = current == null ? true : (current === true ? false : null);
     try {
-      var res = await supabase.from('dishes_master').update({ is_veg: next }).eq('dish_name', dishName).select('dish_name');
+      var res = await supabase.from('dishes_master').upsert({ dish_name: dishName, is_veg: next }, { onConflict: 'dish_name' });
       if (res.error) throw res.error;
-      if (!res.data || res.data.length === 0) { alert('Update failed: dish not found in catalogue (mark it there first via Dish Library).'); return; }
       upsertDishMaster(dishName, { is_veg: next });
       setDishCacheTick(function(v) { return v + 1; });
     } catch (e) { alert('Update failed: ' + (e.message || e)); }
