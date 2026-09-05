@@ -17,6 +17,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var [loading, setLoading]     = useState(true);
   var [searchQ, setSearchQ]     = useState('');
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
+  var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
 
   async function loadEvents() {
     setLoading(true);
@@ -37,12 +38,14 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
 
   useEffect(function(){ loadEvents(); }, []);
 
-  function openMenuBuilder(ev) {
+  function openMenuBuilder(ev, tab) {
+    setMenuBuilderTab(tab || 'items');
     setMenuBuilderEvent(ev);
   }
   function closeMenuBuilder() {
     loadEvents();
     setMenuBuilderEvent(null);
+    setMenuBuilderTab('items');
   }
 
   var filteredList = useMemo(function(){
@@ -56,7 +59,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   if (menuBuilderEvent) {
     return (
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, background: C.bg }}>
-        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} />
+        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} initialTab={menuBuilderTab} />
       </div>
     );
   }
@@ -106,7 +109,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
 
       {!loading && filteredList.length > 0 && (
         <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
             <div>{T2("Guest / Event")}</div>
             <div>{T2("Venue")}</div>
             <div>{T2("Date")}</div>
@@ -118,7 +121,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
           {filteredList.map(function(ev){
             return (
               <div key={ev.id}
-                style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
+                style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1.4fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{ev.guest || T2("Function")}</div>
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
@@ -128,9 +131,13 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                 <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ev.pax != null ? ev.pax : '—'}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{ev.menu_package || ev.menuPackage || <span>—</span>}</div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                  <button onClick={function(){ openMenuBuilder(ev); }} title={T2("Open Menu Builder")}
+                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }} title={T2("Open Menu Builder")}
                     style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     🍽 {T2("Menu")}
+                  </button>
+                  <button onClick={function(){ openMenuBuilder(ev, 'fp'); }} title={T2("Open Function Plan")}
+                    style={{ padding: "5px 10px", borderRadius: 6, background: C.wine, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    📋 {T2("FP")}
                   </button>
                 </div>
               </div>

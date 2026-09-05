@@ -26,11 +26,11 @@ function normalizePkgName(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null }) {
+export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items' }) {
   var T2 = function(s) { return T(s, lang); };
 
   var [activeDept, setActiveDept]   = useState('kit');
-  var [activeSubTab, setActiveSubTab] = useState('items'); // 'items' | 'fp'
+  var [activeSubTab, setActiveSubTab] = useState(initialTab); // 'items' | 'fp'
   var [dishItems, setDishItems]     = useState([]);        // event_items rows
   var [salesMeta, setSalesMeta]     = useState({});
   var [loading, setLoading]         = useState(true);
