@@ -7,7 +7,7 @@ import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
-import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections } from './data/menuPackages.js';
+import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections, refreshMenuPackages } from './data/menuPackages.js';
 import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, RECIPE_DB } from './data/recipeData.js';
@@ -410,7 +410,10 @@ export default function App() {
       if(payload.eventType==='UPDATE'&&nq) setTransportQueue_raw(p=>p.map(i=>i.id===nq.id?nq:i));
       if(payload.eventType==='DELETE') setTransportQueue_raw(p=>p.filter(i=>i.id!==payload.old.id));
     });
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
+    // V74: menu_packages had no realtime — Packages/Sections tab only refreshed on local save.
+    // Full re-fetch is cheap (small table) and reuses the existing hydrate + event-dispatch plumbing.
+    const u8 = dbSubscribe('menu_packages', () => { refreshMenuPackages(); });
+    return () => { u1(); u2(); u4(); u5(); u6(); u7(); u8(); };
   }, [appReady]);
 
   // ── Supabase connectivity indicator + offline queue replay ──

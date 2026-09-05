@@ -65,10 +65,35 @@ function SortableSection({ id, disabled, children }) {
   });
 }
 
+// V74: same render-prop pattern, scoped to a single section's dish list —
+// lets dishes be reordered to match the order they appear on written menus.
+function SortableDish({ id, disabled, children }) {
+  var s = useSortable({ id: id, disabled: !!disabled });
+  var style = {
+    transform: CSS.Transform.toString(s.transform),
+    transition: s.transition,
+    opacity: s.isDragging ? 0.5 : 1,
+    zIndex: s.isDragging ? 10 : 'auto',
+    position: 'relative',
+  };
+  return children({
+    setNodeRef: s.setNodeRef,
+    style: style,
+    attributes: s.attributes,
+    listeners: s.listeners,
+    isDragging: s.isDragging,
+  });
+}
+
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   var T2 = function(s) { return T(s, lang); };
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
+  // V74: menu_packages is now realtime-subscribed (App.jsx). MENU_PACKAGES/MENU_PACKAGE_SECTIONS
+  // are plain module objects, not React state, so force a re-render on every refresh; also pull
+  // the freshest sections for the package currently open — but only if there's nothing unsaved
+  // here, so another admin's save never clobbers in-progress local edits.
+  var [pkgListVer, setPkgListVer] = useState(0);
   var [mappingDish, setMappingDish] = useState(''); // V66: opens shared DishMappingModal from Packages tab
   var [selectedDishes, setSelectedDishes] = useState({}); // V66: { [dishName]: true } — bulk-move selection
 
@@ -124,6 +149,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // PACKAGES TAB STATE (5b)
   // ════════════════════════════════════════════════════════════
   var [selPkg, setSelPkg] = useState(null);
+
+  useEffect(function() {
+    var h = function() {
+      setPkgListVer(function(v) { return v + 1; });
+      if (selPkg && !dirty) setEditorSections(getSectionsForPackage(selPkg) || []);
+    };
+    window.addEventListener('ambria:menu-packages-refreshed', h);
+    return function() { window.removeEventListener('ambria:menu-packages-refreshed', h); };
+  }, [selPkg, dirty]);
 
   var pkgNames = Object.keys(MENU_PACKAGES).sort();
 
@@ -356,6 +390,22 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var newIdx = prev.findIndex(function(s){ return s.id === over.id; });
       if (oldIdx < 0 || newIdx < 0) return prev;
       return arrayMove(prev, oldIdx, newIdx);
+    });
+    setDirty(true);
+  }
+  // V74: reorder dishes within one section — lets the list match written-menu order.
+  function handleDishDragEnd(secId, event) {
+    var active = event.active;
+    var over = event.over;
+    if (!over || active.id === over.id) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        var oldIdx = s.dishes.indexOf(active.id);
+        var newIdx = s.dishes.indexOf(over.id);
+        if (oldIdx < 0 || newIdx < 0) return s;
+        return { ...s, dishes: arrayMove(s.dishes, oldIdx, newIdx) };
+      });
     });
     setDirty(true);
   }
@@ -920,8 +970,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var allDishNames = getAllDishes ? getAllDishes({ includeInactive: false }).map(function(d) { return d.dish_name; }) : [];
               return (
                 <div>
-                  {/* Header */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                  {/* Header — pinned while scrolling a long section list (V74) */}
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
+                    position: "sticky", top: 0, zIndex: 5, background: C.surface, borderRadius: "12px 12px 0 0",
+                    marginLeft: -18, marginRight: -18, marginTop: -16, marginBottom: 14,
+                    paddingLeft: 18, paddingRight: 18, paddingTop: 16, paddingBottom: 14,
+                    borderBottom: "1px solid " + C.borderLight,
+                  }}>
                     <div>
                       <div style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
                       <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
@@ -1053,6 +1109,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             {sec.dishes.length === 0 && (
                               <div style={{ padding: "10px 14px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this section")}</div>
                             )}
+                            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event) { handleDishDragEnd(sec.id, event); }}>
+                            <SortableContext items={sec.dishes} strategy={verticalListSortingStrategy}>
                             {sec.dishes.map(function(d) {
                               var type = getDishType(d);
                               var hi = resolveDishHindi(d);
@@ -1063,11 +1121,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
                               var isPicked = !!selectedDishes[d];
                               return (
-                                <div key={d}
+                                <SortableDish key={d} id={d} disabled={!isAdmin}>
+                                {function(dnd2) { return (
+                                <div ref={dnd2.setNodeRef} style={{ ...dnd2.style, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer', background: isPicked ? C.blueBg : (dnd2.isDragging ? C.bg : 'transparent') }}
                                   onClick={function(e) { if (e.target.closest('[data-nomap]')) return; setMappingDish(d); }}
-                                  title={T2('Click to edit Hindi / SOP / Inventory mapping')}
-                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer', background: isPicked ? C.blueBg : 'transparent' }}>
+                                  title={T2('Click to edit Hindi / SOP / Inventory mapping')}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
+                                    {isAdmin && (
+                                      <span data-nomap {...dnd2.attributes} {...dnd2.listeners}
+                                        title={T2("Drag to reorder")}
+                                        style={{ cursor: dnd2.isDragging ? 'grabbing' : 'grab', color: C.faint, fontSize: 12, padding: '0 2px', userSelect: 'none', touchAction: 'none', flexShrink: 0 }}>⋮⋮</span>
+                                    )}
                                     {isAdmin && (
                                       <input data-nomap type="checkbox" checked={isPicked}
                                         onChange={function() { toggleDishSelect(d); }}
@@ -1086,8 +1150,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                       style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
                                   )}
                                 </div>
+                                ); }}
+                                </SortableDish>
                               );
                             })}
+                            </SortableContext>
+                            </DndContext>
 
                             {/* Add dish row */}
                             {isAdmin && (
