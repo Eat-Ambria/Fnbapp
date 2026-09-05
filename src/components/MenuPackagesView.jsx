@@ -1059,6 +1059,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       {dirty && (
                         <span style={{ fontSize: 11, color: C.amber, padding: "3px 8px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, fontWeight: 600 }}>● {T2("unsaved")}</span>
                       )}
+                      {dirty && isAdmin && (
+                        <button onClick={discardChanges}
+                          style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Discard")}</button>
+                      )}
+                      {dirty && isAdmin && (
+                        <button onClick={savePackage} disabled={saving}
+                          style={{ padding: "6px 14px", borderRadius: 6, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? T2("Saving…") : T2("Save")}</button>
+                      )}
 
                       {isAdmin && (
                         <button onClick={addSection}
@@ -1281,20 +1289,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </DndContext>
                   </div>
                   </div>
-
-                  {/* Save bar — non-scrolling chrome, always visible below the sections
-                      scrollbox regardless of scroll position (V74). */}
-                  {dirty && (
-                    <div style={{ flexShrink: 0, padding: "12px 18px", background: C.amberBg, borderTop: "1.5px solid " + C.amberBorder, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>{T2("Unsaved changes")}</span>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={discardChanges}
-                          style={{ padding: "6px 14px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Discard")}</button>
-                        <button onClick={savePackage} disabled={saving}
-                          style={{ padding: "6px 14px", borderRadius: 6, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? T2("Saving…") : T2("Save")}</button>
-                      </div>
-                    </div>
-                  )}
 
                 </div>
               );
