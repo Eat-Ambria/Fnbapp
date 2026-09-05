@@ -181,6 +181,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // show "Unmapped" until it matches (or is added to the catalogue).
   var [editingDish, setEditingDish]       = useState(null); // { secId, name } | null
   var [editDishValue, setEditDishValue]   = useState('');
+  // V74: sections collapse to just their header row by default — expand on click.
+  // Keyed by section id; absent/false = collapsed. Resets naturally on package
+  // switch since a new package's section ids won't match any stale keys here.
+  var [expandedSecs, setExpandedSecs]     = useState({});
+  function toggleSecExpanded(secId) {
+    setExpandedSecs(function(p) { var n = { ...p }; if (n[secId]) delete n[secId]; else n[secId] = true; return n; });
+  }
   // V73: catalogue section picker — bring dish_catalogue_sections into a package
   var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
   var [catPickerOpen, setCatPickerOpen]         = useState(false);
@@ -279,9 +286,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   }
 
   function addSection() {
+    var newId = genSecId();
     setEditorSections(function(prev) {
-      return [...prev, { id: genSecId(), name: 'New section', sop_category: '', dishes: [] }];
+      return [...prev, { id: newId, name: 'New section', sop_category: '', dishes: [] }];
     });
+    setExpandedSecs(function(p) { return { ...p, [newId]: true }; }); // V74: new section starts expanded, not hidden
     setDirty(true);
   }
 
@@ -321,15 +330,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // V73: append a package section pre-populated from a catalogue section.
   // Stores catalogue_section_id linkback for future features (badge, resync, etc.).
   function addSectionFromCatalogue(catSec) {
+    var newId = genSecId();
     setEditorSections(function(prev) {
       return [...prev, {
-        id: genSecId(),
+        id: newId,
         name: catSec.name,
         sop_category: catSec.sop_category_hint || '',
         dishes: catSec.dishes.slice(),
         catalogue_section_id: catSec.id,
       }];
     });
+    setExpandedSecs(function(p) { return { ...p, [newId]: true }; }); // V74: new section starts expanded
     setDirty(true);
     setCatPickerOpen(false);
   }
@@ -952,13 +963,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             )}
           </div>
 
-          {/* LEFT RAIL — package list */}
-          <div style={{ background: C.bg, borderRadius: 12, padding: 10, border: "1px solid " + C.border }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 6px 8px" }}>
+          {/* LEFT RAIL — package list. Bounded height + its own scrollbar, matching the
+              right pane, so both columns are independently scrollable and stay visually
+              consistent regardless of list length (V74). */}
+          <div style={{ background: C.bg, borderRadius: 12, border: "1px solid " + C.border, maxHeight: "calc(100vh - 200px)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 10px 8px", flexShrink: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>{T2("Packages")} ({pkgNames.length})</div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
               {pkgNames.length === 0 && (
                 <div style={{ padding: "12px 8px", fontSize: 12, color: C.muted, textAlign: "center" }}>{T2("No packages yet")}</div>
               )}
@@ -995,8 +1008,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             </div>
           </div>
 
-          {/* RIGHT PANE — editor placeholder */}
-          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300 }}>
+          {/* RIGHT PANE — bounded height + flex column: header and Save bar are
+              non-scrolling chrome, only the sections list (below) scrolls in its own
+              box. This is a structural fix, not a CSS-sticky trick (V74). */}
+          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, minHeight: 300, maxHeight: "calc(100vh - 200px)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {!selPkg && (
               <div style={{ padding: "60px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
@@ -1011,16 +1026,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var catOptions = (RECIPE_DB.cats || []).map(function(c) { return c.name; }).sort();
               var allDishNames = getAllDishes ? getAllDishes({ includeInactive: false }).map(function(d) { return d.dish_name; }) : [];
               return (
-                <div>
-                  {/* Header */}
-                  {/* V74: a pinned/sticky version of this header was attempted three times
-                      (plain sticky+negative margins, then a bounded local scrollbox, then
-                      plain sticky with no margins) and each attempt still showed dishes from
-                      the SAME section splitting across the header — some rows above it, some
-                      below — which isn't explainable by scroll-container ambiguity or margin
-                      math, and couldn't be resolved without live DOM inspection. Reverted to
-                      plain static positioning rather than ship a fourth unverified guess. */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                  {/* Header — non-scrolling chrome. A pinned/sticky version was attempted three
+                      times (plain sticky+negative margins, a bounded local scrollbox, plain
+                      sticky with no margins) and each still showed dishes from the SAME section
+                      splitting across the header — some rows above it, some below — which
+                      wasn't explainable by scroll-container ambiguity or margin math. This
+                      structural approach (header lives outside the scrolling area entirely,
+                      only the sections list below scrolls) sidesteps that bug class instead of
+                      fighting CSS sticky again. */}
+                  <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid " + C.borderLight, flexShrink: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div>
                       <div style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
                       <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
@@ -1056,12 +1072,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </div>
                   </div>
 
-                  {/* V66: Bulk-move toolbar */}
+                  {/* V66: Bulk-move toolbar — no longer needs position:sticky; it now lives
+                      inside the non-scrolling header chrome, always visible already. */}
                   {(function() {
                     var pickedNames = Object.keys(selectedDishes);
                     if (pickedNames.length === 0) return null;
                     return (
-                      <div style={{ position: 'sticky', top: 0, zIndex: 5, marginBottom: 10, padding: '10px 14px', background: C.blueBg, border: '1.5px solid ' + C.blueBorder, borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ marginTop: 10, padding: '10px 14px', background: C.blueBg, border: '1.5px solid ' + C.blueBorder, borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: C.blue }}>{pickedNames.length} {T2('selected')}</span>
                         <span style={{ fontSize: 12, color: C.muted }}>· {T2('Move to')}:</span>
                         <select value=""
@@ -1079,8 +1096,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </div>
                     );
                   })()}
+                  </div>
 
-                  {/* Sections */}
+                  {/* Sections — the scrolling region. Bounded by the RIGHT PANE's own
+                      maxHeight via flex:1 + overflowY:auto (V74). */}
+                  <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {editorSections.length === 0 && (
                       <div style={{ padding: "40px 20px", textAlign: "center", background: C.bg, border: "1.5px dashed " + C.border, borderRadius: 10 }}>
@@ -1091,12 +1111,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
                     <SortableContext items={editorSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
                     {editorSections.map(function(sec) {
+                      var isExpanded = !!expandedSecs[sec.id]; // V74: collapsed by default
                       return (
                         <SortableSection key={sec.id} id={sec.id} disabled={!isAdmin}>
                         {function(dnd) { return (
                         <div ref={dnd.setNodeRef} style={{ ...dnd.style, border: "1px solid " + C.border, borderRadius: 10, background: C.surface, marginBottom: 10 }}>
-                          {/* Section header */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: "10px 10px 0 0", borderBottom: "1px solid " + C.border, flexWrap: "wrap" }}>
+                          {/* Section header — always visible; click the chevron to expand/collapse */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: isExpanded ? "10px 10px 0 0" : 10, borderBottom: isExpanded ? "1px solid " + C.border : "none", flexWrap: "wrap" }}>
+                            <span onClick={function() { toggleSecExpanded(sec.id); }}
+                              title={isExpanded ? T2("Collapse section") : T2("Expand section")}
+                              style={{ cursor: "pointer", color: C.muted, fontSize: 11, width: 14, textAlign: "center", flexShrink: 0, userSelect: "none" }}>
+                              {isExpanded ? "▾" : "▸"}
+                            </span>
                             {isAdmin && (
                               <span {...dnd.attributes} {...dnd.listeners}
                                 title={T2("Drag to reorder")}
@@ -1147,7 +1173,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             )}
                           </div>
 
-                          {/* Dishes */}
+                          {/* Dishes — hidden while collapsed */}
+                          {isExpanded && (
                           <div>
                             {sec.dishes.length === 0 && (
                               <div style={{ padding: "10px 14px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this section")}</div>
@@ -1247,6 +1274,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
                         ); }}
                         </SortableSection>
@@ -1255,11 +1283,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </SortableContext>
                     </DndContext>
                   </div>
+                  </div>
 
-                  {/* Save bar (5d wires up) */}
+                  {/* Save bar — non-scrolling chrome, always visible below the sections
+                      scrollbox regardless of scroll position (V74). */}
                   {dirty && (
-                    <div style={{ position: "sticky", bottom: 0, marginTop: 16, padding: "12px 14px", background: C.amberBg, border: "1.5px solid " + C.amberBorder, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>{T2("Unsaved changes — Save wires up in 5d")}</span>
+                    <div style={{ flexShrink: 0, padding: "12px 18px", background: C.amberBg, borderTop: "1.5px solid " + C.amberBorder, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>{T2("Unsaved changes")}</span>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={discardChanges}
                           style={{ padding: "6px 14px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Discard")}</button>
