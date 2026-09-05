@@ -996,13 +996,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
 
           {/* RIGHT PANE — editor placeholder */}
-          {/* V74: natural height, same as the left rail — no local scrollbar. A bounded
-              maxHeight+overflowY:auto was tried here to give the sticky header below an
-              unambiguous scroll container, but it made this column visually truncate
-              against the taller, uncapped left rail, and reintroduced the same glitch via
-              two independent scroll positions (this box's own scrollbar vs. the page
-              scroll) getting out of sync. Plain page-level sticky (no bounded box, no
-              negative margins) is what actually works. */}
           <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300 }}>
             {!selPkg && (
               <div style={{ padding: "60px 20px", textAlign: "center" }}>
@@ -1019,13 +1012,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               var allDishNames = getAllDishes ? getAllDishes({ includeInactive: false }).map(function(d) { return d.dish_name; }) : [];
               return (
                 <div>
-                  {/* Header — pinned while scrolling a long section list (V74) */}
-                  <div style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
-                    position: "sticky", top: 0, zIndex: 5, background: C.surface,
-                    marginBottom: 14, paddingBottom: 14,
-                    borderBottom: "1px solid " + C.borderLight,
-                  }}>
+                  {/* Header */}
+                  {/* V74: a pinned/sticky version of this header was attempted three times
+                      (plain sticky+negative margins, then a bounded local scrollbox, then
+                      plain sticky with no margins) and each attempt still showed dishes from
+                      the SAME section splitting across the header — some rows above it, some
+                      below — which isn't explainable by scroll-container ambiguity or margin
+                      math, and couldn't be resolved without live DOM inspection. Reverted to
+                      plain static positioning rather than ship a fourth unverified guess. */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
                     <div>
                       <div style={{ fontSize: 17, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>{selPkg}</div>
                       <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>

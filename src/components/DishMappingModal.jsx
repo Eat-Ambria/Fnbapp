@@ -131,8 +131,12 @@ function DishMappingModal(props) {
   }, []);
 
   // ── Helpers ───────────────────────────────────────────────────────
+  // V74 fix: used to refuse to close while `saving` was truthy — but if a save
+  // never resolves (e.g. window.confirm() misbehaving in an embedded webview,
+  // or a hung request), that permanently trapped the modal open with no way
+  // out. Closing mid-save is harmless — the write continues in the background
+  // regardless of whether the modal is visible — so never gate this anymore.
   function safeClose() {
-    if (saving) return;
     onClose();
   }
 
@@ -361,8 +365,8 @@ function DishMappingModal(props) {
               {detailPkgs.length > 0 ? T2('Used in ') + detailPkgs.length + T2(' package(s)') : T2('Not used in any package')}
             </div>
           </div>
-          <button onClick={safeClose} disabled={!!saving}
-            style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: saving ? 'not-allowed' : 'pointer', padding: 4 }}>×</button>
+          <button onClick={safeClose}
+            style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: 'pointer', padding: 4 }}>×</button>
         </div>
 
         {/* Hindi */}
@@ -553,8 +557,8 @@ function DishMappingModal(props) {
               🗑 {T2('Retire dish')}
             </button>
           ) : <span />}
-          <button onClick={safeClose} disabled={!!saving}
-            style={{ padding: '6px 14px', borderRadius: 6, background: C.text, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}>
+          <button onClick={safeClose}
+            style={{ padding: '6px 14px', borderRadius: 6, background: C.text, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             {T2('Done')}
           </button>
         </div>
