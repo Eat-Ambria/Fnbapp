@@ -8,7 +8,25 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import { TODAY } from '../utils/helpers.js';
 import EventMenuBuilderView from './EventMenuBuilderView.jsx';
+
+// events.date isn't always stored as ISO "YYYY-MM-DD" (LMS sync / manual entry
+// sometimes leaves "17-Oct-2025"-style strings), so a plain string sort/ORDER BY
+// mis-sorts. Parse both shapes into a real timestamp for sorting purposes.
+var MONTH_MAP = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+function parseEventDate(s) {
+  if (!s) return null;
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  m = /^(\d{1,2})-([A-Za-z]{3,})-(\d{4})$/.exec(s);
+  if (m) {
+    var mi = MONTH_MAP[m[2].slice(0, 3).toLowerCase()];
+    if (mi != null) return new Date(+m[3], mi, +m[1]).getTime();
+  }
+  var t = Date.parse(s);
+  return isNaN(t) ? null : t;
+}
 
 export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
@@ -50,9 +68,19 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
 
   var filteredList = useMemo(function(){
     var q = searchQ.trim().toLowerCase();
-    if (!q) return events;
-    return events.filter(function(e){
+    var base = !q ? events : events.filter(function(e){
       return (e.guest || '').toLowerCase().includes(q) || (e.venue || '').toLowerCase().includes(q);
+    });
+    var todayTs = parseEventDate(TODAY);
+    return base.slice().sort(function(a, b){
+      var ta = parseEventDate(a.date), tb = parseEventDate(b.date);
+      var aUp = ta != null && (todayTs == null || ta >= todayTs);
+      var bUp = tb != null && (todayTs == null || tb >= todayTs);
+      if (aUp !== bUp) return aUp ? -1 : 1; // upcoming functions first
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return aUp ? (ta - tb) : (tb - ta); // upcoming: soonest first · past: most recent first
     });
   }, [events, searchQ]);
 

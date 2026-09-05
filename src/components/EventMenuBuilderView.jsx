@@ -466,6 +466,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
   }, [templateInfo.dishes, salesMeta, activeDept, dishNameToPkgDept]);
 
+  // No menu package on this event at all (custom/LMS event) — there's nothing to
+  // distinguish "template" from "add-on" dishes, so show the full catalogue by
+  // default instead of hiding everything behind the Show-add-ons toggle.
+  var noPackage = !templateInfo.name;
+
   var visibleDishes = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
     return deptDishes.filter(function(d){
@@ -475,10 +480,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      if (!noPackage && !inT && !isSel && !showAddons) return false;
       return true;
     });
-  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, noPackage]);
 
   var groupedByCat = useMemo(function(){
     var groups = {};

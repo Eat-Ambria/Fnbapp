@@ -117,6 +117,42 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         return { ...e, menu: dishes, menuPackage: "" };
       });
     });
+    syncEventItemsFromKitchenMenu(selEv.id, dishes);
+  }
+
+  // Kitchen's flat "Build menu" edits used to only ever touch events.menu, leaving
+  // event_items (the source of truth for Booked Functions / FP) stale until someone
+  // happened to reopen the Booked Functions menu builder for that event. Mirror the
+  // kitchen-dept portion of event_items to match here too — non-kitchen dept rows
+  // (beverage/bakery/etc, edited separately in Booked Functions) are left untouched.
+  async function syncEventItemsFromKitchenMenu(eventId, dishes) {
+    try {
+      var nameSet = {}; (dishes || []).forEach(function(n){ nameSet[n] = true; });
+      var curRes = await supabase.from('event_items').select('dish_name').eq('event_id', eventId);
+      if (curRes.error) throw curRes.error;
+      var existingNames = (curRes.data || []).map(function(r){ return r.dish_name; });
+      var allNames = Array.from(new Set(existingNames.concat(Object.keys(nameSet))));
+      var metaByName = {};
+      if (allNames.length > 0) {
+        var metaRes = await supabase.from('sales_items_meta').select('dish_name,sales_dept').in('dish_name', allNames);
+        if (!metaRes.error) (metaRes.data || []).forEach(function(m){ metaByName[m.dish_name] = m.sales_dept; });
+      }
+      function isKit(name) { return (metaByName[name] || 'kit') === 'kit'; }
+      var existingKit = existingNames.filter(isKit);
+      var toDelete = existingKit.filter(function(n){ return !nameSet[n]; });
+      var toInsert = (dishes || []).filter(function(n){ return existingKit.indexOf(n) < 0; });
+      if (toDelete.length > 0) {
+        await supabase.from('event_items').delete().eq('event_id', eventId).in('dish_name', toDelete);
+      }
+      if (toInsert.length > 0) {
+        await supabase.from('event_items').insert(toInsert.map(function(n, i){
+          return { event_id: eventId, dish_name: n, is_addon: false, ordering: existingNames.length + i };
+        }));
+      }
+      await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
+    } catch (e) {
+      console.error('[MenuPackages] syncEventItemsFromKitchenMenu failed:', e);
+    }
   }
 
   function dayLabel(date) {
