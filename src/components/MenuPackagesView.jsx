@@ -175,6 +175,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
   var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
+  // V74: inline dish-name edit — renames the string within this package's section
+  // only (same as typing a new name into "+ Add dish"); does not touch the master
+  // catalogue/recipe, so a rename that doesn't match a real dish name will just
+  // show "Unmapped" until it matches (or is added to the catalogue).
+  var [editingDish, setEditingDish]       = useState(null); // { secId, name } | null
+  var [editDishValue, setEditDishValue]   = useState('');
   // V73: catalogue section picker — bring dish_catalogue_sections into a package
   var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
   var [catPickerOpen, setCatPickerOpen]         = useState(false);
@@ -430,6 +436,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       });
     });
     setDirty(true);
+  }
+  function startEditDish(secId, name) { setEditingDish({ secId: secId, name: name }); setEditDishValue(name); }
+  function cancelEditDish() { setEditingDish(null); setEditDishValue(''); }
+  function commitEditDish() {
+    if (!editingDish) return;
+    var secId = editingDish.secId, oldName = editingDish.name;
+    var newName = (editDishValue || '').trim();
+    if (!newName || newName === oldName) { cancelEditDish(); return; }
+    var sec = editorSections.find(function(s) { return s.id === secId; });
+    if (sec && sec.dishes.indexOf(newName) !== -1) { alert('"' + newName + '" ' + T2('is already in this section.')); return; }
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, dishes: s.dishes.map(function(d) { return d === oldName ? newName : d; }) };
+      });
+    });
+    setDirty(true);
+    cancelEditDish();
   }
   function discardChanges() {
     if (!selPkg) return;
@@ -954,7 +978,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
 
           {/* RIGHT PANE — editor placeholder */}
-          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300 }}>
+          {/* V74: bounded height + its own scrollbar, so the pinned header below has one
+              unambiguous scroll container to stick against instead of bubbling up through
+              the grid into the page scroll (that ambiguity is what caused the gap/overlap glitch). */}
+          <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "16px 18px", minHeight: 300, maxHeight: "calc(100vh - 170px)", overflowY: "auto" }}>
             {!selPkg && (
               <div style={{ padding: "60px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
@@ -1120,6 +1147,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
                               var dot = type === 'inventory' ? '#1D9E75' : type === 'sop' ? '#639922' : '#E24B4A';
                               var isPicked = !!selectedDishes[d];
+                              var isEditingThis = !!editingDish && editingDish.secId === sec.id && editingDish.name === d;
                               return (
                                 <SortableDish key={d} id={d} disabled={!isAdmin}>
                                 {function(dnd2) { return (
@@ -1139,7 +1167,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                         style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
                                     )}
                                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }}></span>
-                                    <span style={{ fontSize: 13, color: C.text }}>{d}</span>
+                                    {isEditingThis ? (
+                                      <input data-nomap autoFocus value={editDishValue}
+                                        onChange={function(e) { setEditDishValue(e.target.value); }}
+                                        onClick={function(e) { e.stopPropagation(); }}
+                                        onBlur={commitEditDish}
+                                        onKeyDown={function(e) { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelEditDish(); } }}
+                                        style={{ fontSize: 13, color: C.text, padding: "2px 6px", borderRadius: 4, border: "1px solid " + C.blueBorder, background: C.surface, minWidth: 140 }} />
+                                    ) : (
+                                      <span style={{ fontSize: 13, color: C.text }}>{d}</span>
+                                    )}
+                                    {isAdmin && !isEditingThis && (
+                                      <button data-nomap onClick={function(e) { e.stopPropagation(); startEditDish(sec.id, d); }}
+                                        title={T2("Rename in this package")}
+                                        style={{ padding: "1px 4px", background: "transparent", border: "none", color: C.faint, cursor: "pointer", fontSize: 11, lineHeight: 1, flexShrink: 0 }}>✎</button>
+                                    )}
                                     {hi && <span style={{ fontSize: 11, color: C.muted }}>{hi}</span>}
                                     {store && <span style={{ fontSize: 11, color: '#0F6E56' }}>→ {store.qty_per_cover} {store.ops_item_unit}/pax</span>}
                                     <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: badgeBg, color: badgeC }}>{badgeLbl}</span>
