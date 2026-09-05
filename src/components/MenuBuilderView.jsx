@@ -322,6 +322,24 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
   }
 
+  // V77 — dish name → its PACKAGE section's own sales_dept, for the currently
+  // selected package. groupedByPkgSection already treats a package section's
+  // sales_dept as the authoritative dept for its dishes (not the shared catalogue
+  // section, which is just a quick-fill convenience) — counting has to agree with
+  // that or the sidebar/live-total numbers won't match what's actually shown under
+  // each dept tab.
+  var dishNameToPkgDept = useMemo(function(){
+    var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
+    var m = {};
+    if (pkgSecs) {
+      pkgSecs.forEach(function(sec){
+        var dept = sec.sales_dept || 'kit';
+        (sec.dishes || []).forEach(function(name){ if (name) m[name] = dept; });
+      });
+    }
+    return m;
+  }, [templateInfo.name]);
+
   // ── Selected counts per dept ──
   var deptCounts = useMemo(function(){
     var counts = {};
@@ -329,7 +347,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var counted = {};
     allDishes.forEach(function(d){
       var meta = salesMeta[d.name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].total += 1;
       if (selectedSet[d.name]) counts[dept].sel += 1;
@@ -337,16 +355,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
     // V74 — Phantoms: selected dishes not present in the catalogue (retired,
     // renamed, or template-only names never added to dishes_master). Attribute
-    // them to their saved dept or DEFAULT_DEPT so the sidebar sel badge is honest.
+    // them to their package section's dept, saved dept, or DEFAULT_DEPT so the
+    // sidebar sel badge is honest.
     Object.keys(selectedSet).forEach(function(name){
       if (counted[name]) return;
       var meta = salesMeta[name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].sel += 1;
     });
     return counts;
-  }, [allDishes, salesMeta, selectedSet]);
+  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept]);
 
   // ── Dishes for active dept ──
   // V73: effective dept = section's sales_dept override (if dish is in a routed section)
@@ -368,10 +387,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var templateDishesInDept = useMemo(function(){
     return templateInfo.dishes.filter(function(name){
       var meta = salesMeta[name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
-  }, [templateInfo.dishes, salesMeta, activeDept]);
+  }, [templateInfo.dishes, salesMeta, activeDept, dishNameToPkgDept]);
 
   // ── Diet-annotated + filtered + searched ──
   var visibleDishes = useMemo(function(){
