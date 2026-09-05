@@ -12,7 +12,6 @@ import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
-import TotalPanel from './TotalPanel.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
@@ -31,7 +30,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
   // ── Per-active-dept capability flags ──
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
-  var hasConfigs = !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
+  // V77 — Kitchen never shows a Configs sub-tab, whatever sales_config_defs has for 'kit'.
+  var hasConfigs = activeDept !== 'kit' && !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
 
   // ── Template dishes: resolved from proposal.tier_package_id via live pkg id→name map ──
   // V71 — tier concept removed; diet is auto-detected from package name.
@@ -746,23 +746,40 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   lang={lang}
                 />
               )}
-
-              {activeSubTab === 'total' && (
-                <TotalPanel
-                  proposal={proposal}
-                  activeDept={activeDept}
-                  dishItems={dishItems}
-                  salesMeta={salesMeta}
-                  templateInfo={templateInfo}
-                  lang={lang}
-                />
-              )}
             </div>
           )}
 
           {!loading && !hasItems && !hasConfigs && (
             <ComingSoonPlaceholder T2={T2} dept={SALES_DEPT_MAP[activeDept]} />
           )}
+        </div>
+
+        {/* ── V77: live totals — one always-visible per-dept count list (mirrors the
+            left sidebar's badges), replacing the old per-tab "Total" sub-tab so
+            sales don't have to click into every dept just to see what's picked. ── */}
+        <div style={{ flexShrink: 0, width: 190, background: C.surface, borderLeft: "1px solid " + C.border, padding: "12px 10px", overflowY: "auto" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, padding: "6px 4px", marginBottom: 4 }}>
+            🧾 {T2("Live total")}
+          </div>
+          {SALES_DEPTS.map(function(d){
+            var counts = deptCounts[d.id] || { sel: 0, total: 0 };
+            var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+            var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+            if (!deptHasItems && !deptHasConfigs) return null;
+            return (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
+                <span style={{ flex: 1, fontSize: 12, color: C.text }}>{d.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: counts.sel > 0 ? d.color : C.faint }}>{counts.sel}</span>
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 4px 6px", marginTop: 6, borderTop: "1px solid " + C.border }}>
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: C.text }}>{T2("Total items")}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.text }}>
+              {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -777,6 +794,19 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
   var deptTotal = deptCounts ? deptCounts.total : 0;
   var addonsAvailable = Math.max(0, deptTotal - templateCountInDept);
+
+  // V77 — section pills instead of one long stacked scroll: pick one section,
+  // see only its dishes. A search query bypasses the pill filter (shows every
+  // matching section) since the whole point of searching is to find something
+  // regardless of where it lives.
+  var [activeSectionId, setActiveSectionId] = useState(null);
+  var isSearching = !!(searchQ || '').trim();
+  useEffect(function(){
+    var stillExists = groupedByCat.some(function(g){ return g.id === activeSectionId; });
+    if (!stillExists) setActiveSectionId(groupedByCat.length > 0 ? groupedByCat[0].id : null);
+  // eslint-disable-next-line
+  }, [activeDept, groupedByCat.map(function(g){ return g.id; }).join(',')]);
+  var visibleGroups = isSearching ? groupedByCat : groupedByCat.filter(function(g){ return g.id === activeSectionId; });
 
   return (
     <div>
@@ -852,7 +882,31 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
         );
       })()}
 
-      {groupedByCat.map(function(grp){
+      {/* Section pills — pick one section instead of scrolling through all of them.
+          Hidden while searching, since search already spans every section. */}
+      {!isSearching && groupedByCat.length > 1 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {groupedByCat.map(function(g){
+            var isActive = g.id === activeSectionId;
+            var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
+            return (
+              <button key={g.id} onClick={function(){ setActiveSectionId(g.id); }}
+                style={{
+                  padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
+                  background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
+                  border: "1px solid " + (isActive ? C.wine : C.border), cursor: "pointer", whiteSpace: "nowrap",
+                }}>
+                {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {isSearching && groupedByCat.length > 1 && (
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, fontStyle: "italic" }}>{T2("Showing matches across all sections")}</div>
+      )}
+
+      {visibleGroups.map(function(grp){
         return (
           <div key={grp.id} style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
@@ -986,11 +1040,6 @@ function SubTabStrip({ T2, activeSubTab, setActiveSubTab, hasItems, hasConfigs, 
           onClick={function(){ setActiveSubTab('configs'); }}
         />
       )}
-      <SubTab
-        label={"📊 " + T2("Total")}
-        active={activeSubTab === 'total'}
-        onClick={function(){ setActiveSubTab('total'); }}
-      />
     </div>
   );
 }
