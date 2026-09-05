@@ -581,6 +581,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
   const [planLoading, setPlanLoading] = useState(false);
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
+  const [showOrderingSheet, setShowOrderingSheet] = useState(false); // section-wise ingredient ordering sheet modal
   // V74 — per-section ingredient panel UI state for Prep Day Collect from store view (session-local)
   const [d1SecIngrOpen, setD1SecIngrOpen] = useState({});   // { [catId]: bool }
   const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
@@ -3123,17 +3124,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const prevMo = ()=>{if(planCalMo===0){setPlanCalMo(11);setPlanCalYr(y=>y-1);}else setPlanCalMo(m=>m-1);};
               const nextMo = ()=>{if(planCalMo===11){setPlanCalMo(0);setPlanCalYr(y=>y+1);}else setPlanCalMo(m=>m+1);};
               return(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderBottom:`1px solid ${C.border}`}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                      <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:160,textAlign:"center"}}>{MO_FULL[planCalMo]} {planCalYr}</div>
-                      <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:12,maxWidth:400}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <button onClick={prevMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
+                      <div style={{fontSize:13,fontWeight:600,color:C.text,minWidth:120,textAlign:"center"}}>{MO_FULL[planCalMo]} {planCalYr}</div>
+                      <button onClick={nextMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
                     </div>
-                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
+                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(null);}} style={{padding:"4px 10px",borderRadius:7,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:10,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-                    {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+                    {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:600,color:C.muted,padding:"4px 0",background:C.bg}}>{d}</div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                     {cells.map((cell,i)=>{
@@ -3144,17 +3145,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const vCols = [...new Set(evs2.map(e=>anaGp(e.venue).c))];
                       return(
                         <div key={i} onClick={()=>{if(!dt)return;setPlanSelDate(isSel?null:dt);setPlanEvId(null);}}
-                          style={{height:56,padding:"5px 6px",cursor:dt?"pointer":"default",
+                          style={{height:40,padding:"3px 4px",cursor:dt?"pointer":"default",
                             borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
                             background:isSel?C.goldBg:isToday?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
-                          <div style={{fontSize:12,fontWeight:isToday||isSel?600:400,color:isSel?C.gold:isToday?"#BA7517":C.text}}>{cell.d}</div>
-                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:3}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                          <div style={{fontSize:11,fontWeight:isToday||isSel?600:400,color:isSel?C.gold:isToday?"#BA7517":C.text}}>{cell.d}</div>
+                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:5,height:5,borderRadius:"50%",background:col}}/>)}</div>}
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{display:"flex",gap:12,padding:"8px 16px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+                  <div style={{display:"flex",gap:10,padding:"6px 12px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:9,color:C.muted}}>{p.code}</span></div>)}
                   </div>
                 </div>
               );
@@ -3240,15 +3241,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     });
                   };
                   return(
-                  <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${isDirty?C.purple:C.purpleBorder}`,background:C.purpleBg,boxShadow:isDirty?`0 0 0 2px ${C.purple}22`:"none"}}>
+                  <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${isDirty?C.purple:C.purpleBorder}`,background:C.purpleBg,boxShadow:isDirty?`0 0 0 2px ${C.purple}22`:"none",position:"sticky",top:0,zIndex:5}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
                       <div>
                         <div style={{fontSize:12,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.6}}>⚖️ {T2("Yield adjustment")}</div>
                         <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Scales every dish (auto + override). Overrides stay pinned at their custom values.")}</div>
                       </div>
-                      <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                        <div style={{fontSize:28,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
-                        <div style={{fontSize:14,fontWeight:700,color:C.purple}}>%</div>
+                      <div style={{display:"flex",alignItems:"center",gap:12}}>
+                        <button onClick={()=>setShowOrderingSheet(true)} style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.surface,color:C.purple,border:`1.5px solid ${C.purple}`,whiteSpace:"nowrap"}}>📋 {T2("Show Ingredients")}</button>
+                        <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                          <div style={{fontSize:28,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
+                          <div style={{fontSize:14,fontWeight:700,color:C.purple}}>%</div>
+                        </div>
                       </div>
                     </div>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
@@ -3291,6 +3295,115 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       </button>
                     </div>
                   </Card>);
+                })()}
+
+                {/* Section-wise ingredient ordering sheet — one spot to see per-section (cuisine) ingredient quantities for this event, with a live yield slider */}
+                {showOrderingSheet && (()=>{
+                  const mult = yieldAdjustPct/100;
+                  const ingrMap = {}; // key: "name|unit" -> {n,u,bySection:{catId:qty},total}
+                  orderedGroups.forEach(g=>{
+                    g.items.forEach(it=>{
+                      const st = it.st;
+                      if(!st.recipe?.ingredients?.items?.length) return;
+                      const basePax = st.recipe.ingredients.base_pax || 300;
+                      const recSections = (st.recipe.ingredients.items||[]).filter(x=>x.isSection && x.yield?.kg>0);
+                      const useSections = recSections.length>0;
+                      let ingrList = null;
+                      if(useSections){
+                        const secFactors = {};
+                        let sectionsTotalKg = 0;
+                        recSections.forEach(sec=>{
+                          const secAutoRaw = Math.round(selEv.pax/basePax*sec.yield.kg*10)/10;
+                          const secAutoScaled = Math.round(secAutoRaw*mult*10)/10;
+                          const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                          const isSecOverride = savedVal!=null && savedVal!=="";
+                          const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
+                          sectionsTotalKg += (effKgSec||0);
+                          secFactors[sec.name] = sec.yield.kg>0 ? (effKgSec/sec.yield.kg) : 0;
+                        });
+                        ingrList = getIngrForYield(it.dish, Math.round(sectionsTotalKg*10)/10, secFactors);
+                      } else {
+                        const suggestedRaw = st.baseYield ? Math.round(selEv.pax/basePax*st.baseYield*10)/10 : null;
+                        const isOverride = !!planRows[it.dish];
+                        const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                        const effKg = isOverride
+                          ? (overrideKgRaw!=null ? Math.round(overrideKgRaw*mult*10)/10 : null)
+                          : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
+                        if(effKg!=null) ingrList = getIngrForYield(it.dish, effKg);
+                      }
+                      (ingrList||[]).forEach(ing=>{
+                        if(ing._isSection || !ing.q) return;
+                        const key = ing.n+"|"+(ing.u||"");
+                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, u:ing.u||"", bySection:{}, total:0};
+                        ingrMap[key].bySection[g.cat.id] = (ingrMap[key].bySection[g.cat.id]||0) + ing.q;
+                        ingrMap[key].total += ing.q;
+                      });
+                    });
+                  });
+                  const rows = Object.values(ingrMap).sort((a,b)=>a.n.localeCompare(b.n));
+                  const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
+                  const thStyle = {padding:"8px 10px",textAlign:"right",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
+                  const tdStyle = {padding:"6px 10px",textAlign:"right",color:C.text,whiteSpace:"nowrap"};
+                  return(
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowOrderingSheet(false)}>
+                      <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
+                        <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredient Ordering Sheet")}</div>
+                          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{selEv.guest||T2("Function")} · {fmtDate(selEv.date)} · {selEv.pax} {T2("pax")}</div>
+                        </div>
+                        <div style={{padding:"12px 20px",borderBottom:`1px solid ${C.border}`,background:C.purpleBg,flexShrink:0}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:8}}>
+                            <div style={{fontSize:11,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.5}}>⚖️ {T2("Live yield adjust")}</div>
+                            <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                              <div style={{fontSize:20,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
+                              <div style={{fontSize:12,fontWeight:700,color:C.purple}}>%</div>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                            {[90,100,110,120,130,150].map(p=>(
+                              <button key={p} onClick={()=>setYieldAdjustPct(p)}
+                                style={{padding:"5px 10px",borderRadius:7,fontSize:11,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`}}>
+                                {p}%
+                              </button>
+                            ))}
+                          </div>
+                          <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
+                            onChange={e=>setYieldAdjustPct(+e.target.value)}
+                            style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer"}}/>
+                          <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
+                        </div>
+                        <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
+                          {rows.length===0 ? (
+                            <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>
+                          ) : (
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                              <thead>
+                                <tr>
+                                  <th style={{...thStyle,textAlign:"left",position:"sticky",left:0,background:C.surface}}>{T2("Item")}</th>
+                                  <th style={thStyle}>{T2("UM")}</th>
+                                  {orderedGroups.map(g=><th key={g.cat.id} style={thStyle}>{g.cat.icon} {g.cat.name}</th>)}
+                                  <th style={{...thStyle,color:C.text}}>{T2("Total")}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map((r,i)=>(
+                                  <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface}}>{r.n}</td>
+                                    <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
+                                    {orderedGroups.map(g=><td key={g.cat.id} style={tdStyle}>{roundQ(r.bySection[g.cat.id])}</td>)}
+                                    <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(r.total)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                        <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
+                          <button onClick={()=>setShowOrderingSheet(false)} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
                 })()}
 
                 {dishes.length===0 && (

@@ -1188,6 +1188,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var type = getDishType(d);
                               var hi = resolveDishHindi(d);
                               var store = type === 'inventory' ? resolveDishStore(d) : null;
+                              var sopRecipe = type === 'sop' ? findRecipeForDish(d) : null;
                               var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
                               var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
@@ -1241,6 +1242,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                     )}
                                     {hi && <span style={{ fontSize: 11, color: C.muted }}>{hi}</span>}
                                     {store && <span style={{ fontSize: 11, color: '#0F6E56' }}>→ {store.qty_per_cover} {store.ops_item_unit}/pax</span>}
+                                    {sopRecipe && <span title={T2('Mapped SOP recipe') + (sopRecipe.cat ? ' · ' + sopRecipe.cat.name : '')} style={{ fontSize: 11, color: C.muted, fontStyle: 'italic' }}>→ {sopRecipe.n}</span>}
                                     <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: badgeBg, color: badgeC }}>{badgeLbl}</span>
                                   </div>
                                   {isAdmin && (
