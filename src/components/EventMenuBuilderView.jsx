@@ -15,11 +15,14 @@ import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { ItemsTab, DietChip, ComingSoonPlaceholder } from './MenuBuilderView.jsx';
+import { FunctionPlanTab } from './FunctionPlanTab.jsx';
+import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 
 export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
 
   var [activeDept, setActiveDept]   = useState('kit');
+  var [activeSubTab, setActiveSubTab] = useState('items'); // 'items' | 'fp'
   var [dishItems, setDishItems]     = useState([]);        // event_items rows
   var [salesMeta, setSalesMeta]     = useState({});
   var [loading, setLoading]         = useState(true);
@@ -27,6 +30,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
   var [showAddons, setShowAddons]   = useState(false);
+  // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
+  var [fp, setFp]                   = useState(null);
+  var [showFPPrint, setShowFPPrint] = useState(false);
 
   var hasItems = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
 
@@ -252,6 +258,69 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       console.error('[EventMenuBuilder] mirrorKitchenMenu failed:', e);
     }
   }
+
+  // ── V78: Function Plan (event_function_plans, one row per event) ──
+  useEffect(function(){
+    if (!event || !event.id) return;
+    var cancelled = false;
+    (async function(){
+      try {
+        var res = await supabase.from('event_function_plans').select('*').eq('event_id', event.id).maybeSingle();
+        if (res.error) throw res.error;
+        if (!cancelled) setFp(res.data || { event_id: event.id });
+      } catch (e) {
+        console.error('[EventMenuBuilder] load FP failed:', e);
+        if (!cancelled) setFp({ event_id: event.id });
+      }
+    })();
+    return function(){ cancelled = true; };
+  }, [event && event.id]);
+
+  // Kitchen Hub's D-1 planning already scans events.special for dietary keywords
+  // (jain, no onion, nut-free, gluten...) — mirror the FP's text fields into it so
+  // that existing detection picks up whatever sales captures here, unchanged.
+  async function mirrorFPToEvent(fpRow) {
+    var parts = [];
+    if (fpRow.spice_tolerance) parts.push('Spice: ' + fpRow.spice_tolerance);
+    if (fpRow.allergies) parts.push('Allergies: ' + fpRow.allergies);
+    if (fpRow.service_notes) parts.push('Service: ' + fpRow.service_notes);
+    if (fpRow.general_notes) parts.push('Notes: ' + fpRow.general_notes);
+    var payload = { special: parts.length ? parts.join(' | ') : null };
+    if (fpRow.veg_count != null) payload.veg = fpRow.veg_count;
+    if (fpRow.nonveg_count != null) payload.nonveg = fpRow.nonveg_count;
+    try {
+      await supabase.from('events').update(payload).eq('id', event.id);
+    } catch (e) {
+      console.error('[EventMenuBuilder] mirrorFPToEvent failed:', e);
+    }
+  }
+
+  async function saveFPField(field, value) {
+    var next = { ...(fp || { event_id: event.id }), [field]: value };
+    setFp(next);
+    try {
+      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      if (res.error) throw res.error;
+      setFp(res.data);
+      await mirrorFPToEvent(res.data);
+    } catch (e) {
+      console.error('[EventMenuBuilder] saveFPField failed:', e);
+      alert(T2('Failed to save:') + ' ' + (e.message || e));
+    }
+  }
+
+  // ── All selected dish names grouped by effective dept, for the printable FP ──
+  var itemsByDept = useMemo(function(){
+    var out = {};
+    SALES_DEPTS.forEach(function(d){ out[d.id] = []; });
+    dishItems.forEach(function(x){
+      var dept = effectiveDeptForDish(x.dish_name);
+      if (!out[dept]) out[dept] = [];
+      out[dept].push(x.dish_name);
+    });
+    return out;
+  // eslint-disable-next-line
+  }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
@@ -545,6 +614,18 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       }
     : null;
 
+  if (showFPPrint) {
+    return (
+      <FunctionPlanPrintView
+        event={event}
+        fp={fp}
+        itemsByDept={itemsByDept}
+        onClose={function(){ setShowFPPrint(false); }}
+        T2={T2}
+      />
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: C.bg }}>
       {/* ── Top bar ── */}
@@ -570,9 +651,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
             )}
           </div>
         </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={function(){ setActiveSubTab('items'); }}
+            style={{ padding: "8px 14px", borderRadius: 8, background: activeSubTab === 'items' ? C.wine : C.surface, border: "1px solid " + (activeSubTab === 'items' ? C.wine : C.border), color: activeSubTab === 'items' ? "#fff" : C.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            🍛 {T2("Items")}
+          </button>
+          <button onClick={function(){ setActiveSubTab('fp'); }}
+            style={{ padding: "8px 14px", borderRadius: 8, background: activeSubTab === 'fp' ? C.wine : C.surface, border: "1px solid " + (activeSubTab === 'fp' ? C.wine : C.border), color: activeSubTab === 'fp' ? "#fff" : C.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            📋 {T2("FP")}
+          </button>
+        </div>
       </div>
 
+      {activeSubTab === 'fp' && (
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          {loading ? (
+            <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+              <div style={{ fontSize: 13 }}>{T2("Loading…")}</div>
+            </div>
+          ) : (
+            <FunctionPlanTab T2={T2} fp={fp} onSaveField={saveFPField} onOpenPrint={function(){ setShowFPPrint(true); }} />
+          )}
+        </div>
+      )}
+
       {/* ── Body: sidebar + main ── */}
+      {activeSubTab === 'items' && (
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* ── Dept sidebar ── */}
         <div style={{ flexShrink: 0, width: 200, background: C.surface, borderRight: "1px solid " + C.border, padding: "12px 8px", overflowY: "auto" }}>
@@ -670,6 +775,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
