@@ -1116,21 +1116,23 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         <SortableSection key={sec.id} id={sec.id} disabled={!isAdmin}>
                         {function(dnd) { return (
                         <div ref={dnd.setNodeRef} style={{ ...dnd.style, border: "1px solid " + C.border, borderRadius: 10, background: C.surface, marginBottom: 10 }}>
-                          {/* Section header — always visible; click the chevron to expand/collapse */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: isExpanded ? "10px 10px 0 0" : 10, borderBottom: isExpanded ? "1px solid " + C.border : "none", flexWrap: "wrap" }}>
-                            <span onClick={function() { toggleSecExpanded(sec.id); }}
-                              title={isExpanded ? T2("Collapse section") : T2("Expand section")}
-                              style={{ cursor: "pointer", color: C.muted, fontSize: 11, width: 14, textAlign: "center", flexShrink: 0, userSelect: "none" }}>
+                          {/* Section header — always visible; click anywhere on the row (except
+                              the controls) to expand/collapse (V74) */}
+                          <div onClick={function(e) { if (e.target.closest('[data-noexpand]')) return; toggleSecExpanded(sec.id); }}
+                            title={isExpanded ? T2("Collapse section") : T2("Expand section")}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.bg, borderRadius: isExpanded ? "10px 10px 0 0" : 10, borderBottom: isExpanded ? "1px solid " + C.border : "none", flexWrap: "wrap", cursor: "pointer" }}>
+                            <span style={{ color: C.muted, fontSize: 11, width: 14, textAlign: "center", flexShrink: 0, userSelect: "none" }}>
                               {isExpanded ? "▾" : "▸"}
                             </span>
                             {isAdmin && (
-                              <span {...dnd.attributes} {...dnd.listeners}
+                              <span data-noexpand {...dnd.attributes} {...dnd.listeners}
                                 title={T2("Drag to reorder")}
                                 style={{ cursor: dnd.isDragging ? 'grabbing' : 'grab', color: C.muted, fontSize: 14, padding: '0 4px', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
                             )}
-                            <input
+                            <input data-noexpand
                               value={sec.name}
                               onChange={function(e) { renameSection(sec.id, e.target.value); }}
+                              onClick={function(e) { e.stopPropagation(); }}
                               placeholder={T2("Section name")}
                               disabled={!isAdmin}
                               style={{ padding: "4px 8px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 13, fontWeight: 600, color: C.text, minWidth: 140, flex: "0 1 auto" }}
@@ -1142,23 +1144,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               </span>
                             )}
                             {sec.catalogue_section_id && isAdmin && (
-                              <button onClick={function() { resyncSection(sec); }} disabled={!!resyncing[sec.id]}
+                              <button data-noexpand onClick={function() { resyncSection(sec); }} disabled={!!resyncing[sec.id]}
                                 title={T2("Resync from catalogue")}
                                 style={{ padding: "2px 5px", background: "transparent", border: "none", color: C.faint, cursor: resyncing[sec.id] ? "wait" : "pointer", fontSize: 13, lineHeight: 1 }}>
                                 {resyncing[sec.id] ? "…" : "↻"}
                               </button>
                             )}
                             {sec.catalogue_section_id && isAdmin && (
-                              <button onClick={function() { if (window.confirm(T2("Unlink this section from the catalogue? Dishes stay, but future resyncs stop."))) unlinkSection(sec.id); }}
+                              <button data-noexpand onClick={function() { if (window.confirm(T2("Unlink this section from the catalogue? Dishes stay, but future resyncs stop."))) unlinkSection(sec.id); }}
                                 title={T2("Unlink from catalogue")}
                                 style={{ padding: "2px 4px", background: "transparent", border: "none", color: C.faint, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>
                                 ×
                               </button>
                             )}
                             <span style={{ fontSize: 11, color: C.muted }}>{T2("default")}:</span>
-                            <select
+                            <select data-noexpand
                               value={sec.sop_category || ''}
                               onChange={function(e) { setSectionCategory(sec.id, e.target.value); }}
+                              onClick={function(e) { e.stopPropagation(); }}
                               disabled={!isAdmin}
                               style={{ padding: "3px 6px", borderRadius: 10, border: "1px solid " + C.blueBorder, background: C.blueBg, fontSize: 11, color: C.blue, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
                               <option value="">— {T2("pick default")} —</option>
@@ -1167,7 +1170,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             </select>
                             <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sec.dishes.length} {T2("dishes")}</span>
                             {isAdmin && (
-                              <button onClick={function() { deleteSection(sec.id); }}
+                              <button data-noexpand onClick={function() { deleteSection(sec.id); }}
                                 title={T2("Delete section")}
                                 style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
                             )}
