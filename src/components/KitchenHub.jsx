@@ -3282,9 +3282,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                     <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
                       onChange={e=>setYieldAdjustPct(+e.target.value)}
-                      style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer"}}/>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.faint,marginTop:2}}>
-                      <span>50%</span><span style={{color:C.purple,fontWeight:700}}>100%</span><span>200%</span>
+                      style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer",display:"block"}}/>
+                    <div style={{position:"relative",height:6,marginTop:1}}>
+                      {[50,100,150,200].map(v=>(
+                        <div key={v} style={{position:"absolute",left:`${(v-50)/150*100}%`,top:0,width:1,height:5,background:C.border,transform:"translateX(-50%)"}}/>
+                      ))}
+                    </div>
+                    <div style={{position:"relative",height:14,marginTop:2}}>
+                      {[50,100,150,200].map(v=>{
+                        const pos=(v-50)/150*100;
+                        return (
+                          <span key={v} style={{position:"absolute",left:`${pos}%`,transform:pos===0?"none":pos===100?"translateX(-100%)":"translateX(-50%)",fontSize:9,color:v===100?C.purple:C.faint,fontWeight:v===100?700:400,whiteSpace:"nowrap"}}>{v}%</span>
+                        );
+                      })}
                     </div>
                     {plannedKgTotal>0 && (
                       <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:C.bg,fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -3384,7 +3394,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                           <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
                             onChange={e=>setYieldAdjustPct(+e.target.value)}
-                            style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer"}}/>
+                            style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer",display:"block"}}/>
+                          <div style={{position:"relative",height:6,marginTop:1}}>
+                            {[50,100,150,200].map(v=>(
+                              <div key={v} style={{position:"absolute",left:`${(v-50)/150*100}%`,top:0,width:1,height:5,background:C.border,transform:"translateX(-50%)"}}/>
+                            ))}
+                          </div>
+                          <div style={{position:"relative",height:14,marginTop:2}}>
+                            {[50,100,150,200].map(v=>{
+                              const pos=(v-50)/150*100;
+                              return (
+                                <span key={v} style={{position:"absolute",left:`${pos}%`,transform:pos===0?"none":pos===100?"translateX(-100%)":"translateX(-50%)",fontSize:9,color:v===100?C.purple:C.faint,fontWeight:v===100?700:400,whiteSpace:"nowrap"}}>{v}%</span>
+                              );
+                            })}
+                          </div>
                           <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
                         </div>
                         <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
