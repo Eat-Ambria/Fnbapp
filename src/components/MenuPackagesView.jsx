@@ -191,16 +191,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         if (!metaRes.error) (metaRes.data || []).forEach(function(m){ metaByName[m.dish_name] = m.sales_dept; });
       }
       function isKit(name) { return (metaByName[name] || 'kit') === 'kit'; }
+      var existingSet = {}; existingNames.forEach(function(n){ existingSet[n] = true; });
       var existingKit = existingNames.filter(isKit);
       var toDelete = existingKit.filter(function(n){ return !nameSet[n]; });
-      var toInsert = (dishes || []).filter(function(n){ return existingKit.indexOf(n) < 0; });
+      // V80 fix: this used to check `existingKit.indexOf(n) < 0`, so any dish
+      // already present in event_items under a NON-kit classification looked
+      // "missing" and got re-inserted — a duplicate on (event_id, dish_name),
+      // 409 Conflict. Only truly-absent dishes should ever be inserted here.
+      var toInsert = (dishes || []).filter(function(n){ return !existingSet[n]; });
       if (toDelete.length > 0) {
         await supabase.from('event_items').delete().eq('event_id', eventId).in('dish_name', toDelete);
       }
       if (toInsert.length > 0) {
-        await supabase.from('event_items').insert(toInsert.map(function(n, i){
+        // Belt-and-suspenders: upsert with ignoreDuplicates so a race against
+        // another concurrent sync call for this same event can't 409 either.
+        var insRes = await supabase.from('event_items').upsert(toInsert.map(function(n, i){
           return { event_id: eventId, dish_name: n, is_addon: false, ordering: existingNames.length + i };
-        }));
+        }), { onConflict: 'event_id,dish_name', ignoreDuplicates: true });
+        if (insRes.error) console.error('[MenuPackages] event_items insert failed:', insRes.error);
       }
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
     } catch (e) {
