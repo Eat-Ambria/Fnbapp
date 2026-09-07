@@ -10,7 +10,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
+import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -38,6 +38,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
   var [showAddons, setShowAddons]   = useState(false);
+  // V87 — reuses events.menu_section_overrides (the same column Build Menu's
+  // MenuEditor.jsx already writes) so a custom dish tagged here shows in the
+  // same place if the event is later opened in Build Menu, and vice versa.
+  var [sectionOverrides, setSectionOverrides] = useState(event && event.menu_section_overrides || {});
   // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
   var [fp, setFp]                   = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
@@ -409,6 +413,75 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // V87 — persist a dish's section/subsection tag on the SAME events.menu_section_overrides
+  // column Build Menu's MenuEditor.jsx writes, so tagging here and tagging there agree.
+  async function saveSectionOverride(dishName, sectionId) {
+    var next = { ...sectionOverrides };
+    if (sectionId) next[dishName] = sectionId; else delete next[dishName];
+    setSectionOverrides(next);
+    try {
+      var res = await supabase.from('events').update({ menu_section_overrides: next }).eq('id', event.id);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[EventMenuBuilder] saveSectionOverride failed:', e);
+    }
+  }
+
+  // V87 — add a brand-new dish: library entry + SOP stub (shared helper),
+  // select it for this event, and tag which section/subsection pill it shows
+  // under (this event only — never touches the shared package).
+  async function addCustomDish(name, catId, sectionId) {
+    await createCustomDishInLibrary(supabase, name, catId);
+    var row = { event_id: event.id, dish_name: name, is_addon: true, ordering: dishItems.length };
+    var res = await supabase.from('event_items').insert(row).select().single();
+    if (res.error) throw res.error;
+    var nextItems = dishItems.concat([res.data]);
+    setDishItems(nextItems);
+    if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(nextItems);
+    if (sectionId) await saveSectionOverride(name, sectionId);
+  }
+
+  // V87 — "Add section from library": every top-level catalogue section
+  // routed to the active dept, subsections listed right after (indented).
+  var catalogueSectionOptions = useMemo(function(){
+    var countFor = function(id){ return allDishes.filter(function(d){ return d.section_id === id; }).length; };
+    var deptTop = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
+    var out = [];
+    deptTop.forEach(function(s){
+      out.push({ id: s.id, label: s.name, count: countFor(s.id) });
+      (catSubsByParent[s.id] || []).forEach(function(sub){ out.push({ id: sub.id, label: '— ' + sub.name, count: countFor(sub.id) }); });
+    });
+    return out;
+  }, [sections, activeDept, catSubsByParent, allDishes]);
+
+  // V87 — add every dish in a chosen catalogue section (its own dishes plus,
+  // if it's a parent, all of its subsections') as selected add-ons, tagged to
+  // whichever section/subsection pill the user picked to place them.
+  async function addSectionFromLibrary(catSectionId, targetId) {
+    var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
+    var ids = [catSectionId].concat(subIds);
+    var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
+    if (res.error) throw res.error;
+    var names = (res.data || []).map(function(r){ return r.dish_name; });
+    var have = {}; dishItems.forEach(function(x){ have[x.dish_name] = true; });
+    var toAdd = names.filter(function(n){ return !have[n]; });
+    if (toAdd.length === 0) return;
+    var rows = toAdd.map(function(n, i){ return { event_id: event.id, dish_name: n, is_addon: true, ordering: dishItems.length + i }; });
+    var insRes = await supabase.from('event_items').insert(rows).select();
+    if (insRes.error) throw insRes.error;
+    var nextItems = dishItems.concat(insRes.data || []);
+    setDishItems(nextItems);
+    var kitAdded = toAdd.some(function(n){ return effectiveDeptForDish(n) === 'kit'; });
+    if (kitAdded) await mirrorKitchenMenu(nextItems);
+    if (targetId) {
+      var next = { ...sectionOverrides };
+      toAdd.forEach(function(n){ next[n] = targetId; });
+      setSectionOverrides(next);
+      var updRes = await supabase.from('events').update({ menu_section_overrides: next }).eq('id', event.id);
+      if (updRes.error) console.error('[EventMenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
+    }
+  }
+
   // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
   async function loadPackageDefaults() {
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
@@ -681,12 +754,32 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     if (out.length === 0) return null;
 
+    // V87 — place a custom dish (or a whole library section added ad hoc),
+    // tagged per-event via sectionOverrides, into whichever group/subGroup
+    // above matches its tag — same mechanism as MenuBuilderView.jsx.
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      if (consumed[name]) return;
+      var targetId = sectionOverrides[name];
+      if (!targetId) return;
+      var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
+      if (!d) return;
+      var placed = out.some(function(g){
+        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
+        if (g.subGroups) {
+          var sg = g.subGroups.find(function(x){ return x.id === targetId; });
+          if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
+        }
+        return false;
+      });
+      if (placed) consumed[name] = true;
+    });
+
     var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
     if (leftover.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides]);
 
   var dietMeta = templateInfo.diet
     ? {
@@ -824,6 +917,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               deptCounts={deptCounts[activeDept]}
               onLoadDefaults={loadPackageDefaults}
               seeding={seeding}
+              onAddCustomDish={addCustomDish}
+              catalogueSectionOptions={catalogueSectionOptions}
+              onAddSectionFromLibrary={addSectionFromLibrary}
             />
           )}
 

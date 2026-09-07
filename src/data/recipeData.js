@@ -679,4 +679,31 @@ function setPackageSections(pkgName, sections, flatDishes) {
   if (Array.isArray(flatDishes)) MENU_PACKAGES[pkgName] = flatDishes;
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections };
+// V87 — shared "add a brand-new dish to the library" flow, used by every
+// custom-dish-add entry point (Build Menu's MenuEditor, the Proposal Menu
+// Builder, the Booked Functions menu editor) so a new dish always gets the
+// same three things: a dishes_master row, a category tag, and an empty SOP
+// recipe stub to fill in later. Takes the caller's own supabase client
+// (this module stays network-free otherwise) and never throws — upsert
+// conflicts (23505) are expected/harmless, anything else is just warned.
+async function createCustomDishInLibrary(supabase, name, catId) {
+  var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
+  if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
+  upsertDishMaster(name, { is_active: true });
+  var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+  if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+  upsertDishCat(name, catId);
+  var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
+  if (!already) {
+    var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
+    if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+    else {
+      if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+      RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
+      var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
+      if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
+    }
+  }
+}
+
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
