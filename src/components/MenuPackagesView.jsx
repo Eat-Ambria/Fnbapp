@@ -1,7 +1,7 @@
 // Ambria FnB — Menu & Packages View  (V63 rebuild — 5b left rail)
 // Three tabs: Build menu · Packages · Dish library
 // Place in: src/components/MenuPackagesView.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
@@ -102,12 +102,25 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // BUILD MENU TAB — preserved verbatim from V62
   // ════════════════════════════════════════════════════════════
   var [selEvId, setSelEvId] = useState(null);
+  // V80 — this list used to filter/sort/classify (per-dish SOP-category lookup,
+  // an expensive multi-tier scan) EVERY upcoming event on EVERY render, which is
+  // what made opening this tab slow once there were 100+ upcoming functions.
+  // Memoize the list itself and paginate it; only the visible page pays the
+  // per-dish classification cost, and only when the underlying data changes.
+  var EV_PAGE_SIZE = 25;
+  var [evPage, setEvPage] = useState(1);
 
-  var allEvs = safeArr(events).filter(function(e) { return e.date && e.date >= TODAY; }).sort(function(a, b) {
-    if (a.date !== b.date) return (a.date || "").localeCompare(b.date || "");
-    return (a.time || "").localeCompare(b.time || "");
-  });
+  var allEvs = useMemo(function() {
+    return safeArr(events).filter(function(e) { return e.date && e.date >= TODAY; }).sort(function(a, b) {
+      if (a.date !== b.date) return (a.date || "").localeCompare(b.date || "");
+      return (a.time || "").localeCompare(b.time || "");
+    });
+  }, [events]);
   var selEv = allEvs.find(function(e) { return e.id === selEvId; }) || null;
+
+  var pagedEvs = useMemo(function() {
+    return allEvs.slice(0, evPage * EV_PAGE_SIZE);
+  }, [allEvs, evPage]);
 
   function saveMenu(dishes) {
     if (!selEv || !setEvents) return;
@@ -161,25 +174,44 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     return date;
   }
 
-  var byDate = {};
-  allEvs.forEach(function(e) {
-    var d = e.date || "Unknown";
-    if (!byDate[d]) byDate[d] = [];
-    byDate[d].push(e);
-  });
+  var byDate = useMemo(function() {
+    var out = {};
+    pagedEvs.forEach(function(e) {
+      var d = e.date || "Unknown";
+      if (!out[d]) out[d] = [];
+      out[d].push(e);
+    });
+    return out;
+  }, [pagedEvs]);
+
+  // Per-page dish→category classification, deduped per unique dish name (many
+  // events share the same package dishes) instead of re-scanning RECIPE_DB once
+  // per dish per event.
+  var evStatsById = useMemo(function() {
+    var catCache = {};
+    function catIdCached(name) {
+      if (!(name in catCache)) catCache[name] = getCatIdForDish(name) || "other";
+      return catCache[name];
+    }
+    var out = {};
+    pagedEvs.forEach(function(ev) {
+      var menu = ev.menu || [];
+      if (menu.length === 0 && ev.menuPackage && MENU_PACKAGES[ev.menuPackage]) {
+        menu = MENU_PACKAGES[ev.menuPackage];
+      }
+      var byCat = {};
+      menu.forEach(function(name) {
+        var catId = catIdCached(name);
+        byCat[catId] = (byCat[catId] || 0) + 1;
+      });
+      out[ev.id] = { total: menu.length, byCat: byCat, menu: menu };
+    });
+    return out;
+  // eslint-disable-next-line
+  }, [pagedEvs, pkgListVer]);
 
   function menuStats(ev) {
-    var menu = ev.menu || [];
-    if (menu.length === 0 && ev.menuPackage && MENU_PACKAGES[ev.menuPackage]) {
-      menu = MENU_PACKAGES[ev.menuPackage];
-    }
-    var byCat = {};
-    menu.forEach(function(name) {
-      var catId = getCatIdForDish(name) || "other";
-      if (!byCat[catId]) byCat[catId] = 0;
-      byCat[catId]++;
-    });
-    return { total: menu.length, byCat: byCat, menu: menu };
+    return evStatsById[ev.id] || { total: 0, byCat: {}, menu: [] };
   }
 
   // ════════════════════════════════════════════════════════════
@@ -977,6 +1009,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               </div>
             );
           })}
+          {pagedEvs.length < allEvs.length && (
+            <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
+              <button onClick={function() { setEvPage(function(p) { return p + 1; }); }}
+                style={{ padding: "10px 22px", borderRadius: 10, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Show more")} ({allEvs.length - pagedEvs.length} {T2("more")})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
