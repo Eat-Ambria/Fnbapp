@@ -153,6 +153,10 @@ function findRecipeForDish(dishName) {
     const all = RECIPE_DB.cats.flatMap(cat => (RECIPE_DB.recipes[cat.id]||[]).map(r=>({...r,cat})));
     // Tier 0: explicit mapping from dish_name_map table
     const mapped = DISH_NAME_MAP[dishName] || Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim()) && DISH_NAME_MAP[Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim())];
+    // Explicitly marked "no SOP" — authoritative, must not fall through to the
+    // fuzzy tiers below (which can false-match short names as substrings of
+    // unrelated recipes, e.g. "Tea" ⊂ "S-tea-med Chicken Dimsum").
+    if (mapped === '__none__') return null;
     if (mapped) {
       const mapMatch = all.find(r => r.n === mapped || r.n.toLowerCase().trim() === mapped.toLowerCase().trim());
       if (mapMatch) return mapMatch;
