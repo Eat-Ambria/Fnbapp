@@ -141,6 +141,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     });
     setIngDirty(true);
     setTypePickerIdx(null);
+    setTypePickerPos(null);
     if (newType === 'inv') { setOpsPickerIdx(idx); setOpsPickerSearch(""); loadOpsPickerItems(); }
     else if (newType === 'bg') { setBgPickerIdx(idx); setBgPickerSearch(""); }
   }
@@ -458,6 +459,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [ingForm, setIngForm] = useState({base_pax:300, base_yield:{kg:null, pcs:null}, items:[]});
   // 9A — type picker + Ops/BG picker state
   const [typePickerIdx, setTypePickerIdx] = useState(null);   // row idx showing type dropdown
+  const [typePickerPos, setTypePickerPos] = useState(null);   // {top,left} of the open dropdown's trigger button, viewport coords
   const [opsPickerIdx, setOpsPickerIdx]   = useState(null);   // row idx picking Ops item
   const [bgPickerIdx, setBgPickerIdx]     = useState(null);   // row idx picking BG recipe
   const [opsPickerItems, setOpsPickerItems] = useState([]);   // lazy cache
@@ -2327,7 +2329,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${rowBrd}`,background:rowBg,opacity:ingDragIdx===idx?0.4:1}}>
                                 <td style={{padding:"3px 4px",position:"relative"}}>
                                   <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                    <button onClick={()=>setTypePickerIdx(typePickerIdx===idx?null:idx)} title={"Type: "+tRow} style={{width:24,height:24,padding:0,border:`1px solid ${rowBrd}`,borderRadius:5,background:C.surface,cursor:"pointer",fontSize:11,lineHeight:"22px",color:rowFg,flexShrink:0}}>{tIcon}</button>
+                                    <button onClick={(e)=>{ if(typePickerIdx===idx){setTypePickerIdx(null);setTypePickerPos(null);return;} const r=e.currentTarget.getBoundingClientRect(); setTypePickerPos({top:r.bottom+4,left:r.left}); setTypePickerIdx(idx); }} title={"Type: "+tRow} style={{width:24,height:24,padding:0,border:`1px solid ${rowBrd}`,borderRadius:5,background:C.surface,cursor:"pointer",fontSize:11,lineHeight:"22px",color:rowFg,flexShrink:0}}>{tIcon}</button>
                                     {nameLocked
                                       ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title="Click to re-pick" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,fontWeight:600,color:rowFg,background:C.surface,cursor:"pointer",minHeight:28,lineHeight:"20px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:C.muted,fontStyle:"italic",fontWeight:400}}>— pick {isInv?"item":"gravy"} —</span>}</div>
                                       : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
@@ -2348,14 +2350,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       );
                                     })()}
                                   </div>
-                                  {typePickerIdx===idx && (<>
-                                    <div onClick={()=>setTypePickerIdx(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:15,background:"transparent"}}/>
-                                    <div style={{position:"absolute",top:32,left:2,zIndex:20,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
-                                      {[{k:'raw',label:'📝 Raw'},{k:'inv',label:'📦 Inv'},{k:'bg',label:'🥘 BG'}].map(o=>(
-                                        <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} style={{display:"block",width:"100%",padding:"6px 10px",textAlign:"left",background:tRow===o.k?C.goldBg:"transparent",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,color:C.text,fontWeight:tRow===o.k?700:500}}>{o.label}{tRow===o.k?" ✓":""}</button>
-                                      ))}
-                                    </div>
-                                  </>)}
+                                  {typePickerIdx===idx && typePickerPos && createPortal((
+                                    <>
+                                      <div onClick={()=>{setTypePickerIdx(null);setTypePickerPos(null);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:998,background:"transparent"}}/>
+                                      <div style={{position:"fixed",top:typePickerPos.top,left:typePickerPos.left,zIndex:999,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
+                                        {[{k:'raw',label:'📝 Raw'},{k:'inv',label:'📦 Inv'},{k:'bg',label:'🥘 BG'}].map(o=>(
+                                          <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} style={{display:"block",width:"100%",padding:"6px 10px",textAlign:"left",background:tRow===o.k?C.goldBg:"transparent",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,color:C.text,fontWeight:tRow===o.k?700:500}}>{o.label}{tRow===o.k?" ✓":""}</button>
+                                        ))}
+                                      </div>
+                                    </>
+                                  ), document.body)}
                                 </td>
                                 <td style={{padding:"3px 4px"}}>
                                   {isBg
