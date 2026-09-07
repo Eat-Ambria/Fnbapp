@@ -392,43 +392,42 @@ Deno.serve(async (req) => {
 
     console.log(`Events to upsert: ${finalEvents.length} (skipped: ${skipped}, tombstoned: ${deduped.size - finalEvents.length})`);
 
-    // ── Preserve admin-customized menus ──
-    // If an existing row has menu_package=null (admin explicitly cleared it) and a
-    // non-empty menu array, that means the admin hand-built the menu in FnB app.
-    // Do NOT overwrite those with LMS defaults.
-    const idsToCheck = finalEvents.map(e => e.id);
-    const preserved = new Map<string, { menu: any; menu_package: string | null }>();
-    for (let i = 0; i < idsToCheck.length; i += 200) {
-      const chunk = idsToCheck.slice(i, i + 200);
+    // ── Upsert in batches of 50, preserving admin-customized menus ──
+    // The "preserve" check used to run ONCE for the whole sync, against
+    // whatever the events table looked like before the (potentially
+    // many-second) contract fetch + transform above even started. Any Build
+    // Menu edit made anywhere in that window — an edit clears menu_package
+    // and writes a non-empty menu, exactly what marks a row "customized" —
+    // was invisible to that stale snapshot, so this batch's upsert would
+    // silently overwrite it with the LMS default moments later. Re-running
+    // the check fresh right before EACH batch's write shrinks that race down
+    // to the width of one batch instead of the whole sync run.
+    let upserted = 0;
+    let preservedCount = 0;
+    for (let i = 0; i < finalEvents.length; i += 50) {
+      const batch = finalEvents.slice(i, i + 50);
+      const batchIds = batch.map(e => e.id);
       const { data: existing, error: exErr } = await sb
         .from("events")
         .select("id, menu, menu_package")
-        .in("id", chunk);
-      if (exErr) { console.error(`Preserve fetch batch ${i} error:`, exErr); continue; }
+        .in("id", batchIds);
+      if (exErr) console.error(`Preserve fetch batch ${i} error:`, exErr);
+      const preserved = new Map<string, { menu: any; menu_package: string | null }>();
       (existing || []).forEach((ex: any) => {
         const hasCustomMenu =
           (ex.menu_package === null || ex.menu_package === "") &&
           Array.isArray(ex.menu) && ex.menu.length > 0;
-        if (hasCustomMenu) {
-          preserved.set(ex.id, { menu: ex.menu, menu_package: ex.menu_package });
+        if (hasCustomMenu) preserved.set(ex.id, { menu: ex.menu, menu_package: ex.menu_package });
+      });
+      batch.forEach((ev) => {
+        const p = preserved.get(ev.id);
+        if (p) {
+          ev.menu = p.menu;
+          ev.menu_package = p.menu_package;
+          preservedCount++;
         }
       });
-    }
-    let preservedCount = 0;
-    finalEvents.forEach((ev) => {
-      const p = preserved.get(ev.id);
-      if (p) {
-        ev.menu = p.menu;
-        ev.menu_package = p.menu_package;
-        preservedCount++;
-      }
-    });
-    if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
 
-    // ── Upsert in batches of 50 ──
-    let upserted = 0;
-    for (let i = 0; i < finalEvents.length; i += 50) {
-      const batch = finalEvents.slice(i, i + 50);
       const { error } = await sb.from("events").upsert(batch, { onConflict: "id" });
       if (error) {
         console.error(`Upsert batch ${i} error:`, error);
@@ -436,6 +435,7 @@ Deno.serve(async (req) => {
         upserted += batch.length;
       }
     }
+    if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
 
     // ── Clean up cancelled / removed LMS events ──
     // Any LMS-sourced event in the sync window that wasn't in this batch is gone from LMS

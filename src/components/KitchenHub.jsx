@@ -56,6 +56,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const toggleSec = (sec)=>setExpandedSecs(p=>({...p,[sec]:!p[sec]}));
   const isSecOpen = (sec)=>expandedSecs[sec]===true; // default collapsed
   const [sopCat, setSopCat] = useState(null);
+  const [renamingCatId, setRenamingCatId] = useState(null);
+  const [renameCatBuf, setRenameCatBuf] = useState("");
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
   const [editingSteps, setEditingSteps] = useState(false);
@@ -856,6 +858,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     }).catch(e=>console.error('SOP supabase err:',e));
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
     setSopModal(null);setSopRecipe(recObj);
+  }
+  function renameCategory(catId,newName){
+    var trimmed=(newName||'').trim();
+    if(!trimmed) return;
+    var cat=RECIPE_DB.cats.find(c=>c.id===catId);
+    if(!cat||cat.name===trimmed) return;
+    var oldName=cat.name;
+    cat.name=trimmed;
+    import('../lib/supabase.js').then(mod=>{
+      mod.supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
+    });
+    logActivity('kitchen','SOP section renamed: '+oldName+' → '+trimmed,'sop_category_rename',{catId:catId,from:oldName,to:trimmed},currentUser?.id);
   }
   function deleteCategory(catId){
     if(!window.confirm('Delete this SOP section? This cannot be undone.')) return;
@@ -2149,12 +2163,29 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           {!sopRecipe?(
             !sopCat?(
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
-                {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;return(
+                {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;
+                  const isRenaming=renamingCatId===cat.id;
+                  return(
                   <div key={cat.id} style={{position:"relative"}}>
+                    {isRenaming?(
+                      <div style={{width:"100%",background:C.darkCard,border:`1px solid ${C.gold}`,borderRadius:14,padding:"20px 14px",textAlign:"center",minHeight:100,boxSizing:"border-box"}}>
+                        <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div>
+                        <input value={renameCatBuf} onChange={e=>setRenameCatBuf(e.target.value)}
+                          onKeyDown={e=>{if(e.key==='Enter'){renameCategory(cat.id,renameCatBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
+                          autoFocus onClick={e=>e.stopPropagation()}
+                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box"}}/>
+                        <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
+                          <button onClick={()=>{renameCategory(cat.id,renameCatBuf);setRenamingCatId(null);}} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
+                          <button onClick={()=>setRenamingCatId(null)} style={{padding:"4px 10px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✕</button>
+                        </div>
+                      </div>
+                    ):(<>
                     <button onClick={()=>setSopCat(cat.id)} style={{width:"100%",background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
                       <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
                     </button>
+                    {currentUser?.role==='admin'&&<button onClick={e=>{e.stopPropagation();setRenamingCatId(cat.id);setRenameCatBuf(cat.name);}} title={T2("Rename section")} style={{position:"absolute",top:4,left:4,width:24,height:24,borderRadius:12,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✏</button>}
                     {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>}
+                    </>)}
                   </div>);})}
               </div>
             ):(()=>{

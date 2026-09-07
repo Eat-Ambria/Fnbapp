@@ -159,7 +159,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     // (a stray click on "Quick start from package"/"Clear all", or anything
     // else that computed the wrong list) gets a last chance to be caught
     // before it overwrites a manually-built menu with no undo.
-    var prevCount = (selEv.menu || []).length;
+    // NOTE: must compare against the same fallback-resolved list MenuEditor is
+    // actually showing (and editing from) — an unedited event stores menu:[]
+    // and only ever displays the package's dishes as a display-time fallback,
+    // so comparing against the raw selEv.menu here missed every first edit.
+    var effectivePrev = selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : []);
+    var prevCount = effectivePrev.length;
     var nextCount = (dishes || []).length;
     if (prevCount >= 5 && nextCount < prevCount - 3 && nextCount < prevCount * 0.5) {
       setPendingMenuDrop({ dishes: dishes, prevCount: prevCount, nextCount: nextCount });
