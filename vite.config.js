@@ -21,12 +21,23 @@ export default defineConfig({
             },
           },
           {
+            // V82: was StaleWhileRevalidate — that serves whatever's already in
+            // the SW's OWN Cache Storage first, unconditionally, and only
+            // refreshes it in the background for next time. That cache is
+            // separate from the browser's HTTP cache, so a normal hard refresh
+            // (Ctrl+Shift+R) does NOT bypass it — every reload could be serving
+            // one-deploy-behind script/style content. NetworkFirst actually
+            // prefers the network when it's reachable (this is content-hashed
+            // static hosting, so a cache hit only ever helps, never masks new
+            // content); the cache is still there as an offline/slow-network
+            // fallback.
             urlPattern: ({ request }) =>
               request.destination === 'script' ||
               request.destination === 'style',
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'ambria-assets',
+              networkTimeoutSeconds: 3,
             },
           },
           {
