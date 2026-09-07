@@ -103,7 +103,14 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const totalStaff = totalActive || Math.max(staffPresent+staffAbsent, 1);
 
   // Helpers
-  function genId(){const ns=safeEvs.map(e=>+(e.id||"").replace(/\D/g,"")).filter(Boolean);return `FP-${new Date().getFullYear()}-${String(Math.max(0,...ns)+1).padStart(3,"0")}`;}
+  // V80 fix: used to derive the next id from the max numeric suffix seen in
+  // locally-loaded events — but soft-deleted (tombstoned) events are excluded
+  // from local state (see App.jsx boot load), so a freshly generated id could
+  // collide with an existing, possibly-tombstoned row. The upsert would then
+  // silently merge into that row, leaving its is_deleted:true untouched, and
+  // the very event just created would vanish the moment its realtime echo
+  // arrived. A timestamp+random id needs no knowledge of existing ids at all.
+  function genId(){ return `FP-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
   function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
   function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done"});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
   function saveForm(){
