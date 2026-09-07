@@ -624,7 +624,14 @@ function getSectionsForPackage(pkgName) {
       sop_category: s.sop_category || s.name || '',
       sales_dept: s.sales_dept || 'kit',
       dishes: Array.isArray(s.dishes) ? s.dishes.slice() : [],
-      catalogue_section_id: s.catalogue_section_id || null
+      catalogue_section_id: s.catalogue_section_id || null,
+      // V85 — one level of subsections (e.g. Main Course > Hyderabadi Cuisine).
+      // Same shape as a section, minus fields that only make sense one level up.
+      subsections: Array.isArray(s.subsections) ? s.subsections.map(sub => ({
+        id: sub.id || ('sub_' + Math.random().toString(36).slice(2, 8)),
+        name: sub.name || '',
+        dishes: Array.isArray(sub.dishes) ? sub.dishes.slice() : [],
+      })) : []
     }));
   }
   // Derive from flat dishes[]
@@ -649,12 +656,16 @@ function getSectionsForPackage(pkgName) {
 function flattenSectionsToDishes(sections) {
   const out = [];
   const seen = {};
-  (sections || []).forEach(s => {
-    (s.dishes || []).forEach(d => {
+  function addAll(list) {
+    (list || []).forEach(d => {
       if (!d || seen[d]) return;
       seen[d] = true;
       out.push(d);
     });
+  }
+  (sections || []).forEach(s => {
+    addAll(s.dishes);
+    (s.subsections || []).forEach(sub => addAll(sub.dishes));
   });
   return out;
 }

@@ -64,6 +64,11 @@ function DishSectionsEditor(props) {
   const [renameValue, setRenameValue] = useState('');
   const [mergeModal, setMergeModal] = useState(null);
   const [mergeTargetId, setMergeTargetId] = useState('');
+  // V85 — one level of subsections (e.g. Main Course > Hyderabadi Cuisine).
+  // A subsection is just another dish_catalogue_sections row with parent_section_id
+  // set; dishes assign to it the same way as any section (dishes_master.section_id).
+  const [addingSubFor, setAddingSubFor] = useState(null); // parent section id, or null
+  const [newSubName, setNewSubName] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────
   async function loadData() {
@@ -114,20 +119,48 @@ function DishSectionsEditor(props) {
 
   const unassignedList = dishesBySection['__unassigned__'] || [];
 
+  // V85 — top-level sections vs. their subsections (one level deep only —
+  // a subsection never has its own parent_section_id set to another subsection).
+  const topSections = useMemo(function(){ return sections.filter(function(s){ return !s.parent_section_id; }); }, [sections]);
+  const subsByParent = useMemo(function(){
+    const map = {};
+    sections.forEach(function(s){
+      if (s.parent_section_id) { (map[s.parent_section_id] = map[s.parent_section_id] || []).push(s); }
+    });
+    Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return (a.sort_order||0) - (b.sort_order||0); }); });
+    return map;
+  }, [sections]);
+  // Flat, indented option list for "assign/move to" and merge-target pickers —
+  // a subsection is addressed exactly like a section (same table, same id space).
+  function flatSectionOptions(excludeId) {
+    const out = [];
+    topSections.forEach(function(s){
+      if (s.id !== excludeId) out.push({ id: s.id, label: s.name });
+      (subsByParent[s.id] || []).forEach(function(sub){
+        if (sub.id !== excludeId) out.push({ id: sub.id, label: '— ' + sub.name });
+      });
+    });
+    return out;
+  }
+
   // ── Actions ────────────────────────────────────────────────────────
-  async function addSection() {
-    if (!isAdmin || !newSectionName.trim()) return;
+  async function addSection(parentId) {
+    if (!isAdmin) return;
+    const nameVal = parentId ? newSubName.trim() : newSectionName.trim();
+    if (!nameVal) return;
     setSaving(true);
     try {
-      const maxSort = sections.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
-      const { data, error } = await supabase.from('dish_catalogue_sections').insert({
-        dept: dept, name: newSectionName.trim(), sort_order: maxSort + 10
-      }).select('*').single();
+      const siblings = parentId ? (subsByParent[parentId] || []) : topSections;
+      const maxSort = siblings.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
+      const payload = { dept: dept, name: nameVal, sort_order: maxSort + 10 };
+      if (parentId) payload.parent_section_id = parentId;
+      const { data, error } = await supabase.from('dish_catalogue_sections').insert(payload).select('*').single();
       if (error) throw error;
       if (!data) { alert('Add failed: no row returned (RLS?)'); return; }
       // V73: optimistic append — realtime may not be enabled on dish_catalogue_sections
       setSections(function(prev){ return [...(prev || []), data]; });
-      setNewSectionName(''); setAddingSection(false);
+      if (parentId) { setNewSubName(''); setAddingSubFor(null); }
+      else { setNewSectionName(''); setAddingSection(false); }
     } catch (e) { alert('Add failed: ' + e.message); }
     finally { setSaving(false); }
   }
@@ -151,9 +184,10 @@ function DishSectionsEditor(props) {
   async function deleteSection(sec) {
     if (!isAdmin) return;
     const dishCount = (dishesBySection[sec.id] || []).length;
-    const msg = dishCount > 0
-      ? 'Delete "' + sec.name + '"? Its ' + dishCount + ' dish' + (dishCount === 1 ? '' : 'es') + ' will move to Unassigned.'
-      : 'Delete "' + sec.name + '"?';
+    const subCount = (subsByParent[sec.id] || []).length;
+    let msg = 'Delete "' + sec.name + '"?';
+    if (dishCount > 0) msg += ' Its ' + dishCount + ' dish' + (dishCount === 1 ? '' : 'es') + ' will move to Unassigned.';
+    if (subCount > 0) msg += ' Its ' + subCount + ' subsection' + (subCount === 1 ? '' : 's') + ' will become top-level section' + (subCount === 1 ? '' : 's') + '.';
     if (!window.confirm(msg)) return;
     setSaving(true);
     try {
@@ -172,8 +206,14 @@ function DishSectionsEditor(props) {
       const { data, error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id).select('id');
       if (error) throw error;
       if (!data || data.length === 0) { alert('Delete failed: 0 rows deleted (RLS?)'); return; }
-      // Optimistic local removal + orphan the dish assignments locally
-      setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== sec.id; }); });
+      // Optimistic local removal + orphan the dish assignments locally.
+      // ON DELETE SET NULL un-nests any subsections at the DB level — mirror
+      // that locally too, or they'd vanish (still pointing at a deleted parent).
+      setSections(function(prev){
+        return (prev || [])
+          .filter(function(s){ return s.id !== sec.id; })
+          .map(function(s){ return s.parent_section_id === sec.id ? { ...s, parent_section_id: null } : s; });
+      });
       setDishAssignments(function(prev){
         const next = { ...(prev || {}) };
         Object.keys(next).forEach(function(k){
@@ -212,14 +252,21 @@ function DishSectionsEditor(props) {
     const active = event.active;
     const over = event.over;
     if (!over || active.id === over.id) return;
-    const oldIdx = sections.findIndex(function(s){ return s.id === active.id; });
-    const newIdx = sections.findIndex(function(s){ return s.id === over.id; });
+    // V85 — the sortable list is top-level sections only (subsections aren't
+    // draggable, one level deep), so reorder within topSections and splice the
+    // renumbered result back into the full flat `sections` state, leaving every
+    // subsection's own entry untouched.
+    const oldIdx = topSections.findIndex(function(s){ return s.id === active.id; });
+    const newIdx = topSections.findIndex(function(s){ return s.id === over.id; });
     if (oldIdx < 0 || newIdx < 0) return;
 
     const prevSections = sections;
-    const reordered = arrayMove(sections, oldIdx, newIdx);
+    const reorderedTop = arrayMove(topSections, oldIdx, newIdx);
     // Renumber to keep 10-step spacing so future single-row inserts fit between neighbours.
-    const renumbered = reordered.map(function(s, i){ return { ...s, sort_order: (i + 1) * 10 }; });
+    const renumberedTop = reorderedTop.map(function(s, i){ return { ...s, sort_order: (i + 1) * 10 }; });
+    const renumberedById = {};
+    renumberedTop.forEach(function(s){ renumberedById[s.id] = s; });
+    const renumbered = sections.map(function(s){ return renumberedById[s.id] || s; });
 
     // Optimistic local update — realtime on dish_catalogue_sections may not be enabled.
     setSections(renumbered);
@@ -228,7 +275,7 @@ function DishSectionsEditor(props) {
       // Only write the rows whose sort_order actually changed (minimises churn).
       // Direct UPDATE per row — upsert would validate all NOT NULL columns
       // (INSERT path) even when the conflict resolves to UPDATE.
-      const changed = renumbered.filter(function(s){
+      const changed = renumberedTop.filter(function(s){
         const orig = prevSections.find(function(p){ return p.id === s.id; });
         return !orig || orig.sort_order !== s.sort_order;
       });
@@ -460,7 +507,7 @@ function DishSectionsEditor(props) {
             onChange={function(e){ const v = e.target.value; if (v === '__unassign__') unassignDish(dish.name); else if (v) assignDishToSection(dish.name, v); e.target.value = ''; }}
             style={{ fontSize: 11, padding: '2px 6px', border: '1px solid ' + C.border, borderRadius: 6, background: C.surface, color: C.muted, cursor: 'pointer' }}>
             <option value="">{isUnassigned ? 'Assign to…' : 'Move to…'}</option>
-            {sections.map(function(s){ return <option key={s.id} value={s.id} disabled={s.id === sectionId}>{s.name}</option>; })}
+            {flatSectionOptions(sectionId).map(function(o){ return <option key={o.id} value={o.id}>{o.label}</option>; })}
             {!isUnassigned && <option value="__unassign__">— Unassign</option>}
           </select>
         )}
@@ -468,15 +515,17 @@ function DishSectionsEditor(props) {
     );
   }
 
-  function sectionRow(sec, drag) {
+  function sectionRow(sec, drag, isSub) {
     const dishes = dishesBySection[sec.id] || [];
     const isExpanded = expanded.has(sec.id);
     const isRenaming = renamingId === sec.id;
     const otherCount = sections.length - 1;
     const printPos = Math.floor((sec.sort_order || 0) / 10);
+    const subs = isSub ? [] : (subsByParent[sec.id] || []);
+    const addingSub = addingSubFor === sec.id;
     // V73: drag ref/style applied to outer container; listeners applied to grip handle only.
     return (
-      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 10, overflow: 'hidden', marginBottom: isSub ? 6 : 8, marginLeft: isSub ? 28 : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px' }}>
           {isAdmin && drag && (
             <span {...drag.dragAttrs} {...drag.dragListeners}
@@ -517,6 +566,10 @@ function DishSectionsEditor(props) {
               <span style={{ fontSize: 11, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
               {isAdmin && (
                 <div style={{ display: 'flex', gap: 2 }}>
+                  {!isSub && (
+                    <button onClick={function(){ setAddingSubFor(addingSub ? null : sec.id); setNewSubName(''); }} title="Add subsection"
+                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, borderRadius: 4 }}>⊞</button>
+                  )}
                   <button onClick={function(){ setRenamingId(sec.id); setRenameValue(sec.name); }} title="Rename"
                     style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, borderRadius: 4 }}>✎</button>
                   <button onClick={function(){ setMergeModal({ sourceId: sec.id, sourceName: sec.name, dishCount: dishes.length }); setMergeTargetId(''); }} title="Merge into another section" disabled={otherCount === 0}
@@ -536,6 +589,22 @@ function DishSectionsEditor(props) {
         {isExpanded && dishes.length === 0 && (
           <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '10px 12px', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>
             No dishes assigned yet. Move dishes here from Unassigned or from other sections using the dropdown.
+          </div>
+        )}
+        {!isSub && subs.length > 0 && (
+          <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '8px 12px 8px 0' }}>
+            {subs.map(function(sub){ return sectionRow(sub, null, true); })}
+          </div>
+        )}
+        {!isSub && addingSub && (
+          <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '10px 12px 10px 40px', display: 'flex', gap: 6 }}>
+            <input value={newSubName} onChange={function(e){ setNewSubName(e.target.value); }} placeholder="Subsection name…" autoFocus
+              onKeyDown={function(e){ if (e.key === 'Enter') addSection(sec.id); if (e.key === 'Escape') { setAddingSubFor(null); setNewSubName(''); } }}
+              style={{ flex: 1, padding: '5px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, minWidth: 160 }} />
+            <button onClick={function(){ addSection(sec.id); }} disabled={saving || !newSubName.trim()}
+              style={{ padding: '5px 12px', background: C.green, color: '#fff', border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: saving || !newSubName.trim() ? 'not-allowed' : 'pointer' }}>Save</button>
+            <button onClick={function(){ setAddingSubFor(null); setNewSubName(''); }}
+              style={{ padding: '5px 12px', background: 'transparent', color: C.muted, border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
           </div>
         )}
       </div>
@@ -564,7 +633,7 @@ function DishSectionsEditor(props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C.darkCard, borderRadius: 8, marginBottom: 12, fontSize: 12, flexWrap: 'wrap' }}>
         <span style={{ color: C.muted }}>
           <b style={{ color: C.text }}>{DEPTS.find(function(d){ return d.id === dept; }).label} catalogue</b>
-          {' · '}{sections.length} sections
+          {' · '}{topSections.length} sections{sections.length > topSections.length ? ' (' + (sections.length - topSections.length) + ' subsections)' : ''}
           {unassignedList.length > 0 && <> · <span style={{ color: C.red, fontWeight: 500 }}>{unassignedList.length} unassigned</span></>}
         </span>
         <div style={{ flex: 1 }} />
@@ -604,8 +673,8 @@ function DishSectionsEditor(props) {
             onChange={function(e){ const v = e.target.value; if (v) bulkMoveTo(v); e.target.value = ''; }}
             style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #7FA9D4', background: C.surface, fontSize: 12, color: C.text, cursor: 'pointer', fontWeight: 600 }}>
             <option value="">— pick section —</option>
-            {sections.map(function(s){
-              return <option key={s.id} value={s.id}>{s.name}</option>;
+            {flatSectionOptions().map(function(o){
+              return <option key={o.id} value={o.id}>{o.label}</option>;
             })}
             <option value="__unassign__">— Unassign —</option>
           </select>
@@ -616,13 +685,13 @@ function DishSectionsEditor(props) {
         </div>
       )}
 
-      {!loading && sections.length > 0 && (
+      {!loading && topSections.length > 0 && (
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
-          <SortableContext items={sections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
-            {sections.map(function(sec){
+          <SortableContext items={topSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+            {topSections.map(function(sec){
               return (
                 <SortableItem key={sec.id} id={sec.id}>
-                  {function(drag){ return sectionRow(sec, drag); }}
+                  {function(drag){ return sectionRow(sec, drag, false); }}
                 </SortableItem>
               );
             })}
@@ -666,9 +735,9 @@ function DishSectionsEditor(props) {
             <select value={mergeTargetId} onChange={function(e){ setMergeTargetId(e.target.value); }}
               style={{ width: '100%', padding: '8px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 13, marginBottom: 16 }}>
               <option value="">— Pick a target —</option>
-              {sections.filter(function(s){ return s.id !== mergeModal.sourceId; }).map(function(s){
-                const c = (dishesBySection[s.id] || []).length;
-                return <option key={s.id} value={s.id}>{s.name} ({c})</option>;
+              {flatSectionOptions(mergeModal.sourceId).map(function(o){
+                const c = (dishesBySection[o.id] || []).length;
+                return <option key={o.id} value={o.id}>{o.label} ({c})</option>;
               })}
             </select>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

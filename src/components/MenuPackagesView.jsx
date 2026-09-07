@@ -325,7 +325,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       // user sees the full package. Save will re-flatten and make both consistent.
       var flat = MENU_PACKAGES[selPkg] || [];
       var inSections = {};
-      loaded.forEach(function(s) { (s.dishes || []).forEach(function(d) { inSections[d] = true; }); });
+      loaded.forEach(function(s) {
+        (s.dishes || []).forEach(function(d) { inSections[d] = true; });
+        (s.subsections || []).forEach(function(sub) { (sub.dishes || []).forEach(function(d) { inSections[d] = true; }); });
+      });
       var orphans = flat.filter(function(d) { return !inSections[d]; });
       if (orphans.length > 0) {
         var existingOther = loaded.find(function(s) { return (s.name || '').toLowerCase() === 'other' || s.sop_category === ''; });
@@ -583,6 +586,73 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
     setDirty(true);
   }
+
+  // V85 — one level of subsections within a package section (e.g. Main Course
+  // > Hyderabadi Cuisine, Amritsari Cuisine). Same {id,name,dishes} shape as a
+  // section, just nested one level; never itself has further subsections.
+  function genSubId() { return 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+  function addSubsection(secId) {
+    var name = (window.prompt(T2('New subsection name:')) || '').trim();
+    if (!name) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).concat([{ id: genSubId(), name: name, dishes: [] }]) };
+      });
+    });
+    setDirty(true);
+  }
+  function renameSubsection(secId, subId, newName) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) { return sub.id === subId ? { ...sub, name: newName } : sub; }) };
+      });
+    });
+    setDirty(true);
+  }
+  function deleteSubsection(secId, subId) {
+    var sec = editorSections.find(function(s) { return s.id === secId; });
+    var sub = sec && (sec.subsections || []).find(function(x) { return x.id === subId; });
+    if (!sub) return;
+    if (sub.dishes.length > 0 && !window.confirm('Delete subsection "' + (sub.name || '') + '" with ' + sub.dishes.length + ' dish(es)? They\'ll move back to "' + (sec.name || '') + '" directly (not removed from the package).')) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        var have = {}; (s.dishes || []).forEach(function(d) { have[d] = true; });
+        var reclaimed = (sub.dishes || []).filter(function(d) { return !have[d]; });
+        return { ...s, dishes: (s.dishes || []).concat(reclaimed), subsections: (s.subsections || []).filter(function(x) { return x.id !== subId; }) };
+      });
+    });
+    setDirty(true);
+  }
+  function addDishToSubsection(secId, subId, name) {
+    var trimmed = (name || '').trim();
+    if (!trimmed) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) {
+          if (sub.id !== subId) return sub;
+          if (sub.dishes.indexOf(trimmed) !== -1) return sub;
+          return { ...sub, dishes: [...sub.dishes, trimmed] };
+        }) };
+      });
+    });
+    setAddDishInput(function(p) { return { ...p, [subId]: '' }; });
+    setDirty(true);
+  }
+  function removeDishFromSubsection(secId, subId, name) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) {
+          return sub.id === subId ? { ...sub, dishes: sub.dishes.filter(function(d) { return d !== name; }) } : sub;
+        }) };
+      });
+    });
+    setDirty(true);
+  }
   function startEditDish(secId, name) { setEditingDish({ secId: secId, name: name }); setEditDishValue(name); }
   function cancelEditDish() { setEditingDish(null); setEditDishValue(''); }
   function commitEditDish() {
@@ -643,7 +713,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         name: (s.name || '').trim() || 'Untitled',
         sop_category: s.sop_category || '',
         sales_dept: s.sales_dept || 'kit',
-        dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
+        dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean),
+        subsections: (s.subsections || []).map(function(sub) {
+          return {
+            id: sub.id || genSubId(),
+            name: (sub.name || '').trim() || 'Untitled',
+            dishes: (sub.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
+          };
+        }).filter(function(sub) { return sub.name && sub.name !== 'Untitled' || sub.dishes.length > 0; })
       };
       if (s.catalogue_section_id) out.catalogue_section_id = s.catalogue_section_id;
       return out;
@@ -1458,6 +1535,68 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                   <button onClick={function() { addDishToSection(sec.id, addDishInput[sec.id] || ''); }}
                                     style={{ padding: "5px 12px", borderRadius: 5, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Add")}</button>
                                 </div>
+                              </div>
+                            )}
+
+                            {/* V85 — Subsections (one level deep, e.g. Main Course > Hyderabadi Cuisine) */}
+                            {(sec.subsections || []).map(function(sub) {
+                              return (
+                                <div key={sub.id} style={{ margin: "0 12px 10px", border: "1px solid " + C.borderLight, borderRadius: 8, background: C.bg, overflow: "hidden" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: C.darkCard }}>
+                                    <span style={{ color: C.faint, fontSize: 11 }}>↳</span>
+                                    <input
+                                      value={sub.name}
+                                      onChange={function(e) { renameSubsection(sec.id, sub.id, e.target.value); }}
+                                      placeholder={T2("Subsection name")}
+                                      disabled={!isAdmin}
+                                      style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 12, fontWeight: 600, color: C.text, minWidth: 120, flex: "0 1 auto" }}
+                                    />
+                                    <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sub.dishes.length} {T2("dishes")}</span>
+                                    {isAdmin && (
+                                      <button onClick={function() { deleteSubsection(sec.id, sub.id); }}
+                                        title={T2("Delete subsection")}
+                                        style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+                                    )}
+                                  </div>
+                                  {sub.dishes.length === 0 && (
+                                    <div style={{ padding: "8px 12px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this subsection")}</div>
+                                  )}
+                                  {sub.dishes.map(function(d) {
+                                    var type = getDishType(d);
+                                    return (
+                                      <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", borderTop: "1px solid " + C.borderLight, gap: 8 }}>
+                                        <span style={{ fontSize: 12, color: C.text }}>{d}</span>
+                                        {isAdmin && (
+                                          <button onClick={function() { removeDishFromSubsection(sec.id, sub.id, d); }}
+                                            title={T2("Remove")}
+                                            style={{ padding: "1px 7px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {isAdmin && (
+                                    <div style={{ display: "flex", gap: 6, padding: "6px 10px", borderTop: "1px solid " + C.borderLight }}>
+                                      <input
+                                        list={"dishopts_" + sec.id}
+                                        value={addDishInput[sub.id] || ''}
+                                        onChange={function(e) { setAddDishInput(function(p) { return { ...p, [sub.id]: e.target.value }; }); }}
+                                        onKeyDown={function(e) { if (e.key === 'Enter') { addDishToSubsection(sec.id, sub.id, addDishInput[sub.id] || ''); } }}
+                                        placeholder={T2("+ Add dish…")}
+                                        style={{ flex: 1, padding: "4px 7px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 11, color: C.text, minWidth: 0 }}
+                                      />
+                                      <button onClick={function() { addDishToSubsection(sec.id, sub.id, addDishInput[sub.id] || ''); }}
+                                        style={{ padding: "4px 10px", borderRadius: 5, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{T2("Add")}</button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {isAdmin && (
+                              <div style={{ padding: "0 12px 10px" }}>
+                                <button onClick={function() { addSubsection(sec.id); }}
+                                  style={{ padding: "5px 12px", borderRadius: 6, background: "transparent", border: "1px dashed " + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                                  + {T2("Add subsection")}
+                                </button>
                               </div>
                             )}
                           </div>

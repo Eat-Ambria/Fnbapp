@@ -86,11 +86,29 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // there, or under whichever section this event tagged it into via
   // sectionOverrides, or in "Extras" if neither.
   var pkgSections = pkgName ? (MENU_PACKAGE_SECTIONS[pkgName] || null) : null;
-  var selByPkgSection = null;
+  // V85 — a subsection (e.g. Main Course > Hyderabadi Cuisine) is addressed
+  // exactly like a section — same id space, just nested one level in the
+  // package definition — so flatten sections+subsections into one list for
+  // grouping/picking purposes. "Main Course" itself and each of its
+  // subsections all become their own addressable group.
+  var pkgGroups = null;
   if (pkgSections && pkgSections.length > 0) {
+    pkgGroups = [];
+    pkgSections.forEach(function(sec) {
+      pkgGroups.push({ id: sec.id, name: sec.name, sop_category: sec.sop_category });
+      (sec.subsections || []).forEach(function(sub) {
+        pkgGroups.push({ id: sub.id, name: sec.name + ' › ' + sub.name, sop_category: sec.sop_category });
+      });
+    });
+  }
+  var selByPkgSection = null;
+  if (pkgGroups && pkgGroups.length > 0) {
     var dishToNativeSection = {};
     pkgSections.forEach(function(sec) {
       (sec.dishes || []).forEach(function(d) { if (d) dishToNativeSection[d] = sec.id; });
+      (sec.subsections || []).forEach(function(sub) {
+        (sub.dishes || []).forEach(function(d) { if (d) dishToNativeSection[d] = sub.id; });
+      });
     });
     var bySecId = {};
     var extras = [];
@@ -99,8 +117,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       if (secId) { if (!bySecId[secId]) bySecId[secId] = []; bySecId[secId].push(name); }
       else extras.push(name);
     });
-    selByPkgSection = pkgSections
-      .map(function(sec) { return { id: sec.id, name: sec.name, sop_category: sec.sop_category, dishes: bySecId[sec.id] || [], isExtras: false }; })
+    selByPkgSection = pkgGroups
+      .map(function(g) { return { id: g.id, name: g.name, sop_category: g.sop_category, dishes: bySecId[g.id] || [], isExtras: false }; })
       .filter(function(g) { return g.dishes.length > 0; });
     if (extras.length > 0) selByPkgSection.push({ id: '__extras__', name: T2('Extras'), sop_category: '', dishes: extras, isExtras: true });
   }
@@ -350,13 +368,13 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                     return (
                       <div key={name} style={{ ...ROW, color: C.green, cursor: "default" }}>
                         <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer" }}>{name}</span>
-                        {g.isExtras && pkgSections && onSectionOverridesChange && (
+                        {g.isExtras && pkgGroups && onSectionOverridesChange && (
                           <select value={sectionOverrides[name] || ''} onClick={function(e) { e.stopPropagation(); }}
                             onChange={function(e) { onSectionOverridesChange({ ...sectionOverrides, [name]: e.target.value || undefined }); }}
                             title={T2('Tag which package section this shows under (this event only)')}
                             style={{ fontSize: 10, padding: "2px 4px", borderRadius: 5, border: "1px solid " + C.greenBorder, color: C.green, background: C.surface, marginRight: 8, maxWidth: 110 }}>
                             <option value="">{T2('— section —')}</option>
-                            {pkgSections.map(function(sec) { return <option key={sec.id} value={sec.id}>{sec.name}</option>; })}
+                            {pkgGroups.map(function(g2) { return <option key={g2.id} value={g2.id}>{g2.name}</option>; })}
                           </select>
                         )}
                         <span onClick={function() { removeDish(name); }} style={{ fontSize: 14, color: C.red, fontWeight: 700, flexShrink: 0, cursor: "pointer" }}>×</span>
@@ -403,18 +421,18 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               })}
             </div>
 
-            {pkgSections && (
+            {pkgGroups && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("this event only")})</span></div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-                  {pkgSections.map(function(sec) {
-                    var active = pendingCustom.sectionId === sec.id;
+                  {pkgGroups.map(function(g) {
+                    var active = pendingCustom.sectionId === g.id;
                     return (
-                      <button key={sec.id} onClick={function() { setPendingCustom(function(p) { return { ...p, sectionId: active ? "" : sec.id }; }); }}
+                      <button key={g.id} onClick={function() { setPendingCustom(function(p) { return { ...p, sectionId: active ? "" : g.id }; }); }}
                         style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
                           background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
                           border: "1px solid " + (active ? C.wine : C.border) }}>
-                        {sec.name}
+                        {g.name}
                       </button>
                     );
                   })}
