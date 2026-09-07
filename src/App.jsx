@@ -42,12 +42,18 @@ import { SalesCatalogueView } from './components/SalesCatalogueView.jsx';
 import { BookedFunctionsView } from './components/BookedFunctionsView.jsx';
 
 // ── LMS menu name normalization ──
-// LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg"
+// LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg".
+// V80: this only stripped dashes — any OTHER punctuation quirk (apostrophes,
+// ampersands, extra spaces...) silently failed the match, leaving menu:[] for
+// that event with no fallback. Since events.menu is only synced back to Kitchen
+// Hub for kit-dept items and Build Menu (MenuPackagesView) treats an unresolved
+// package as "0 dishes selected", any edit there (e.g. adding a custom dish)
+// then saved just that one dish, wiping the rest of the package's menu. Strip
+// ALL non-alphanumeric chars, same as EventMenuBuilderView's normalizePkgName.
 function matchMenuPackage(rawName) {
   if (!rawName) return "";
   if (MENU_PACKAGES[rawName]) return rawName; // exact match
-  // Normalize: strip dashes, collapse spaces, lowercase compare
-  const norm = s => s.replace(/[-–—]/g, " ").replace(/\s+menu\s*$/i, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+menu\s*$/, "").trim();
   const target = norm(rawName);
   const match = Object.keys(MENU_PACKAGES).find(k => norm(k) === target);
   return match || rawName; // return matched key or original (will fall through as custom)

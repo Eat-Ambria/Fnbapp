@@ -20,7 +20,7 @@ import {
   upsertDishHindi, DISH_HINDI_MAP,
   resolveDishStore, upsertDishStoreMap,
   DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
-  setPackageSections, getCatIdForDish, deactivateDish,
+  setPackageSections, getCatIdForDish, deactivateDish, upsertDishCat,
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
@@ -40,7 +40,7 @@ function DishMappingModal(props) {
 
   // ── State (all modal-scoped) ───────────────────────────────────────
   var [hindiBuf, setHindiBuf]           = useState('');
-  var [saving, setSaving]               = useState(''); // '' | 'hindi' | 'sop' | 'store' | 'deact'
+  var [saving, setSaving]               = useState(''); // '' | 'hindi' | 'sop' | 'store' | 'deact' | 'cat'
   var [type, setType]                   = useState('sop'); // 'sop' | 'store'
   var [sopSearch, setSopSearch]         = useState('');
   var [storeItems, setStoreItems]       = useState([]);
@@ -77,6 +77,7 @@ function DishMappingModal(props) {
   var detailStore = dishName ? resolveDishStore(dishName) : null;
   var detailSop   = dishName ? findRecipeForDish(dishName) : null;
   var detailPkgs  = dishName ? packagesContainingDish(dishName) : [];
+  var detailCatId = dishName ? getCatIdForDish(dishName) : null;
 
   // ── Effects ───────────────────────────────────────────────────────
   // Reset modal state whenever dishName changes (i.e. opens for a new dish).
@@ -187,6 +188,25 @@ function DishMappingModal(props) {
       upsertDishHindi(dishName, next);
       notify();
     } catch (e) { alert('Hindi save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  // V80 — SOP category (which grouping/"section" a dish shows under in Build
+  // Menu / Menu Editor) used to only ever come from getCatIdForDish's fuzzy
+  // fallback matching (exact/substring/normalized against RECIPE_DB), which is
+  // why near-identical dishes could land in different, similarly-named
+  // categories (e.g. "Chaat" vs "Chaat Station"). This lets an admin set an
+  // explicit dish_categories row so a specific dish always resolves the same
+  // way, regardless of what it fuzzy-matches against.
+  async function saveCat(catId) {
+    if (!dishName || !catId || catId === detailCatId) return;
+    setSaving('cat');
+    try {
+      var res = await supabase.from('dish_categories').upsert({ dish_name: dishName, category_id: catId }, { onConflict: 'dish_name' });
+      if (res.error) throw res.error;
+      upsertDishCat(dishName, catId);
+      notify();
+    } catch (e) { alert('Category save failed: ' + e.message); }
     finally { setSaving(''); }
   }
 
@@ -388,6 +408,25 @@ function DishMappingModal(props) {
                 {saving === 'hindi' ? T2('Saving…') : T2('Save')}
               </button>
             )}
+          </div>
+        </div>
+
+        {/* SOP / recipe category — which grouping this dish shows under in Build Menu */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('SOP / recipe section')}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(RECIPE_DB.cats || []).map(function(c) {
+              var active = detailCatId === c.id;
+              return (
+                <button key={c.id} onClick={function() { if (isAdmin) saveCat(c.id); }} disabled={!isAdmin || !!saving}
+                  style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 700 : 500,
+                    cursor: isAdmin ? 'pointer' : 'default',
+                    background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : C.text,
+                    border: '1px solid ' + (active ? '#3B6D11' : C.border), opacity: saving === 'cat' ? 0.6 : 1 }}>
+                  {c.icon} {c.name}
+                </button>
+              );
+            })}
           </div>
         </div>
 

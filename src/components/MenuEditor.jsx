@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { RECIPE_DB, getCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster } from '../data/recipeData.js';
+import { RECIPE_DB, getCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -84,20 +84,39 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
     onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }));
   }
 
-  async function addCustom() {
+  // V80: adding a custom dish used to immediately guess its SOP category via
+  // getCatIdForDish's fuzzy substring matching (the same fragile logic behind
+  // the "Chaat" vs "Chaat Station" split bug) — a brand-new dish with no recipe
+  // match at all would fall through to a generic default. Now it opens a modal
+  // requiring an explicit category pick before it's added to this menu, so the
+  // dish is classified correctly from the start instead of guessed.
+  var [pendingCustom, setPendingCustom] = useState(null); // { name, catId } | null
+
+  function openCustomModal() {
     var name = customDish.trim();
     if (!name) return;
     if (selectedSet.has(name.toLowerCase())) { setCustomDish(""); return; }
+    setPendingCustom({ name: name, catId: getCatIdForDish(name) || (RECIPE_DB.cats[0] || {}).id || "" });
+  }
+
+  async function confirmCustom() {
+    if (!pendingCustom || !pendingCustom.catId) return;
+    var name = pendingCustom.name;
+    var catId = pendingCustom.catId;
     setCustomSaving(true);
     try {
       // Upsert into dishes_master so this dish becomes part of the library (idempotent on 23505)
       var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
       if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
       upsertDishMaster(name, { is_active: true });
+      var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+      if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+      upsertDishCat(name, catId);
     } catch (e) { console.warn('Custom dish library add failed:', e); }
     finally { setCustomSaving(false); }
     onChange([...selected, name]);
     setCustomDish("");
+    setPendingCustom(null);
     setLibBump(function(n) { return n + 1; });
   }
 
@@ -209,10 +228,10 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
               <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 4, textTransform: "uppercase" }}>✏ {T2("Custom dish")}</div>
               <div style={{ display: "flex", gap: 6 }}>
                 <input value={customDish} onChange={function(e) { setCustomDish(e.target.value); }}
-                  onKeyDown={function(e) { if (e.key === "Enter" && !customSaving) addCustom(); }}
+                  onKeyDown={function(e) { if (e.key === "Enter" && !customSaving) openCustomModal(); }}
                   placeholder={T2("Not in list…")} disabled={customSaving}
                   style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 12, color: C.text, background: C.bg, boxSizing: "border-box" }} />
-                <button onClick={addCustom} disabled={!customDish.trim() || customSaving}
+                <button onClick={openCustomModal} disabled={!customDish.trim() || customSaving}
                   style={{ padding: "6px 12px", borderRadius: 8, background: customDish.trim() && !customSaving ? C.green : C.border, color: customDish.trim() && !customSaving ? "#fff" : C.faint, border: "none", fontSize: 11, fontWeight: 700, cursor: customDish.trim() && !customSaving ? "pointer" : "not-allowed", minWidth: 40 }}>{customSaving ? "…" : "+"}</button>
               </div>
               <div style={{ fontSize: 9, color: C.faint, marginTop: 4, fontStyle: "italic" }}>{T2("Adds to Dish library too")}</div>
@@ -270,6 +289,44 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
           )}
         </div>
       </div>
+
+      {/* Custom dish: confirm its SOP/recipe category before adding it in */}
+      {pendingCustom && (
+        <div onClick={function() { if (!customSaving) setPendingCustom(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 2 }}>{pendingCustom.name}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("New dish — pick where it belongs before adding it to the menu")}</div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+              {(RECIPE_DB.cats || []).map(function(c) {
+                var active = pendingCustom.catId === c.id;
+                return (
+                  <button key={c.id} onClick={function() { setPendingCustom(function(p) { return { ...p, catId: c.id }; }); }}
+                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                      background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
+                      border: "1px solid " + (active ? C.green : C.border) }}>
+                    {c.icon} {c.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={function() { setPendingCustom(null); }} disabled={customSaving}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Cancel")}
+              </button>
+              <button onClick={confirmCustom} disabled={!pendingCustom.catId || customSaving}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
+                {customSaving ? T2("Adding…") : T2("Add to menu")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
