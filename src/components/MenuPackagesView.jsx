@@ -424,7 +424,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     try {
       var results = await Promise.all([
         supabase.from('dish_catalogue_sections')
-          .select('id, name, dept, sales_dept, sop_category_hint, sort_order')
+          .select('id, name, dept, sales_dept, sop_category_hint, sort_order, parent_section_id')
           .order('sort_order', { ascending: true }),
         supabase.from('dishes_master')
           .select('dish_name, section_id, sort_in_section')
@@ -452,8 +452,33 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   // V73: append a package section pre-populated from a catalogue section.
   // Stores catalogue_section_id linkback for future features (badge, resync, etc.).
+  // V85 — catalogueSections is flat (dish_catalogue_sections rows, now
+  // including subsections since the Dish Library can nest them). Order for
+  // display as parent, then its own subsections right after (indented) —
+  // otherwise a subsection looks like just another ordinary top-level
+  // section, indistinguishable from a real parent.
+  function orderedCatalogueOptions() {
+    var top = catalogueSections.filter(function(s) { return !s.parent_section_id; });
+    var subsByParent = {};
+    catalogueSections.forEach(function(s) {
+      if (s.parent_section_id) { (subsByParent[s.parent_section_id] = subsByParent[s.parent_section_id] || []).push(s); }
+    });
+    var out = [];
+    top.forEach(function(s) {
+      out.push(s);
+      (subsByParent[s.id] || []).forEach(function(sub) { out.push({ ...sub, __isSub: true }); });
+    });
+    return out;
+  }
+
   function addSectionFromCatalogue(catSec) {
     var newId = genSecId();
+    // If this is a top-level catalogue section, bring its own subsections
+    // (and their dishes) along too — the whole nested structure carries over
+    // in one click instead of having to rebuild it by hand in the package.
+    var subs = catSec.parent_section_id ? [] : catalogueSections
+      .filter(function(s) { return s.parent_section_id === catSec.id; })
+      .map(function(sub) { return { id: genSubId(), name: sub.name, dishes: sub.dishes.slice() }; });
     setEditorSections(function(prev) {
       return [...prev, {
         id: newId,
@@ -462,6 +487,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         sales_dept: catSec.sales_dept || 'kit', // quick-fill default from the catalogue section — editable per package after
         dishes: catSec.dishes.slice(),
         catalogue_section_id: catSec.id,
+        subsections: subs,
       }];
     });
     setExpandedSecs(function(p) { return { ...p, [newId]: true }; }); // V74: new section starts expanded
@@ -1651,15 +1677,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 {T2('No catalogue sections found. Set them up in Dish Library → Sections first.')}
               </div>
             )}
-            {!catPickerLoading && catalogueSections.map(function(s){
+            {!catPickerLoading && orderedCatalogueOptions().map(function(s){
               var alreadyLinked = editorSections.some(function(ex){ return ex.catalogue_section_id === s.id; });
               var effDept = s.sales_dept || 'kit';
               return (
                 <div key={s.id}
                   onClick={function(){ if (!alreadyLinked) addSectionFromCatalogue(s); }}
-                  style={{ padding: '10px 12px', marginBottom: 6, borderRadius: 8, border: '1px solid ' + C.border, background: alreadyLinked ? C.bg : C.surface, cursor: alreadyLinked ? 'not-allowed' : 'pointer', opacity: alreadyLinked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  style={{ padding: '10px 12px', marginLeft: s.__isSub ? 24 : 0, marginBottom: 6, borderRadius: 8, border: '1px solid ' + C.border, background: alreadyLinked ? C.bg : C.surface, cursor: alreadyLinked ? 'not-allowed' : 'pointer', opacity: alreadyLinked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{s.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{s.__isSub ? '↳ ' : ''}{s.name}</div>
                     <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
                       {s.dishes.length} {T2('dishes')}
                       {effDept !== 'kit' && <> · <span style={{ color: '#7A5B12', fontWeight: 600 }}>→ {effDept.toUpperCase()} tab</span></>}
@@ -1744,7 +1770,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     disabled={catPickerLoading}
                     style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, fontWeight: 600, cursor: catPickerLoading ? "wait" : "pointer" }}>
                     <option value="">{catPickerLoading ? T2('Loading…') : '— ' + T2('pick catalogue section') + ' —'}</option>
-                    {catalogueSections.map(function(s) { return <option key={s.id} value={s.id}>{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
+                    {orderedCatalogueOptions().map(function(s) { return <option key={s.id} value={s.id}>{s.__isSub ? '— ' : ''}{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
                   </select>
                 </div>
               )}
