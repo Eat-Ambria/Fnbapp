@@ -155,29 +155,25 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return out;
   }, [sections, activeDept, catSubsByParent, allDishes]);
 
-  // V87 — add every dish in a chosen catalogue section (its own direct dishes
-  // plus, if it's a parent, all of its subsections') as selected add-ons,
-  // tagged to whichever section/subsection pill the user picked to place them.
+  // V88 — bring in a chosen catalogue section (its own direct dishes plus, if
+  // it's a parent, all of its subsections') as browsable, UNselected cards
+  // under the chosen pill — the user picks which ones to actually add from
+  // there, same as any other card (onToggle). Tagging alone (no proposal_items/
+  // event_items insert) is what makes them show without being pre-checked —
+  // see the sectionOverrides carve-out in visibleDishes/visibleDishesAnyDept.
   async function addSectionFromLibrary(catSectionId, targetId) {
+    if (!targetId) return; // nothing to browse under without a target pill
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
     var ids = [catSectionId].concat(subIds);
     var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
     if (res.error) throw res.error;
     var names = (res.data || []).map(function(r){ return r.dish_name; });
-    var have = {}; dishItems.forEach(function(x){ have[x.dish_name] = true; });
-    var toAdd = names.filter(function(n){ return !have[n]; });
-    if (toAdd.length === 0) return;
-    var rows = toAdd.map(function(n, i){ return { proposal_id: proposal.id, dish_name: n, is_addon: true, ordering: dishItems.length + i }; });
-    var insRes = await supabase.from('proposal_items').insert(rows).select();
-    if (insRes.error) throw insRes.error;
-    setDishItems(function(prev){ return prev.concat(insRes.data || []); });
-    if (targetId) {
-      var next = { ...sectionOverrides };
-      toAdd.forEach(function(n){ next[n] = targetId; });
-      setSectionOverrides(next);
-      var updRes = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
-      if (updRes.error) console.error('[MenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
-    }
+    if (names.length === 0) return;
+    var next = { ...sectionOverrides };
+    names.forEach(function(n){ next[n] = targetId; });
+    setSectionOverrides(next);
+    var updRes = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
+    if (updRes.error) console.error('[MenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
   }
 
   // ── V72 Phase 2: phantom dishes ──
@@ -484,13 +480,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
       if (dietFilter !== 'all' && diet !== dietFilter) return false;
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
-      // Hide dishes that aren't in template AND aren't selected, unless showAddons is true
+      // Hide dishes that aren't in template AND aren't selected, unless showAddons is
+      // true — or the dish was explicitly placed here via "Add section from
+      // library" (V87): that adds the whole section as browsable, unselected
+      // cards, not auto-picked, so it must stay visible regardless of showAddons.
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
 
   // ── Group visible dishes by category ──
   var groupedByCat = useMemo(function(){
@@ -591,10 +591,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
 
   // ── V76: every catalogue dish (diet filter + search still apply, since those are
   // explicit choices) with NO template/selected/showAddons gate — a package-linked
@@ -1003,7 +1004,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
     setPendingSection({ catSectionId: '', targetId: activeSectionId || '' });
   }
   async function confirmAddSection(){
-    if (!pendingSection || !pendingSection.catSectionId || sectionSaving) return;
+    if (!pendingSection || !pendingSection.catSectionId || !pendingSection.targetId || sectionSaving) return;
     setSectionSaving(true);
     try {
       await onAddSectionFromLibrary(pendingSection.catSectionId, pendingSection.targetId || null);
@@ -1286,7 +1287,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmAddSection} disabled={!pendingSection.catSectionId || sectionSaving}
+              <button onClick={confirmAddSection} disabled={!pendingSection.catSectionId || !pendingSection.targetId || sectionSaving}
                 style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: sectionSaving ? "wait" : "pointer", opacity: sectionSaving ? 0.6 : 1 }}>
                 {sectionSaving ? T2("Adding…") : T2("Add section")}
               </button>

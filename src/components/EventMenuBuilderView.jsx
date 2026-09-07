@@ -457,29 +457,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // V87 — add every dish in a chosen catalogue section (its own dishes plus,
   // if it's a parent, all of its subsections') as selected add-ons, tagged to
   // whichever section/subsection pill the user picked to place them.
+  // V88 — bring in a chosen catalogue section as browsable, UNselected cards
+  // under the chosen pill — no event_items insert, so nothing is auto-picked;
+  // the user selects individual dishes from there via the normal onToggle.
   async function addSectionFromLibrary(catSectionId, targetId) {
+    if (!targetId) return; // nothing to browse under without a target pill
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
     var ids = [catSectionId].concat(subIds);
     var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
     if (res.error) throw res.error;
     var names = (res.data || []).map(function(r){ return r.dish_name; });
-    var have = {}; dishItems.forEach(function(x){ have[x.dish_name] = true; });
-    var toAdd = names.filter(function(n){ return !have[n]; });
-    if (toAdd.length === 0) return;
-    var rows = toAdd.map(function(n, i){ return { event_id: event.id, dish_name: n, is_addon: true, ordering: dishItems.length + i }; });
-    var insRes = await supabase.from('event_items').insert(rows).select();
-    if (insRes.error) throw insRes.error;
-    var nextItems = dishItems.concat(insRes.data || []);
-    setDishItems(nextItems);
-    var kitAdded = toAdd.some(function(n){ return effectiveDeptForDish(n) === 'kit'; });
-    if (kitAdded) await mirrorKitchenMenu(nextItems);
-    if (targetId) {
-      var next = { ...sectionOverrides };
-      toAdd.forEach(function(n){ next[n] = targetId; });
-      setSectionOverrides(next);
-      var updRes = await supabase.from('events').update({ menu_section_overrides: next }).eq('id', event.id);
-      if (updRes.error) console.error('[EventMenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
-    }
+    if (names.length === 0) return;
+    var next = { ...sectionOverrides };
+    names.forEach(function(n){ next[n] = targetId; });
+    setSectionOverrides(next);
+    var updRes = await supabase.from('events').update({ menu_section_overrides: next }).eq('id', event.id);
+    if (updRes.error) console.error('[EventMenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
   }
 
   // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
@@ -564,10 +557,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!noPackage && !inT && !isSel && !showAddons) return false;
+      // V88 — "Add section from library" tags a whole section's dishes as
+      // browsable-but-unselected (no override, no auto-select) — keep them
+      // visible regardless of showAddons.
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!noPackage && !inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, noPackage]);
+  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, noPackage, sectionOverrides]);
 
   var groupedByCat = useMemo(function(){
     var groups = {};
@@ -649,10 +646,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
 
   var catalogueBrowsePool = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
