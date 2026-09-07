@@ -317,6 +317,29 @@ Deno.serve(async (req) => {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const triggeredBy = body.triggered_by || "system";
 
+    // V83: the app auto-triggers this on every boot, gated only by a
+    // client-side localStorage cooldown — a fresh incognito window (no
+    // localStorage history) or simply a different staff member's device
+    // bypasses that entirely, so several syncs could otherwise run back to
+    // back or concurrently, each one a fresh chance to race a live Build
+    // Menu edit. A short server-side cooldown, checked here regardless of
+    // which browser/device triggered it, caps how often this whole class of
+    // race can even occur. Manual "Sync now" clicks still go through the
+    // same 2-minute gate — repeated impatient clicking shouldn't stack syncs.
+    const { data: lastRun } = await sb
+      .from("lms_sync_log")
+      .select("started_at")
+      .eq("status", "success")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastRun?.started_at && Date.now() - new Date(lastRun.started_at).getTime() < 2 * 60 * 1000) {
+      return new Response(JSON.stringify({ status: "skipped", message: "Synced less than 2 minutes ago" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
     // Create sync log entry
     const { data: logRow } = await sb
       .from("lms_sync_log")
@@ -392,16 +415,22 @@ Deno.serve(async (req) => {
 
     console.log(`Events to upsert: ${finalEvents.length} (skipped: ${skipped}, tombstoned: ${deduped.size - finalEvents.length})`);
 
-    // ── Upsert in batches of 50, preserving admin-customized menus ──
-    // The "preserve" check used to run ONCE for the whole sync, against
-    // whatever the events table looked like before the (potentially
-    // many-second) contract fetch + transform above even started. Any Build
-    // Menu edit made anywhere in that window — an edit clears menu_package
-    // and writes a non-empty menu, exactly what marks a row "customized" —
-    // was invisible to that stale snapshot, so this batch's upsert would
-    // silently overwrite it with the LMS default moments later. Re-running
-    // the check fresh right before EACH batch's write shrinks that race down
-    // to the width of one batch instead of the whole sync run.
+    // ── Upsert in batches of 50, never clobbering an admin-customized menu ──
+    // V83: the previous fix still had a real gap — it read a row's current
+    // menu/menu_package, decided "customized, preserve it", then WROTE THAT
+    // SAME SNAPSHOT BACK as part of the batch upsert. If a Build Menu edit
+    // landed in the gap between that read and this write (very plausible:
+    // this sync runs on every app boot, independently per browser/device,
+    // gated only by a client-side localStorage cooldown that a fresh
+    // incognito window always bypasses), the upsert would overwrite the
+    // user's newer edit with the slightly-stale snapshot this function had
+    // just read — a race either way, just narrower.
+    // Fix: for a row already flagged customized, don't touch menu/menu_package
+    // at all — literally omit those two keys from that row's write, via a
+    // separate per-row UPDATE, so whatever is in the DB right now (even if it
+    // changed after our read) is left completely alone. Only rows that are
+    // brand-new or were never customized go through the bulk upsert with the
+    // full LMS payload.
     let upserted = 0;
     let preservedCount = 0;
     for (let i = 0; i < finalEvents.length; i += 50) {
@@ -412,27 +441,27 @@ Deno.serve(async (req) => {
         .select("id, menu, menu_package")
         .in("id", batchIds);
       if (exErr) console.error(`Preserve fetch batch ${i} error:`, exErr);
-      const preserved = new Map<string, { menu: any; menu_package: string | null }>();
+      const customizedIds = new Set<string>();
       (existing || []).forEach((ex: any) => {
         const hasCustomMenu =
           (ex.menu_package === null || ex.menu_package === "") &&
           Array.isArray(ex.menu) && ex.menu.length > 0;
-        if (hasCustomMenu) preserved.set(ex.id, { menu: ex.menu, menu_package: ex.menu_package });
-      });
-      batch.forEach((ev) => {
-        const p = preserved.get(ev.id);
-        if (p) {
-          ev.menu = p.menu;
-          ev.menu_package = p.menu_package;
-          preservedCount++;
-        }
+        if (hasCustomMenu) customizedIds.add(ex.id);
       });
 
-      const { error } = await sb.from("events").upsert(batch, { onConflict: "id" });
-      if (error) {
-        console.error(`Upsert batch ${i} error:`, error);
-      } else {
-        upserted += batch.length;
+      const safeRows = batch.filter((ev) => !customizedIds.has(ev.id));
+      const customizedRows = batch.filter((ev) => customizedIds.has(ev.id));
+
+      if (safeRows.length > 0) {
+        const { error } = await sb.from("events").upsert(safeRows, { onConflict: "id" });
+        if (error) console.error(`Upsert batch ${i} error:`, error);
+        else upserted += safeRows.length;
+      }
+      for (const ev of customizedRows) {
+        const { menu, menu_package, id, ...rest } = ev;
+        const { error } = await sb.from("events").update(rest).eq("id", id);
+        if (error) console.error(`Preserve-update ${id} error:`, error);
+        else { upserted++; preservedCount++; }
       }
     }
     if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
