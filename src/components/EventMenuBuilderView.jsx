@@ -109,7 +109,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -123,6 +123,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var sectionSalesDeptMap = useMemo(function(){
     var m = {};
     sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
+    return m;
+  }, [sections]);
+
+  // V86 — parentId → its subsection rows (Dish Library → Sections can now
+  // nest one level), so groupedByPkgSection below can pool a linked section's
+  // FULL catalogue (parent + subsections), not just the parent row itself.
+  var catSubsByParent = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){
+      if (s.parent_section_id) { (m[s.parent_section_id] = m[s.parent_section_id] || []).push(s); }
+    });
     return m;
   }, [sections]);
 
@@ -612,36 +623,61 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         image: '', notes: '', section_id: null, sort_in_section: null };
     }
 
+    function pinnedRest(dishList, pkgDishNames) {
+      var pinned = [], rest = [];
+      dishList.forEach(function(d){ (pkgDishNames.indexOf(d.name) >= 0 ? pinned : rest).push(d); });
+      pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
+      rest.sort(function(a, b){
+        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
+        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name);
+      });
+      return pinned.concat(rest);
+    }
+
     var out = [];
     pkgSecs.forEach(function(sec){
       if ((sec.sales_dept || 'kit') !== activeDept) return;
       var pkgDishNames = (sec.dishes || []).filter(Boolean);
-      var catDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      var directCatDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      // V86 — the linked catalogue section may itself have subsections; pool
+      // ALL of them, grouped by subsection, instead of only whatever's
+      // directly on the parent row (see MenuBuilderView.jsx for the same fix).
+      var catSubs = sec.catalogue_section_id ? (catSubsByParent[sec.catalogue_section_id] || []) : [];
 
       var list;
-      if (catDishes && catDishes.length > 0) {
-        var pkgNameSet = {};
-        pkgDishNames.forEach(function(n){ pkgNameSet[n] = true; });
-        var pinned = [], rest = [];
-        catDishes.forEach(function(d){ (pkgNameSet[d.name] ? pinned : rest).push(d); });
-        pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
-        rest.sort(function(a, b){
-          var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
-          var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
-          if (sa !== sb) return sa - sb;
-          return a.name.localeCompare(b.name);
+      var subGroups = null;
+      if (catSubs.length > 0) {
+        subGroups = [];
+        var allCatDishes = (directCatDishes || []).slice();
+        if (directCatDishes && directCatDishes.length > 0) {
+          subGroups.push({ id: sec.catalogue_section_id, name: sec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
+        }
+        catSubs.forEach(function(sub){
+          var subDishes = byCatSectionId[sub.id] || [];
+          if (subDishes.length === 0) return;
+          allCatDishes = allCatDishes.concat(subDishes);
+          subGroups.push({ id: sub.id, name: sub.name, dishes: pinnedRest(subDishes, pkgDishNames) });
         });
+        var foundInSubs = {};
+        allCatDishes.forEach(function(d){ foundInSubs[d.name] = true; });
+        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
+        if (missingFromSubs.length > 0) subGroups.unshift({ id: sec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
+        if (subGroups.length === 0) subGroups = null;
+        list = missingFromSubs.concat(allCatDishes);
+      } else if (directCatDishes && directCatDishes.length > 0) {
         var foundNames = {};
-        catDishes.forEach(function(d){ foundNames[d.name] = true; });
+        directCatDishes.forEach(function(d){ foundNames[d.name] = true; });
         var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        list = missing.concat(pinned).concat(rest);
+        list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
         list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
       }
 
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list, subGroups: subGroups });
     });
     if (out.length === 0) return null;
 
@@ -650,7 +686,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2]);
 
   var dietMeta = templateInfo.diet
     ? {

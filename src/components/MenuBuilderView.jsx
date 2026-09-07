@@ -103,7 +103,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -118,6 +118,18 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var sectionSalesDeptMap = useMemo(function(){
     var m = {};
     sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
+    return m;
+  }, [sections]);
+
+  // V86 — catalogue sections can now have one level of subsections (Dish
+  // Library → Sections). parentId → its subsection rows, for groupedByPkgSection
+  // to pool a linked section's FULL catalogue (parent + subsections), not just
+  // whatever's directly on the parent row itself.
+  var catSubsByParent = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){
+      if (s.parent_section_id) { (m[s.parent_section_id] = m[s.parent_section_id] || []).push(s); }
+    });
     return m;
   }, [sections]);
 
@@ -575,39 +587,67 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         image: '', notes: '', section_id: null, sort_in_section: null };
     }
 
+    function pinnedRest(dishList, pkgDishNames) {
+      var pinned = [], rest = [];
+      dishList.forEach(function(d){ (pkgDishNames.indexOf(d.name) >= 0 ? pinned : rest).push(d); });
+      pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
+      rest.sort(function(a, b){
+        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
+        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name);
+      });
+      return pinned.concat(rest);
+    }
+
     var out = [];
     pkgSecs.forEach(function(sec){
       if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
       var pkgDishNames = (sec.dishes || []).filter(Boolean);
-      var catDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      var directCatDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      // V86 — the linked catalogue section may itself have subsections (Dish
+      // Library → Sections), each holding its own slice of the full catalogue
+      // list (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental). Pool
+      // ALL of them, grouped by subsection, instead of only whatever's
+      // directly on the parent row — otherwise a fully-subsectioned catalogue
+      // section (0 dishes of its own) resolves to nothing to browse at all.
+      var catSubs = sec.catalogue_section_id ? (catSubsByParent[sec.catalogue_section_id] || []) : [];
 
       var list;
-      if (catDishes && catDishes.length > 0) {
-        var pkgNameSet = {};
-        pkgDishNames.forEach(function(n){ pkgNameSet[n] = true; });
-        var pinned = [], rest = [];
-        catDishes.forEach(function(d){ (pkgNameSet[d.name] ? pinned : rest).push(d); });
-        pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
-        rest.sort(function(a, b){
-          var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
-          var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
-          if (sa !== sb) return sa - sb;
-          return a.name.localeCompare(b.name);
+      var subGroups = null;
+      if (catSubs.length > 0) {
+        subGroups = [];
+        var allCatDishes = (directCatDishes || []).slice();
+        if (directCatDishes && directCatDishes.length > 0) {
+          subGroups.push({ id: sec.catalogue_section_id, name: sec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
+        }
+        catSubs.forEach(function(sub){
+          var subDishes = byCatSectionId[sub.id] || [];
+          if (subDishes.length === 0) return;
+          allCatDishes = allCatDishes.concat(subDishes);
+          subGroups.push({ id: sub.id, name: sub.name, dishes: pinnedRest(subDishes, pkgDishNames) });
         });
+        var foundInSubs = {};
+        allCatDishes.forEach(function(d){ foundInSubs[d.name] = true; });
+        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
+        if (missingFromSubs.length > 0) subGroups.unshift({ id: sec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
+        if (subGroups.length === 0) subGroups = null;
+        list = missingFromSubs.concat(allCatDishes);
+      } else if (directCatDishes && directCatDishes.length > 0) {
         // Package dish names that don't exist among this catalogue section's own
         // dishes (name mismatch, or added to the package from elsewhere) — resolve
         // or synthesize them too, so the package's own count is never short.
         var foundNames = {};
-        catDishes.forEach(function(d){ foundNames[d.name] = true; });
+        directCatDishes.forEach(function(d){ foundNames[d.name] = true; });
         var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        list = missing.concat(pinned).concat(rest);
+        list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
         list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
       }
 
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list, subGroups: subGroups });
     });
     if (out.length === 0) return null;
 
@@ -616,7 +656,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -926,6 +966,35 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       )}
 
       {visibleGroups.map(function(grp){
+        // V86 — a package section linked to a catalogue section that itself has
+        // subsections (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental)
+        // renders each subsection as its own labeled cluster instead of one
+        // flat grid, so sales can still tell what's what while browsing the
+        // full pooled catalogue.
+        if (grp.subGroups) {
+          return (
+            <div key={grp.id} style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+                {grp.icon} {grp.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {grp.dishes.length}</span>
+              </div>
+              {grp.subGroups.map(function(sub){
+                var selInSub = sub.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
+                return (
+                  <div key={sub.id} style={{ marginBottom: 16, marginLeft: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8, padding: "0 2px" }}>
+                      ↳ {sub.name} <span style={{ color: C.muted, fontWeight: 500 }}>· {selInSub > 0 ? selInSub + "/" : ""}{sub.dishes.length}</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+                      {sub.dishes.map(function(d){
+                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
         return (
           <div key={grp.id} style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
@@ -933,78 +1002,84 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
               {grp.dishes.map(function(d){
-                var inT = !!templateSet[d.name];
-                var isSel = !!selectedSet[d.name];
-                var meta = salesMeta[d.name];
-                var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
-                var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
-                var desc = (meta && meta.sales_description) || '';
-                var img = (meta && meta.hero_image_url) || d.image || '';
-
-                var borderStyle;
-                var bg;
-                if (inT && isSel)      { borderStyle = "1.5px solid #2A7A48"; bg = "#F0F9F3"; }
-                else if (inT && !isSel){ borderStyle = "1px solid " + C.border; bg = C.surface; }
-                else if (!inT && isSel){ borderStyle = "1.5px dashed #8A70C8"; bg = "#F8F4FC"; }
-                else                    { borderStyle = "1px dashed " + C.border; bg = C.surface; }
-
-                return (
-                  <button key={d.name} onClick={function(){ onToggle(d.name); }}
-                    style={{
-                      position: "relative", padding: 0, borderRadius: 10,
-                      background: bg, border: borderStyle,
-                      cursor: "pointer", textAlign: "left", overflow: "hidden",
-                      transition: "transform 0.08s ease",
-                    }}>
-                    {/* ADD-ON badge */}
-                    {!inT && isSel && !d.isPhantom && (
-                      <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-                        ADD-ON
-                      </span>
-                    )}
-                    {/* PHANTOM badge — dish in package but not in catalogue */}
-                    {d.isPhantom && (
-                      <span title="Not in dish catalogue — edit in Dish Library"
-                        style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-                        ⚠ NO CAT
-                      </span>
-                    )}
-                    {/* Checkbox */}
-                    <span style={{
-                      position: "absolute", top: 6, right: 6, zIndex: 2,
-                      width: 22, height: 22, borderRadius: 5,
-                      background: isSel ? (inT ? "#2A7A48" : "#8A70C8") : "rgba(255,255,255,0.9)",
-                      border: "1.5px solid " + (isSel ? (inT ? "#2A7A48" : "#8A70C8") : "#BBB"),
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      color: "#fff", fontSize: 13, fontWeight: 700,
-                    }}>
-                      {isSel ? "✓" : ""}
-                    </span>
-
-                    {/* Image area */}
-                    <div style={{ height: 90, background: img ? "transparent" : "#EEE", backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {!img && <span style={{ fontSize: 32, opacity: 0.4 }}>{d.catIcon}</span>}
-                    </div>
-
-                    {/* Text area */}
-                    <div style={{ padding: "8px 10px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                        {dietMeta && (
-                          <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
-                        )}
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.25, wordBreak: "break-word" }}>{d.name}</span>
-                      </div>
-                      {desc && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.3, marginTop: 2 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
-                      {!desc && d.hindi && <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>{d.hindi}</div>}
-                    </div>
-                  </button>
-                );
+                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
               })}
             </div>
           </div>
         );
       })}
     </div>
+  );
+}
+
+// V86 — dish card, extracted so it can render inside a subGroups cluster
+// (grouped by catalogue subsection) as well as a plain flat grid.
+function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
+  var inT = !!templateSet[d.name];
+  var isSel = !!selectedSet[d.name];
+  var meta = salesMeta[d.name];
+  var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+  var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
+  var desc = (meta && meta.sales_description) || '';
+  var img = (meta && meta.hero_image_url) || d.image || '';
+
+  var borderStyle;
+  var bg;
+  if (inT && isSel)      { borderStyle = "1.5px solid #2A7A48"; bg = "#F0F9F3"; }
+  else if (inT && !isSel){ borderStyle = "1px solid " + C.border; bg = C.surface; }
+  else if (!inT && isSel){ borderStyle = "1.5px dashed #8A70C8"; bg = "#F8F4FC"; }
+  else                    { borderStyle = "1px dashed " + C.border; bg = C.surface; }
+
+  return (
+    <button onClick={function(){ onToggle(d.name); }}
+      style={{
+        position: "relative", padding: 0, borderRadius: 10,
+        background: bg, border: borderStyle,
+        cursor: "pointer", textAlign: "left", overflow: "hidden",
+        transition: "transform 0.08s ease",
+      }}>
+      {/* ADD-ON badge */}
+      {!inT && isSel && !d.isPhantom && (
+        <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+          ADD-ON
+        </span>
+      )}
+      {/* PHANTOM badge — dish in package but not in catalogue */}
+      {d.isPhantom && (
+        <span title="Not in dish catalogue — edit in Dish Library"
+          style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+          ⚠ NO CAT
+        </span>
+      )}
+      {/* Checkbox */}
+      <span style={{
+        position: "absolute", top: 6, right: 6, zIndex: 2,
+        width: 22, height: 22, borderRadius: 5,
+        background: isSel ? (inT ? "#2A7A48" : "#8A70C8") : "rgba(255,255,255,0.9)",
+        border: "1.5px solid " + (isSel ? (inT ? "#2A7A48" : "#8A70C8") : "#BBB"),
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#fff", fontSize: 13, fontWeight: 700,
+      }}>
+        {isSel ? "✓" : ""}
+      </span>
+
+      {/* Image area */}
+      <div style={{ height: 90, background: img ? "transparent" : "#EEE", backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {!img && <span style={{ fontSize: 32, opacity: 0.4 }}>{d.catIcon}</span>}
+      </div>
+
+      {/* Text area */}
+      <div style={{ padding: "8px 10px 10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+          {dietMeta && (
+            <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
+          )}
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.25, wordBreak: "break-word" }}>{d.name}</span>
+        </div>
+        {desc && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.3, marginTop: 2 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
+        {!desc && d.hindi && <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>{d.hindi}</div>}
+      </div>
+    </button>
   );
 }
 
