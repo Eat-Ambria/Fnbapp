@@ -416,22 +416,43 @@ export default function App() {
       if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>(a.staff_id||a.staffId)!==payload.old.staff_id||a.date!==payload.old.date));
     });
     const u4 = dbSubscribe('events', (payload) => {
-      let ev=null;
-      if(payload.new){
-        let menu=payload.new.menu||[];
+      // V84 — Postgres logical replication omits an unchanged TOASTed column
+      // (e.g. a large `menu` jsonb array) from a partial-column UPDATE's `new`
+      // payload when that update doesn't touch it — e.g. syncEventItemsFromKitchenMenu's
+      // trailing `{event_items_initialized:true}` write, which fires seconds
+      // after every Build Menu edit. payload.new.menu then comes back
+      // `undefined`, not the real value, and building `ev` straight from
+      // payload.new — then fully REPLACING the local event with it — silently
+      // wiped a menu that had just been correctly saved moments earlier, with
+      // no error, self-correcting only on a full reload (a real SELECT, not a
+      // partial-column echo). Fix: merge payload.new over the existing local
+      // copy of this event first, so any column this specific payload doesn't
+      // actually carry falls back to what's already known instead of blanking.
+      function buildEv(existing){
+        if(!payload.new) return null;
+        const raw={...(existing||{}),...payload.new};
+        let menu=raw.menu||[];
         if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
-        const pkg=matchMenuPackage(payload.new.menu_package||"");
+        const pkg=matchMenuPackage(raw.menu_package||"");
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
-        ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[],odc_location:payload.new.odc_location||null,odc_address:payload.new.odc_address||null,odc_contact_phone:payload.new.odc_contact_phone||null,odc_transport_cost:payload.new.odc_transport_cost||null,odc_lead:payload.new.odc_lead||null,site_recce:payload.new.site_recce||null,odc_menu_confirmed:payload.new.odc_menu_confirmed??false,custom_menu_confirmed:payload.new.custom_menu_confirmed??false,yield_multiplier:Number(payload.new.yield_multiplier)||1.0};
+        return {...raw,menuPackage:pkg,menu,extras:raw.extras||[],odc_location:raw.odc_location||null,odc_address:raw.odc_address||null,odc_contact_phone:raw.odc_contact_phone||null,odc_transport_cost:raw.odc_transport_cost||null,odc_lead:raw.odc_lead||null,site_recce:raw.site_recce||null,odc_menu_confirmed:raw.odc_menu_confirmed??false,custom_menu_confirmed:raw.custom_menu_confirmed??false,yield_multiplier:Number(raw.yield_multiplier)||1.0};
       }
       // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state
-      if(payload.eventType==='INSERT'&&ev){
-        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
-        else { setEvents_raw(p=>p.some(e=>e.id===ev.id)?p.map(e=>e.id===ev.id?ev:e):[...p,ev]); }
+      if(payload.eventType==='INSERT'&&payload.new){
+        setEvents_raw(p=>{
+          const existing=p.find(e=>e.id===payload.new.id);
+          const ev=buildEv(existing);
+          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
+        });
       }
-      if(payload.eventType==='UPDATE'&&ev){
-        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
-        else { setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e)); }
+      if(payload.eventType==='UPDATE'&&payload.new){
+        setEvents_raw(p=>{
+          const existing=p.find(e=>e.id===payload.new.id);
+          const ev=buildEv(existing);
+          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
+        });
       }
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
