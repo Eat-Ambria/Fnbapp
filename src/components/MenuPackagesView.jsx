@@ -1,7 +1,7 @@
 // Ambria FnB — Menu & Packages View  (V63 rebuild — 5b left rail)
 // Three tabs: Build menu · Packages · Dish library
 // Place in: src/components/MenuPackagesView.jsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
@@ -633,6 +633,29 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     }
   }
 
+  // V80 — autosave: debounce persisting editorSections instead of requiring an
+  // explicit Save click. Restarts on every edit so it fires ~1.2s after the
+  // user stops making changes, not on every keystroke/reorder.
+  var autosaveTimerRef = useRef(null);
+  useEffect(function() {
+    if (!dirty || !isAdmin || saving) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(function() { savePackage(); }, 1200);
+    return function() { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  // eslint-disable-next-line
+  }, [dirty, editorSections, isAdmin]);
+
+  // Switching packages while an edit is still debouncing would otherwise
+  // silently drop it (the editor reloads from source on selPkg change) — flush
+  // immediately first.
+  function switchPkg(name) {
+    if (dirty && selPkg && selPkg !== name) {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      savePackage();
+    }
+    setSelPkg(name);
+  }
+
   async function createPackage() {
     if (dirty) { alert('Save or discard current changes first.'); return; }
     var name = (window.prompt('New package name:') || '').trim();
@@ -1075,7 +1098,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 var usage = pkgUsageCount(pkg);
                 var isSel = selPkg === pkg;
                 return (
-                  <button key={pkg} onClick={function() { setSelPkg(pkg); }}
+                  <button key={pkg} onClick={function() { switchPkg(pkg); }}
                     style={{
                       textAlign: "left",
                       padding: "8px 10px",
@@ -1139,16 +1162,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      {dirty && (
-                        <span style={{ fontSize: 11, color: C.amber, padding: "3px 8px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, fontWeight: 600 }}>● {T2("unsaved")}</span>
+                      {saving && (
+                        <span style={{ fontSize: 11, color: C.muted, padding: "3px 8px", borderRadius: 10, background: C.bg, border: "1px solid " + C.border, fontWeight: 600 }}>⏳ {T2("Saving…")}</span>
+                      )}
+                      {dirty && !saving && (
+                        <span style={{ fontSize: 11, color: C.amber, padding: "3px 8px", borderRadius: 10, background: C.amberBg, border: "1px solid " + C.amberBorder, fontWeight: 600 }}>● {T2("unsaved — autosaving")}</span>
+                      )}
+                      {!dirty && !saving && (
+                        <span style={{ fontSize: 11, color: C.green, padding: "3px 8px", borderRadius: 10, background: C.greenBg, border: "1px solid " + C.greenBorder, fontWeight: 600 }}>✓ {T2("saved")}</span>
                       )}
                       {dirty && isAdmin && (
                         <button onClick={discardChanges}
                           style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{T2("Discard")}</button>
-                      )}
-                      {dirty && isAdmin && (
-                        <button onClick={savePackage} disabled={saving}
-                          style={{ padding: "6px 14px", borderRadius: 6, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? T2("Saving…") : T2("Save")}</button>
                       )}
 
                       {isAdmin && (
@@ -1388,7 +1413,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         <DishLibrary
           lang={lang}
           currentUser={currentUser}
-          onJumpToPackage={function(pkgName) { setMainTab("packages"); setSelPkg(pkgName); }}
+          onJumpToPackage={function(pkgName) { setMainTab("packages"); switchPkg(pkgName); }}
         />
       )}
 
@@ -1530,7 +1555,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           // that's actually needed is a re-render — never touch editorSections here.
           setDishCacheTick(function(v) { return v + 1; });
         }}
-        onJumpToPackage={function(pkgName) { setMappingDish(''); setMainTab("packages"); setSelPkg(pkgName); }}
+        onJumpToPackage={function(pkgName) { setMappingDish(''); setMainTab("packages"); switchPkg(pkgName); }}
         allowDeactivate={false}
       />
 
