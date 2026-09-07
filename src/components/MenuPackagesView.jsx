@@ -139,6 +139,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     syncEventItemsFromKitchenMenu(selEv.id, dishes);
   }
 
+  // Per-event tag for which of the package's sections a dish (usually one not
+  // natively listed in any section — a custom addition) should show under in
+  // this event's Build Menu view. Never touches the shared package definition.
+  function saveSectionOverrides(next) {
+    if (!selEv || !setEvents) return;
+    setEvents(function(prev) {
+      return (prev || []).map(function(e) {
+        if (e.id !== selEv.id) return e;
+        return { ...e, menu_section_overrides: next };
+      });
+    });
+  }
+
   function saveMenu(dishes) {
     if (!selEv || !setEvents) return;
     // Belt-and-suspenders: this editor only ever adds/removes one dish per
@@ -1078,6 +1091,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <MenuEditor
             selected={selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
             onChange={function(dishes) { saveMenu(dishes); }}
+            pkgName={selEv.menuPackage || ""}
+            sectionOverrides={selEv.menu_section_overrides || {}}
+            onSectionOverridesChange={function(next) { saveSectionOverrides(next); }}
             lang={lang}
           />
 

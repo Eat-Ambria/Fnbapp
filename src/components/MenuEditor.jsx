@@ -5,10 +5,17 @@ import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { RECIPE_DB, getCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 
-function MenuEditor({ selected = [], onChange, lang = "en" }) {
+// pkgName/sectionOverrides/onSectionOverridesChange are optional — when the
+// event this menu belongs to is tied to a package, "Selected menu" groups by
+// that package's own sections (matching how the menu will actually be
+// served/printed) instead of SOP category. sectionOverrides is a per-EVENT
+// { [dishName]: sectionId } tag for dishes not natively listed in any of the
+// package's sections (custom additions, or catalogue dishes outside it) — it
+// never touches the shared package definition, only this one event's menu.
+function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
   var [customDish, setCustomDish] = useState("");
@@ -74,6 +81,44 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
     selByCat[catId].push(name);
   });
 
+  // Group selected by the package's OWN sections instead, when this event has
+  // one — a dish lands under its native section if the package lists it
+  // there, or under whichever section this event tagged it into via
+  // sectionOverrides, or in "Extras" if neither.
+  var pkgSections = pkgName ? (MENU_PACKAGE_SECTIONS[pkgName] || null) : null;
+  var selByPkgSection = null;
+  if (pkgSections && pkgSections.length > 0) {
+    var dishToNativeSection = {};
+    pkgSections.forEach(function(sec) {
+      (sec.dishes || []).forEach(function(d) { if (d) dishToNativeSection[d] = sec.id; });
+    });
+    var bySecId = {};
+    var extras = [];
+    selected.forEach(function(name) {
+      var secId = dishToNativeSection[name] || sectionOverrides[name] || null;
+      if (secId) { if (!bySecId[secId]) bySecId[secId] = []; bySecId[secId].push(name); }
+      else extras.push(name);
+    });
+    selByPkgSection = pkgSections
+      .map(function(sec) { return { id: sec.id, name: sec.name, sop_category: sec.sop_category, dishes: bySecId[sec.id] || [], isExtras: false }; })
+      .filter(function(g) { return g.dishes.length > 0; });
+    if (extras.length > 0) selByPkgSection.push({ id: '__extras__', name: T2('Extras'), sop_category: '', dishes: extras, isExtras: true });
+  }
+
+  function pkgSectionIcon(sopCatName) {
+    if (!sopCatName) return '✨';
+    var cat = (RECIPE_DB.cats || []).find(function(c) { return c.name === sopCatName || c.id === sopCatName; });
+    return (cat && cat.icon) || '🍽';
+  }
+
+  // Unified render list for "Selected menu" — package sections when the event
+  // has one, SOP category otherwise.
+  var selGroups = selByPkgSection
+    ? selByPkgSection.map(function(g) { return { id: g.id, label: g.name, icon: pkgSectionIcon(g.sop_category), names: g.dishes, isExtras: g.isExtras }; })
+    : Object.entries(selByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
+        return { id: entry[0], label: catName(entry[0]), icon: catIcon(entry[0]), names: entry[1], isExtras: false };
+      });
+
   function addDish(name) {
     if (!selectedSet.has(name.toLowerCase())) {
       onChange([...selected, name]);
@@ -96,7 +141,7 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
     var name = customDish.trim();
     if (!name) return;
     if (selectedSet.has(name.toLowerCase())) { setCustomDish(""); return; }
-    setPendingCustom({ name: name, catId: getCatIdForDish(name) || (RECIPE_DB.cats[0] || {}).id || "" });
+    setPendingCustom({ name: name, catId: getCatIdForDish(name) || (RECIPE_DB.cats[0] || {}).id || "", sectionId: "" });
   }
 
   async function confirmCustom() {
@@ -129,6 +174,11 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
     } catch (e) { console.warn('Custom dish library add failed:', e); }
     finally { setCustomSaving(false); }
     onChange([...selected, name]);
+    // Tag which of the event's package sections it goes into — this event
+    // only, never written to the shared package definition.
+    if (pendingCustom.sectionId && onSectionOverridesChange) {
+      onSectionOverridesChange({ ...sectionOverrides, [name]: pendingCustom.sectionId });
+    }
     setCustomDish("");
     setPendingCustom(null);
     setLibBump(function(n) { return n + 1; });
@@ -287,22 +337,29 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             {selected.length === 0 && (
               <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No dishes selected")}<br /><span style={{ fontSize: 11 }}>{T2("Click + on the left to add")}</span></div>
             )}
-            {Object.entries(selByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-              var catId = entry[0]; var names = entry[1];
-              var isOpen2 = openSelCats[catId] !== false;
+            {selGroups.map(function(g) {
+              var isOpen2 = openSelCats[g.id] !== false;
               return (
-                <div key={catId}>
-                  <div onClick={function() { setOpenSelCats(function(p) { return { ...p, [catId]: p[catId] === false ? true : false }; }); }}
+                <div key={g.id}>
+                  <div onClick={function() { setOpenSelCats(function(p) { return { ...p, [g.id]: p[g.id] === false ? true : false }; }); }}
                     style={{ ...SECHEAD, color: C.green, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid " + C.borderLight, userSelect: "none" }}>
-                    <span>{catIcon(catId)} {catName(catId)} ({names.length})</span>
+                    <span>{g.icon} {g.label} ({g.names.length})</span>
                     <span style={{ fontSize: 12, color: C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
                   </div>
-                  {isOpen2 && names.map(function(name) {
+                  {isOpen2 && g.names.map(function(name) {
                     return (
-                      <div key={name} onClick={function() { removeDish(name); }}
-                        style={{ ...ROW, color: C.green }}>
-                        <span>{name}</span>
-                        <span style={{ fontSize: 14, color: C.red, fontWeight: 700, flexShrink: 0, marginLeft: 8, cursor: "pointer" }}>×</span>
+                      <div key={name} style={{ ...ROW, color: C.green, cursor: "default" }}>
+                        <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer" }}>{name}</span>
+                        {g.isExtras && pkgSections && onSectionOverridesChange && (
+                          <select value={sectionOverrides[name] || ''} onClick={function(e) { e.stopPropagation(); }}
+                            onChange={function(e) { onSectionOverridesChange({ ...sectionOverrides, [name]: e.target.value || undefined }); }}
+                            title={T2('Tag which package section this shows under (this event only)')}
+                            style={{ fontSize: 10, padding: "2px 4px", borderRadius: 5, border: "1px solid " + C.greenBorder, color: C.green, background: C.surface, marginRight: 8, maxWidth: 110 }}>
+                            <option value="">{T2('— section —')}</option>
+                            {pkgSections.map(function(sec) { return <option key={sec.id} value={sec.id}>{sec.name}</option>; })}
+                          </select>
+                        )}
+                        <span onClick={function() { removeDish(name); }} style={{ fontSize: 14, color: C.red, fontWeight: 700, flexShrink: 0, cursor: "pointer" }}>×</span>
                       </div>
                     );
                   })}
@@ -311,12 +368,11 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             })}
           </div>
 
-          {/* Category summary strip */}
+          {/* Section/category summary strip */}
           {selected.length > 0 && (
             <div style={{ padding: "8px 14px", borderTop: "1px solid " + C.greenBorder, background: C.greenBg, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {Object.entries(selByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-                var catId = entry[0]; var names = entry[1];
-                return <span key={catId} style={{ fontSize: 10, color: C.green }}>{catIcon(catId)} {catName(catId)}: {names.length}</span>;
+              {selGroups.map(function(g) {
+                return <span key={g.id} style={{ fontSize: 10, color: C.green }}>{g.icon} {g.label}: {g.names.length}</span>;
               })}
             </div>
           )}
@@ -333,7 +389,7 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("New dish — pick where it belongs before adding it to the menu")}</div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")}</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: pkgSections ? 18 : 0 }}>
               {(RECIPE_DB.cats || []).map(function(c) {
                 var active = pendingCustom.catId === c.id;
                 return (
@@ -346,6 +402,25 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
                 );
               })}
             </div>
+
+            {pkgSections && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("this event only")})</span></div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+                  {pkgSections.map(function(sec) {
+                    var active = pendingCustom.sectionId === sec.id;
+                    return (
+                      <button key={sec.id} onClick={function() { setPendingCustom(function(p) { return { ...p, sectionId: active ? "" : sec.id }; }); }}
+                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
+                          border: "1px solid " + (active ? C.wine : C.border) }}>
+                        {sec.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={function() { setPendingCustom(null); }} disabled={customSaving}
