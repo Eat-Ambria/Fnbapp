@@ -112,6 +112,20 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
       var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
       if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
       upsertDishCat(name, catId);
+      // Give it an empty SOP recipe stub in that category, so it shows up in
+      // Kitchen Hub's SOP list ready to fill in — instead of only existing as
+      // a category tag with no recipe card to open at all.
+      var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
+      if (!already) {
+        var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
+        if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+        else {
+          if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+          RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
+          var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
+          if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
+        }
+      }
     } catch (e) { console.warn('Custom dish library add failed:', e); }
     finally { setCustomSaving(false); }
     onChange([...selected, name]);
@@ -123,16 +137,24 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
   // "Quick start from package" replaces the ENTIRE selected menu in one click,
   // saved immediately (Build Menu has no separate Save step) — sitting right
   // above the dish list this is one misclick away from silently wiping a
-  // manually-built menu, so guard it once there's real work to lose.
+  // manually-built menu. V80: window.confirm() doesn't reliably show a real
+  // dialog in this app's runtime (it can resolve without ever pausing for
+  // input), so this is a proper in-app modal instead of window.confirm().
+  var [pendingDestructive, setPendingDestructive] = useState(null); // { kind: 'package'|'clear', pkgName?, count } | null
+
   function selectPackage(pkgName) {
     if (selected.length > 0) {
-      var count = (MENU_PACKAGES[pkgName] || []).length;
-      var ok = window.confirm(
-        'Replace the current ' + selected.length + '-dish menu with "' + pkgName + '" (' + count + ' dishes)?\n\nThis saves immediately and cannot be undone.'
-      );
-      if (!ok) return;
+      setPendingDestructive({ kind: 'package', pkgName: pkgName, count: (MENU_PACKAGES[pkgName] || []).length });
+      return;
     }
     onChange([...(MENU_PACKAGES[pkgName] || [])]);
+  }
+
+  function confirmDestructive() {
+    if (!pendingDestructive) return;
+    if (pendingDestructive.kind === 'package') onChange([...(MENU_PACKAGES[pendingDestructive.pkgName] || [])]);
+    else if (pendingDestructive.kind === 'clear') onChange([]);
+    setPendingDestructive(null);
   }
 
   function catName(catId) {
@@ -256,7 +278,7 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>✅ {T2("Selected menu")} ({selected.length})</span>
               {selected.length > 0 && (
-                <button onClick={function() { if (window.confirm('Remove all ' + selected.length + ' dishes from this menu?\n\nThis saves immediately and cannot be undone.')) onChange([]); }}
+                <button onClick={function() { setPendingDestructive({ kind: 'clear', count: 0 }); }}
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
               )}
             </div>
@@ -333,6 +355,33 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
               <button onClick={confirmCustom} disabled={!pendingCustom.catId || customSaving}
                 style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : T2("Add to menu")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Destructive action confirm (package replace / clear all) — in-app
+          modal, not window.confirm(), see note on pendingDestructive above. */}
+      {pendingDestructive && (
+        <div onClick={function() { setPendingDestructive(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.red, marginBottom: 8 }}>⚠ {T2("This can't be undone")}</div>
+            <div style={{ fontSize: 13, color: C.text, marginBottom: 18, lineHeight: 1.5 }}>
+              {pendingDestructive.kind === 'package'
+                ? T2('Replace the current') + ' ' + selected.length + ' ' + T2('dishes with') + ' "' + pendingDestructive.pkgName + '" (' + pendingDestructive.count + ' ' + T2('dishes') + ')? ' + T2('This saves immediately.')
+                : T2('Remove all') + ' ' + selected.length + ' ' + T2('dishes from this menu? This saves immediately.')}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={function() { setPendingDestructive(null); }}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Cancel")}
+              </button>
+              <button onClick={confirmDestructive}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.red, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {pendingDestructive.kind === 'package' ? T2('Replace menu') : T2('Clear menu')}
               </button>
             </div>
           </div>

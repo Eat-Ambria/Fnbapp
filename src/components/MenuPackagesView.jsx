@@ -122,6 +122,23 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     return allEvs.slice(0, evPage * EV_PAGE_SIZE);
   }, [allEvs, evPage]);
 
+  // V80 — window.confirm() doesn't reliably show a real dialog in this app's
+  // runtime (it can resolve without ever pausing for input — this is the
+  // suspected cause of a menu-wipe bug getting past an earlier window.confirm
+  // guard with no visible prompt at all), so this is a proper in-app modal
+  // instead, gating the actual save until the user explicitly confirms.
+  var [pendingMenuDrop, setPendingMenuDrop] = useState(null); // { dishes, prevCount, nextCount } | null
+
+  function commitMenu(dishes) {
+    setEvents(function(prev) {
+      return (prev || []).map(function(e) {
+        if (e.id !== selEv.id) return e;
+        return { ...e, menu: dishes, menuPackage: "" };
+      });
+    });
+    syncEventItemsFromKitchenMenu(selEv.id, dishes);
+  }
+
   function saveMenu(dishes) {
     if (!selEv || !setEvents) return;
     // Belt-and-suspenders: this editor only ever adds/removes one dish per
@@ -132,15 +149,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var prevCount = (selEv.menu || []).length;
     var nextCount = (dishes || []).length;
     if (prevCount >= 5 && nextCount < prevCount - 3 && nextCount < prevCount * 0.5) {
-      if (!window.confirm('This would drop the menu from ' + prevCount + ' to ' + nextCount + ' dishes. Save anyway?')) return;
+      setPendingMenuDrop({ dishes: dishes, prevCount: prevCount, nextCount: nextCount });
+      return;
     }
-    setEvents(function(prev) {
-      return (prev || []).map(function(e) {
-        if (e.id !== selEv.id) return e;
-        return { ...e, menu: dishes, menuPackage: "" };
-      });
-    });
-    syncEventItemsFromKitchenMenu(selEv.id, dishes);
+    commitMenu(dishes);
   }
 
   // Kitchen's flat "Build menu" edits used to only ever touch events.menu, leaving
@@ -1068,6 +1080,29 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             onChange={function(dishes) { saveMenu(dishes); }}
             lang={lang}
           />
+
+          {pendingMenuDrop && (
+            <div onClick={function() { setPendingMenuDrop(null); }}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+              <div onClick={function(e) { e.stopPropagation(); }}
+                style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.red, marginBottom: 8 }}>⚠ {T2("This can't be undone")}</div>
+                <div style={{ fontSize: 13, color: C.text, marginBottom: 18, lineHeight: 1.5 }}>
+                  {T2("This save would drop the menu from")} {pendingMenuDrop.prevCount} {T2("to")} {pendingMenuDrop.nextCount} {T2("dishes")}. {T2("Save anyway?")}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button onClick={function() { setPendingMenuDrop(null); }}
+                    style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {T2("Cancel")}
+                  </button>
+                  <button onClick={function() { commitMenu(pendingMenuDrop.dishes); setPendingMenuDrop(null); }}
+                    style={{ padding: "7px 16px", borderRadius: 8, background: C.red, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {T2("Save anyway")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
