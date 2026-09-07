@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
+import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
@@ -71,21 +72,53 @@ export default function App() {
   const T2 = s => T(s, lang);
 
   // ── PWA auto-update ──
+  // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
+  // deployed SW take over THIS already-open tab silently in the background —
+  // no reload, no user action. The old JS kept running but the new SW's cache
+  // only has the new deploy's asset hashes, so any dynamic import() the old
+  // bundle made for its own (now-deleted) chunk files 404'd with
+  // "Failed to fetch dynamically imported module", and — worse — the tab kept
+  // silently running stale application code indefinitely (any bugfix just
+  // pushed live never actually reached it) until a manual hard refresh.
+  // Fix: vite.config.js no longer auto-skips waiting, so a new SW sits
+  // "waiting" until the user clicks Update Now (postMessage below); once it
+  // takes over, controllerchange fires exactly once and we reload immediately —
+  // so the old bundle is never left running against new-hash assets.
   const [updateReady, setUpdateReady] = useState(false);
+  const waitingWorkerRef = useRef(null);
   useEffect(function(){
     if(!('serviceWorker' in navigator)) return;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      if(reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
     navigator.serviceWorker.ready.then(function(reg){
+      function armIfWaiting(){
+        if(reg.waiting && navigator.serviceWorker.controller){
+          waitingWorkerRef.current = reg.waiting;
+          setUpdateReady(true);
+        }
+      }
+      armIfWaiting(); // an update may already be waiting from before this mounted
       reg.addEventListener('updatefound', function(){
         var nw = reg.installing;
         if(!nw) return;
         nw.addEventListener('statechange', function(){
-          if(nw.state === 'activated' && navigator.serviceWorker.controller){
-            setUpdateReady(true);
-          }
+          if(nw.state === 'installed') armIfWaiting();
         });
       });
+      // SPA rarely does a full navigation, so also poll for updates directly —
+      // otherwise the browser may not check again for a long time.
+      var poll = setInterval(function(){ reg.update().catch(function(){}); }, 15*60*1000);
+      return function(){ clearInterval(poll); };
     });
   },[]);
+  function applyPwaUpdate(){
+    if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
+    else { window.location.reload(); }
+  }
 
   // ── Attendance ──
   const [attendance,setAttendance_raw] = useState([]);
@@ -427,12 +460,12 @@ export default function App() {
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   useEffect(() => {
     if(!supabase){setSupaLive(false);return;}
-    const checkQueue=()=>import('./lib/offlineQueue.js').then(m=>m.getQueueSize()).then(n=>setOfflineQueueCount(n)).catch(()=>{});
+    const checkQueue=()=>getQueueSize().then(n=>setOfflineQueueCount(n)).catch(()=>{});
     const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>{
       const live=!error;
       setSupaLive(live);
       if(live){
-        import('./lib/offlineQueue.js').then(m=>m.replayQueue(supabase)).then(n=>{
+        replayQueue(supabase).then(n=>{
           if(n>0)console.log('✅ Replayed',n,'offline writes');
           checkQueue();
         }).catch(()=>{});
@@ -721,7 +754,7 @@ export default function App() {
       {updateReady&&(
         <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
           <span>🔄 New version available</span>
-          <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
+          <button onClick={applyPwaUpdate} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
         </div>
       )}
       {/* ── Stale-session banner: tab crossed midnight, module-load TODAY is stale ── */}

@@ -5,6 +5,14 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
+// V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
+// already merges it into the main chunk (it's statically imported everywhere
+// else too), so the dynamic form bought no real code-splitting, only extra
+// risk: a stale tab whose chunk layout shifted across a deploy could 404
+// fetching a chunk that no longer existed ("Failed to fetch dynamically
+// imported module"). Static import removes that risk entirely for this module.
+import { supabase } from '../lib/supabase.js';
+import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
@@ -152,9 +160,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if (opsPickerItems.length > 0 || opsPickerLoading) return;
     setOpsPickerLoading(true);
     try {
-      const mod = await import('../lib/opsSupabase.js');
-      if (!mod.opsSupabase) { setOpsPickerLoading(false); return; }
-      const { data, error } = await mod.opsSupabase
+      if (!opsSupabase) { setOpsPickerLoading(false); return; }
+      const { data, error } = await opsSupabase
         .from('catering_store_items')
         .select('id, inventory_id, name, name_hindi, unit, categories(name)')
         .eq('status', 'approved')
@@ -217,9 +224,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   async function loadIimMapOnce() {
     if (iimLoaded) return;
     try {
-      const mod = await import('../lib/supabase.js');
-      if (!mod.supabase) return;
-      const { data, error } = await mod.supabase
+      if (!supabase) return;
+      const { data, error } = await supabase
         .from('ingredient_item_map')
         .select('ingredient_name, ops_inventory_id, ops_item_name');
       if (error) { console.warn('[9E] IIM load err:', error); return; }
@@ -341,9 +347,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(ri>=0) catRecipes[ri].ingredients=payload;
     // Persist to Supabase
     try {
-      const mod = await import('../lib/supabase.js');
-      if(mod.supabase){
-        const {error}=await mod.supabase.from('recipes').update({ingredients:payload}).eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId);
+      if(supabase){
+        const {error}=await supabase.from('recipes').update({ingredients:payload}).eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId);
         if(error) console.error('Ingredient save error:',error);
         else console.log('✅ Ingredients saved for',ingModal.recipeName,'—',items.length,'items');
       }
@@ -434,9 +439,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const ri=catRecipes.findIndex(r=>r.n===recipe.n);
     if(ri>=0) catRecipes[ri].ingredients=payload;
     try{
-      const mod=await import('../lib/supabase.js');
-      if(mod.supabase){
-        const {error}=await mod.supabase.from('recipes').update({ingredients:payload}).eq('dish_name',recipe.n).eq('category_id',catId);
+      if(supabase){
+        const {error}=await supabase.from('recipes').update({ingredients:payload}).eq('dish_name',recipe.n).eq('category_id',catId);
         if(error){ console.error('CSV import save error:',error); alert('Save failed: '+error.message); return; }
         console.log('✅ CSV imported for',recipe.n,'—',parsedItems.length,'items');
       }
@@ -533,8 +537,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       return { name: ing.n, hindi: ing.h||"", scaled_qty: Math.round(ing.q*100)/100, unit: ing.u, actual_qty: actual !== undefined && actual !== "" ? parseFloat(actual) : null };
     });
     try {
-      const mod = await import('../lib/supabase.js');
-      await mod.supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
+      await supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
     } catch(e) { console.error('Usage log save error:', e); }
     usageModal.onConfirm();
     setUsageModal(null);
@@ -550,7 +553,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
-  function fetchUsageLogs(evIds){import('../lib/supabase.js').then(mod=>fetchAllRows(()=>mod.supabase.from('ingredient_usage_log').select('*').in('event_id',evIds))).then(data=>setUsageLogs(data||[])).catch(()=>setUsageLogs([]));}
+  function fetchUsageLogs(evIds){fetchAllRows(()=>supabase.from('ingredient_usage_log').select('*').in('event_id',evIds)).then(data=>setUsageLogs(data||[])).catch(()=>setUsageLogs([]));}
   useEffect(()=>{
     if(tab!=="analytics"||!analyticsEvId) return;
     const aEvs=safeArr(events);
@@ -559,19 +562,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     fetchUsageLogs(evIds);
     // Live subscribe: refetch on any insert/update/delete for these event_ids
     let channel=null, mounted=true;
-    import('../lib/supabase.js').then(mod=>{
-      if(!mounted||!mod.supabase) return;
-      channel=mod.supabase
+    if(mounted&&supabase){
+      channel=supabase
         .channel('ing_usage_'+analyticsEvId)
         .on('postgres_changes',{event:'*',schema:'public',table:'ingredient_usage_log'},(payload)=>{
           const evId=payload.new?.event_id||payload.old?.event_id;
           if(evIds.includes(evId)) fetchUsageLogs(evIds);
         })
         .subscribe();
-    });
+    }
     return ()=>{
       mounted=false;
-      if(channel) import('../lib/supabase.js').then(mod=>{ if(mod.supabase) mod.supabase.removeChannel(channel); });
+      if(channel&&supabase) supabase.removeChannel(channel);
     };
   },[tab,analyticsEvId]);
 
@@ -596,9 +598,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!planEvId){ setPlanRows({}); setPlanDrafts({}); return; }
     let cancelled = false;
     setPlanLoading(true);
-    import('../lib/supabase.js').then(mod=>{
-      return mod.supabase.from('production_plans').select('*').eq('event_id', planEvId);
-    }).then(({data,error})=>{
+    supabase.from('production_plans').select('*').eq('event_id', planEvId).then(({data,error})=>{
       if(cancelled) return;
       if(error){ console.error('[production_plans load]', error); setPlanRows({}); }
       else {
@@ -635,9 +635,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const ids = evListIds ? evListIds.split(",").filter(Boolean) : [];
     if(!ids.length){ setEvPlanRows({}); return; }
     let cancelled=false;
-    import('../lib/supabase.js').then(mod=>{
-      return fetchAllRows(()=>mod.supabase.from('production_plans').select('*').in('event_id', ids));
-    }).then((data)=>{
+    fetchAllRows(()=>supabase.from('production_plans').select('*').in('event_id', ids)).then((data)=>{
       if(cancelled) return;
       const map={};
       (data||[]).forEach(row=>{
@@ -655,9 +653,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!closeEventId){ setCloseRows({}); setCloseExcludeUI(false); return; }
     if(tab!=='closing'){ return; }
     let cancelled=false;
-    import('../lib/supabase.js').then(mod=>{
-      return mod.supabase.from('production_closings').select('*').eq('event_id', closeEventId);
-    }).then(({data,error})=>{
+    supabase.from('production_closings').select('*').eq('event_id', closeEventId).then(({data,error})=>{
       if(cancelled) return;
       if(error){ console.error('[production_closings load]', error); setCloseRows({}); setCloseExcludeUI(false); return; }
       const map={};
@@ -680,7 +676,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     }
     setCloseSaving(p=>{const s=new Set(p);s.add(dish);return s;});
     try{
-      const mod = await import('../lib/supabase.js');
       const normNum = v => (v===''||v==null) ? null : (parseFloat(v)||0);
       const merged = {
         event_id: ctx.evId,
@@ -697,7 +692,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       };
       if(existing?.id) merged.id = existing.id;
       if(merged.leftover_kg==null) merged.leftover_kg = 0;
-      const {data, error} = await mod.supabase
+      const {data, error} = await supabase
         .from('production_closings')
         .upsert(merged, {onConflict:'event_id,dish_name'})
         .select();
@@ -720,8 +715,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const dishesWithRows = Object.keys(closeRows);
     if(dishesWithRows.length === 0) return;
     try {
-      const mod = await import('../lib/supabase.js');
-      const {error} = await mod.supabase
+      const {error} = await supabase
         .from('production_closings')
         .update({ exclude_from_ordering: newVal })
         .eq('event_id', ctx.evId);
@@ -749,7 +743,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const savingKey = draftKey;
     setPlanSaving(p=>{const s=new Set(p);s.add(savingKey);return s;});
     try{
-      const mod = await import('../lib/supabase.js');
       if(section){
         // Section update: merge into existing section_yields; delete key if empty
         const existing = planRows[dish] || {};
@@ -771,12 +764,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           planned_by: currentUser?.name || currentUser?.id || 'Unknown',
           status: 'draft'
         };
-        const {data, error} = await mod.supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
+        const {data, error} = await supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
         if(error) throw error;
         if(data && data[0]) setPlanRows(p=>({...p,[dish]:data[0]}));
       } else if(num===null || isNaN(num) || num<=0){
         if(planRows[dish]){
-          const {error} = await mod.supabase.from('production_plans').delete().eq('event_id',ctx.evId).eq('dish_name',dish);
+          const {error} = await supabase.from('production_plans').delete().eq('event_id',ctx.evId).eq('dish_name',dish);
           if(error) throw error;
           setPlanRows(p=>{const c={...p};delete c[dish];return c;});
         }
@@ -788,7 +781,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           planned_by: currentUser?.name || currentUser?.id || 'Unknown',
           status: 'draft'
         };
-        const {data, error} = await mod.supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
+        const {data, error} = await supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
         if(error) throw error;
         if(data && data[0]) setPlanRows(p=>({...p,[dish]:data[0]}));
       }
@@ -837,8 +830,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       RECIPE_DB.recipes[f.catId].push(recObj);
     }
     // Save to Supabase — preserve ingredients column
-    import('../lib/supabase.js').then(mod=>{
-      const sb=mod.supabase;if(!sb)return;
+    (async()=>{
+      const sb=supabase;if(!sb)return;
       if(sopModal.mode==="edit"&&sopModal.origName){
         const nameUnchanged=sopModal.origName===recObj.n&&sopModal.catId===f.catId;
         if(nameUnchanged){
@@ -855,7 +848,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       }else{
         sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('? SOP saved');});
       }
-    }).catch(e=>console.error('SOP supabase err:',e));
+    })().catch(e=>console.error('SOP supabase err:',e));
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
     setSopModal(null);setSopRecipe(recObj);
   }
@@ -866,9 +859,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!cat||cat.name===trimmed) return;
     var oldName=cat.name;
     cat.name=trimmed;
-    import('../lib/supabase.js').then(mod=>{
-      mod.supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
-    });
+    supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
     logActivity('kitchen','SOP section renamed: '+oldName+' → '+trimmed,'sop_category_rename',{catId:catId,from:oldName,to:trimmed},currentUser?.id);
   }
   function deleteCategory(catId){
@@ -877,9 +868,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(arr.length>0){window.alert('Cannot delete — section still has '+arr.length+' recipes. Move or delete them first.');return;}
     RECIPE_DB.cats=RECIPE_DB.cats.filter(c=>c.id!==catId);
     delete RECIPE_DB.recipes[catId];
-    import('../lib/supabase.js').then(mod=>{
-      mod.supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{if(r.error)console.error('Cat delete err:',r.error);else console.log('? Category deleted:',catId);});
-    });
+    supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{if(r.error)console.error('Cat delete err:',r.error);else console.log('? Category deleted:',catId);});
     logActivity('kitchen','SOP category deleted: '+catId,'sop_category_delete',{catId:catId},currentUser?.id);
     setSopCat(null);
   }
@@ -891,9 +880,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
     RECIPE_DB.recipes[toCatId].push(recipe);
     RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
-    import('../lib/supabase.js').then(mod=>{
-      mod.supabase.from('recipes').update({category_id:toCatId}).eq('dish_name',recipe.n).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('? Recipe moved:',recipe.n,'?',toCatId);});
-    });
+    supabase.from('recipes').update({category_id:toCatId}).eq('dish_name',recipe.n).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('? Recipe moved:',recipe.n,'?',toCatId);});
     logActivity('kitchen','SOP moved: '+recipe.n+' ? '+toCatId,'sop_move',{dish:recipe.n,from:fromCatId,to:toCatId},currentUser?.id);
     setSopRecipe(null);setSopCat(toCatId);
   }
@@ -903,10 +890,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const arr=RECIPE_DB.recipes[cid]||[];
     const idx=arr.findIndex(r=>r.n===recipe.n);
     if(idx>=0)arr.splice(idx,1);
-    import('../lib/supabase.js').then(mod=>{
-      const sb=mod.supabase;if(!sb)return;
+    (async()=>{
+      const sb=supabase;if(!sb)return;
       sb.from('recipes').delete().eq('dish_name',recipe.n).then(r=>{if(r.error)console.error('SOP delete err:',r.error);else console.log('? SOP deleted');});
-    }).catch(e=>console.error('SOP delete err:',e));
+    })().catch(e=>console.error('SOP delete err:',e));
     logActivity('kitchen', 'SOP deleted: '+recipe.n, 'sop_delete', {dish:recipe.n, catId:cid}, currentUser?.id);
     setSopRecipe(null);
   }
@@ -1382,10 +1369,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               {currentUser&&currentUser.role==='admin'&&(
                 <button onClick={function(){
                   if(!window.confirm("Mark menu as built for '"+(ev.guest||"function")+"'?\n\nThis clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor.")) return;
-                  import('../lib/supabase.js').then(function(mod){
-                    mod.supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
-                      if(r.error){alert('Failed to save: '+r.error.message);console.error(r.error);}
-                    });
+                  supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
+                    if(r.error){alert('Failed to save: '+r.error.message);console.error(r.error);}
                   });
                 }} style={{padding:'8px 14px',borderRadius:8,background:C.surface,border:`1.5px solid ${C.red}`,color:C.red,fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>? {T2("Menu built")}</button>
               )}
@@ -1453,12 +1438,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             });
             try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
             try{localStorage.removeItem('ambria_kt');}catch(e){}
-            import('../lib/supabase.js').then(function(mod){
-              mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
-                if(r.error) console.error('KT scoped clear error:', r.error);
-                else console.log('? Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids ('+TODAY_NOW+' + '+TOMORROW_NOW+')');
-              });
-            }).catch(function(e){console.error('KT clear import error:', e);});
+            supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
+              if(r.error) console.error('KT scoped clear error:', r.error);
+              else console.log('? Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids ('+TODAY_NOW+' + '+TOMORROW_NOW+')');
+            });
             alert("? Reset complete. Deleted "+targetIds.length+" ev_id row(s) for "+TODAY_NOW+" + "+TOMORROW_NOW+".");
           }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
             ? {T2("Reset current")}
@@ -2605,9 +2588,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const newKg = yieldForm.kg==="" || yieldForm.kg==null ? null : parseFloat(yieldForm.kg) || null;
                               const newPcs = yieldForm.pcs==="" || yieldForm.pcs==null ? null : parseFloat(yieldForm.pcs) || null;
                               const newIng = {...(sopRecipe.ingredients||{}), base_pax: basePax, base_yield: {kg: newKg, pcs: newPcs}};
-                              import('../lib/supabase.js').then(mod => {
-                                const sb = mod.supabase; if (!sb) return;
-                                sb.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
+                              if (supabase) {
+                                supabase.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
                                   if (r.error) console.error('Yield save err:', r.error);
                                   else {
                                     const arr = RECIPE_DB.recipes[sopCat]||[];
@@ -2617,7 +2599,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     console.log('— Yield saved:', newKg, 'kg /', newPcs, 'pcs');
                                   }
                                 });
-                              });
+                              }
                               setEditingYield(false);
                             }} style={{fontSize:12,padding:"6px 14px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:700,minHeight:34}}>Save</button>
                           </div>
@@ -3281,12 +3263,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     if(!planEvId || yieldSaving || !isDirty) return;
                     setYieldSaving(true);
                     const uiMult = yieldAdjustPct/100;
-                    import('../lib/supabase.js').then(mod=>{
-                      mod.supabase.from('events').update({yield_multiplier: uiMult}).eq('id', planEvId).then(({error})=>{
-                        setYieldSaving(false);
-                        if(error){ console.error('[yield_multiplier save]', error); alert((T2?T2("Failed to save yield: "):"Failed to save yield: ")+error.message); return; }
-                        setYieldSavedPct(yieldAdjustPct);
-                      });
+                    supabase.from('events').update({yield_multiplier: uiMult}).eq('id', planEvId).then(({error})=>{
+                      setYieldSaving(false);
+                      if(error){ console.error('[yield_multiplier save]', error); alert((T2?T2("Failed to save yield: "):"Failed to save yield: ")+error.message); return; }
+                      setYieldSavedPct(yieldAdjustPct);
                     });
                   };
                   return(
@@ -4037,8 +4017,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           if(entries.length===0) return;
           setDishMapSaving(true);
           try{
-            const mod = await import('../lib/supabase.js');
-            const sb = mod.supabase; if(!sb){setDishMapSaving(false);return;}
+            const sb = supabase; if(!sb){setDishMapSaving(false);return;}
             for(const [lmsName, recipeName] of entries){
               const {error} = await sb.from('dish_name_map').upsert({lms_name:lmsName, recipe_dish_name:recipeName},{onConflict:'lms_name'});
               if(error) console.error('Map save error:', lmsName, error);
@@ -4053,8 +4032,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         async function removeMapping(lmsName){
           if(!confirm('Remove mapping for "'+lmsName+'"?')) return;
           try{
-            const mod = await import('../lib/supabase.js');
-            const sb = mod.supabase; if(!sb)return;
+            const sb = supabase; if(!sb)return;
             await sb.from('dish_name_map').delete().eq('lms_name',lmsName);
             delete DISH_NAME_MAP[lmsName];
             setDishMapSel(p=>{const n={...p};delete n[lmsName];return n;});

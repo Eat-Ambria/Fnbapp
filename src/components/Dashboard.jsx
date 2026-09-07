@@ -8,6 +8,7 @@ import { MenuEditor } from './MenuEditor.jsx';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
+import { supabase } from '../lib/supabase.js';
 
 function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
@@ -24,7 +25,6 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
     if(lmsSyncing)return;
     setLmsSyncing(true);setLmsResult(null);
     try{
-      const { supabase } = await import('../lib/supabase.js');
       if(!supabase){setLmsResult({status:'error',message:'Supabase not connected'});setLmsSyncing(false);return;}
       const { data, error } = await supabase.functions.invoke('lms-sync',{
         body:{triggered_by:currentUser?.id||currentUser?.staff_id||'admin'}

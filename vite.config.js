@@ -46,7 +46,13 @@ export default defineConfig({
             },
           },
         ],
-        skipWaiting: true,
+        // V81: do NOT skipWaiting automatically — that let a freshly deployed
+        // SW silently take over an already-open tab (clientsClaim) with no
+        // reload, while the old JS bundle kept running and its dynamic
+        // import()s targeted chunk hashes the new deploy had already deleted
+        // ("Failed to fetch dynamically imported module"). A new SW now sits
+        // in "waiting" until the user clicks the app's own "Update Now"
+        // banner (App.jsx), which posts SKIP_WAITING and reloads in lockstep.
         clientsClaim: true,
       },
       manifest: {
