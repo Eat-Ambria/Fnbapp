@@ -120,7 +120,18 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
     setLibBump(function(n) { return n + 1; });
   }
 
+  // "Quick start from package" replaces the ENTIRE selected menu in one click,
+  // saved immediately (Build Menu has no separate Save step) — sitting right
+  // above the dish list this is one misclick away from silently wiping a
+  // manually-built menu, so guard it once there's real work to lose.
   function selectPackage(pkgName) {
+    if (selected.length > 0) {
+      var count = (MENU_PACKAGES[pkgName] || []).length;
+      var ok = window.confirm(
+        'Replace the current ' + selected.length + '-dish menu with "' + pkgName + '" (' + count + ' dishes)?\n\nThis saves immediately and cannot be undone.'
+      );
+      if (!ok) return;
+    }
     onChange([...(MENU_PACKAGES[pkgName] || [])]);
   }
 
@@ -245,7 +256,7 @@ function MenuEditor({ selected = [], onChange, lang = "en" }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>✅ {T2("Selected menu")} ({selected.length})</span>
               {selected.length > 0 && (
-                <button onClick={function() { onChange([]); }}
+                <button onClick={function() { if (window.confirm('Remove all ' + selected.length + ' dishes from this menu?\n\nThis saves immediately and cannot be undone.')) onChange([]); }}
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
               )}
             </div>

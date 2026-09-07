@@ -124,6 +124,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   function saveMenu(dishes) {
     if (!selEv || !setEvents) return;
+    // Belt-and-suspenders: this editor only ever adds/removes one dish per
+    // click, so a save that drops the menu by far more than that in one shot
+    // (a stray click on "Quick start from package"/"Clear all", or anything
+    // else that computed the wrong list) gets a last chance to be caught
+    // before it overwrites a manually-built menu with no undo.
+    var prevCount = (selEv.menu || []).length;
+    var nextCount = (dishes || []).length;
+    if (prevCount >= 5 && nextCount < prevCount - 3 && nextCount < prevCount * 0.5) {
+      if (!window.confirm('This would drop the menu from ' + prevCount + ' to ' + nextCount + ' dishes. Save anyway?')) return;
+    }
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
         if (e.id !== selEv.id) return e;
