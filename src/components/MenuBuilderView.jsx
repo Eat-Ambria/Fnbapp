@@ -437,6 +437,36 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return m;
   }, [templateInfo.name]);
 
+  // V88 — a dish tagged via sectionOverrides to a section (e.g. a custom
+  // dish placed under a Fruits-dept pill) isn't in dishNameToPkgDept at all —
+  // that map only knows the package's OWN static dish list, not per-proposal
+  // ad-hoc tags. Without this, the sidebar/live-total counts silently
+  // attribute such a dish to Kitchen (DEFAULT_DEPT) even though
+  // groupedByPkgSection already renders it correctly under its tagged dept.
+  var sectionOverrideDept = useMemo(function(){
+    var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+    function deptForTargetId(rawId) {
+      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
+      var ps = pkgSecs.find(function(s){ return s.id === id; });
+      if (ps) return ps.sales_dept || 'kit';
+      var cs = sections.find(function(s){ return s.id === id; });
+      if (cs) {
+        if (cs.sales_dept) return cs.sales_dept;
+        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
+        return (parent && parent.sales_dept) || 'kit';
+      }
+      return null;
+    }
+    var m = {};
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      var targetId = sectionOverrides[name];
+      if (!targetId) return;
+      var dept = deptForTargetId(targetId);
+      if (dept) m[name] = dept;
+    });
+    return m;
+  }, [sectionOverrides, templateInfo.name, sections]);
+
   // ── Selected counts per dept ──
   var deptCounts = useMemo(function(){
     var counts = {};
@@ -444,7 +474,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var counted = {};
     allDishes.forEach(function(d){
       var meta = salesMeta[d.name];
-      var dept = dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].total += 1;
       if (selectedSet[d.name]) counts[dept].sel += 1;
@@ -457,12 +487,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     Object.keys(selectedSet).forEach(function(name){
       if (counted[name]) return;
       var meta = salesMeta[name];
-      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = sectionOverrideDept[name] || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].sel += 1;
     });
     return counts;
-  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept]);
+  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
 
   // ── Dishes for active dept ──
   // V73: effective dept = section's sales_dept override (if dish is in a routed section)

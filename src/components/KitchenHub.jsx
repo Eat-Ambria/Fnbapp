@@ -69,6 +69,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
   const [editingSteps, setEditingSteps] = useState(false);
+  const [sopBulkMode, setSopBulkMode] = useState(false);
+  const [sopSelected, setSopSelected] = useState(()=>new Set());
+  const [sopBulkTarget, setSopBulkTarget] = useState("");
 
   // -- Ingredient Matrix Editor --
   // New schema: {base_pax:300, base_yield:{kg,pcs}, items:[{name, hi, unit, qty:number, qty_nv?:number}]}
@@ -883,6 +886,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     supabase.from('recipes').update({category_id:toCatId}).eq('dish_name',recipe.n).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('? Recipe moved:',recipe.n,'?',toCatId);});
     logActivity('kitchen','SOP moved: '+recipe.n+' ? '+toCatId,'sop_move',{dish:recipe.n,from:fromCatId,to:toCatId},currentUser?.id);
     setSopRecipe(null);setSopCat(toCatId);
+  }
+  function moveRecipesBulk(recipes,fromCatId,toCatId){
+    if(!toCatId||toCatId===fromCatId||!recipes.length) return;
+    var names=recipes.map(r=>r.n);
+    var fromArr=RECIPE_DB.recipes[fromCatId]||[];
+    RECIPE_DB.recipes[fromCatId]=fromArr.filter(r=>names.indexOf(r.n)<0);
+    if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
+    RECIPE_DB.recipes[toCatId]=RECIPE_DB.recipes[toCatId].concat(recipes);
+    RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+    supabase.from('recipes').update({category_id:toCatId}).in('dish_name',names).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Bulk move err:',r.error);else console.log('? Bulk moved',names.length,'recipes ->',toCatId);});
+    logActivity('kitchen','SOP bulk moved: '+names.length+' recipes → '+toCatId,'sop_bulk_move',{dishes:names,from:fromCatId,to:toCatId},currentUser?.id);
+    setSopSelected(new Set());setSopBulkMode(false);setSopBulkTarget("");
   }
   function deleteSop(recipe,catId){
     if(!window.confirm('Delete "'+recipe.n+'"? This cannot be undone.'))return;
@@ -2183,6 +2198,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const secMissing=sections.filter(s=>!s.yield?.kg&&!s.yield?.pcs).length;
                 return {hasOverall,secTotal:sections.length,secMissing};
               };
+              const isSelected=(recipe)=>sopSelected.has(recipe.n);
+              const toggleSelected=(recipe)=>setSopSelected(p=>{const n=new Set(p);n.has(recipe.n)?n.delete(recipe.n):n.add(recipe.n);return n;});
               const RecipeCard=({recipe,ri,isBg})=>{
                 const ys=yieldStatus(recipe);
                 const pills=[];
@@ -2190,8 +2207,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   if(!ys.hasOverall) pills.push({tone:"warn",icon:"⚠",text:"no yield"});
                   else if(ys.secMissing>0) pills.push({tone:"warnSoft",icon:"⚠",text:ys.secTotal===1?"section yield missing":`${ys.secMissing} of ${ys.secTotal} sections missing yield`});
                 }
+                const sel=sopBulkMode&&isSelected(recipe);
                 return(
-                <button key={ri} onClick={()=>setSopRecipe(recipe)} style={{background:isBg?C.goldBg:C.surface,border:`1px solid ${isBg?C.goldBorder:C.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
+                <button key={ri} onClick={()=>sopBulkMode?toggleSelected(recipe):setSopRecipe(recipe)} style={{position:"relative",background:sel?C.goldBg:(isBg?C.goldBg:C.surface),border:`1px solid ${sel?C.gold:(isBg?C.goldBorder:C.border)}`,borderRadius:12,padding:sopBulkMode?"14px 16px 14px 44px":"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
+                  {sopBulkMode&&<div style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",width:18,height:18,borderRadius:5,border:`2px solid ${sel?C.gold:C.border}`,background:sel?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",fontWeight:700}}>{sel?"✓":""}</div>}
                   <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div>
                   <div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
                   {pills.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>{pills.map((p,pi)=>(
@@ -2201,7 +2220,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               };
               return(
               <div>
-                <button onClick={()=>{setSopCat(null);setSopSearch("");}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("All Categories")}</button>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                  <button onClick={()=>{setSopCat(null);setSopSearch("");setSopBulkMode(false);setSopSelected(new Set());}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>← {T2("All Categories")}</button>
+                  {currentUser?.role==='admin'&&allR.length>0&&(
+                    <button onClick={()=>{setSopBulkMode(p=>!p);setSopSelected(new Set());}} style={{padding:"8px 16px",borderRadius:10,background:sopBulkMode?C.gold:C.darkCard,border:`1px solid ${sopBulkMode?C.gold:C.border}`,color:sopBulkMode?"#fff":C.muted,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:40}}>
+                      {sopBulkMode?"✕ "+T2("Cancel"):"☑ "+T2("Select")}
+                    </button>
+                  )}
+                  {sopBulkMode&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,minHeight:40,boxSizing:"border-box"}}>
+                      <span style={{fontSize:12,color:C.muted,fontWeight:600}}>{sopSelected.size} {T2("selected")}</span>
+                      <select value={sopBulkTarget} onChange={e=>setSopBulkTarget(e.target.value)} disabled={sopSelected.size===0} style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,cursor:sopSelected.size===0?"default":"pointer",minHeight:30}}>
+                        <option value="">📋 {T2("Move to…")}</option>
+                        {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                      </select>
+                      <button onClick={()=>{const chosen=allR.filter(r=>sopSelected.has(r.n));moveRecipesBulk(chosen,sopCat,sopBulkTarget);}} disabled={sopSelected.size===0||!sopBulkTarget} style={{padding:"6px 14px",borderRadius:8,background:(sopSelected.size===0||!sopBulkTarget)?C.border:C.green,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:(sopSelected.size===0||!sopBulkTarget)?"default":"pointer",minHeight:30}}>{T2("Move")}</button>
+                    </div>
+                  )}
+                </div>
                 {bgR.length>0&&<>
                   <div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 2px 8px"}}>
                     <span style={{fontSize:14}}>🥘</span>
