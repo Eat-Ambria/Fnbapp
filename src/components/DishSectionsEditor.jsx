@@ -122,6 +122,14 @@ function DishSectionsEditor(props) {
   // V85 — top-level sections vs. their subsections (one level deep only —
   // a subsection never has its own parent_section_id set to another subsection).
   const topSections = useMemo(function(){ return sections.filter(function(s){ return !s.parent_section_id; }); }, [sections]);
+  // V89 — dnd-kit's SortableContext takes `items` by reference; an inline
+  // `.map()` produces a brand-new array every render even when topSections
+  // itself is unchanged, which reads to dnd-kit as "the sortable set
+  // changed" and can reset this list's own scroll position. Keying the memo
+  // off the joined id string keeps the same array identity across renders
+  // unless a section is actually added, removed, or reordered.
+  const topSectionIdsKey = topSections.map(function(s){ return s.id; }).join('|');
+  const topSectionIds = useMemo(function(){ return topSectionIdsKey ? topSectionIdsKey.split('|') : []; }, [topSectionIdsKey]);
   const subsByParent = useMemo(function(){
     const map = {};
     sections.forEach(function(s){
@@ -687,7 +695,7 @@ function DishSectionsEditor(props) {
 
       {!loading && topSections.length > 0 && (
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
-          <SortableContext items={topSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+          <SortableContext items={topSectionIds} strategy={verticalListSortingStrategy}>
             {topSections.map(function(sec){
               return (
                 <SortableItem key={sec.id} id={sec.id}>

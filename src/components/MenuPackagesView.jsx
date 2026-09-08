@@ -291,6 +291,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // ── Local editor state (5c — no writes yet, wires up in 5d) ────────
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
+  // V89 — dnd-kit's SortableContext takes its `items` array by reference; a
+  // brand-new array (from `.map()`) on every render — even one that only
+  // edited a dish inside ONE section, leaving every section's id/order
+  // untouched — reads to dnd-kit as "the sortable set changed", which
+  // re-measures and was resetting this list's own scroll position back to
+  // the top on literally any edit. Keying the memo off the joined id string
+  // (not the array/object reference) keeps the SAME array identity across
+  // renders unless a section is actually added, removed, or reordered.
+  var sectionIdsKey = editorSections.map(function(s) { return s.id; }).join('|');
+  var sectionIds = useMemo(function() { return sectionIdsKey ? sectionIdsKey.split('|') : []; }, [sectionIdsKey]);
   var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
   // V74: inline dish-name edit — renames the string within this package's section
   // only (same as typing a new name into "+ Add dish"); does not touch the master
@@ -1414,7 +1424,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     )}
 
                     <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
-                    <SortableContext items={editorSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+                    <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
                     {editorSections.map(function(sec) {
                       var isExpanded = !!expandedSecs[sec.id]; // V74: collapsed by default
                       return (
