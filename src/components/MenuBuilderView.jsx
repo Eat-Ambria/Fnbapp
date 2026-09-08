@@ -727,8 +727,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     // V87 — a custom dish (or a whole library section added ad hoc) is tagged
     // per-proposal via sectionOverrides, pointing at a group/subGroup id that
     // may already exist above — place it there instead of leaving it for
-    // Extras, but only once (a stale tag pointing at a group that no longer
-    // exists just falls through to leftover below, same as before).
+    // Extras. A tag pointing at neither (a whole catalogue section added ad
+    // hoc that isn't part of this package, e.g. "Pre Dining Live") gets its
+    // OWN new pill named after that catalogue section, rather than silently
+    // falling into Extras.
+    var newGroups = {}; // targetId -> group, built once, appended after
     Object.keys(sectionOverrides || {}).forEach(function(name){
       if (consumed[name]) return;
       var targetId = sectionOverrides[name];
@@ -743,15 +746,22 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         }
         return false;
       });
-      if (placed) consumed[name] = true;
+      if (placed) { consumed[name] = true; return; }
+      if (!newGroups[targetId]) {
+        var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [] };
+      }
+      newGroups[targetId].dishes.push(d);
+      consumed[name] = true;
     });
+    Object.keys(newGroups).forEach(function(id){ out.push(newGroups[id]); });
 
     var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
     if (leftover.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -981,13 +991,13 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
     return out;
   }, [groupedByCat]);
   function openCustomModal(){
-    setPendingCustom({ name: '', catId: (RECIPE_DB.cats[0] || {}).id || '', sectionId: activeSectionId || '' });
+    setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '' });
   }
   async function confirmCustom(){
-    if (!pendingCustom || !pendingCustom.name.trim() || !pendingCustom.catId || customSaving) return;
+    if (!pendingCustom || !pendingCustom.name.trim() || customSaving) return;
     setCustomSaving(true);
     try {
-      await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId, pendingCustom.sectionId || null);
+      await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
       setPendingCustom(null);
     } catch (e) {
       alert(T2('Failed to add dish:') + ' ' + (e.message || e));
@@ -1001,7 +1011,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
   var [pendingSection, setPendingSection] = useState(null); // { catSectionId, targetId } | null
   var [sectionSaving, setSectionSaving] = useState(false);
   function openSectionModal(){
-    setPendingSection({ catSectionId: '', targetId: activeSectionId || '' });
+    setPendingSection({ catSectionId: '', targetId: '' });
   }
   async function confirmAddSection(){
     if (!pendingSection || !pendingSection.catSectionId || !pendingSection.targetId || sectionSaving) return;
@@ -1187,12 +1197,12 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
               placeholder={T2("Not in list…")}
               style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: "border-box", marginBottom: 16 }} />
 
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
               {(RECIPE_DB.cats || []).map(function(c){
                 var active = pendingCustom.catId === c.id;
                 return (
-                  <button key={c.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, catId: c.id }; }); }}
+                  <button key={c.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, catId: active ? "" : c.id }; }); }}
                     style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
                       background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
                       border: "1px solid " + (active ? C.green : C.border) }}>
@@ -1226,7 +1236,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || !pendingCustom.catId || customSaving}
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving}
                 style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : T2("Add dish")}
               </button>
@@ -1243,7 +1253,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
           <div onClick={function(e){ e.stopPropagation(); }}
             style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 460, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📚 {T2("Add section from library")}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Every dish in the picked section is added as an add-on. You can remove any afterwards.")}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Gets its own pill named after the catalogue section, tagged as add-ons — nothing is auto-selected. Pick a Menu section below only if you'd rather merge it into an existing pill instead.")}</div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Catalogue section")}</div>
             {(!catalogueSectionOptions || catalogueSectionOptions.length === 0) && (
@@ -1253,7 +1263,14 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
               {(catalogueSectionOptions || []).map(function(o){
                 var active = pendingSection.catSectionId === o.id;
                 return (
-                  <button key={o.id} onClick={function(){ setPendingSection(function(p){ return { ...p, catSectionId: o.id }; }); }}
+                  <button key={o.id} onClick={function(){ setPendingSection(function(p){
+                      // Defaults the placement to a brand-new pill matching this
+                      // catalogue section — NOT whatever tab happens to be active
+                      // — so picking "Pre Dining Live" doesn't silently dump its
+                      // dishes into an unrelated already-open pill. Re-picking a
+                      // "Menu section" pill below still overrides this.
+                      return { ...p, catSectionId: o.id, targetId: o.id };
+                    }); }}
                     style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
                       background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
                       border: "1px solid " + (active ? C.wine : C.border) }}>
@@ -1265,7 +1282,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
 
             {placementOptions.length > 0 && (
               <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("this event only")})</span></div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Merge into existing menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("optional — this event only")})</span></div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
                   {placementOptions.map(function(o){
                     var active = pendingSection.targetId === o.id;

@@ -754,7 +754,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
     // V87 — place a custom dish (or a whole library section added ad hoc),
     // tagged per-event via sectionOverrides, into whichever group/subGroup
-    // above matches its tag — same mechanism as MenuBuilderView.jsx.
+    // above matches its tag — same mechanism as MenuBuilderView.jsx. A tag
+    // pointing at neither (a whole catalogue section added ad hoc that isn't
+    // part of this package) gets its OWN new pill named after that catalogue
+    // section, instead of silently falling into Extras.
+    var newGroups = {}; // targetId -> group, built once, appended after
     Object.keys(sectionOverrides || {}).forEach(function(name){
       if (consumed[name]) return;
       var targetId = sectionOverrides[name];
@@ -769,15 +773,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         }
         return false;
       });
-      if (placed) consumed[name] = true;
+      if (placed) { consumed[name] = true; return; }
+      if (!newGroups[targetId]) {
+        var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [] };
+      }
+      newGroups[targetId].dishes.push(d);
+      consumed[name] = true;
     });
+    Object.keys(newGroups).forEach(function(id){ out.push(newGroups[id]); });
 
     var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
     if (leftover.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions]);
 
   var dietMeta = templateInfo.diet
     ? {

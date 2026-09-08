@@ -690,6 +690,9 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
   if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
   upsertDishMaster(name, { is_active: true });
+  // catId is optional — leave the dish unclassified (no SOP recipe stub) if
+  // the user didn't want to tag it; it can still be picked and placed.
+  if (!catId) return;
   var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
   if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
   upsertDishCat(name, catId);

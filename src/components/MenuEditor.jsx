@@ -159,11 +159,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     var name = customDish.trim();
     if (!name) return;
     if (selectedSet.has(name.toLowerCase())) { setCustomDish(""); return; }
-    setPendingCustom({ name: name, catId: getCatIdForDish(name) || (RECIPE_DB.cats[0] || {}).id || "", sectionId: "" });
+    setPendingCustom({ name: name, catId: getCatIdForDish(name) || "", sectionId: "" });
   }
 
   async function confirmCustom() {
-    if (!pendingCustom || !pendingCustom.catId) return;
+    if (!pendingCustom) return;
     var name = pendingCustom.name;
     var catId = pendingCustom.catId;
     setCustomSaving(true);
@@ -172,21 +172,25 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
       if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
       upsertDishMaster(name, { is_active: true });
-      var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
-      if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
-      upsertDishCat(name, catId);
-      // Give it an empty SOP recipe stub in that category, so it shows up in
-      // Kitchen Hub's SOP list ready to fill in — instead of only existing as
-      // a category tag with no recipe card to open at all.
-      var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
-      if (!already) {
-        var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
-        if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
-        else {
-          if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
-          RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
-          var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
-          if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
+      // catId is optional — a dish left untagged just skips the category +
+      // SOP recipe stub and can be classified later from Dish Library.
+      if (catId) {
+        var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+        if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+        upsertDishCat(name, catId);
+        // Give it an empty SOP recipe stub in that category, so it shows up in
+        // Kitchen Hub's SOP list ready to fill in — instead of only existing as
+        // a category tag with no recipe card to open at all.
+        var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
+        if (!already) {
+          var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
+          if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+          else {
+            if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+            RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
+            var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
+            if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
+          }
         }
       }
     } catch (e) { console.warn('Custom dish library add failed:', e); }
@@ -406,12 +410,12 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 2 }}>{pendingCustom.name}</div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("New dish — pick where it belongs before adding it to the menu")}</div>
 
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: pkgSections ? 18 : 0 }}>
               {(RECIPE_DB.cats || []).map(function(c) {
                 var active = pendingCustom.catId === c.id;
                 return (
-                  <button key={c.id} onClick={function() { setPendingCustom(function(p) { return { ...p, catId: c.id }; }); }}
+                  <button key={c.id} onClick={function() { setPendingCustom(function(p) { return { ...p, catId: active ? "" : c.id }; }); }}
                     style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
                       background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
                       border: "1px solid " + (active ? C.green : C.border) }}>
@@ -445,7 +449,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.catId || customSaving}
+              <button onClick={confirmCustom} disabled={customSaving}
                 style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : T2("Add to menu")}
               </button>
