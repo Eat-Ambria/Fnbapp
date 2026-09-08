@@ -767,6 +767,15 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     if (out.length === 0) return null;
 
+    // Bug fix — "Extras" is itself a selectable placement pill, but it used
+    // to only get built at the very end from whatever's left unconsumed. An
+    // override tagged to '__extras__' ran BEFORE that existed, so it fell
+    // through to newGroups and spawned a SECOND, colliding "Extras" pill
+    // (duplicate id — one hid the other). Build it once, up front, so the
+    // override pass below places straight into the same bucket leftovers use.
+    var extrasGroup = { id: '__extras__', name: 'Extras', icon: '✨', dishes: [] };
+    out.push(extrasGroup);
+
     // V87 — place a custom dish (or a whole library section added ad hoc),
     // tagged per-event via sectionOverrides, into whichever group/subGroup
     // above matches its tag — same mechanism as MenuBuilderView.jsx. A tag
@@ -790,13 +799,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       return null;
     }
 
+    // '__extras__' (an explicit "place in Extras" choice) and any other
+    // target with no dept of its own carry no department info at all — fall
+    // back to the dish's OWN native dept (visibleDishes is already scoped to
+    // activeDept) so it only ever shows under the one tab it actually
+    // belongs to, not every tab.
+    var visibleDeptSet = {};
+    visibleDishes.forEach(function(d){ visibleDeptSet[d.name] = true; });
+
     var newGroups = {}; // targetId -> group, built once, appended after
     Object.keys(sectionOverrides || {}).forEach(function(name){
       if (consumed[name]) return;
       var targetId = sectionOverrides[name];
       if (!targetId) return;
       var targetDept = deptForTargetId(targetId);
-      if (targetDept && targetDept !== activeDept) return;
+      if (targetDept) {
+        if (targetDept !== activeDept) return;
+      } else if (!visibleDeptSet[name]) {
+        return;
+      }
       var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
       if (!d) return;
       var placed = out.some(function(g){
@@ -844,10 +865,21 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       out.push(g);
     });
 
-    var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
-    if (leftover.length > 0) {
-      out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
-    }
+    // A dish tagged to a section in a DIFFERENT department already renders
+    // correctly under its tag's own dept tab — it must not also leak into
+    // THIS dept's Extras just because its fallback native dept happens to be
+    // the one showing (see MenuBuilderView.jsx for the matching fix).
+    var leftover = visibleDishes.filter(function(d){
+      if (consumed[d.name]) return false;
+      var ov = sectionOverrides && sectionOverrides[d.name];
+      if (ov) {
+        var ovDept = deptForTargetId(ov);
+        if (ovDept && ovDept !== activeDept) return false;
+      }
+      return true;
+    });
+    extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
+    if (extrasGroup.dishes.length === 0) out.splice(out.indexOf(extrasGroup), 1);
     return out;
   }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
 
