@@ -199,10 +199,15 @@ function DishMappingModal(props) {
   // explicit dish_categories row so a specific dish always resolves the same
   // way, regardless of what it fuzzy-matches against.
   async function saveCat(catId) {
-    if (!dishName || !catId || catId === detailCatId) return;
+    if (!dishName || catId === detailCatId) return;
     setSaving('cat');
     try {
-      var res = await supabase.from('dish_categories').upsert({ dish_name: dishName, category_id: catId }, { onConflict: 'dish_name' });
+      // Clicking the already-active pill clears the category instead of
+      // re-saving it — there was previously no way to un-tag a dish once a
+      // SOP section was picked.
+      var res = catId
+        ? await supabase.from('dish_categories').upsert({ dish_name: dishName, category_id: catId }, { onConflict: 'dish_name' })
+        : await supabase.from('dish_categories').delete().eq('dish_name', dishName);
       if (res.error) throw res.error;
       upsertDishCat(dishName, catId);
       notify();
@@ -418,7 +423,7 @@ function DishMappingModal(props) {
             {(RECIPE_DB.cats || []).map(function(c) {
               var active = detailCatId === c.id;
               return (
-                <button key={c.id} onClick={function() { if (isAdmin) saveCat(c.id); }} disabled={!isAdmin || !!saving}
+                <button key={c.id} onClick={function() { if (isAdmin) saveCat(active ? null : c.id); }} disabled={!isAdmin || !!saving}
                   style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 700 : 500,
                     cursor: isAdmin ? 'pointer' : 'default',
                     background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : C.text,

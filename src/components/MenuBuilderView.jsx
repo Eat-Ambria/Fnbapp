@@ -469,16 +469,26 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // else dish's own meta.sales_dept else DEFAULT_DEPT ('kit').
   var deptDishes = useMemo(function(){
     var base = allDishes.filter(function(d){
+      // Bug fix — a dish belonging to the currently selected package (e.g.
+      // Virgin Mojito under a Beverage section) but with no catalogue
+      // section_id and no sales_meta override used to fall all the way to
+      // DEFAULT_DEPT ('kit') here, even though dishNameToPkgDept already
+      // knows its real, correct department (deptCounts/templateDishesInDept
+      // already prioritize it the same way) — it showed correctly under its
+      // real dept AND bled into Kitchen's Extras as an unclaimed leftover.
       var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
       var meta = salesMeta[d.name];
-      var dept = override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
-    if (activeDept === 'kit' && phantomDishes.length > 0) {
-      return base.concat(phantomDishes);
-    }
+    // Phantom (catalogue-missing) dishes used to always surface in Kitchen
+    // regardless of which dept they actually belong to — now routed by the
+    // same dishNameToPkgDept priority as everything else, so e.g. a missing
+    // Beverage dish's ⚠ warning shows under Beverage, not Kitchen.
+    var phantomsForDept = phantomDishes.filter(function(p){ return (dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
+    if (phantomsForDept.length > 0) return base.concat(phantomsForDept);
     return base;
-  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap]);
+  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept]);
 
   // ── Template dishes scoped to active dept ──
   var templateDishesInDept = useMemo(function(){
