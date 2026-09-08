@@ -176,6 +176,23 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     if (updRes.error) console.error('[MenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
   }
 
+  // V88 — remove an ad-hoc pill (one created by "Add section from library",
+  // not a real package section) from THIS proposal's menu builder: clears
+  // every dish's tag pointing at it (and its subsection buckets), same
+  // metadata-only operation as adding it. Nothing is deselected/deleted —
+  // any dish also individually chosen keeps its proposal_items row, it just
+  // falls back to wherever it naturally resolves once untagged.
+  async function removeAdHocSection(grp) {
+    var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
+    var next = { ...sectionOverrides };
+    var changed = false;
+    Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
+    if (!changed) return;
+    setSectionOverrides(next);
+    var res = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
+    if (res.error) console.error('[MenuBuilder] removeAdHocSection failed:', res.error);
+  }
+
   // ── V72 Phase 2: phantom dishes ──
   // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
   // sales can see catalogue mismatches without losing the pre-seeded proposal item.
@@ -731,37 +748,86 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     // hoc that isn't part of this package, e.g. "Pre Dining Live") gets its
     // OWN new pill named after that catalogue section, rather than silently
     // falling into Extras.
+    // A tag's target can be a package-section id, a catalogue section id, or
+    // a catalogue subsection id — all three carry (or inherit) a sales_dept,
+    // and a tag whose dept doesn't match the tab being viewed must be fully
+    // skipped here (not just left unplaced), or it leaks into every OTHER
+    // dept tab too as a stray pill labelled with its raw id (since it won't
+    // resolve a real name outside its own dept's catalogueSectionOptions).
+    function deptForTargetId(rawId) {
+      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
+      var ps = pkgSecs.find(function(s){ return s.id === id; });
+      if (ps) return ps.sales_dept || 'kit';
+      var cs = sections.find(function(s){ return s.id === id; });
+      if (cs) {
+        if (cs.sales_dept) return cs.sales_dept;
+        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
+        return (parent && parent.sales_dept) || 'kit';
+      }
+      return null;
+    }
+
     var newGroups = {}; // targetId -> group, built once, appended after
     Object.keys(sectionOverrides || {}).forEach(function(name){
       if (consumed[name]) return;
       var targetId = sectionOverrides[name];
       if (!targetId) return;
+      var targetDept = deptForTargetId(targetId);
+      if (targetDept && targetDept !== activeDept) return; // belongs to a different department tab entirely
       var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
       if (!d) return; // not currently visible (filtered by search/diet/showAddons)
       var placed = out.some(function(g){
-        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
         if (g.subGroups) {
           var sg = g.subGroups.find(function(x){ return x.id === targetId; });
           if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
+          if (g.id === targetId) {
+            // Target IS this group, but it renders via subGroups only (a flat
+            // g.dishes push would be invisible) — give it a shared "Other"
+            // bucket, same id convention the pooling above already uses.
+            var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
+            if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
+            other.dishes = other.dishes.concat([d]);
+            return true;
+          }
+          return false;
         }
+        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
         return false;
       });
       if (placed) { consumed[name] = true; return; }
       if (!newGroups[targetId]) {
         var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
-        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [] };
+        // V87 fix — a whole catalogue section added ad hoc can itself have
+        // subsections (e.g. "Pre Dining Live" > Lebanese/Galouti/Kebab/...);
+        // pool the same subGroups shape the main package-section loop above
+        // builds, bucketing each tagged dish by its OWN catalogue section_id,
+        // instead of one flat unlabeled list.
+        var subs = catSubsByParent[targetId] || [];
+        var subGroupsNew = subs.length > 0
+          ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
+          : null;
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [], subGroups: subGroupsNew, isAdHoc: true };
       }
-      newGroups[targetId].dishes.push(d);
+      var ng = newGroups[targetId];
+      ng.dishes.push(d);
+      if (ng.subGroups) {
+        var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
+        destSg.dishes.push(d);
+      }
       consumed[name] = true;
     });
-    Object.keys(newGroups).forEach(function(id){ out.push(newGroups[id]); });
+    Object.keys(newGroups).forEach(function(id){
+      var g = newGroups[id];
+      if (g.subGroups) { g.subGroups = g.subGroups.filter(function(sg){ return sg.dishes.length > 0; }); if (g.subGroups.length === 0) g.subGroups = null; }
+      out.push(g);
+    });
 
     var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
     if (leftover.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -903,6 +969,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   onAddCustomDish={addCustomDish}
                   catalogueSectionOptions={catalogueSectionOptions}
                   onAddSectionFromLibrary={addSectionFromLibrary}
+                  onRemoveSection={removeAdHocSection}
                 />
               )}
 
@@ -956,7 +1023,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var totalSel = deptCounts ? deptCounts.sel : 0;
   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
   var deptTotal = deptCounts ? deptCounts.total : 0;
@@ -1121,14 +1188,27 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             var isActive = g.id === activeSectionId;
             var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
             return (
-              <button key={g.id} onClick={function(){ setActiveSectionId(g.id); }}
-                style={{
-                  padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
-                  background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
-                  border: "1px solid " + (isActive ? C.wine : C.border), cursor: "pointer", whiteSpace: "nowrap",
-                }}>
-                {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
-              </button>
+              <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <button onClick={function(){ setActiveSectionId(g.id); }}
+                  style={{
+                    padding: "6px 12px", borderRadius: g.isAdHoc && onRemoveSection ? "20px 0 0 20px" : 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
+                    background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
+                    border: "1px solid " + (isActive ? C.wine : C.border), borderRight: (g.isAdHoc && onRemoveSection) ? "none" : undefined, cursor: "pointer", whiteSpace: "nowrap",
+                  }}>
+                  {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
+                </button>
+                {g.isAdHoc && onRemoveSection && (
+                  <button onClick={function(){ onRemoveSection(g); if (activeSectionId === g.id) setActiveSectionId(null); }}
+                    title={T2("Remove this ad-hoc section from this menu")}
+                    style={{
+                      padding: "6px 8px", borderRadius: "0 20px 20px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.muted,
+                      border: "1px solid " + (isActive ? C.wine : C.border), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                    }}>
+                    ✕
+                  </button>
+                )}
+              </span>
             );
           })}
         </div>

@@ -475,6 +475,21 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (updRes.error) console.error('[EventMenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
   }
 
+  // V88 — remove an ad-hoc pill (one created by "Add section from library",
+  // not a real package section) from THIS event's menu builder: clears every
+  // dish's tag pointing at it (and its subsection buckets) — metadata-only,
+  // mirrors MenuBuilderView.jsx's removeAdHocSection.
+  async function removeAdHocSection(grp) {
+    var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
+    var next = { ...sectionOverrides };
+    var changed = false;
+    Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
+    if (!changed) return;
+    setSectionOverrides(next);
+    var res = await supabase.from('events').update({ menu_section_overrides: next }).eq('id', event.id);
+    if (res.error) console.error('[EventMenuBuilder] removeAdHocSection failed:', res.error);
+  }
+
   // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
   async function loadPackageDefaults() {
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
@@ -758,37 +773,83 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     // pointing at neither (a whole catalogue section added ad hoc that isn't
     // part of this package) gets its OWN new pill named after that catalogue
     // section, instead of silently falling into Extras.
+    // A tag's target can be a package-section id, a catalogue section id, or
+    // a catalogue subsection id — a tag whose dept doesn't match the tab
+    // being viewed must be fully skipped here, or it leaks into every OTHER
+    // dept tab as a stray pill labelled with its raw id (see MenuBuilderView.jsx).
+    function deptForTargetId(rawId) {
+      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
+      var ps = pkgSecs.find(function(s){ return s.id === id; });
+      if (ps) return ps.sales_dept || 'kit';
+      var cs = sections.find(function(s){ return s.id === id; });
+      if (cs) {
+        if (cs.sales_dept) return cs.sales_dept;
+        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
+        return (parent && parent.sales_dept) || 'kit';
+      }
+      return null;
+    }
+
     var newGroups = {}; // targetId -> group, built once, appended after
     Object.keys(sectionOverrides || {}).forEach(function(name){
       if (consumed[name]) return;
       var targetId = sectionOverrides[name];
       if (!targetId) return;
+      var targetDept = deptForTargetId(targetId);
+      if (targetDept && targetDept !== activeDept) return;
       var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
       if (!d) return;
       var placed = out.some(function(g){
-        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
         if (g.subGroups) {
           var sg = g.subGroups.find(function(x){ return x.id === targetId; });
           if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
+          if (g.id === targetId) {
+            // Target IS this group, but it renders via subGroups only (a flat
+            // g.dishes push would be invisible) — give it a shared "Other"
+            // bucket, same id convention the pooling above already uses.
+            var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
+            if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
+            other.dishes = other.dishes.concat([d]);
+            return true;
+          }
+          return false;
         }
+        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
         return false;
       });
       if (placed) { consumed[name] = true; return; }
       if (!newGroups[targetId]) {
         var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
-        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [] };
+        // V87 fix — a whole catalogue section added ad hoc can itself have
+        // subsections; pool the same subGroups shape the main package-section
+        // loop above builds, bucketing each tagged dish by its own catalogue
+        // section_id, instead of one flat unlabeled list.
+        var subs = catSubsByParent[targetId] || [];
+        var subGroupsNew = subs.length > 0
+          ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
+          : null;
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [], subGroups: subGroupsNew, isAdHoc: true };
       }
-      newGroups[targetId].dishes.push(d);
+      var ng = newGroups[targetId];
+      ng.dishes.push(d);
+      if (ng.subGroups) {
+        var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
+        destSg.dishes.push(d);
+      }
       consumed[name] = true;
     });
-    Object.keys(newGroups).forEach(function(id){ out.push(newGroups[id]); });
+    Object.keys(newGroups).forEach(function(id){
+      var g = newGroups[id];
+      if (g.subGroups) { g.subGroups = g.subGroups.filter(function(sg){ return sg.dishes.length > 0; }); if (g.subGroups.length === 0) g.subGroups = null; }
+      out.push(g);
+    });
 
     var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
     if (leftover.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
     }
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
 
   var dietMeta = templateInfo.diet
     ? {
@@ -929,6 +990,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               onAddCustomDish={addCustomDish}
               catalogueSectionOptions={catalogueSectionOptions}
               onAddSectionFromLibrary={addSectionFromLibrary}
+              onRemoveSection={removeAdHocSection}
             />
           )}
 
