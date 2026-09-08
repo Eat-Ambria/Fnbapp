@@ -72,6 +72,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopBulkMode, setSopBulkMode] = useState(false);
   const [sopSelected, setSopSelected] = useState(()=>new Set());
   const [sopBulkTarget, setSopBulkTarget] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCatBuf, setNewCatBuf] = useState("");
 
   // -- Ingredient Matrix Editor --
   // New schema: {base_pax:300, base_yield:{kg,pcs}, items:[{name, hi, unit, qty:number, qty_nv?:number}]}
@@ -864,6 +866,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     cat.name=trimmed;
     supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
     logActivity('kitchen','SOP section renamed: '+oldName+' → '+trimmed,'sop_category_rename',{catId:catId,from:oldName,to:trimmed},currentUser?.id);
+  }
+  async function addCategory(name){
+    var trimmed=(name||'').trim();
+    if(!trimmed) return;
+    var slug=trimmed.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'category';
+    var existing={}; RECIPE_DB.cats.forEach(c=>{existing[c.id]=true;});
+    var id=slug;
+    if(existing[id]) id=slug+'_'+Date.now().toString(36);
+    var row={id:id,name:trimmed,icon:'📋',sort_order:RECIPE_DB.cats.length};
+    var res=await supabase.from('recipe_categories').insert(row);
+    if(res.error){window.alert('Failed to add category: '+res.error.message);return;}
+    RECIPE_DB.cats.push({id:id,name:trimmed,icon:'📋',color:'#8E8678',count:0});
+    RECIPE_DB.recipes[id]=[];
+    logActivity('kitchen','SOP category added: '+trimmed,'sop_category_add',{catId:id,name:trimmed},currentUser?.id);
+    setAddingCategory(false);setNewCatBuf("");setSopCat(id);
   }
   function deleteCategory(catId){
     if(!window.confirm('Delete this SOP section? This cannot be undone.')) return;
@@ -2156,7 +2173,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} · {filteredCats.length} {T2("categories")} · {T2("Procedures in Hindi")}</div>
           <div style={{display:"flex",gap:8,marginBottom:16}}>
             <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipes…")} style={{flex:1,padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:48}}/>
-            {currentUser?.role==='admin'&&<button onClick={()=>openSopAdd(sopCat)} style={{padding:"10px 16px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",minHeight:48}}>+ {T2("Add Recipe")}</button>}
+            {/* "+ Add Recipe" only makes sense once a category is chosen — at the
+                all-categories overview it's replaced by a "+ Add Category" tile
+                in the grid below, since there's nothing to add a recipe INTO yet. */}
+            {currentUser?.role==='admin'&&!!sopCat&&<button onClick={()=>openSopAdd(sopCat)} style={{padding:"10px 16px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",minHeight:48}}>+ {T2("Add Recipe")}</button>}
           </div>
           {!sopRecipe?(
             !sopCat?(
@@ -2185,6 +2205,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>}
                     </>)}
                   </div>);})}
+                {currentUser?.role==='admin'&&(addingCategory?(
+                  <div style={{width:"100%",background:C.darkCard,border:`1px solid ${C.gold}`,borderRadius:14,padding:"20px 14px",textAlign:"center",minHeight:100,boxSizing:"border-box"}}>
+                    <div style={{fontSize:28,marginBottom:6}}>📋</div>
+                    <input value={newCatBuf} onChange={e=>setNewCatBuf(e.target.value)}
+                      onKeyDown={e=>{if(e.key==='Enter')addCategory(newCatBuf);else if(e.key==='Escape'){setAddingCategory(false);setNewCatBuf("");}}}
+                      autoFocus placeholder={T2("Category name…")}
+                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box"}}/>
+                    <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
+                      <button onClick={()=>addCategory(newCatBuf)} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
+                      <button onClick={()=>{setAddingCategory(false);setNewCatBuf("");}} style={{padding:"4px 10px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✕</button>
+                    </div>
+                  </div>
+                ):(
+                  <button onClick={()=>setAddingCategory(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100,color:C.muted}}>
+                    <div style={{fontSize:28,marginBottom:6}}>+</div><div style={{fontSize:13,fontWeight:700}}>{T2("Add Category")}</div>
+                  </button>
+                ))}
               </div>
             ):(()=>{
               const allR=safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).sort((a,b)=>(a.n||"").localeCompare(b.n||""));
