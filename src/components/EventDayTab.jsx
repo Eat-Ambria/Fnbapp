@@ -43,28 +43,38 @@ function fmtTimer(sec) {
   return (sec < 0 ? "+" : "") + m + "m " + (s < 10 ? "0" : "") + s + "s" + (sec < 0 ? " over" : "");
 }
 
-// ── Overtime alarm — one shared oscillator loop so concurrent overdue steps never overlap ──
-let _alarmCtx = null, _alarmTimerId = null, _alarmPlaying = false;
-function _alarmBeep() {
-  if (!_alarmPlaying) return;
+// ── Overtime alarm — one shared siren loop so concurrent overdue steps never overlap ──
+let _alarmCtx = null, _alarmOsc = null, _alarmGain = null, _alarmTimerId = null, _alarmPlaying = false;
+function _sirenSweep() {
+  if (!_alarmOsc || !_alarmCtx) return;
+  const t = _alarmCtx.currentTime;
+  _alarmOsc.frequency.cancelScheduledValues(t);
+  _alarmOsc.frequency.setValueAtTime(420, t);
+  _alarmOsc.frequency.linearRampToValueAtTime(1250, t + 0.8);
+  _alarmOsc.frequency.linearRampToValueAtTime(420, t + 1.6);
+}
+function startAlarm() {
+  if (_alarmPlaying) return;
+  _alarmPlaying = true;
   try {
     if (!_alarmCtx) _alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (_alarmCtx.state === "suspended") _alarmCtx.resume();
-    const t0 = _alarmCtx.currentTime;
-    [0, 0.18].forEach(off => {
-      const osc = _alarmCtx.createOscillator(); const gain = _alarmCtx.createGain();
-      osc.type = "square"; osc.frequency.setValueAtTime(1000, t0 + off);
-      gain.gain.setValueAtTime(0.0001, t0 + off);
-      gain.gain.exponentialRampToValueAtTime(0.25, t0 + off + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.16);
-      osc.connect(gain); gain.connect(_alarmCtx.destination);
-      osc.start(t0 + off); osc.stop(t0 + off + 0.17);
-    });
+    _alarmOsc = _alarmCtx.createOscillator();
+    _alarmGain = _alarmCtx.createGain();
+    _alarmOsc.type = "sawtooth";
+    _alarmGain.gain.setValueAtTime(0.16, _alarmCtx.currentTime);
+    _alarmOsc.connect(_alarmGain); _alarmGain.connect(_alarmCtx.destination);
+    _alarmOsc.start();
+    _sirenSweep();
+    _alarmTimerId = setInterval(_sirenSweep, 1600);
   } catch (e) {}
-  _alarmTimerId = setTimeout(_alarmBeep, 900);
 }
-function startAlarm() { if (_alarmPlaying) return; _alarmPlaying = true; _alarmBeep(); }
-function stopAlarm() { _alarmPlaying = false; if (_alarmTimerId) { clearTimeout(_alarmTimerId); _alarmTimerId = null; } }
+function stopAlarm() {
+  _alarmPlaying = false;
+  if (_alarmTimerId) { clearInterval(_alarmTimerId); _alarmTimerId = null; }
+  if (_alarmOsc) { try { _alarmOsc.stop(); } catch (e) {} try { _alarmOsc.disconnect(); } catch (e) {} _alarmOsc = null; }
+  if (_alarmGain) { try { _alarmGain.disconnect(); } catch (e) {} _alarmGain = null; }
+}
 
 // ── Sub-components ──
 function ProgressBar({ pct, color, h = 4 }) {
