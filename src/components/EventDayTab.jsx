@@ -1,6 +1,6 @@
 // Ambria FnB — Event Day Tab (redesigned)
 // Place in: src/components/EventDayTab.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER } from '../utils/helpers.js';
@@ -42,6 +42,29 @@ function fmtTimer(sec) {
   const abs = Math.abs(sec); const m = Math.floor(abs / 60); const s = abs % 60;
   return (sec < 0 ? "+" : "") + m + "m " + (s < 10 ? "0" : "") + s + "s" + (sec < 0 ? " over" : "");
 }
+
+// ── Overtime alarm — one shared oscillator loop so concurrent overdue steps never overlap ──
+let _alarmCtx = null, _alarmTimerId = null, _alarmPlaying = false;
+function _alarmBeep() {
+  if (!_alarmPlaying) return;
+  try {
+    if (!_alarmCtx) _alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_alarmCtx.state === "suspended") _alarmCtx.resume();
+    const t0 = _alarmCtx.currentTime;
+    [0, 0.18].forEach(off => {
+      const osc = _alarmCtx.createOscillator(); const gain = _alarmCtx.createGain();
+      osc.type = "square"; osc.frequency.setValueAtTime(1000, t0 + off);
+      gain.gain.setValueAtTime(0.0001, t0 + off);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + off + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.16);
+      osc.connect(gain); gain.connect(_alarmCtx.destination);
+      osc.start(t0 + off); osc.stop(t0 + off + 0.17);
+    });
+  } catch (e) {}
+  _alarmTimerId = setTimeout(_alarmBeep, 900);
+}
+function startAlarm() { if (_alarmPlaying) return; _alarmPlaying = true; _alarmBeep(); }
+function stopAlarm() { _alarmPlaying = false; if (_alarmTimerId) { clearTimeout(_alarmTimerId); _alarmTimerId = null; } }
 
 // ── Sub-components ──
 function ProgressBar({ pct, color, h = 4 }) {
@@ -117,6 +140,16 @@ function EventDayTab({
   const [secIngrOpen, setSecIngrOpen] = useState({});   // { [sec]: bool }
   const [secSearch,   setSecSearch]   = useState({});   // { [sec]: string }
   const [secSort,     setSecSort]     = useState({});   // { [sec]: 'qty'|'name' }
+
+  // ── Overtime alarm bookkeeping — StepRow pushes its own key into this ref while overdue+unmuted;
+  // an effect after every render turns the single shared alarm on/off based on whether the ref is non-empty ──
+  const overdueRef = useRef([]);
+  overdueRef.current = [];
+  const [alarmMuted, setAlarmMuted] = useState({});
+  function muteAlarm(key) { setAlarmMuted(p => p[key] ? p : { ...p, [key]: true }); }
+  function clearMuteAlarm(key) { setAlarmMuted(p => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; }); }
+  useEffect(() => { if (overdueRef.current.length > 0) startAlarm(); else stopAlarm(); });
+  useEffect(() => () => stopAlarm(), []);
 
   // ── Section-level "Collect from store" (scope: combined vs per-function) ──
   function ssKey(catId) { return "__sec_" + catId; }
@@ -728,6 +761,7 @@ function EventDayTab({
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser}
+                                    parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
                                   />;
                                 })}
 
@@ -753,6 +787,7 @@ function EventDayTab({
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser}
+                                    parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
                                   />;
                                 })}
                               </div>
@@ -843,8 +878,11 @@ function EventDayTab({
 }
 
 // ── StepRow ──
-function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, doneTime, doneElapsed, subs, stepKey, d2d, setDsFn, large }) {
+function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, doneTime, doneElapsed, subs, stepKey, d2d, setDsFn, large, parentKey, alarmMuted, muteAlarm, clearMuteAlarm, overdueCollector }) {
   const remaining = timerSec - elapsedSec;
+  const mainAlarmKey = (parentKey || "") + "|" + stepKey;
+  const mainMuted = !!(alarmMuted && alarmMuted[mainAlarmKey]);
+  if (!subs && overdue && !done && overdueCollector && !mainMuted) overdueCollector.current.push(mainAlarmKey);
   const SZ = large ? { badge:36, badgeR:10, badgeFt:14, title:16, desc:13, ccp:13, timer:14, done:13, hint:13, btn:"10px 18px", btnR:12, btnFt:14, btnH:48, sub:28, subR:8, subFt:11, subTitle:14, subDesc:12, subTimer:12, subHint:12, subBtn:"8px 16px", subBtnR:10, subBtnFt:13, subBtnH:42, border:2.5, pad:"14px 0" } : { badge:26, badgeR:7, badgeFt:11, title:13, desc:11, ccp:11, timer:12, done:11, hint:11, btn:"7px 14px", btnR:10, btnFt:12, btnH:32, sub:24, subR:6, subFt:10, subTitle:12, subDesc:11, subTimer:10, subHint:10, subBtn:"6px 12px", subBtnR:8, subBtnFt:11, subBtnH:32, border:2.5, pad:"10px 0" };
   // Under/over calculation for completed steps
   const hasDoneElapsed = done && doneElapsed != null && doneElapsed > 0 && timerSec > 0;
@@ -901,9 +939,14 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
       </div>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
         {!subs && locked && !done && <div style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: SZ.btnFt }}>🔒</div>}
-        {!subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>▶ {Math.floor(timerSec / 60)}m</button>}
+        {!subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); clearMuteAlarm && clearMuteAlarm(mainAlarmKey); onStart(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>▶ {Math.floor(timerSec / 60)}m</button>}
         {!subs && !locked && !done && !running && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: C.gold, color: "#0A0908", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>✓ Done</button>}
-        {!subs && running && !done && <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: overdue ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>{overdue ? "⚠" : "✓"} Done</button>}
+        {!subs && running && !done && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={e => { e.stopPropagation(); onDone(); }} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: overdue ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>{overdue ? "⚠" : "✓"} Done</button>
+            {overdue && <button onClick={e => { e.stopPropagation(); mainMuted ? clearMuteAlarm(mainAlarmKey) : muteAlarm(mainAlarmKey); }} title={mainMuted ? "Alarm silenced" : "Silence alarm"} style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: mainMuted ? C.darkCard : C.amberBg, border: `1px solid ${mainMuted ? C.border : C.amberBorder}`, color: mainMuted ? C.faint : C.amber, fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH }}>{mainMuted ? "🔕" : "🔔"}</button>}
+          </div>
+        )}
         {subs && locked && !done && <div style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: C.darkCard, border: `1px solid ${C.border}`, color: C.faint, fontSize: SZ.btnFt }}>🔒</div>}
         {subs && !locked && !done && <span style={{ fontSize: large?12:10, color: C.muted }}>↓</span>}
         {done && !subs && d2d && setDsFn && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[stepKey]:false},starts:{...(d2d.starts||{}),[stepKey]:null}});}} style={{padding:large?"6px 10px":"4px 8px",borderRadius:large?8:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?11:10,cursor:"pointer"}}>↩ Undo</button>}
@@ -924,6 +967,9 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
             const sbDE = d2d.doneElapsed?.[sbk] || 0;
             const sbWasOver = sbHasDoneEl && sbDE > sb.tm;
             const sbDiffSec = sbHasDoneEl ? Math.abs(sbDE - sb.tm) : 0;
+            const subAlarmKey = (parentKey || "") + "|" + sbk;
+            const sbMuted = !!(alarmMuted && alarmMuted[subAlarmKey]);
+            if (sbOver && overdueCollector && !sbMuted) overdueCollector.current.push(subAlarmKey);
             return (
               <div key={sbi} style={{ padding: "8px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none" }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -937,10 +983,15 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                     {!sbDone && !sbStarted && sb.tm > 0 && <div style={{fontSize:SZ.subHint,color:C.faint,marginTop:2}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</div>}
                   </div>
                   <div style={{ flexShrink: 0 }}>
-                    {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
+                    {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); clearMuteAlarm && clearMuteAlarm(subAlarmKey); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,${C.gold},#A8891E)`, color: "#0A0908", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
                     {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: C.gold, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
-                    {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
-                    
+                    {!sbDone && sbStarted && (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>
+                        {sbOver && <button onClick={e => { e.stopPropagation(); sbMuted ? clearMuteAlarm(subAlarmKey) : muteAlarm(subAlarmKey); }} title={sbMuted ? "Alarm silenced" : "Silence alarm"} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbMuted ? C.darkCard : C.amberBg, border: `1px solid ${sbMuted ? C.border : C.amberBorder}`, color: sbMuted ? C.faint : C.amber, fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbMuted ? "🔕" : "🔔"}</button>}
+                      </div>
+                    )}
+
                     {sbDone && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}});}} style={{padding:large?"4px 8px":"3px 6px",borderRadius:large?6:5,background:C.amberBg,border:`1px solid ${C.amberBorder}`,color:C.amber,fontSize:large?10:9,cursor:"pointer"}}>↩</button>}
                   </div>
                 </div>
