@@ -696,6 +696,15 @@ function setPackageSections(pkgName, sections, flatDishes) {
   if (Array.isArray(flatDishes)) MENU_PACKAGES[pkgName] = flatDishes;
 }
 
+// V89 — "Extras" is an admin-created SOP category (Kitchen Hub -> SOPs ->
+// Add Category) meant as the catch-all for add-ons with no real recipe —
+// resolved by name since there's no dedicated config slot for "the default
+// fallback category" (rename it and this stops matching; that's expected).
+function getExtrasCatId() {
+  var cat = (RECIPE_DB.cats || []).find(function(c) { return (c.name || '').trim().toLowerCase() === 'extras'; });
+  return cat ? cat.id : null;
+}
+
 // V87 — shared "add a brand-new dish to the library" flow, used by every
 // custom-dish-add entry point (Build Menu's MenuEditor, the Proposal Menu
 // Builder, the Booked Functions menu editor) so a new dish always gets the
@@ -707,8 +716,10 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
   if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
   upsertDishMaster(name, { is_active: true });
-  // catId is optional — leave the dish unclassified (no SOP recipe stub) if
-  // the user didn't want to tag it; it can still be picked and placed.
+  // catId is optional — a dish left untagged falls into the "Extras" SOP
+  // category (if one's been set up) so kitchen/store still see it exists and
+  // can plan for it, instead of silently having no classification anywhere.
+  catId = catId || getExtrasCatId();
   if (!catId) return;
   var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
   if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
@@ -726,4 +737,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };

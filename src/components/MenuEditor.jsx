@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
+import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getExtrasCatId, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -164,7 +164,10 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     if (!recat) return;
     setRecatSaving(true);
     try {
-      var catId = recat.catId;
+      // Left blank, a dish falls back into the "Extras" SOP category (if
+      // one's been set up) rather than truly uncategorized — same rule the
+      // custom-dish-add modal uses.
+      var catId = recat.catId || getExtrasCatId();
       var res = catId
         ? await supabase.from('dish_categories').upsert({ dish_name: recat.name, category_id: catId }, { onConflict: 'dish_name' })
         : await supabase.from('dish_categories').delete().eq('dish_name', recat.name);
@@ -204,15 +207,16 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   async function confirmCustom() {
     if (!pendingCustom) return;
     var name = pendingCustom.name;
-    var catId = pendingCustom.catId;
+    // Left untagged, a dish falls into the "Extras" SOP category (if one's
+    // been set up) so kitchen/store see it exists and can plan for it,
+    // instead of having no classification anywhere.
+    var catId = pendingCustom.catId || getExtrasCatId();
     setCustomSaving(true);
     try {
       // Upsert into dishes_master so this dish becomes part of the library (idempotent on 23505)
       var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
       if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
       upsertDishMaster(name, { is_active: true });
-      // catId is optional — a dish left untagged just skips the category +
-      // SOP recipe stub and can be classified later from Dish Library.
       if (catId) {
         var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
         if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
