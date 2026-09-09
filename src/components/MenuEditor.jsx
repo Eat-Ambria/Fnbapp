@@ -149,6 +149,32 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
         return { id: catId, label: isExtras ? T2('Extras') : catName(catId), icon: isExtras ? '✨' : catIcon(catId), names: entry[1], isExtras: isExtras };
       });
 
+  // V89 — reassign a dish's EXPLICIT SOP category right from the Selected
+  // menu list, so a fuzzy-guess miss (or a dish with no tag at all, sitting
+  // in Extras) can be corrected on the spot instead of a trip to Dish
+  // Library. Empty catId clears the tag, dropping it back to Extras. Same
+  // pill-picker modal as adding a custom dish, opened for an EXISTING one.
+  var [recat, setRecat] = useState(null); // { name, catId } | null
+  var [recatSaving, setRecatSaving] = useState(false);
+  function openRecat(name) {
+    setRecat({ name: name, catId: getExplicitCatIdForDish(name) || '' });
+  }
+  async function confirmRecat() {
+    if (!recat) return;
+    setRecatSaving(true);
+    try {
+      var catId = recat.catId;
+      var res = catId
+        ? await supabase.from('dish_categories').upsert({ dish_name: recat.name, category_id: catId }, { onConflict: 'dish_name' })
+        : await supabase.from('dish_categories').delete().eq('dish_name', recat.name);
+      if (res.error) throw res.error;
+      upsertDishCat(recat.name, catId || null);
+      setLibBump(function(n) { return n + 1; });
+      setRecat(null);
+    } catch (e) { alert(T2('Failed to update category:') + ' ' + (e.message || e)); }
+    finally { setRecatSaving(false); }
+  }
+
   function addDish(name) {
     if (!selectedSet.has(name.toLowerCase())) {
       onChange([...selected, name]);
@@ -381,9 +407,15 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                     <span style={{ fontSize: 12, color: C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
                   </div>
                   {isOpen2 && g.names.map(function(name) {
+                    var explicitCat = getExplicitCatIdForDish(name) || '';
                     return (
                       <div key={name} style={{ ...ROW, color: C.green, cursor: "default" }}>
                         <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer" }}>{name}</span>
+                        <button onClick={function(e) { e.stopPropagation(); openRecat(name); }}
+                          title={T2('Fix this dish\'s SOP category')}
+                          style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: "1px solid " + C.greenBorder, color: C.green, background: C.surface, marginRight: 8, cursor: "pointer", whiteSpace: "nowrap" }}>
+                          🏷 {explicitCat ? catName(explicitCat) : T2('Uncategorized')}
+                        </button>
                         {g.isExtras && pkgGroups && onSectionOverridesChange && (
                           <select value={sectionOverrides[name] || ''} onClick={function(e) { e.stopPropagation(); }}
                             onChange={function(e) { onSectionOverridesChange({ ...sectionOverrides, [name]: e.target.value || undefined }); }}
@@ -464,6 +496,45 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               <button onClick={confirmCustom} disabled={customSaving}
                 style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : T2("Add to menu")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V89 — fix an already-selected dish's SOP category, same pill picker
+          as the custom-dish-add modal above, just for an existing dish. */}
+      {recat && (
+        <div onClick={function() { if (!recatSaving) setRecat(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 2 }}>{recat.name}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Fix which SOP / recipe section this dish belongs to")}</div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+              {(RECIPE_DB.cats || []).map(function(c) {
+                var active = recat.catId === c.id;
+                return (
+                  <button key={c.id} onClick={function() { setRecat(function(p) { return { ...p, catId: active ? "" : c.id }; }); }}
+                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                      background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
+                      border: "1px solid " + (active ? C.green : C.border) }}>
+                    {c.icon} {c.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={function() { setRecat(null); }} disabled={recatSaving}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Cancel")}
+              </button>
+              <button onClick={confirmRecat} disabled={recatSaving}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: recatSaving ? "wait" : "pointer", opacity: recatSaving ? 0.6 : 1 }}>
+                {recatSaving ? T2("Saving…") : T2("Save")}
               </button>
             </div>
           </div>
