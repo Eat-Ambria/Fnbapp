@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { RECIPE_DB, getCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
+import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -73,10 +73,16 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     availByCat[d.catId].push(d);
   });
 
-  // Group selected by category
+  // Group selected by EXPLICIT category tag only (no fuzzy fallback) — a dish
+  // with no real SOP mapping (e.g. an outdoor-station add-on like Candy Floss)
+  // used to get fuzzy-guessed into some semi-random category (getCatIdForDish
+  // always resolves to SOMETHING, down to a hardcoded default), silently
+  // hiding it from whoever's actually planning that category. Ungrouped dishes
+  // now land in one shared, clearly-labelled Extras bucket instead — same
+  // "explicit tag or Extras" rule the package-linked branch below already uses.
   var selByCat = {};
   selected.forEach(function(name) {
-    var catId = getCatIdForDish(name) || "other";
+    var catId = getExplicitCatIdForDish(name) || "__extras__";
     if (!selByCat[catId]) selByCat[catId] = [];
     selByCat[catId].push(name);
   });
@@ -133,8 +139,14 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // has one, SOP category otherwise.
   var selGroups = selByPkgSection
     ? selByPkgSection.map(function(g) { return { id: g.id, label: g.name, icon: pkgSectionIcon(g.sop_category), names: g.dishes, isExtras: g.isExtras }; })
-    : Object.entries(selByCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(entry) {
-        return { id: entry[0], label: catName(entry[0]), icon: catIcon(entry[0]), names: entry[1], isExtras: false };
+    : Object.entries(selByCat).sort(function(a, b) {
+        if (a[0] === '__extras__') return 1;
+        if (b[0] === '__extras__') return -1;
+        return a[0].localeCompare(b[0]);
+      }).map(function(entry) {
+        var catId = entry[0];
+        var isExtras = catId === '__extras__';
+        return { id: catId, label: isExtras ? T2('Extras') : catName(catId), icon: isExtras ? '✨' : catIcon(catId), names: entry[1], isExtras: isExtras };
       });
 
   function addDish(name) {
