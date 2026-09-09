@@ -571,17 +571,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // Unassigned + phantom + orphaned dishes fall into an Extras bucket at the bottom.
   var groupedBySection = useMemo(function(){
     if (!sections || sections.length === 0) return null;
-    // V73: only include sections whose effective sales_dept matches activeDept.
-    var deptSections = sections.filter(function(s){ return (s.sales_dept || 'kit') === activeDept; });
-    if (deptSections.length === 0) return null;
+    // Bug fix — this used to filter+list EVERY catalogue row (parents AND
+    // subsections alike) as its own flat top-level pill, ordered by sort_order.
+    // But sort_order is only ever comparable among SIBLINGS (a subsection's
+    // own reorder-drag resets it relative to its sisters, same for a parent
+    // among other parents) — a parent's sort_order routinely lands numerically
+    // BEFORE its own children's, so subsections of different parents ended up
+    // interleaved ahead of any parent pill at all. Only top-level sections
+    // become their own pill now; subsections are pooled into it (dishes) and
+    // rendered as subGroups, same shape groupedByPkgSection already uses.
+    var topSections = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
+    if (topSections.length === 0) return null;
 
     // Package dish → order index (for pinned block ordering)
     var pkgOrder = {};
     (templateInfo.dishes || []).forEach(function(d, i){ pkgOrder[d] = i; });
 
-    // Valid section id set (dishes with section_id not in this set fall to Extras)
+    // Valid section id set (dishes with section_id not in this set fall to
+    // Extras) — a subsection counts here purely via its PARENT's dept, not
+    // its own (usually unset) sales_dept.
     var validSectionIds = {};
-    deptSections.forEach(function(s){ validSectionIds[s.id] = true; });
+    topSections.forEach(function(s){
+      validSectionIds[s.id] = true;
+      (catSubsByParent[s.id] || []).forEach(function(sub){ validSectionIds[sub.id] = true; });
+    });
 
     // Bucket
     var bySection = {};
@@ -622,16 +635,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
 
     var out = [];
-    deptSections.forEach(function(s){
-      var list = bySection[s.id] || [];
-      if (list.length === 0) return; // skip empty sections
-      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(list) });
+    topSections.forEach(function(s){
+      var subs = catSubsByParent[s.id] || [];
+      var direct = bySection[s.id] || [];
+      var pooled = direct.slice();
+      var subGroups = null;
+      if (subs.length > 0) {
+        subGroups = [];
+        if (direct.length > 0) subGroups.push({ id: s.id, name: s.name, dishes: sortWithin(direct) });
+        subs.forEach(function(sub){
+          var subList = bySection[sub.id] || [];
+          if (subList.length === 0) return;
+          pooled = pooled.concat(subList);
+          subGroups.push({ id: sub.id, name: sub.name, dishes: sortWithin(subList) });
+        });
+        if (subGroups.length === 0) subGroups = null;
+      }
+      if (pooled.length === 0) return; // skip empty sections
+      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(pooled), subGroups: subGroups });
     });
     if (extras.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
     }
     return out;
-  }, [activeDept, sections, visibleDishes, templateInfo.dishes]);
+  }, [activeDept, sections, visibleDishes, templateInfo.dishes, catSubsByParent]);
 
   // ── V75: same visibility rules as visibleDishes (diet filter, search, template/
   // selected/add-on visibility) but WITHOUT the per-dept restriction — needed so a
