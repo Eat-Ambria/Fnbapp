@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase.js';
 function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
+  var [selSearch, setSelSearch] = useState("");
   var [customDish, setCustomDish] = useState("");
   var [customSaving, setCustomSaving] = useState(false);
   var [openCats, setOpenCats] = useState({});
@@ -392,13 +393,24 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
               )}
             </div>
+            <input value={selSearch} onChange={function(e) { setSelSearch(e.target.value); }}
+              placeholder={"🔍 " + T2("Search selected dishes…")}
+              style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.greenBorder, fontSize: 12, color: C.text, background: C.surface, boxSizing: "border-box", marginTop: 8 }} />
           </div>
           <div style={COLBODY}>
             {selected.length === 0 && (
               <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No dishes selected")}<br /><span style={{ fontSize: 11 }}>{T2("Click + on the left to add")}</span></div>
             )}
-            {selGroups.map(function(g) {
-              var isOpen2 = openSelCats[g.id] !== false;
+            {(function() {
+              var q2 = selSearch.trim().toLowerCase();
+              var filteredGroups = q2
+                ? selGroups.map(function(g) { return { ...g, names: g.names.filter(function(n) { return n.toLowerCase().includes(q2); }) }; }).filter(function(g) { return g.names.length > 0; })
+                : selGroups;
+              if (selected.length > 0 && q2 && filteredGroups.length === 0) {
+                return <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No matches")}</div>;
+              }
+              return filteredGroups.map(function(g) {
+              var isOpen2 = q2 ? true : openSelCats[g.id] !== false;
               return (
                 <div key={g.id}>
                   <div onClick={function() { setOpenSelCats(function(p) { return { ...p, [g.id]: p[g.id] === false ? true : false }; }); }}
@@ -431,7 +443,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                   })}
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
 
           {/* Section/category summary strip */}
