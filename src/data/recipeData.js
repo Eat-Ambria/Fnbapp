@@ -62,6 +62,10 @@ function guessSectionForDish(name) {
   // ── Chaat — before Indian ──
   if(/chaat|golgap|pani puri|\bbhel\b|bhalla papdi|matra kulcha|moonglet|aloo tikki|khajoor chutney|papdi|\bsev\b|ragda|aloo chana|kund.?dahi|\bpuchka\b|dahi station|chaat counter|street food|crispy aloo/i.test(n)) return "Chaat";
 
+  // ── APC (Achar, Papad, Chutney, Raita) — checked before the generic Indian
+  // Curries catch-all, or these all fell through to Main Course ──
+  if(/\bachar\b|\bpapad\b|chutney|\braita\b/i.test(n)) return "APC";
+
   // ── Tandoor ──
   if(/\btikka\b|seekh|\bkebab\b|tandoor|\bboti\b|chaap|\bshawarma\b|stuffed mushroom|afghani|ananas tikka|tandoori|galouti|dahi ke kabab|bhutte ki seekh|papad waala|golden coin|shami|galawat|kasturi|reshmi|murgh malai/i.test(n)) return "Tandoor";
 
@@ -345,6 +349,18 @@ let DISH_CAT_MAP = {};  // hydrated on boot
 let DISH_NAME_MAP = {}; // LMS menu name → SOP recipe dish_name
 //let DISH_HINDI_MAP = {}; // dish_name → Hindi override (menu-package dishes)
 
+// Explicit admin-set tag only — no fuzzy fallback. getCatIdForDish always
+// resolves to SOMETHING (guessed, or 'maincourse'), so a UI can't tell "this
+// dish is explicitly tagged Beverages" from "we guessed Beverages" just from
+// its return value; this is how it tells the two apart.
+function getExplicitCatIdForDish(dishName) {
+  if (!dishName) return null;
+  const n = dishName.toLowerCase().trim();
+  if (DISH_CAT_MAP[dishName]) return DISH_CAT_MAP[dishName];
+  const k = Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n);
+  return k ? DISH_CAT_MAP[k] : null;
+}
+
 function getCatIdForDish(dishName) {
   if (!dishName) return null;
   const n = dishName.toLowerCase().trim();
@@ -369,7 +385,8 @@ function getCatIdForDish(dishName) {
   const guessedSection = guessSectionForDish(dishName);
   const SECTION_TO_CAT = {
     'Indian Curries':'maincourse','Tandoor':'tandoor','Chinese':'chinese',
-    'Chaat':'chaat','Sweets':'sweets','Continental':'continental','Beverages':'beverages',
+    'Chaat':'chaat_master','Sweets':'sweets','Continental':'continental','Beverages':'beverages',
+    'APC':'apc',
   };
   return SECTION_TO_CAT[guessedSection] || 'maincourse';
 }
@@ -709,4 +726,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
