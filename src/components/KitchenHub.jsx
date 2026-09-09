@@ -66,6 +66,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopCat, setSopCat] = useState(null);
   const [renamingCatId, setRenamingCatId] = useState(null);
   const [renameCatBuf, setRenameCatBuf] = useState("");
+  const [renameCatIconBuf, setRenameCatIconBuf] = useState("");
   const [sopRecipe, setSopRecipe] = useState(null);
   const [sopSearch, setSopSearch] = useState("");
   const [editingSteps, setEditingSteps] = useState(false);
@@ -866,6 +867,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     cat.name=trimmed;
     supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
     logActivity('kitchen','SOP section renamed: '+oldName+' → '+trimmed,'sop_category_rename',{catId:catId,from:oldName,to:trimmed},currentUser?.id);
+  }
+  function updateCategoryIcon(catId,newIcon){
+    var trimmed=(newIcon||'').trim();
+    if(!trimmed) return;
+    var cat=RECIPE_DB.cats.find(c=>c.id===catId);
+    if(!cat||cat.icon===trimmed) return;
+    var oldIcon=cat.icon;
+    cat.icon=trimmed;
+    supabase.from('recipe_categories').update({icon:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat icon update err:',r.error);});
+    logActivity('kitchen','SOP section icon changed: '+cat.name+' ('+oldIcon+' → '+trimmed+')','sop_category_icon',{catId:catId,from:oldIcon,to:trimmed},currentUser?.id);
+  }
+  function saveCategoryEdit(catId,newName,newIcon){
+    renameCategory(catId,newName);
+    updateCategoryIcon(catId,newIcon);
   }
   async function addCategory(name){
     var trimmed=(name||'').trim();
@@ -2187,13 +2202,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div key={cat.id} style={{position:"relative"}}>
                     {isRenaming?(
                       <div style={{width:"100%",background:C.darkCard,border:`1px solid ${C.gold}`,borderRadius:14,padding:"20px 14px",textAlign:"center",minHeight:100,boxSizing:"border-box"}}>
-                        <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div>
+                        <input value={renameCatIconBuf} onChange={e=>setRenameCatIconBuf(e.target.value)}
+                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
+                          onClick={e=>e.stopPropagation()} title={T2("Icon (emoji)")}
+                          style={{width:44,padding:"3px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:22,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box",marginBottom:6}}/>
                         <input value={renameCatBuf} onChange={e=>setRenameCatBuf(e.target.value)}
-                          onKeyDown={e=>{if(e.key==='Enter'){renameCategory(cat.id,renameCatBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
+                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
                           autoFocus onClick={e=>e.stopPropagation()}
                           style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box"}}/>
                         <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
-                          <button onClick={()=>{renameCategory(cat.id,renameCatBuf);setRenamingCatId(null);}} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
+                          <button onClick={()=>{saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
                           <button onClick={()=>setRenamingCatId(null)} style={{padding:"4px 10px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✕</button>
                         </div>
                       </div>
@@ -2201,7 +2219,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <button onClick={()=>setSopCat(cat.id)} style={{width:"100%",background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
                       <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
                     </button>
-                    {currentUser?.role==='admin'&&<button onClick={e=>{e.stopPropagation();setRenamingCatId(cat.id);setRenameCatBuf(cat.name);}} title={T2("Rename section")} style={{position:"absolute",top:4,left:4,width:24,height:24,borderRadius:12,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✏</button>}
+                    {currentUser?.role==='admin'&&<button onClick={e=>{e.stopPropagation();setRenamingCatId(cat.id);setRenameCatBuf(cat.name);setRenameCatIconBuf(cat.icon);}} title={T2("Rename section")} style={{position:"absolute",top:4,left:4,width:24,height:24,borderRadius:12,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✏</button>}
                     {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>}
                     </>)}
                   </div>);})}
@@ -3177,6 +3195,67 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           .filter(c=>grouped.has(c.id))
           .map(c=>grouped.get(c.id));
 
+        // V90 — Base Gravy demand: gravies aren't selected as menu dishes
+        // themselves, they're consumed BY other dishes via ingredient-level
+        // BG rows (Dish Library -> Ingredients -> type 'BG'). Sum how much of
+        // each gravy this event's whole menu needs and show it as its own
+        // pseudo-dish, same mechanism Event Day / Prep Day already use, so
+        // chefs can see (and pin) a target kg for it here too.
+        const bgDemand = {};
+        dishes.forEach(dishName=>{
+          const rec = findRecipeForDish(dishName);
+          if (!rec?.ingredients?.items?.length) return;
+          const baseKg = rec.ingredients.base_yield?.kg || null;
+          let bgs = [];
+          if (baseKg) {
+            const planRow = planRows[dishName] || null;
+            const planned = Number(planRow?.target_yield_kg) || null;
+            const defaultYield = selEv.pax>0 ? (baseKg*selEv.pax/(rec.ingredients.base_pax||300)) : baseKg;
+            const effKg = planned || defaultYield;
+            const sectionYieldsPlan = planRow?.section_yields || null;
+            let sectionFactors = null;
+            if (sectionYieldsPlan) {
+              const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+              const acc = {};
+              recSections.forEach(sec=>{
+                const planKg = Number(sectionYieldsPlan[sec.name]);
+                if(planKg>0 && sec.yield.kg>0) acc[sec.name]=planKg/sec.yield.kg;
+              });
+              if (Object.keys(acc).length>0) sectionFactors=acc;
+            }
+            bgs = getBgDemandForYield(dishName, effKg, sectionFactors);
+          } else {
+            bgs = getBgDemandForDish(dishName, selEv.pax);
+          }
+          bgs.forEach(b=>{
+            if (!b.bgName || b.qty<=0) return;
+            const key = b.bgName;
+            if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, _warned:false };
+            const bu = String(b.unit||'kg').toLowerCase();
+            const bq = Number(b.qty)||0;
+            let deltaKg = 0;
+            if (bu==='kg'||bu==='l') deltaKg = bq;
+            else if (bu==='gm'||bu==='ml') deltaKg = bq/1000;
+            else if (!bgDemand[key]._warned) {
+              console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
+              bgDemand[key]._warned = true;
+            }
+            bgDemand[key].totalKg += deltaKg;
+          });
+        });
+        const bgItems = [];
+        let bgIdx = 9000;
+        Object.keys(bgDemand).forEach(bgName=>{
+          const dem = bgDemand[bgName];
+          if (dem.totalKg<=0) return;
+          const bgRec = findRecipeForDish(bgName);
+          if (!bgRec || !bgRec.bg) { console.warn('[bg-inject] not a bg recipe:', bgName); return; }
+          bgItems.push({ dish: bgName, st: dishStatus(bgName), idx: bgIdx++, isBaseGravy:true, demandKg: dem.totalKg });
+        });
+        if (bgItems.length > 0) {
+          orderedGroups.unshift({ cat: {id:'__bg__', name:T2('Base Gravies'), icon:'🥘'}, items: bgItems });
+        }
+
         // Plan-based stats: auto = using computed default; override = chef pinned; fromStore = issued from store (no prep); unmapped = no recipe AND no store link
         const stats = dishes.reduce((acc,d)=>{
           const st = dishStatus(d);
@@ -3663,7 +3742,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           }
                           // Single row: input is empty by default; placeholder shows auto suggestion (scaled by yield slider). Typing pins as override.
                           const mult = yieldAdjustPct/100;
-                          const suggestedRaw = st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null;
+                          const suggestedRaw = it.isBaseGravy ? Math.round(it.demandKg * 10)/10 : (st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null);
                           const suggested = suggestedRaw!=null ? Math.round(suggestedRaw * mult * 10)/10 : null;
                           const isOverride = !!planRows[it.dish];
                           const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
@@ -3682,7 +3761,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {mappedName && <span>📖 {mappedName}</span>}
                                   {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
-                                  {!isOverride && suggested!=null && <span>{selEv.pax} pax{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
+                                  {!isOverride && suggested!=null && <span>{it.isBaseGravy ? T2("demand across this menu") : `${selEv.pax} ${T2("pax")}`}{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
                                   {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
                                 </div>
                               </div>
