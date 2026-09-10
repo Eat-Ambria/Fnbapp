@@ -409,6 +409,53 @@ function DishSectionsEditor(props) {
   }
   function clearBulk() { setBulkSel(new Set()); }
 
+  // V90 — merge duplicate dish NAMES (e.g. "Chutney" + "Chutney (Tomato / Mint / Homemade)")
+  // into one canonical dish. Reuses the parent Dish Library's merge logic (rewrites every
+  // menu package + drops the merged names' Hindi/SOP/Inventory mappings) via onMergeDishes —
+  // this component only owns the target-picker UI and its own bulkSel selection.
+  const [dishMergeOpen, setDishMergeOpen] = useState(false);
+  const [dishMergeTarget, setDishMergeTarget] = useState('');
+  const [dishMergeSaving, setDishMergeSaving] = useState(false);
+  function openDishMerge() {
+    if (bulkSel.size === 0) return;
+    const sorted = Array.from(bulkSel).sort();
+    setDishMergeTarget(sorted[0]);
+    setDishMergeOpen(true);
+  }
+  function closeDishMerge() {
+    if (dishMergeSaving) return;
+    setDishMergeOpen(false);
+    setDishMergeTarget('');
+  }
+  async function confirmDishMerge() {
+    if (!props.onMergeDishes) return;
+    const target = (dishMergeTarget || '').trim();
+    if (!target) { alert('Enter a target dish name.'); return; }
+    const selectedNames = Array.from(bulkSel);
+    const sources = selectedNames.filter(function(n){ return n !== target; });
+    if (sources.length === 0) { alert('Target is the same as the selected dish. Nothing to merge.'); return; }
+    const isRename = selectedNames.length === 1;
+    const verb = isRename ? 'Rename "' + sources[0] + '" to "' + target + '"?' : 'Merge ' + sources.length + ' dish(es) into "' + target + '"?';
+    const warn = '\n\nThis will:' +
+      '\n• Replace the merged name(s) in every menu package that references them' +
+      '\n• Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings' +
+      '\n• Keep the target\'s own mappings unchanged';
+    if (!window.confirm(verb + warn)) return;
+    setDishMergeSaving(true);
+    try {
+      const result = await props.onMergeDishes(sources, target);
+      setDishMergeOpen(false);
+      setDishMergeTarget('');
+      clearBulk();
+      await loadData();
+      alert((isRename ? 'Renamed. ' : 'Merged ' + sources.length + ' dish(es) into "' + target + '". ') + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
+    } catch (e) {
+      alert('Merge failed: ' + (e.message || e));
+    } finally {
+      setDishMergeSaving(false);
+    }
+  }
+
   // targetSectionId: a section id or '__unassign__'
   async function bulkMoveTo(targetSectionId) {
     if (!isAdmin || bulkSel.size === 0) return;
@@ -686,6 +733,13 @@ function DishSectionsEditor(props) {
             })}
             <option value="__unassign__">— Unassign —</option>
           </select>
+          {props.onMergeDishes && (
+            <button onClick={openDishMerge}
+              title={bulkSel.size === 1 ? 'Rename this dish (updates every package that uses it)' : 'Merge selected dishes into one canonical name (updates every package)'}
+              style={{ padding: '5px 12px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              🔀 {bulkSel.size === 1 ? 'Rename' : 'Merge'}
+            </button>
+          )}
           <button onClick={clearBulk}
             style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
             Clear
@@ -753,6 +807,66 @@ function DishSectionsEditor(props) {
               <button onClick={doMerge} disabled={saving || !mergeTargetId}
                 style={{ padding: '7px 14px', background: C.gold, color: '#fff', border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: saving || !mergeTargetId ? 'not-allowed' : 'pointer', opacity: saving || !mergeTargetId ? 0.5 : 1 }}>
                 {mergeModal.dishCount > 0 ? 'Merge & delete' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dish merge modal (duplicate dish NAMES, not sections) */}
+      {dishMergeOpen && (
+        <div onClick={closeDishMerge}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 480, width: '100%', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
+                  🔀 {bulkSel.size === 1 ? 'Rename dish' : 'Merge ' + bulkSel.size + ' dishes'}
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>The target name replaces the others in every menu package.</div>
+              </div>
+              <button onClick={closeDishMerge} disabled={dishMergeSaving}
+                style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: dishMergeSaving ? 'not-allowed' : 'pointer', padding: 4 }}>×</button>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Selected — click one to make it the target</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, maxHeight: 140, overflowY: 'auto' }}>
+              {Array.from(bulkSel).sort().map(function(n){
+                const isT = n === dishMergeTarget;
+                return (
+                  <button key={n} onClick={function(){ setDishMergeTarget(n); }} disabled={dishMergeSaving}
+                    style={{ padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: dishMergeSaving ? 'not-allowed' : 'pointer',
+                      background: isT ? C.wine : C.bg, color: isT ? '#fff' : C.text,
+                      border: '1px solid ' + (isT ? C.wine : C.border), fontWeight: isT ? 600 : 400 }}>
+                    {isT ? '✓ ' : ''}{n}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Or type a new target name</div>
+              <input value={dishMergeTarget} onChange={function(e){ setDishMergeTarget(e.target.value); }} disabled={dishMergeSaving}
+                placeholder="Target dish name…"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid ' + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ padding: '10px 12px', background: C.amberBg, border: '1px solid ' + C.amberBorder, borderRadius: 6, fontSize: 11, color: C.text, marginBottom: 14, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, color: C.amber, marginBottom: 4 }}>⚠ What this does</div>
+              • Replaces the merged name(s) in every menu package that uses them<br/>
+              • Deletes the merged dish(es) from the library<br/>
+              • Drops the merged dishes' own Hindi / SOP / Inventory mappings — the target's are kept
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid ' + C.border }}>
+              <button onClick={closeDishMerge} disabled={dishMergeSaving}
+                style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: dishMergeSaving ? 'not-allowed' : 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={confirmDishMerge} disabled={dishMergeSaving || !dishMergeTarget.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (dishMergeSaving || !dishMergeTarget.trim()) ? 'not-allowed' : 'pointer', opacity: (dishMergeSaving || !dishMergeTarget.trim()) ? 0.5 : 1 }}>
+                {dishMergeSaving ? 'Working…' : (bulkSel.size === 1 ? 'Rename' : 'Merge')}
               </button>
             </div>
           </div>

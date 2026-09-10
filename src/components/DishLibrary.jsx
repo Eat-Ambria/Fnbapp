@@ -565,7 +565,7 @@ function DishLibrary(props) {
       </div>
 
       {view === 'sections' && (
-        <DishSectionsEditor lang={lang} currentUser={currentUser} />
+        <DishSectionsEditor lang={lang} currentUser={currentUser} onMergeDishes={performMergeCore} />
       )}
 
       {view === 'library' && <>
