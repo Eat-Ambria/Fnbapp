@@ -175,6 +175,7 @@ export async function loadAllConfig() {
     teamSectionsRaw,
     salesConfigDefsRaw,
     salesConfigOptionsRaw,
+    homeVenuesRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
@@ -195,7 +196,14 @@ export async function loadAllConfig() {
     loadTable('team_sections',         [], null),
     loadTable('sales_config_defs',     [], null),
     loadTable('sales_config_options',  [], null),
+    loadTable('home_venues',           [], null),
   ]);
+
+  // Home venues (staff "home venue" for transport routing) — master data, editable in Access Manager
+  const homeVenues = (homeVenuesRaw || [])
+    .filter(v => v.is_active !== false)
+    .sort((a,b) => (a.sort_order||0) - (b.sort_order||0))
+    .map(v => ({ id: v.id, name: v.name, sort_order: v.sort_order||0 }));
 
   // Join team_departments + team_sections into [{id,label,icon,sections:[names]}]
   const teamDepts = (teamDeptsRaw || [])
@@ -306,5 +314,6 @@ export async function loadAllConfig() {
     dishMaster,
     dishStoreMap,
     teamDepts,
+    homeVenues,
   };
 }

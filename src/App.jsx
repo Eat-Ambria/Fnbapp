@@ -271,7 +271,7 @@ export default function App() {
         hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
         hydrateMenuPackageSections(cfg.menuSections);
         hydrateSalesConfigs(cfg.salesConfigs);
-        hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
+        hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
         if(cfg.checklists) setDbChecklists(cfg.checklists);
