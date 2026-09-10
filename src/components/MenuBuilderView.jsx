@@ -7,7 +7,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
+import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -27,6 +27,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
   var [showAddons, setShowAddons]   = useState(false);
+  // V87 — per-proposal { dish_name: sectionOrSubsectionId } tag, for a custom
+  // dish added here to show up under a specific section/subsection pill
+  // instead of just landing in Extras. Mirrors events.menu_section_overrides
+  // (Build Menu) — carried over to the new event's own copy on conversion
+  // (see ProposalsView.jsx convertToBooking).
+  var [sectionOverrides, setSectionOverrides] = useState(proposal && proposal.menu_section_overrides || {});
 
   // ── Per-active-dept capability flags ──
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
@@ -103,7 +109,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -120,6 +126,72 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
     return m;
   }, [sections]);
+
+  // V86 — catalogue sections can now have one level of subsections (Dish
+  // Library → Sections). parentId → its subsection rows, for groupedByPkgSection
+  // to pool a linked section's FULL catalogue (parent + subsections), not just
+  // whatever's directly on the parent row itself.
+  var catSubsByParent = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){
+      if (s.parent_section_id) { (m[s.parent_section_id] = m[s.parent_section_id] || []).push(s); }
+    });
+    return m;
+  }, [sections]);
+
+  // V87 — "Add section from library" picker: every top-level catalogue
+  // section routed to the active dept tab, with its subsections listed right
+  // after (indented) — same ordering convention as MenuPackagesView's own
+  // catalogue picker. Dish counts come from allDishes (already loaded), no
+  // extra query needed.
+  var catalogueSectionOptions = useMemo(function(){
+    var countFor = function(id){ return allDishes.filter(function(d){ return d.section_id === id; }).length; };
+    var deptTop = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
+    var out = [];
+    deptTop.forEach(function(s){
+      out.push({ id: s.id, label: s.name, count: countFor(s.id) });
+      (catSubsByParent[s.id] || []).forEach(function(sub){ out.push({ id: sub.id, label: '— ' + sub.name, count: countFor(sub.id) }); });
+    });
+    return out;
+  }, [sections, activeDept, catSubsByParent, allDishes]);
+
+  // V88 — bring in a chosen catalogue section (its own direct dishes plus, if
+  // it's a parent, all of its subsections') as browsable, UNselected cards
+  // under the chosen pill — the user picks which ones to actually add from
+  // there, same as any other card (onToggle). Tagging alone (no proposal_items/
+  // event_items insert) is what makes them show without being pre-checked —
+  // see the sectionOverrides carve-out in visibleDishes/visibleDishesAnyDept.
+  async function addSectionFromLibrary(catSectionId, targetId) {
+    if (!targetId) return; // nothing to browse under without a target pill
+    var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
+    var ids = [catSectionId].concat(subIds);
+    var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
+    if (res.error) throw res.error;
+    var names = (res.data || []).map(function(r){ return r.dish_name; });
+    if (names.length === 0) return;
+    var next = { ...sectionOverrides };
+    names.forEach(function(n){ next[n] = targetId; });
+    setSectionOverrides(next);
+    var updRes = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
+    if (updRes.error) console.error('[MenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
+  }
+
+  // V88 — remove an ad-hoc pill (one created by "Add section from library",
+  // not a real package section) from THIS proposal's menu builder: clears
+  // every dish's tag pointing at it (and its subsection buckets), same
+  // metadata-only operation as adding it. Nothing is deselected/deleted —
+  // any dish also individually chosen keeps its proposal_items row, it just
+  // falls back to wherever it naturally resolves once untagged.
+  async function removeAdHocSection(grp) {
+    var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
+    var next = { ...sectionOverrides };
+    var changed = false;
+    Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
+    if (!changed) return;
+    setSectionOverrides(next);
+    var res = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
+    if (res.error) console.error('[MenuBuilder] removeAdHocSection failed:', res.error);
+  }
 
   // ── V72 Phase 2: phantom dishes ──
   // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
@@ -295,6 +367,31 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
   }
 
+  // V87 — persist a dish's section/subsection tag for this proposal only.
+  async function saveSectionOverride(dishName, sectionId) {
+    var next = { ...sectionOverrides };
+    if (sectionId) next[dishName] = sectionId; else delete next[dishName];
+    setSectionOverrides(next);
+    try {
+      var res = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[MenuBuilder] saveSectionOverride failed:', e);
+    }
+  }
+
+  // V87 — add a brand-new dish: library entry + SOP stub (shared helper),
+  // select it for this proposal, and tag which section/subsection pill it
+  // shows under (this proposal only — never touches the shared package).
+  async function addCustomDish(name, catId, sectionId) {
+    await createCustomDishInLibrary(supabase, name, catId);
+    var row = { proposal_id: proposal.id, dish_name: name, is_addon: true, ordering: dishItems.length };
+    var res = await supabase.from('proposal_items').insert(row).select().single();
+    if (res.error) throw res.error;
+    setDishItems(function(prev){ return prev.concat([res.data]); });
+    if (sectionId) await saveSectionOverride(name, sectionId);
+  }
+
   // V76: manual re-seed — recovers proposals stuck with 0 selected because
   // seedTemplateIfNeeded's one-shot auto-seed fired before pkgMapLoaded resolved
   // (a pre-existing race, now fixed above, but already-affected proposals were
@@ -340,6 +437,36 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return m;
   }, [templateInfo.name]);
 
+  // V88 — a dish tagged via sectionOverrides to a section (e.g. a custom
+  // dish placed under a Fruits-dept pill) isn't in dishNameToPkgDept at all —
+  // that map only knows the package's OWN static dish list, not per-proposal
+  // ad-hoc tags. Without this, the sidebar/live-total counts silently
+  // attribute such a dish to Kitchen (DEFAULT_DEPT) even though
+  // groupedByPkgSection already renders it correctly under its tagged dept.
+  var sectionOverrideDept = useMemo(function(){
+    var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+    function deptForTargetId(rawId) {
+      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
+      var ps = pkgSecs.find(function(s){ return s.id === id; });
+      if (ps) return ps.sales_dept || 'kit';
+      var cs = sections.find(function(s){ return s.id === id; });
+      if (cs) {
+        if (cs.sales_dept) return cs.sales_dept;
+        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
+        return (parent && parent.sales_dept) || 'kit';
+      }
+      return null;
+    }
+    var m = {};
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      var targetId = sectionOverrides[name];
+      if (!targetId) return;
+      var dept = deptForTargetId(targetId);
+      if (dept) m[name] = dept;
+    });
+    return m;
+  }, [sectionOverrides, templateInfo.name, sections]);
+
   // ── Selected counts per dept ──
   var deptCounts = useMemo(function(){
     var counts = {};
@@ -347,7 +474,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var counted = {};
     allDishes.forEach(function(d){
       var meta = salesMeta[d.name];
-      var dept = dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].total += 1;
       if (selectedSet[d.name]) counts[dept].sel += 1;
@@ -360,28 +487,38 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     Object.keys(selectedSet).forEach(function(name){
       if (counted[name]) return;
       var meta = salesMeta[name];
-      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = sectionOverrideDept[name] || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].sel += 1;
     });
     return counts;
-  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept]);
+  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
 
   // ── Dishes for active dept ──
   // V73: effective dept = section's sales_dept override (if dish is in a routed section)
   // else dish's own meta.sales_dept else DEFAULT_DEPT ('kit').
   var deptDishes = useMemo(function(){
     var base = allDishes.filter(function(d){
+      // Bug fix — a dish belonging to the currently selected package (e.g.
+      // Virgin Mojito under a Beverage section) but with no catalogue
+      // section_id and no sales_meta override used to fall all the way to
+      // DEFAULT_DEPT ('kit') here, even though dishNameToPkgDept already
+      // knows its real, correct department (deptCounts/templateDishesInDept
+      // already prioritize it the same way) — it showed correctly under its
+      // real dept AND bled into Kitchen's Extras as an unclaimed leftover.
       var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
       var meta = salesMeta[d.name];
-      var dept = override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
-    if (activeDept === 'kit' && phantomDishes.length > 0) {
-      return base.concat(phantomDishes);
-    }
+    // Phantom (catalogue-missing) dishes used to always surface in Kitchen
+    // regardless of which dept they actually belong to — now routed by the
+    // same dishNameToPkgDept priority as everything else, so e.g. a missing
+    // Beverage dish's ⚠ warning shows under Beverage, not Kitchen.
+    var phantomsForDept = phantomDishes.filter(function(p){ return (dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
+    if (phantomsForDept.length > 0) return base.concat(phantomsForDept);
     return base;
-  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap]);
+  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept]);
 
   // ── Template dishes scoped to active dept ──
   var templateDishesInDept = useMemo(function(){
@@ -400,13 +537,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
       if (dietFilter !== 'all' && diet !== dietFilter) return false;
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
-      // Hide dishes that aren't in template AND aren't selected, unless showAddons is true
+      // Hide dishes that aren't in template AND aren't selected, unless showAddons is
+      // true — or the dish was explicitly placed here via "Add section from
+      // library" (V87): that adds the whole section as browsable, unselected
+      // cards, not auto-picked, so it must stay visible regardless of showAddons.
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
 
   // ── Group visible dishes by category ──
   var groupedByCat = useMemo(function(){
@@ -430,17 +571,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // Unassigned + phantom + orphaned dishes fall into an Extras bucket at the bottom.
   var groupedBySection = useMemo(function(){
     if (!sections || sections.length === 0) return null;
-    // V73: only include sections whose effective sales_dept matches activeDept.
-    var deptSections = sections.filter(function(s){ return (s.sales_dept || 'kit') === activeDept; });
-    if (deptSections.length === 0) return null;
+    // Bug fix — this used to filter+list EVERY catalogue row (parents AND
+    // subsections alike) as its own flat top-level pill, ordered by sort_order.
+    // But sort_order is only ever comparable among SIBLINGS (a subsection's
+    // own reorder-drag resets it relative to its sisters, same for a parent
+    // among other parents) — a parent's sort_order routinely lands numerically
+    // BEFORE its own children's, so subsections of different parents ended up
+    // interleaved ahead of any parent pill at all. Only top-level sections
+    // become their own pill now; subsections are pooled into it (dishes) and
+    // rendered as subGroups, same shape groupedByPkgSection already uses.
+    var topSections = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
+    if (topSections.length === 0) return null;
 
     // Package dish → order index (for pinned block ordering)
     var pkgOrder = {};
     (templateInfo.dishes || []).forEach(function(d, i){ pkgOrder[d] = i; });
 
-    // Valid section id set (dishes with section_id not in this set fall to Extras)
+    // Valid section id set (dishes with section_id not in this set fall to
+    // Extras) — a subsection counts here purely via its PARENT's dept, not
+    // its own (usually unset) sales_dept.
     var validSectionIds = {};
-    deptSections.forEach(function(s){ validSectionIds[s.id] = true; });
+    topSections.forEach(function(s){
+      validSectionIds[s.id] = true;
+      (catSubsByParent[s.id] || []).forEach(function(sub){ validSectionIds[sub.id] = true; });
+    });
 
     // Bucket
     var bySection = {};
@@ -481,16 +635,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
 
     var out = [];
-    deptSections.forEach(function(s){
-      var list = bySection[s.id] || [];
-      if (list.length === 0) return; // skip empty sections
-      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(list) });
+    topSections.forEach(function(s){
+      var subs = catSubsByParent[s.id] || [];
+      var direct = bySection[s.id] || [];
+      var pooled = direct.slice();
+      var subGroups = null;
+      if (subs.length > 0) {
+        subGroups = [];
+        if (direct.length > 0) subGroups.push({ id: s.id, name: s.name, dishes: sortWithin(direct) });
+        subs.forEach(function(sub){
+          var subList = bySection[sub.id] || [];
+          if (subList.length === 0) return;
+          pooled = pooled.concat(subList);
+          subGroups.push({ id: sub.id, name: sub.name, dishes: sortWithin(subList) });
+        });
+        if (subGroups.length === 0) subGroups = null;
+      }
+      if (pooled.length === 0) return; // skip empty sections
+      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(pooled), subGroups: subGroups });
     });
     if (extras.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
     }
     return out;
-  }, [activeDept, sections, visibleDishes, templateInfo.dishes]);
+  }, [activeDept, sections, visibleDishes, templateInfo.dishes, catSubsByParent]);
 
   // ── V75: same visibility rules as visibleDishes (diet filter, search, template/
   // selected/add-on visibility) but WITHOUT the per-dept restriction — needed so a
@@ -507,10 +675,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
-      if (!inT && !isSel && !showAddons) return false;
+      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
-  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons]);
+  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
 
   // ── V76: every catalogue dish (diet filter + search still apply, since those are
   // explicit choices) with NO template/selected/showAddons gate — a package-linked
@@ -575,48 +744,191 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         image: '', notes: '', section_id: null, sort_in_section: null };
     }
 
+    function pinnedRest(dishList, pkgDishNames) {
+      var pinned = [], rest = [];
+      dishList.forEach(function(d){ (pkgDishNames.indexOf(d.name) >= 0 ? pinned : rest).push(d); });
+      pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
+      rest.sort(function(a, b){
+        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
+        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
+        if (sa !== sb) return sa - sb;
+        return a.name.localeCompare(b.name);
+      });
+      return pinned.concat(rest);
+    }
+
     var out = [];
     pkgSecs.forEach(function(sec){
       if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
       var pkgDishNames = (sec.dishes || []).filter(Boolean);
-      var catDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      var directCatDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+      // V86 — the linked catalogue section may itself have subsections (Dish
+      // Library → Sections), each holding its own slice of the full catalogue
+      // list (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental). Pool
+      // ALL of them, grouped by subsection, instead of only whatever's
+      // directly on the parent row — otherwise a fully-subsectioned catalogue
+      // section (0 dishes of its own) resolves to nothing to browse at all.
+      var catSubs = sec.catalogue_section_id ? (catSubsByParent[sec.catalogue_section_id] || []) : [];
 
       var list;
-      if (catDishes && catDishes.length > 0) {
-        var pkgNameSet = {};
-        pkgDishNames.forEach(function(n){ pkgNameSet[n] = true; });
-        var pinned = [], rest = [];
-        catDishes.forEach(function(d){ (pkgNameSet[d.name] ? pinned : rest).push(d); });
-        pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
-        rest.sort(function(a, b){
-          var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
-          var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
-          if (sa !== sb) return sa - sb;
-          return a.name.localeCompare(b.name);
+      var subGroups = null;
+      if (catSubs.length > 0) {
+        subGroups = [];
+        var allCatDishes = (directCatDishes || []).slice();
+        if (directCatDishes && directCatDishes.length > 0) {
+          subGroups.push({ id: sec.catalogue_section_id, name: sec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
+        }
+        catSubs.forEach(function(sub){
+          var subDishes = byCatSectionId[sub.id] || [];
+          if (subDishes.length === 0) return;
+          allCatDishes = allCatDishes.concat(subDishes);
+          subGroups.push({ id: sub.id, name: sub.name, dishes: pinnedRest(subDishes, pkgDishNames) });
         });
+        var foundInSubs = {};
+        allCatDishes.forEach(function(d){ foundInSubs[d.name] = true; });
+        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
+        if (missingFromSubs.length > 0) subGroups.unshift({ id: sec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
+        if (subGroups.length === 0) subGroups = null;
+        list = missingFromSubs.concat(allCatDishes);
+      } else if (directCatDishes && directCatDishes.length > 0) {
         // Package dish names that don't exist among this catalogue section's own
         // dishes (name mismatch, or added to the package from elsewhere) — resolve
         // or synthesize them too, so the package's own count is never short.
         var foundNames = {};
-        catDishes.forEach(function(d){ foundNames[d.name] = true; });
+        directCatDishes.forEach(function(d){ foundNames[d.name] = true; });
         var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        list = missing.concat(pinned).concat(rest);
+        list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
         list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
       }
 
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list });
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list, subGroups: subGroups });
     });
     if (out.length === 0) return null;
 
-    var leftover = visibleDishes.filter(function(d){ return !consumed[d.name]; });
-    if (leftover.length > 0) {
-      out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: leftover });
+    // Bug fix — "Extras" is itself a selectable placement pill (so a custom
+    // dish can be explicitly tagged there instead of a real section), but it
+    // used to only get built at the very end from whatever's left unconsumed.
+    // An override tagged to '__extras__' ran BEFORE that existed, so it fell
+    // through to newGroups and spawned a SECOND, colliding "Extras" pill
+    // (duplicate id — one hid the other). Build it once, up front, so the
+    // override pass below places straight into the same bucket leftovers use.
+    var extrasGroup = { id: '__extras__', name: 'Extras', icon: '✨', dishes: [] };
+    out.push(extrasGroup);
+
+    // V87 — a custom dish (or a whole library section added ad hoc) is tagged
+    // per-proposal via sectionOverrides, pointing at a group/subGroup id that
+    // may already exist above — place it there instead of leaving it for
+    // Extras. A tag pointing at neither (a whole catalogue section added ad
+    // hoc that isn't part of this package, e.g. "Pre Dining Live") gets its
+    // OWN new pill named after that catalogue section, rather than silently
+    // falling into Extras.
+    // A tag's target can be a package-section id, a catalogue section id, or
+    // a catalogue subsection id — all three carry (or inherit) a sales_dept,
+    // and a tag whose dept doesn't match the tab being viewed must be fully
+    // skipped here (not just left unplaced), or it leaks into every OTHER
+    // dept tab too as a stray pill labelled with its raw id (since it won't
+    // resolve a real name outside its own dept's catalogueSectionOptions).
+    function deptForTargetId(rawId) {
+      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
+      var ps = pkgSecs.find(function(s){ return s.id === id; });
+      if (ps) return ps.sales_dept || 'kit';
+      var cs = sections.find(function(s){ return s.id === id; });
+      if (cs) {
+        if (cs.sales_dept) return cs.sales_dept;
+        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
+        return (parent && parent.sales_dept) || 'kit';
+      }
+      return null;
     }
+
+    // '__extras__' (an explicit "place in Extras" choice) and any other
+    // target with no dept of its own carry no department info at all — fall
+    // back to the dish's OWN native dept (visibleDishes is already scoped to
+    // activeDept) so it only ever shows under the one tab it actually
+    // belongs to, not every tab.
+    var visibleDeptSet = {};
+    visibleDishes.forEach(function(d){ visibleDeptSet[d.name] = true; });
+
+    var newGroups = {}; // targetId -> group, built once, appended after
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      if (consumed[name]) return;
+      var targetId = sectionOverrides[name];
+      if (!targetId) return;
+      var targetDept = deptForTargetId(targetId);
+      if (targetDept) {
+        if (targetDept !== activeDept) return; // belongs to a different department tab entirely
+      } else if (!visibleDeptSet[name]) {
+        return; // no dept info from the target itself — dish isn't native to this tab
+      }
+      var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
+      if (!d) return; // not currently visible (filtered by search/diet/showAddons)
+      var placed = out.some(function(g){
+        if (g.subGroups) {
+          var sg = g.subGroups.find(function(x){ return x.id === targetId; });
+          if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
+          if (g.id === targetId) {
+            // Target IS this group, but it renders via subGroups only (a flat
+            // g.dishes push would be invisible) — give it a shared "Other"
+            // bucket, same id convention the pooling above already uses.
+            var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
+            if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
+            other.dishes = other.dishes.concat([d]);
+            return true;
+          }
+          return false;
+        }
+        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
+        return false;
+      });
+      if (placed) { consumed[name] = true; return; }
+      if (!newGroups[targetId]) {
+        var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
+        // V87 fix — a whole catalogue section added ad hoc can itself have
+        // subsections (e.g. "Pre Dining Live" > Lebanese/Galouti/Kebab/...);
+        // pool the same subGroups shape the main package-section loop above
+        // builds, bucketing each tagged dish by its OWN catalogue section_id,
+        // instead of one flat unlabeled list.
+        var subs = catSubsByParent[targetId] || [];
+        var subGroupsNew = subs.length > 0
+          ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
+          : null;
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [], subGroups: subGroupsNew, isAdHoc: true };
+      }
+      var ng = newGroups[targetId];
+      ng.dishes.push(d);
+      if (ng.subGroups) {
+        var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
+        destSg.dishes.push(d);
+      }
+      consumed[name] = true;
+    });
+    Object.keys(newGroups).forEach(function(id){
+      var g = newGroups[id];
+      if (g.subGroups) { g.subGroups = g.subGroups.filter(function(sg){ return sg.dishes.length > 0; }); if (g.subGroups.length === 0) g.subGroups = null; }
+      out.push(g);
+    });
+
+    // A dish tagged to a section in a DIFFERENT department (e.g. an
+    // unclassified custom dish, natively visible here in Kitchen by default,
+    // but tagged to a Fruits-dept section) already renders correctly under
+    // its tag's own dept tab — it must not also leak into THIS dept's Extras
+    // just because its fallback native dept happens to be the one showing.
+    var leftover = visibleDishes.filter(function(d){
+      if (consumed[d.name]) return false;
+      var ov = sectionOverrides && sectionOverrides[d.name];
+      if (ov) {
+        var ovDept = deptForTargetId(ov);
+        if (ovDept && ovDept !== activeDept) return false;
+      }
+      return true;
+    });
+    extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
+    if (extrasGroup.dishes.length === 0) out.splice(out.indexOf(extrasGroup), 1);
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
@@ -755,6 +1067,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   deptCounts={deptCounts[activeDept]}
                   onLoadDefaults={loadPackageDefaults}
                   seeding={seeding}
+                  onAddCustomDish={addCustomDish}
+                  catalogueSectionOptions={catalogueSectionOptions}
+                  onAddSectionFromLibrary={addSectionFromLibrary}
+                  onRemoveSection={removeAdHocSection}
                 />
               )}
 
@@ -808,7 +1124,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var totalSel = deptCounts ? deptCounts.sel : 0;
   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
   var deptTotal = deptCounts ? deptCounts.total : 0;
@@ -826,6 +1142,57 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
   // eslint-disable-next-line
   }, [activeDept, groupedByCat.map(function(g){ return g.id; }).join(',')]);
   var visibleGroups = isSearching ? groupedByCat : groupedByCat.filter(function(g){ return g.id === activeSectionId; });
+
+  // V87 — custom dish add, mirrors Build Menu's MenuEditor.jsx flow: pick an
+  // SOP/recipe category (so it's classified from the start, not fuzzy-guessed
+  // later) plus which section/subsection pill to place it in for THIS
+  // proposal/event — flattened from whatever's currently grouped, so a
+  // package-linked section's own subsections show up as pickable targets too.
+  var [pendingCustom, setPendingCustom] = useState(null); // { name, catId, sectionId } | null
+  var [customSaving, setCustomSaving] = useState(false);
+  var placementOptions = useMemo(function(){
+    var out = [];
+    groupedByCat.forEach(function(g){
+      out.push({ id: g.id, label: g.name });
+      (g.subGroups || []).forEach(function(sg){ out.push({ id: sg.id, label: g.name + ' › ' + sg.name }); });
+    });
+    return out;
+  }, [groupedByCat]);
+  function openCustomModal(){
+    setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '' });
+  }
+  async function confirmCustom(){
+    if (!pendingCustom || !pendingCustom.name.trim() || customSaving) return;
+    setCustomSaving(true);
+    try {
+      await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
+      setPendingCustom(null);
+    } catch (e) {
+      alert(T2('Failed to add dish:') + ' ' + (e.message || e));
+    } finally {
+      setCustomSaving(false);
+    }
+  }
+
+  // V87 — add a whole catalogue section (with its subsections) at once,
+  // placed under whichever pill the user picks.
+  var [pendingSection, setPendingSection] = useState(null); // { catSectionId, targetId } | null
+  var [sectionSaving, setSectionSaving] = useState(false);
+  function openSectionModal(){
+    setPendingSection({ catSectionId: '', targetId: '' });
+  }
+  async function confirmAddSection(){
+    if (!pendingSection || !pendingSection.catSectionId || !pendingSection.targetId || sectionSaving) return;
+    setSectionSaving(true);
+    try {
+      await onAddSectionFromLibrary(pendingSection.catSectionId, pendingSection.targetId || null);
+      setPendingSection(null);
+    } catch (e) {
+      alert(T2('Failed to add section:') + ' ' + (e.message || e));
+    } finally {
+      setSectionSaving(false);
+    }
+  }
 
   return (
     <div>
@@ -849,6 +1216,19 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             style={{ margin: 0, cursor: "pointer" }} />
           {T2("Show add-ons")}
         </label>
+
+        {onAddCustomDish && (
+          <button onClick={openCustomModal}
+            style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.wine, color: C.wine, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            + {T2("Add dish")}
+          </button>
+        )}
+        {onAddSectionFromLibrary && (
+          <button onClick={openSectionModal}
+            style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            📚 {T2("Add section")}
+          </button>
+        )}
       </div>
 
       {/* Template summary bar (per-dept scoped counts) */}
@@ -909,14 +1289,27 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             var isActive = g.id === activeSectionId;
             var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
             return (
-              <button key={g.id} onClick={function(){ setActiveSectionId(g.id); }}
-                style={{
-                  padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
-                  background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
-                  border: "1px solid " + (isActive ? C.wine : C.border), cursor: "pointer", whiteSpace: "nowrap",
-                }}>
-                {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
-              </button>
+              <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <button onClick={function(){ setActiveSectionId(g.id); }}
+                  style={{
+                    padding: "6px 12px", borderRadius: g.isAdHoc && onRemoveSection ? "20px 0 0 20px" : 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
+                    background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
+                    border: "1px solid " + (isActive ? C.wine : C.border), borderRight: (g.isAdHoc && onRemoveSection) ? "none" : undefined, cursor: "pointer", whiteSpace: "nowrap",
+                  }}>
+                  {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
+                </button>
+                {g.isAdHoc && onRemoveSection && (
+                  <button onClick={function(){ onRemoveSection(g); if (activeSectionId === g.id) setActiveSectionId(null); }}
+                    title={T2("Remove this ad-hoc section from this menu")}
+                    style={{
+                      padding: "6px 8px", borderRadius: "0 20px 20px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.muted,
+                      border: "1px solid " + (isActive ? C.wine : C.border), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                    }}>
+                    ✕
+                  </button>
+                )}
+              </span>
             );
           })}
         </div>
@@ -926,6 +1319,35 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       )}
 
       {visibleGroups.map(function(grp){
+        // V86 — a package section linked to a catalogue section that itself has
+        // subsections (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental)
+        // renders each subsection as its own labeled cluster instead of one
+        // flat grid, so sales can still tell what's what while browsing the
+        // full pooled catalogue.
+        if (grp.subGroups) {
+          return (
+            <div key={grp.id} style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+                {grp.icon} {grp.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {grp.dishes.length}</span>
+              </div>
+              {grp.subGroups.map(function(sub){
+                var selInSub = sub.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
+                return (
+                  <div key={sub.id} style={{ marginBottom: 16, marginLeft: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8, padding: "0 2px" }}>
+                      ↳ {sub.name} <span style={{ color: C.muted, fontWeight: 500 }}>· {selInSub > 0 ? selInSub + "/" : ""}{sub.dishes.length}</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+                      {sub.dishes.map(function(d){
+                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
         return (
           <div key={grp.id} style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
@@ -933,78 +1355,216 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
               {grp.dishes.map(function(d){
-                var inT = !!templateSet[d.name];
-                var isSel = !!selectedSet[d.name];
-                var meta = salesMeta[d.name];
-                var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
-                var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
-                var desc = (meta && meta.sales_description) || '';
-                var img = (meta && meta.hero_image_url) || d.image || '';
-
-                var borderStyle;
-                var bg;
-                if (inT && isSel)      { borderStyle = "1.5px solid #2A7A48"; bg = "#F0F9F3"; }
-                else if (inT && !isSel){ borderStyle = "1px solid " + C.border; bg = C.surface; }
-                else if (!inT && isSel){ borderStyle = "1.5px dashed #8A70C8"; bg = "#F8F4FC"; }
-                else                    { borderStyle = "1px dashed " + C.border; bg = C.surface; }
-
-                return (
-                  <button key={d.name} onClick={function(){ onToggle(d.name); }}
-                    style={{
-                      position: "relative", padding: 0, borderRadius: 10,
-                      background: bg, border: borderStyle,
-                      cursor: "pointer", textAlign: "left", overflow: "hidden",
-                      transition: "transform 0.08s ease",
-                    }}>
-                    {/* ADD-ON badge */}
-                    {!inT && isSel && !d.isPhantom && (
-                      <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-                        ADD-ON
-                      </span>
-                    )}
-                    {/* PHANTOM badge — dish in package but not in catalogue */}
-                    {d.isPhantom && (
-                      <span title="Not in dish catalogue — edit in Dish Library"
-                        style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-                        ⚠ NO CAT
-                      </span>
-                    )}
-                    {/* Checkbox */}
-                    <span style={{
-                      position: "absolute", top: 6, right: 6, zIndex: 2,
-                      width: 22, height: 22, borderRadius: 5,
-                      background: isSel ? (inT ? "#2A7A48" : "#8A70C8") : "rgba(255,255,255,0.9)",
-                      border: "1.5px solid " + (isSel ? (inT ? "#2A7A48" : "#8A70C8") : "#BBB"),
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      color: "#fff", fontSize: 13, fontWeight: 700,
-                    }}>
-                      {isSel ? "✓" : ""}
-                    </span>
-
-                    {/* Image area */}
-                    <div style={{ height: 90, background: img ? "transparent" : "#EEE", backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {!img && <span style={{ fontSize: 32, opacity: 0.4 }}>{d.catIcon}</span>}
-                    </div>
-
-                    {/* Text area */}
-                    <div style={{ padding: "8px 10px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                        {dietMeta && (
-                          <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
-                        )}
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.25, wordBreak: "break-word" }}>{d.name}</span>
-                      </div>
-                      {desc && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.3, marginTop: 2 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
-                      {!desc && d.hindi && <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>{d.hindi}</div>}
-                    </div>
-                  </button>
-                );
+                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
               })}
             </div>
           </div>
         );
       })}
+
+      {/* V87 — custom dish: confirm its SOP/recipe category + which section/
+          subsection pill to place it in, before adding it (mirrors Build
+          Menu's MenuEditor.jsx custom-dish modal). */}
+      {pendingCustom && (
+        <div onClick={function(){ if (!customSaving) setPendingCustom(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 460, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 14 }}>{T2("Add a dish")}</div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Dish name")}</div>
+            <input value={pendingCustom.name} autoFocus
+              onChange={function(e){ setPendingCustom(function(p){ return { ...p, name: e.target.value }; }); }}
+              placeholder={T2("Not in list…")}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: "border-box", marginBottom: 16 }} />
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+              {(RECIPE_DB.cats || []).map(function(c){
+                var active = pendingCustom.catId === c.id;
+                return (
+                  <button key={c.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, catId: active ? "" : c.id }; }); }}
+                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                      background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
+                      border: "1px solid " + (active ? C.green : C.border) }}>
+                    {c.icon} {c.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {placementOptions.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+                  {placementOptions.map(function(o){
+                    var active = pendingCustom.sectionId === o.id;
+                    return (
+                      <button key={o.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, sectionId: active ? "" : o.id }; }); }}
+                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
+                          border: "1px solid " + (active ? C.wine : C.border) }}>
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={function(){ setPendingCustom(null); }} disabled={customSaving}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Cancel")}
+              </button>
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
+                {customSaving ? T2("Adding…") : T2("Add dish")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V87 — add a whole Dish Library catalogue section (its own dishes plus
+          any subsections') at once, placed under a chosen pill. */}
+      {pendingSection && (
+        <div onClick={function(){ if (!sectionSaving) setPendingSection(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 460, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📚 {T2("Add section from library")}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Gets its own pill named after the catalogue section, tagged as add-ons — nothing is auto-selected. Pick a Menu section below only if you'd rather merge it into an existing pill instead.")}</div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Catalogue section")}</div>
+            {(!catalogueSectionOptions || catalogueSectionOptions.length === 0) && (
+              <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, fontSize: 12, color: C.muted, marginBottom: 16 }}>{T2("No catalogue sections routed to this department.")}</div>
+            )}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+              {(catalogueSectionOptions || []).map(function(o){
+                var active = pendingSection.catSectionId === o.id;
+                return (
+                  <button key={o.id} onClick={function(){ setPendingSection(function(p){
+                      // Defaults the placement to a brand-new pill matching this
+                      // catalogue section — NOT whatever tab happens to be active
+                      // — so picking "Pre Dining Live" doesn't silently dump its
+                      // dishes into an unrelated already-open pill. Re-picking a
+                      // "Menu section" pill below still overrides this.
+                      return { ...p, catSectionId: o.id, targetId: o.id };
+                    }); }}
+                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                      background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
+                      border: "1px solid " + (active ? C.wine : C.border) }}>
+                    {o.label} <span style={{ opacity: 0.7 }}>({o.count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {placementOptions.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Merge into existing menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("optional — this event only")})</span></div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+                  {placementOptions.map(function(o){
+                    var active = pendingSection.targetId === o.id;
+                    return (
+                      <button key={o.id} onClick={function(){ setPendingSection(function(p){ return { ...p, targetId: active ? "" : o.id }; }); }}
+                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
+                          border: "1px solid " + (active ? C.wine : C.border) }}>
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={function(){ setPendingSection(null); }} disabled={sectionSaving}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Cancel")}
+              </button>
+              <button onClick={confirmAddSection} disabled={!pendingSection.catSectionId || !pendingSection.targetId || sectionSaving}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: sectionSaving ? "wait" : "pointer", opacity: sectionSaving ? 0.6 : 1 }}>
+                {sectionSaving ? T2("Adding…") : T2("Add section")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// V86 — dish card, extracted so it can render inside a subGroups cluster
+// (grouped by catalogue subsection) as well as a plain flat grid.
+function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
+  var inT = !!templateSet[d.name];
+  var isSel = !!selectedSet[d.name];
+  var meta = salesMeta[d.name];
+  var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+  var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
+  var desc = (meta && meta.sales_description) || '';
+  var img = (meta && meta.hero_image_url) || d.image || '';
+
+  var borderStyle;
+  var bg;
+  if (inT && isSel)      { borderStyle = "1.5px solid #2A7A48"; bg = "#F0F9F3"; }
+  else if (inT && !isSel){ borderStyle = "1px solid " + C.border; bg = C.surface; }
+  else if (!inT && isSel){ borderStyle = "1.5px dashed #8A70C8"; bg = "#F8F4FC"; }
+  else                    { borderStyle = "1px dashed " + C.border; bg = C.surface; }
+
+  return (
+    <button onClick={function(){ onToggle(d.name); }}
+      style={{
+        position: "relative", padding: 0, borderRadius: 10,
+        background: bg, border: borderStyle,
+        cursor: "pointer", textAlign: "left", overflow: "hidden",
+        transition: "transform 0.08s ease",
+      }}>
+      {/* ADD-ON badge */}
+      {!inT && isSel && !d.isPhantom && (
+        <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+          ADD-ON
+        </span>
+      )}
+      {/* PHANTOM badge — dish in package but not in catalogue */}
+      {d.isPhantom && (
+        <span title="Not in dish catalogue — edit in Dish Library"
+          style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
+          ⚠ NO CAT
+        </span>
+      )}
+      {/* Checkbox */}
+      <span style={{
+        position: "absolute", top: 6, right: 6, zIndex: 2,
+        width: 22, height: 22, borderRadius: 5,
+        background: isSel ? (inT ? "#2A7A48" : "#8A70C8") : "rgba(255,255,255,0.9)",
+        border: "1.5px solid " + (isSel ? (inT ? "#2A7A48" : "#8A70C8") : "#BBB"),
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#fff", fontSize: 13, fontWeight: 700,
+      }}>
+        {isSel ? "✓" : ""}
+      </span>
+
+      {/* Image area */}
+      <div style={{ height: 90, background: img ? "transparent" : "#EEE", backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {!img && <span style={{ fontSize: 32, opacity: 0.4 }}>{d.catIcon}</span>}
+      </div>
+
+      {/* Text area */}
+      <div style={{ padding: "8px 10px 10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+          {dietMeta && (
+            <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
+          )}
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.25, wordBreak: "break-word" }}>{d.name}</span>
+        </div>
+        {desc && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.3, marginTop: 2 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
+        {!desc && d.hindi && <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>{d.hindi}</div>}
+      </div>
+    </button>
   );
 }
 

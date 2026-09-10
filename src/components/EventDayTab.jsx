@@ -1,6 +1,6 @@
 // Ambria FnB — Event Day Tab (redesigned)
 // Place in: src/components/EventDayTab.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState } from '../utils/helpers.js';
@@ -44,6 +44,39 @@ function isOverdue(d, si) {
 function fmtTimer(sec) {
   const abs = Math.abs(sec); const m = Math.floor(abs / 60); const s = abs % 60;
   return (sec < 0 ? "+" : "") + m + "m " + (s < 10 ? "0" : "") + s + "s" + (sec < 0 ? " over" : "");
+}
+
+// ── Overtime alarm — one shared siren loop so concurrent overdue steps never overlap ──
+let _alarmCtx = null, _alarmOsc = null, _alarmGain = null, _alarmTimerId = null, _alarmPlaying = false;
+function _sirenSweep() {
+  if (!_alarmOsc || !_alarmCtx) return;
+  const t = _alarmCtx.currentTime;
+  _alarmOsc.frequency.cancelScheduledValues(t);
+  _alarmOsc.frequency.setValueAtTime(420, t);
+  _alarmOsc.frequency.linearRampToValueAtTime(1250, t + 0.8);
+  _alarmOsc.frequency.linearRampToValueAtTime(420, t + 1.6);
+}
+function startAlarm() {
+  if (_alarmPlaying) return;
+  _alarmPlaying = true;
+  try {
+    if (!_alarmCtx) _alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_alarmCtx.state === "suspended") _alarmCtx.resume();
+    _alarmOsc = _alarmCtx.createOscillator();
+    _alarmGain = _alarmCtx.createGain();
+    _alarmOsc.type = "sawtooth";
+    _alarmGain.gain.setValueAtTime(0.16, _alarmCtx.currentTime);
+    _alarmOsc.connect(_alarmGain); _alarmGain.connect(_alarmCtx.destination);
+    _alarmOsc.start();
+    _sirenSweep();
+    _alarmTimerId = setInterval(_sirenSweep, 1600);
+  } catch (e) {}
+}
+function stopAlarm() {
+  _alarmPlaying = false;
+  if (_alarmTimerId) { clearInterval(_alarmTimerId); _alarmTimerId = null; }
+  if (_alarmOsc) { try { _alarmOsc.stop(); } catch (e) {} try { _alarmOsc.disconnect(); } catch (e) {} _alarmOsc = null; }
+  if (_alarmGain) { try { _alarmGain.disconnect(); } catch (e) {} _alarmGain = null; }
 }
 
 // ── Sub-components ──
@@ -158,6 +191,16 @@ function EventDayTab({
     setD1Dismissed(true);
     try { localStorage.setItem(D1_DISMISS_KEY, localDateStr(new Date())); } catch { /* private mode */ }
   }
+
+  // ── Overtime alarm bookkeeping — StepRow pushes its own key into this ref while overdue+unmuted;
+  // an effect after every render turns the single shared alarm on/off based on whether the ref is non-empty ──
+  const overdueRef = useRef([]);
+  overdueRef.current = [];
+  const [alarmMuted, setAlarmMuted] = useState({});
+  function muteAlarm(key) { setAlarmMuted(p => p[key] ? p : { ...p, [key]: true }); }
+  function clearMuteAlarm(key) { setAlarmMuted(p => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; }); }
+  useEffect(() => { if (overdueRef.current.length > 0) startAlarm(); else stopAlarm(); });
+  useEffect(() => () => stopAlarm(), []);
 
   // ── Section-level "Collect from store" (scope: combined vs per-function) ──
   function ssKey(catId) { return "__sec_" + catId; }
@@ -1203,6 +1246,7 @@ function EventDayTab({
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser} lang={lang}
+                                    parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
                                   />;
                                 })}
 
@@ -1234,6 +1278,7 @@ function EventDayTab({
                                     doneTime={d.manualAt?.[si] || null}
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser} lang={lang}
+                                    parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
                                   />;
                                 })}
                               </div>
@@ -1770,8 +1815,11 @@ function EventDayTab({
 }
 
 // ── StepRow ──
-function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, onUndo, doneTime, doneElapsed, subs, stepKey, d2d, setDsFn, large, lang = "en" }) {
+function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, timerSec, locked, d1Badge, onStart, onDone, onUndo, doneTime, doneElapsed, subs, stepKey, d2d, setDsFn, large, lang = "en", parentKey, alarmMuted, muteAlarm, clearMuteAlarm, overdueCollector }) {
   const remaining = timerSec - elapsedSec;
+  const mainAlarmKey = (parentKey || "") + "|" + stepKey;
+  const mainMuted = !!(alarmMuted && alarmMuted[mainAlarmKey]);
+  if (!subs && overdue && !done && overdueCollector && !mainMuted) overdueCollector.current.push(mainAlarmKey);
   const SZ = large ? { badge:36, badgeR:10, badgeFt:14, title:16, desc:13, ccp:13, timer:14, done:13, hint:13, btn:"10px 18px", btnR:12, btnFt:14, btnH:48, sub:28, subR:8, subFt:11, subTitle:14, subDesc:12, subTimer:12, subHint:12, subBtn:"8px 16px", subBtnR:10, subBtnFt:13, subBtnH:42, border:2.5, pad:"14px 0" } : { badge:26, badgeR:7, badgeFt:11, title:13, desc:11, ccp:11, timer:12, done:11, hint:11, btn:"7px 14px", btnR:10, btnFt:12, btnH:32, sub:24, subR:6, subFt:10, subTitle:12, subDesc:11, subTimer:10, subHint:10, subBtn:"6px 12px", subBtnR:8, subBtnFt:11, subBtnH:32, border:2.5, pad:"10px 0" };
   // Under/over calculation for completed steps
   const hasDoneElapsed = done && doneElapsed != null && doneElapsed > 0 && timerSec > 0;
@@ -1828,9 +1876,15 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
       </div>
       <div style={{ flexShrink: 0, marginTop: 2 }}>
         {!subs && locked && !done && <div style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: K.surfaceAlt, border: `1px solid ${K.line}`, color: K.textFaint, display:"flex", alignItems:"center" }}><Icon name="lock" size={14} strokeWidth={2}/></div>}
-        {!subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); onStart(); }} onPointerDown={ripple} className="kh-rip" style={{ display:"inline-flex", alignItems:"center", gap:6, padding: SZ.btn, borderRadius: SZ.btnR, background: K.brand, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH, fontFamily: K.fontBody }}><Icon name="clock" size={14} strokeWidth={2.2}/>{Math.floor(timerSec / 60)}m</button>}
+        {!subs && !locked && !done && !running && timerSec > 0 && <button onClick={e => { e.stopPropagation(); clearMuteAlarm && clearMuteAlarm(mainAlarmKey); onStart(); }} onPointerDown={ripple} className="kh-rip" style={{ display:"inline-flex", alignItems:"center", gap:6, padding: SZ.btn, borderRadius: SZ.btnR, background: K.brand, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH, fontFamily: K.fontBody }}><Icon name="clock" size={14} strokeWidth={2.2}/>{Math.floor(timerSec / 60)}m</button>}
         {!subs && !locked && !done && !running && !timerSec && <button onClick={e => { e.stopPropagation(); onDone(); }} onPointerDown={ripple} className="kh-rip" style={{ display:"inline-flex", alignItems:"center", gap:6, padding: SZ.btn, borderRadius: SZ.btnR, background: K.brand, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH, fontFamily: K.fontBody }}><Icon name="check" size={14} strokeWidth={2.4}/>{T("Done", lang)}</button>}
-        {!subs && running && !done && <button onClick={e => { e.stopPropagation(); onDone(); }} onPointerDown={ripple} className="kh-rip" style={{ display:"inline-flex", alignItems:"center", gap:6, padding: SZ.btn, borderRadius: SZ.btnR, background: overdue ? K.danger : K.ok, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH, fontFamily: K.fontBody }}><Icon name={overdue ? "alert" : "check"} size={14} strokeWidth={2.4}/>{T("Done", lang)}</button>}
+        {!subs && running && !done && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={e => { e.stopPropagation(); onDone(); }} onPointerDown={ripple} className="kh-rip" style={{ display:"inline-flex", alignItems:"center", gap:6, padding: SZ.btn, borderRadius: SZ.btnR, background: overdue ? K.danger : K.ok, color: "#fff", border: "none", fontSize: SZ.btnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.btnH, fontFamily: K.fontBody }}><Icon name={overdue ? "alert" : "check"} size={14} strokeWidth={2.4}/>{T("Done", lang)}</button>
+            {/* Silence the overtime alarm for this step (from origin/main). */}
+            {overdue && <button onClick={e => { e.stopPropagation(); mainMuted ? clearMuteAlarm(mainAlarmKey) : muteAlarm(mainAlarmKey); }} onPointerDown={ripple} className="kh-rip" title={mainMuted ? T("Alarm silenced", lang) : T("Silence alarm", lang)} style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", padding: SZ.btn, borderRadius: SZ.btnR, minHeight: SZ.btnH, cursor:"pointer", background: mainMuted ? K.surfaceAlt : K.warnBg, border: `1px solid ${mainMuted ? K.line : K.warnBorder}`, color: mainMuted ? K.textFaint : K.warn }}><Icon name="bell" size={15} strokeWidth={2}/></button>}
+          </div>
+        )}
         {subs && locked && !done && <div style={{ padding: SZ.btn, borderRadius: SZ.btnR, background: K.surfaceAlt, border: `1px solid ${K.line}`, color: K.textFaint, display:"flex", alignItems:"center" }}><Icon name="lock" size={14} strokeWidth={2}/></div>}
         {subs && !locked && !done && <span style={{ color: K.textMuted, display:"flex" }}><Icon name="chevronD" size={large?15:13} strokeWidth={2}/></span>}
         {/* Ghost until hovered — the amber fill made every completed step look
@@ -1856,6 +1910,9 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
             const sbDE = d2d.doneElapsed?.[sbk] || 0;
             const sbWasOver = sbHasDoneEl && sbDE > sb.tm;
             const sbDiffSec = sbHasDoneEl ? Math.abs(sbDE - sb.tm) : 0;
+            const subAlarmKey = (parentKey || "") + "|" + sbk;
+            const sbMuted = !!(alarmMuted && alarmMuted[subAlarmKey]);
+            if (sbOver && overdueCollector && !sbMuted) overdueCollector.current.push(subAlarmKey);
             return (
               <div key={sbi} style={{ padding: "8px 0", borderBottom: sbi < subs.length - 1 ? `1px solid ${C.border}20` : "none" }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -1869,9 +1926,15 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
                     {!sbDone && !sbStarted && sb.tm > 0 && <div style={{fontSize:SZ.subHint,color:C.faint,marginTop:2}}>⏱ {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</div>}
                   </div>
                   <div style={{ flexShrink: 0 }}>
-                    {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,#25543C,#1C3D2B)`, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
+                    {!sbDone && sbPrevD && !sbStarted && sb.tm > 0 && <button onClick={e => { e.stopPropagation(); clearMuteAlarm && clearMuteAlarm(subAlarmKey); setDsFn({ starts: { ...(d2d.starts || {}), [sbk]: Date.now() } }); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: `linear-gradient(135deg,#25543C,#1C3D2B)`, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>▶ {Math.floor(sb.tm/60)}m</button>}
                     {!sbDone && sbPrevD && !sbStarted && !sb.tm && <button onClick={e => { e.stopPropagation(); const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() } }; if (sbi === subs.length - 1) { upd.doneElapsed = { ...(d2d.doneElapsed || {}), [stepKey]: d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0 }; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: "#1C3D2B", color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>✓ Done</button>}
-                    {!sbDone && sbStarted && <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>}
+                    {!sbDone && sbStarted && (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={e => { e.stopPropagation(); const el = d2d.starts?.[sbk] ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0; const upd = { manual: { ...(d2d.manual || {}), [sbk]: true }, manualAt: { ...(d2d.manualAt || {}), [sbk]: fmtStamp() }, doneElapsed: { ...(d2d.doneElapsed || {}), [sbk]: el } }; if (sbi === subs.length - 1) { upd.doneElapsed[stepKey] = d2d.starts?.[stepKey] ? Math.floor((Date.now() - d2d.starts[stepKey]) / 1000) : 0; } setDsFn(upd); }} style={{ padding: SZ.subBtn, borderRadius: SZ.subBtnR, background: sbOver ? `linear-gradient(135deg,${C.red},#801818)` : C.green, color: "#fff", border: "none", fontSize: SZ.subBtnFt, fontWeight: 700, cursor: "pointer", minHeight: SZ.subBtnH }}>{sbOver ? "⚠" : "✓"} Done</button>
+                        {/* Silence this sub-step’s overtime alarm (from origin/main). */}
+                        {sbOver && <button onClick={e => { e.stopPropagation(); sbMuted ? clearMuteAlarm(subAlarmKey) : muteAlarm(subAlarmKey); }} onPointerDown={ripple} className="kh-rip" title={sbMuted ? T("Alarm silenced", lang) : T("Silence alarm", lang)} style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", padding: SZ.subBtn, borderRadius: SZ.subBtnR, minHeight: SZ.subBtnH, cursor:"pointer", background: sbMuted ? K.surfaceAlt : K.warnBg, border: `1px solid ${sbMuted ? K.line : K.warnBorder}`, color: sbMuted ? K.textFaint : K.warn }}><Icon name="bell" size={13} strokeWidth={2}/></button>}
+                      </div>
+                    )}
                     
                     {sbDone && <button onClick={e=>{e.stopPropagation();setDsFn({manual:{...(d2d.manual||{}),[sbk]:false},starts:{...(d2d.starts||{}),[sbk]:null}});}} className="kh-undobtn" title={T("Undo", lang)} aria-label={T("Undo", lang)} style={{display:"flex",alignItems:"center",justifyContent:"center",width:large?28:24,height:large?28:24,padding:0,borderRadius:large?8:7,background:"transparent",border:`1px solid ${K.line}`,color:K.textFaint,cursor:"pointer"}}><Icon name="undo" size={large?13:12} strokeWidth={2}/></button>}
                   </div>

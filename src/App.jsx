@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
+import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
@@ -114,21 +115,53 @@ export default function App() {
   const topFade = scrolled ? "linear-gradient(to bottom, transparent 0, #000 34px)" : "none";
 
   // ── PWA auto-update ──
+  // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
+  // deployed SW take over THIS already-open tab silently in the background —
+  // no reload, no user action. The old JS kept running but the new SW's cache
+  // only has the new deploy's asset hashes, so any dynamic import() the old
+  // bundle made for its own (now-deleted) chunk files 404'd with
+  // "Failed to fetch dynamically imported module", and — worse — the tab kept
+  // silently running stale application code indefinitely (any bugfix just
+  // pushed live never actually reached it) until a manual hard refresh.
+  // Fix: vite.config.js no longer auto-skips waiting, so a new SW sits
+  // "waiting" until the user clicks Update Now (postMessage below); once it
+  // takes over, controllerchange fires exactly once and we reload immediately —
+  // so the old bundle is never left running against new-hash assets.
   const [updateReady, setUpdateReady] = useState(false);
+  const waitingWorkerRef = useRef(null);
   useEffect(function(){
     if(!('serviceWorker' in navigator)) return;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      if(reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
     navigator.serviceWorker.ready.then(function(reg){
+      function armIfWaiting(){
+        if(reg.waiting && navigator.serviceWorker.controller){
+          waitingWorkerRef.current = reg.waiting;
+          setUpdateReady(true);
+        }
+      }
+      armIfWaiting(); // an update may already be waiting from before this mounted
       reg.addEventListener('updatefound', function(){
         var nw = reg.installing;
         if(!nw) return;
         nw.addEventListener('statechange', function(){
-          if(nw.state === 'activated' && navigator.serviceWorker.controller){
-            setUpdateReady(true);
-          }
+          if(nw.state === 'installed') armIfWaiting();
         });
       });
+      // SPA rarely does a full navigation, so also poll for updates directly —
+      // otherwise the browser may not check again for a long time.
+      var poll = setInterval(function(){ reg.update().catch(function(){}); }, 15*60*1000);
+      return function(){ clearInterval(poll); };
     });
   },[]);
+  function applyPwaUpdate(){
+    if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
+    else { window.location.reload(); }
+  }
 
   // ── Attendance ──
   const [attendance,setAttendance_raw] = useState([]);
@@ -183,7 +216,7 @@ export default function App() {
           const pkgDishes = ev.menuPackage && MENU_PACKAGES[ev.menuPackage] ? MENU_PACKAGES[ev.menuPackage] : null;
           const isAutoResolved = isLms && pkgDishes && Array.isArray(ev.menu) && ev.menu.length === pkgDishes.length && ev.menu.every(function(d,i){ return d === pkgDishes[i]; });
           const menuToStore = isAutoResolved ? [] : (ev.menu||[]);
-          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null},"id").catch(e=>console.error("ev sync:",e));
+          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,menu_section_overrides:ev.menu_section_overrides||{},special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null},"id").catch(e=>console.error("ev sync:",e));
         }
       });
       prevMap.forEach((_,id) => {
@@ -313,7 +346,7 @@ export default function App() {
         hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
         hydrateMenuPackageSections(cfg.menuSections);
         hydrateSalesConfigs(cfg.salesConfigs);
-        hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [] });
+        hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydrateRecipeData(cfg);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
         if(cfg.checklists) setDbChecklists(cfg.checklists);
@@ -473,22 +506,43 @@ export default function App() {
       if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>(a.staff_id||a.staffId)!==payload.old.staff_id||a.date!==payload.old.date));
     });
     const u4 = dbSubscribe('events', (payload) => {
-      let ev=null;
-      if(payload.new){
-        let menu=payload.new.menu||[];
+      // V84 — Postgres logical replication omits an unchanged TOASTed column
+      // (e.g. a large `menu` jsonb array) from a partial-column UPDATE's `new`
+      // payload when that update doesn't touch it — e.g. syncEventItemsFromKitchenMenu's
+      // trailing `{event_items_initialized:true}` write, which fires seconds
+      // after every Build Menu edit. payload.new.menu then comes back
+      // `undefined`, not the real value, and building `ev` straight from
+      // payload.new — then fully REPLACING the local event with it — silently
+      // wiped a menu that had just been correctly saved moments earlier, with
+      // no error, self-correcting only on a full reload (a real SELECT, not a
+      // partial-column echo). Fix: merge payload.new over the existing local
+      // copy of this event first, so any column this specific payload doesn't
+      // actually carry falls back to what's already known instead of blanking.
+      function buildEv(existing){
+        if(!payload.new) return null;
+        const raw={...(existing||{}),...payload.new};
+        let menu=raw.menu||[];
         if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
-        const pkg=matchMenuPackage(payload.new.menu_package||"");
+        const pkg=matchMenuPackage(raw.menu_package||"");
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
-        ev={...payload.new,menuPackage:pkg,menu,extras:payload.new.extras||[],odc_location:payload.new.odc_location||null,odc_address:payload.new.odc_address||null,odc_contact_phone:payload.new.odc_contact_phone||null,odc_transport_cost:payload.new.odc_transport_cost||null,odc_lead:payload.new.odc_lead||null,site_recce:payload.new.site_recce||null,odc_menu_confirmed:payload.new.odc_menu_confirmed??false,custom_menu_confirmed:payload.new.custom_menu_confirmed??false,yield_multiplier:Number(payload.new.yield_multiplier)||1.0};
+        return {...raw,menuPackage:pkg,menu,extras:raw.extras||[],odc_location:raw.odc_location||null,odc_address:raw.odc_address||null,odc_contact_phone:raw.odc_contact_phone||null,odc_transport_cost:raw.odc_transport_cost||null,odc_lead:raw.odc_lead||null,site_recce:raw.site_recce||null,odc_menu_confirmed:raw.odc_menu_confirmed??false,custom_menu_confirmed:raw.custom_menu_confirmed??false,yield_multiplier:Number(raw.yield_multiplier)||1.0};
       }
       // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state
-      if(payload.eventType==='INSERT'&&ev){
-        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
-        else { setEvents_raw(p=>p.some(e=>e.id===ev.id)?p.map(e=>e.id===ev.id?ev:e):[...p,ev]); }
+      if(payload.eventType==='INSERT'&&payload.new){
+        setEvents_raw(p=>{
+          const existing=p.find(e=>e.id===payload.new.id);
+          const ev=buildEv(existing);
+          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
+        });
       }
-      if(payload.eventType==='UPDATE'&&ev){
-        if(ev.is_deleted){ setEvents_raw(p=>p.filter(e=>e.id!==ev.id)); }
-        else { setEvents_raw(p=>p.map(e=>e.id===ev.id?ev:e)); }
+      if(payload.eventType==='UPDATE'&&payload.new){
+        setEvents_raw(p=>{
+          const existing=p.find(e=>e.id===payload.new.id);
+          const ev=buildEv(existing);
+          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
+        });
       }
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
@@ -523,12 +577,12 @@ export default function App() {
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   useEffect(() => {
     if(!supabase){setSupaLive(false);return;}
-    const checkQueue=()=>import('./lib/offlineQueue.js').then(m=>m.getQueueSize()).then(n=>setOfflineQueueCount(n)).catch(()=>{});
+    const checkQueue=()=>getQueueSize().then(n=>setOfflineQueueCount(n)).catch(()=>{});
     const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>{
       const live=!error;
       setSupaLive(live);
       if(live){
-        import('./lib/offlineQueue.js').then(m=>m.replayQueue(supabase)).then(n=>{
+        replayQueue(supabase).then(n=>{
           if(n>0)console.log('✅ Replayed',n,'offline writes');
           checkQueue();
         }).catch(()=>{});
@@ -1050,7 +1104,7 @@ export default function App() {
       {updateReady&&(
         <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
           <span>🔄 New version available</span>
-          <button onClick={()=>window.location.reload()} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
+          <button onClick={applyPwaUpdate} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
         </div>
       )}
       {/* ── Stale-session banner: tab crossed midnight, module-load TODAY is stale ── */}

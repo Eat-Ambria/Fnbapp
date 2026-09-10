@@ -62,6 +62,10 @@ function guessSectionForDish(name) {
   // ── Chaat — before Indian ──
   if(/chaat|golgap|pani puri|\bbhel\b|bhalla papdi|matra kulcha|moonglet|aloo tikki|khajoor chutney|papdi|\bsev\b|ragda|aloo chana|kund.?dahi|\bpuchka\b|dahi station|chaat counter|street food|crispy aloo/i.test(n)) return "Chaat";
 
+  // ── APC (Achar, Papad, Chutney, Raita) — checked before the generic Indian
+  // Curries catch-all, or these all fell through to Main Course ──
+  if(/\bachar\b|\bpapad\b|chutney|\braita\b/i.test(n)) return "APC";
+
   // ── Tandoor ──
   if(/\btikka\b|seekh|\bkebab\b|tandoor|\bboti\b|chaap|\bshawarma\b|stuffed mushroom|afghani|ananas tikka|tandoori|galouti|dahi ke kabab|bhutte ki seekh|papad waala|golden coin|shami|galawat|kasturi|reshmi|murgh malai/i.test(n)) return "Tandoor";
 
@@ -350,6 +354,18 @@ let DISH_CAT_MAP = {};  // hydrated on boot
 let DISH_NAME_MAP = {}; // LMS menu name → SOP recipe dish_name
 //let DISH_HINDI_MAP = {}; // dish_name → Hindi override (menu-package dishes)
 
+// Explicit admin-set tag only — no fuzzy fallback. getCatIdForDish always
+// resolves to SOMETHING (guessed, or 'maincourse'), so a UI can't tell "this
+// dish is explicitly tagged Beverages" from "we guessed Beverages" just from
+// its return value; this is how it tells the two apart.
+function getExplicitCatIdForDish(dishName) {
+  if (!dishName) return null;
+  const n = dishName.toLowerCase().trim();
+  if (DISH_CAT_MAP[dishName]) return DISH_CAT_MAP[dishName];
+  const k = Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n);
+  return k ? DISH_CAT_MAP[k] : null;
+}
+
 function getCatIdForDish(dishName) {
   if (!dishName) return null;
   const n = dishName.toLowerCase().trim();
@@ -374,7 +390,8 @@ function getCatIdForDish(dishName) {
   const guessedSection = guessSectionForDish(dishName);
   const SECTION_TO_CAT = {
     'Indian Curries':'maincourse','Tandoor':'tandoor','Chinese':'chinese',
-    'Chaat':'chaat','Sweets':'sweets','Continental':'continental','Beverages':'beverages',
+    'Chaat':'chaat_master','Sweets':'sweets','Continental':'continental','Beverages':'beverages',
+    'APC':'apc',
   };
   return SECTION_TO_CAT[guessedSection] || 'maincourse';
 }
@@ -638,7 +655,14 @@ function getSectionsForPackage(pkgName) {
       sop_category: s.sop_category || s.name || '',
       sales_dept: s.sales_dept || 'kit',
       dishes: Array.isArray(s.dishes) ? s.dishes.slice() : [],
-      catalogue_section_id: s.catalogue_section_id || null
+      catalogue_section_id: s.catalogue_section_id || null,
+      // V85 — one level of subsections (e.g. Main Course > Hyderabadi Cuisine).
+      // Same shape as a section, minus fields that only make sense one level up.
+      subsections: Array.isArray(s.subsections) ? s.subsections.map(sub => ({
+        id: sub.id || ('sub_' + Math.random().toString(36).slice(2, 8)),
+        name: sub.name || '',
+        dishes: Array.isArray(sub.dishes) ? sub.dishes.slice() : [],
+      })) : []
     }));
   }
   // Derive from flat dishes[]
@@ -663,12 +687,16 @@ function getSectionsForPackage(pkgName) {
 function flattenSectionsToDishes(sections) {
   const out = [];
   const seen = {};
-  (sections || []).forEach(s => {
-    (s.dishes || []).forEach(d => {
+  function addAll(list) {
+    (list || []).forEach(d => {
       if (!d || seen[d]) return;
       seen[d] = true;
       out.push(d);
     });
+  }
+  (sections || []).forEach(s => {
+    addAll(s.dishes);
+    (s.subsections || []).forEach(sub => addAll(sub.dishes));
   });
   return out;
 }
@@ -682,4 +710,45 @@ function setPackageSections(pkgName, sections, flatDishes) {
   if (Array.isArray(flatDishes)) MENU_PACKAGES[pkgName] = flatDishes;
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections };
+// V89 — "Extras" is an admin-created SOP category (Kitchen Hub -> SOPs ->
+// Add Category) meant as the catch-all for add-ons with no real recipe —
+// resolved by name since there's no dedicated config slot for "the default
+// fallback category" (rename it and this stops matching; that's expected).
+function getExtrasCatId() {
+  var cat = (RECIPE_DB.cats || []).find(function(c) { return (c.name || '').trim().toLowerCase() === 'extras'; });
+  return cat ? cat.id : null;
+}
+
+// V87 — shared "add a brand-new dish to the library" flow, used by every
+// custom-dish-add entry point (Build Menu's MenuEditor, the Proposal Menu
+// Builder, the Booked Functions menu editor) so a new dish always gets the
+// same three things: a dishes_master row, a category tag, and an empty SOP
+// recipe stub to fill in later. Takes the caller's own supabase client
+// (this module stays network-free otherwise) and never throws — upsert
+// conflicts (23505) are expected/harmless, anything else is just warned.
+async function createCustomDishInLibrary(supabase, name, catId) {
+  var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
+  if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
+  upsertDishMaster(name, { is_active: true });
+  // catId is optional — a dish left untagged falls into the "Extras" SOP
+  // category (if one's been set up) so kitchen/store still see it exists and
+  // can plan for it, instead of silently having no classification anywhere.
+  catId = catId || getExtrasCatId();
+  if (!catId) return;
+  var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
+  if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+  upsertDishCat(name, catId);
+  var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
+  if (!already) {
+    var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
+    if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+    else {
+      if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+      RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
+      var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
+      if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
+    }
+  }
+}
+
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };

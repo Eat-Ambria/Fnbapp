@@ -122,8 +122,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     return allEvs.slice(0, evPage * EV_PAGE_SIZE);
   }, [allEvs, evPage]);
 
-  function saveMenu(dishes) {
-    if (!selEv || !setEvents) return;
+  // V80 — window.confirm() doesn't reliably show a real dialog in this app's
+  // runtime (it can resolve without ever pausing for input — this is the
+  // suspected cause of a menu-wipe bug getting past an earlier window.confirm
+  // guard with no visible prompt at all), so this is a proper in-app modal
+  // instead, gating the actual save until the user explicitly confirms.
+  var [pendingMenuDrop, setPendingMenuDrop] = useState(null); // { dishes, prevCount, nextCount } | null
+
+  function commitMenu(dishes) {
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
         if (e.id !== selEv.id) return e;
@@ -131,6 +137,40 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       });
     });
     syncEventItemsFromKitchenMenu(selEv.id, dishes);
+  }
+
+  // Per-event tag for which of the package's sections a dish (usually one not
+  // natively listed in any section — a custom addition) should show under in
+  // this event's Build Menu view. Never touches the shared package definition.
+  function saveSectionOverrides(next) {
+    if (!selEv || !setEvents) return;
+    setEvents(function(prev) {
+      return (prev || []).map(function(e) {
+        if (e.id !== selEv.id) return e;
+        return { ...e, menu_section_overrides: next };
+      });
+    });
+  }
+
+  function saveMenu(dishes) {
+    if (!selEv || !setEvents) return;
+    // Belt-and-suspenders: this editor only ever adds/removes one dish per
+    // click, so a save that drops the menu by far more than that in one shot
+    // (a stray click on "Quick start from package"/"Clear all", or anything
+    // else that computed the wrong list) gets a last chance to be caught
+    // before it overwrites a manually-built menu with no undo.
+    // NOTE: must compare against the same fallback-resolved list MenuEditor is
+    // actually showing (and editing from) — an unedited event stores menu:[]
+    // and only ever displays the package's dishes as a display-time fallback,
+    // so comparing against the raw selEv.menu here missed every first edit.
+    var effectivePrev = selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : []);
+    var prevCount = effectivePrev.length;
+    var nextCount = (dishes || []).length;
+    if (prevCount >= 5 && nextCount < prevCount - 3 && nextCount < prevCount * 0.5) {
+      setPendingMenuDrop({ dishes: dishes, prevCount: prevCount, nextCount: nextCount });
+      return;
+    }
+    commitMenu(dishes);
   }
 
   // Kitchen's flat "Build menu" edits used to only ever touch events.menu, leaving
@@ -151,16 +191,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         if (!metaRes.error) (metaRes.data || []).forEach(function(m){ metaByName[m.dish_name] = m.sales_dept; });
       }
       function isKit(name) { return (metaByName[name] || 'kit') === 'kit'; }
+      var existingSet = {}; existingNames.forEach(function(n){ existingSet[n] = true; });
       var existingKit = existingNames.filter(isKit);
       var toDelete = existingKit.filter(function(n){ return !nameSet[n]; });
-      var toInsert = (dishes || []).filter(function(n){ return existingKit.indexOf(n) < 0; });
+      // V80 fix: this used to check `existingKit.indexOf(n) < 0`, so any dish
+      // already present in event_items under a NON-kit classification looked
+      // "missing" and got re-inserted — a duplicate on (event_id, dish_name),
+      // 409 Conflict. Only truly-absent dishes should ever be inserted here.
+      var toInsert = (dishes || []).filter(function(n){ return !existingSet[n]; });
       if (toDelete.length > 0) {
         await supabase.from('event_items').delete().eq('event_id', eventId).in('dish_name', toDelete);
       }
       if (toInsert.length > 0) {
-        await supabase.from('event_items').insert(toInsert.map(function(n, i){
+        // Belt-and-suspenders: upsert with ignoreDuplicates so a race against
+        // another concurrent sync call for this same event can't 409 either.
+        var insRes = await supabase.from('event_items').upsert(toInsert.map(function(n, i){
           return { event_id: eventId, dish_name: n, is_addon: false, ordering: existingNames.length + i };
-        }));
+        }), { onConflict: 'event_id,dish_name', ignoreDuplicates: true });
+        if (insRes.error) console.error('[MenuPackages] event_items insert failed:', insRes.error);
       }
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
     } catch (e) {
@@ -243,6 +291,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // ── Local editor state (5c — no writes yet, wires up in 5d) ────────
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
+  // V89 — dnd-kit's SortableContext takes its `items` array by reference; a
+  // brand-new array (from `.map()`) on every render — even one that only
+  // edited a dish inside ONE section, leaving every section's id/order
+  // untouched — reads to dnd-kit as "the sortable set changed", which
+  // re-measures and was resetting this list's own scroll position back to
+  // the top on literally any edit. Keying the memo off the joined id string
+  // (not the array/object reference) keeps the SAME array identity across
+  // renders unless a section is actually added, removed, or reordered.
+  var sectionIdsKey = editorSections.map(function(s) { return s.id; }).join('|');
+  var sectionIds = useMemo(function() { return sectionIdsKey ? sectionIdsKey.split('|') : []; }, [sectionIdsKey]);
   var [addDishInput, setAddDishInput]     = useState({}); // { [secId]: "text" }
   // V74: inline dish-name edit — renames the string within this package's section
   // only (same as typing a new name into "+ Add dish"); does not touch the master
@@ -277,7 +335,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       // user sees the full package. Save will re-flatten and make both consistent.
       var flat = MENU_PACKAGES[selPkg] || [];
       var inSections = {};
-      loaded.forEach(function(s) { (s.dishes || []).forEach(function(d) { inSections[d] = true; }); });
+      loaded.forEach(function(s) {
+        (s.dishes || []).forEach(function(d) { inSections[d] = true; });
+        (s.subsections || []).forEach(function(sub) { (sub.dishes || []).forEach(function(d) { inSections[d] = true; }); });
+      });
       var orphans = flat.filter(function(d) { return !inSections[d]; });
       if (orphans.length > 0) {
         var existingOther = loaded.find(function(s) { return (s.name || '').toLowerCase() === 'other' || s.sop_category === ''; });
@@ -373,7 +434,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     try {
       var results = await Promise.all([
         supabase.from('dish_catalogue_sections')
-          .select('id, name, dept, sales_dept, sop_category_hint, sort_order')
+          .select('id, name, dept, sales_dept, sop_category_hint, sort_order, parent_section_id')
           .order('sort_order', { ascending: true }),
         supabase.from('dishes_master')
           .select('dish_name, section_id, sort_in_section')
@@ -401,8 +462,33 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   // V73: append a package section pre-populated from a catalogue section.
   // Stores catalogue_section_id linkback for future features (badge, resync, etc.).
+  // V85 — catalogueSections is flat (dish_catalogue_sections rows, now
+  // including subsections since the Dish Library can nest them). Order for
+  // display as parent, then its own subsections right after (indented) —
+  // otherwise a subsection looks like just another ordinary top-level
+  // section, indistinguishable from a real parent.
+  function orderedCatalogueOptions() {
+    var top = catalogueSections.filter(function(s) { return !s.parent_section_id; });
+    var subsByParent = {};
+    catalogueSections.forEach(function(s) {
+      if (s.parent_section_id) { (subsByParent[s.parent_section_id] = subsByParent[s.parent_section_id] || []).push(s); }
+    });
+    var out = [];
+    top.forEach(function(s) {
+      out.push(s);
+      (subsByParent[s.id] || []).forEach(function(sub) { out.push({ ...sub, __isSub: true }); });
+    });
+    return out;
+  }
+
   function addSectionFromCatalogue(catSec) {
     var newId = genSecId();
+    // If this is a top-level catalogue section, bring its own subsections
+    // (and their dishes) along too — the whole nested structure carries over
+    // in one click instead of having to rebuild it by hand in the package.
+    var subs = catSec.parent_section_id ? [] : catalogueSections
+      .filter(function(s) { return s.parent_section_id === catSec.id; })
+      .map(function(sub) { return { id: genSubId(), name: sub.name, dishes: sub.dishes.slice() }; });
     setEditorSections(function(prev) {
       return [...prev, {
         id: newId,
@@ -411,6 +497,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         sales_dept: catSec.sales_dept || 'kit', // quick-fill default from the catalogue section — editable per package after
         dishes: catSec.dishes.slice(),
         catalogue_section_id: catSec.id,
+        subsections: subs,
       }];
     });
     setExpandedSecs(function(p) { return { ...p, [newId]: true }; }); // V74: new section starts expanded
@@ -535,6 +622,73 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
     setDirty(true);
   }
+
+  // V85 — one level of subsections within a package section (e.g. Main Course
+  // > Hyderabadi Cuisine, Amritsari Cuisine). Same {id,name,dishes} shape as a
+  // section, just nested one level; never itself has further subsections.
+  function genSubId() { return 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+  function addSubsection(secId) {
+    var name = (window.prompt(T2('New subsection name:')) || '').trim();
+    if (!name) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).concat([{ id: genSubId(), name: name, dishes: [] }]) };
+      });
+    });
+    setDirty(true);
+  }
+  function renameSubsection(secId, subId, newName) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) { return sub.id === subId ? { ...sub, name: newName } : sub; }) };
+      });
+    });
+    setDirty(true);
+  }
+  function deleteSubsection(secId, subId) {
+    var sec = editorSections.find(function(s) { return s.id === secId; });
+    var sub = sec && (sec.subsections || []).find(function(x) { return x.id === subId; });
+    if (!sub) return;
+    if (sub.dishes.length > 0 && !window.confirm('Delete subsection "' + (sub.name || '') + '" with ' + sub.dishes.length + ' dish(es)? They\'ll move back to "' + (sec.name || '') + '" directly (not removed from the package).')) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        var have = {}; (s.dishes || []).forEach(function(d) { have[d] = true; });
+        var reclaimed = (sub.dishes || []).filter(function(d) { return !have[d]; });
+        return { ...s, dishes: (s.dishes || []).concat(reclaimed), subsections: (s.subsections || []).filter(function(x) { return x.id !== subId; }) };
+      });
+    });
+    setDirty(true);
+  }
+  function addDishToSubsection(secId, subId, name) {
+    var trimmed = (name || '').trim();
+    if (!trimmed) return;
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) {
+          if (sub.id !== subId) return sub;
+          if (sub.dishes.indexOf(trimmed) !== -1) return sub;
+          return { ...sub, dishes: [...sub.dishes, trimmed] };
+        }) };
+      });
+    });
+    setAddDishInput(function(p) { return { ...p, [subId]: '' }; });
+    setDirty(true);
+  }
+  function removeDishFromSubsection(secId, subId, name) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) {
+          return sub.id === subId ? { ...sub, dishes: sub.dishes.filter(function(d) { return d !== name; }) } : sub;
+        }) };
+      });
+    });
+    setDirty(true);
+  }
   function startEditDish(secId, name) { setEditingDish({ secId: secId, name: name }); setEditDishValue(name); }
   function cancelEditDish() { setEditingDish(null); setEditDishValue(''); }
   function commitEditDish() {
@@ -595,7 +749,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         name: (s.name || '').trim() || 'Untitled',
         sop_category: s.sop_category || '',
         sales_dept: s.sales_dept || 'kit',
-        dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
+        dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean),
+        subsections: (s.subsections || []).map(function(sub) {
+          return {
+            id: sub.id || genSubId(),
+            name: (sub.name || '').trim() || 'Untitled',
+            dishes: (sub.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
+          };
+        }).filter(function(sub) { return sub.name && sub.name !== 'Untitled' || sub.dishes.length > 0; })
       };
       if (s.catalogue_section_id) out.catalogue_section_id = s.catalogue_section_id;
       return out;
@@ -1056,8 +1217,34 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <MenuEditor
             selected={selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
             onChange={function(dishes) { saveMenu(dishes); }}
+            pkgName={selEv.menuPackage || ""}
+            sectionOverrides={selEv.menu_section_overrides || {}}
+            onSectionOverridesChange={function(next) { saveSectionOverrides(next); }}
             lang={lang}
           />
+
+          {pendingMenuDrop && (
+            <div onClick={function() { setPendingMenuDrop(null); }}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+              <div onClick={function(e) { e.stopPropagation(); }}
+                style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.red, marginBottom: 8 }}>⚠ {T2("This can't be undone")}</div>
+                <div style={{ fontSize: 13, color: C.text, marginBottom: 18, lineHeight: 1.5 }}>
+                  {T2("This save would drop the menu from")} {pendingMenuDrop.prevCount} {T2("to")} {pendingMenuDrop.nextCount} {T2("dishes")}. {T2("Save anyway?")}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button onClick={function() { setPendingMenuDrop(null); }}
+                    style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {T2("Cancel")}
+                  </button>
+                  <button onClick={function() { commitMenu(pendingMenuDrop.dishes); setPendingMenuDrop(null); }}
+                    style={{ padding: "7px 16px", borderRadius: 8, background: C.red, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {T2("Save anyway")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1237,7 +1424,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     )}
 
                     <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
-                    <SortableContext items={editorSections.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+                    <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
                     {editorSections.map(function(sec) {
                       var isExpanded = !!expandedSecs[sec.id]; // V74: collapsed by default
                       return (
@@ -1386,6 +1573,68 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                 </div>
                               </div>
                             )}
+
+                            {/* V85 — Subsections (one level deep, e.g. Main Course > Hyderabadi Cuisine) */}
+                            {(sec.subsections || []).map(function(sub) {
+                              return (
+                                <div key={sub.id} style={{ margin: "0 12px 10px", border: "1px solid " + C.borderLight, borderRadius: 8, background: C.bg, overflow: "hidden" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: C.darkCard }}>
+                                    <span style={{ color: C.faint, fontSize: 11 }}>↳</span>
+                                    <input
+                                      value={sub.name}
+                                      onChange={function(e) { renameSubsection(sec.id, sub.id, e.target.value); }}
+                                      placeholder={T2("Subsection name")}
+                                      disabled={!isAdmin}
+                                      style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 12, fontWeight: 600, color: C.text, minWidth: 120, flex: "0 1 auto" }}
+                                    />
+                                    <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sub.dishes.length} {T2("dishes")}</span>
+                                    {isAdmin && (
+                                      <button onClick={function() { deleteSubsection(sec.id, sub.id); }}
+                                        title={T2("Delete subsection")}
+                                        style={{ padding: "2px 8px", background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+                                    )}
+                                  </div>
+                                  {sub.dishes.length === 0 && (
+                                    <div style={{ padding: "8px 12px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this subsection")}</div>
+                                  )}
+                                  {sub.dishes.map(function(d) {
+                                    var type = getDishType(d);
+                                    return (
+                                      <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", borderTop: "1px solid " + C.borderLight, gap: 8 }}>
+                                        <span style={{ fontSize: 12, color: C.text }}>{d}</span>
+                                        {isAdmin && (
+                                          <button onClick={function() { removeDishFromSubsection(sec.id, sub.id, d); }}
+                                            title={T2("Remove")}
+                                            style={{ padding: "1px 7px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {isAdmin && (
+                                    <div style={{ display: "flex", gap: 6, padding: "6px 10px", borderTop: "1px solid " + C.borderLight }}>
+                                      <input
+                                        list={"dishopts_" + sec.id}
+                                        value={addDishInput[sub.id] || ''}
+                                        onChange={function(e) { setAddDishInput(function(p) { return { ...p, [sub.id]: e.target.value }; }); }}
+                                        onKeyDown={function(e) { if (e.key === 'Enter') { addDishToSubsection(sec.id, sub.id, addDishInput[sub.id] || ''); } }}
+                                        placeholder={T2("+ Add dish…")}
+                                        style={{ flex: 1, padding: "4px 7px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 11, color: C.text, minWidth: 0 }}
+                                      />
+                                      <button onClick={function() { addDishToSubsection(sec.id, sub.id, addDishInput[sub.id] || ''); }}
+                                        style={{ padding: "4px 10px", borderRadius: 5, background: C.green, border: "none", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{T2("Add")}</button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {isAdmin && (
+                              <div style={{ padding: "0 12px 10px" }}>
+                                <button onClick={function() { addSubsection(sec.id); }}
+                                  style={{ padding: "5px 12px", borderRadius: 6, background: "transparent", border: "1px dashed " + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                                  + {T2("Add subsection")}
+                                </button>
+                              </div>
+                            )}
                           </div>
                           )}
                         </div>
@@ -1438,15 +1687,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                 {T2('No catalogue sections found. Set them up in Dish Library → Sections first.')}
               </div>
             )}
-            {!catPickerLoading && catalogueSections.map(function(s){
+            {!catPickerLoading && orderedCatalogueOptions().map(function(s){
               var alreadyLinked = editorSections.some(function(ex){ return ex.catalogue_section_id === s.id; });
               var effDept = s.sales_dept || 'kit';
               return (
                 <div key={s.id}
                   onClick={function(){ if (!alreadyLinked) addSectionFromCatalogue(s); }}
-                  style={{ padding: '10px 12px', marginBottom: 6, borderRadius: 8, border: '1px solid ' + C.border, background: alreadyLinked ? C.bg : C.surface, cursor: alreadyLinked ? 'not-allowed' : 'pointer', opacity: alreadyLinked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  style={{ padding: '10px 12px', marginLeft: s.__isSub ? 24 : 0, marginBottom: 6, borderRadius: 8, border: '1px solid ' + C.border, background: alreadyLinked ? C.bg : C.surface, cursor: alreadyLinked ? 'not-allowed' : 'pointer', opacity: alreadyLinked ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{s.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{s.__isSub ? '↳ ' : ''}{s.name}</div>
                     <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
                       {s.dishes.length} {T2('dishes')}
                       {effDept !== 'kit' && <> · <span style={{ color: '#7A5B12', fontWeight: 600 }}>→ {effDept.toUpperCase()} tab</span></>}
@@ -1531,7 +1780,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     disabled={catPickerLoading}
                     style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, fontWeight: 600, cursor: catPickerLoading ? "wait" : "pointer" }}>
                     <option value="">{catPickerLoading ? T2('Loading…') : '— ' + T2('pick catalogue section') + ' —'}</option>
-                    {catalogueSections.map(function(s) { return <option key={s.id} value={s.id}>{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
+                    {orderedCatalogueOptions().map(function(s) { return <option key={s.id} value={s.id}>{s.__isSub ? '— ' : ''}{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
                   </select>
                 </div>
               )}

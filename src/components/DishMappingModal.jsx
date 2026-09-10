@@ -20,7 +20,7 @@ import {
   upsertDishHindi, DISH_HINDI_MAP,
   resolveDishStore, upsertDishStoreMap,
   DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
-  setPackageSections, getCatIdForDish, deactivateDish, upsertDishCat,
+  setPackageSections, getCatIdForDish, getExplicitCatIdForDish, deactivateDish, upsertDishCat,
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
@@ -78,6 +78,10 @@ function DishMappingModal(props) {
   var detailSop   = dishName ? findRecipeForDish(dishName) : null;
   var detailPkgs  = dishName ? packagesContainingDish(dishName) : [];
   var detailCatId = dishName ? getCatIdForDish(dishName) : null;
+  // Explicit tag only (no fuzzy fallback) — drives which pill shows as
+  // actively selected, so clearing the tag visibly deselects it instead of
+  // silently re-landing on the same pill via a coincidental fuzzy guess.
+  var detailCatExplicit = dishName ? getExplicitCatIdForDish(dishName) : null;
 
   // ── Effects ───────────────────────────────────────────────────────
   // Reset modal state whenever dishName changes (i.e. opens for a new dish).
@@ -199,10 +203,15 @@ function DishMappingModal(props) {
   // explicit dish_categories row so a specific dish always resolves the same
   // way, regardless of what it fuzzy-matches against.
   async function saveCat(catId) {
-    if (!dishName || !catId || catId === detailCatId) return;
+    if (!dishName || catId === detailCatExplicit) return;
     setSaving('cat');
     try {
-      var res = await supabase.from('dish_categories').upsert({ dish_name: dishName, category_id: catId }, { onConflict: 'dish_name' });
+      // Clicking the already-active pill clears the category instead of
+      // re-saving it — there was previously no way to un-tag a dish once a
+      // SOP section was picked.
+      var res = catId
+        ? await supabase.from('dish_categories').upsert({ dish_name: dishName, category_id: catId }, { onConflict: 'dish_name' })
+        : await supabase.from('dish_categories').delete().eq('dish_name', dishName);
       if (res.error) throw res.error;
       upsertDishCat(dishName, catId);
       notify();
@@ -413,16 +422,25 @@ function DishMappingModal(props) {
 
         {/* SOP / recipe category — which grouping this dish shows under in Build Menu */}
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('SOP / recipe section')}</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+            {T2('SOP / recipe section')}
+            {!detailCatExplicit && <span style={{ textTransform: 'none', fontWeight: 400 }}> — {T2('unset, showing best guess')}</span>}
+          </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {(RECIPE_DB.cats || []).map(function(c) {
-              var active = detailCatId === c.id;
+              // getCatIdForDish always guesses SOMETHING even with no explicit
+              // tag — "active" (solid) means this dish is explicitly tagged
+              // here; "guessed" (dashed outline) means it's only resolving
+              // here by fuzzy fallback, so clearing the tag visibly looks
+              // cleared instead of silently re-landing on the same pill.
+              var active = detailCatExplicit === c.id;
+              var guessed = !detailCatExplicit && detailCatId === c.id;
               return (
-                <button key={c.id} onClick={function() { if (isAdmin) saveCat(c.id); }} disabled={!isAdmin || !!saving}
+                <button key={c.id} onClick={function() { if (isAdmin) saveCat(active ? null : c.id); }} disabled={!isAdmin || !!saving}
                   style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 700 : 500,
                     cursor: isAdmin ? 'pointer' : 'default',
-                    background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : C.text,
-                    border: '1px solid ' + (active ? '#3B6D11' : C.border), opacity: saving === 'cat' ? 0.6 : 1 }}>
+                    background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : (guessed ? C.muted : C.text),
+                    border: (guessed ? '1px dashed ' : '1px solid ') + (active ? '#3B6D11' : C.border), opacity: saving === 'cat' ? 0.6 : 1 }}>
                   {c.icon} {c.name}
                 </button>
               );

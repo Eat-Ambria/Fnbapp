@@ -4,10 +4,11 @@ import { C, ALL_DEPARTMENTS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
 import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
-import { VENUE_OPTIONS } from '../data/staffData.js';
+import { VENUE_OPTIONS, HOME_VENUES } from '../data/staffData.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 import { logActivity } from './ActivityLog.jsx';
+import { supabase } from '../lib/supabase.js';
 
 // ── Shared modal backdrop ──
 function Modal({open, onClose, wide, children}) {
@@ -52,6 +53,136 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       if(Array.isArray(d.sections) && d.sections.indexOf(secName)>=0) return d.id;
     }
     return null;
+  }
+
+  // ── Master data: departments/sections (team_departments + team_sections) and home venues ──
+  const [showMasterData, setShowMasterData] = useState(false);
+  const [masterTick, setMasterTick] = useState(0); // bump to force a re-render after mutating the module-level arrays below
+  const bump = () => setMasterTick(t => t + 1);
+  const [newDeptLabel, setNewDeptLabel] = useState("");
+  const [newDeptIcon, setNewDeptIcon] = useState("");
+  const [newSectionBuf, setNewSectionBuf] = useState({}); // { [deptId]: string }
+  const [newVenueName, setNewVenueName] = useState("");
+
+  function updateDept(deptId, patch){
+    var d = TEAM_DEPTS.find(x=>x.id===deptId);
+    if(!d) return;
+    var newLabel = (patch.label!=null ? patch.label.trim() : d.label) || d.label;
+    var newIcon  = (patch.icon!=null ? patch.icon.trim() : d.icon) || d.icon;
+    if(newLabel===d.label && newIcon===d.icon) return;
+    var oldLabel = d.label;
+    d.label = newLabel; d.icon = newIcon;
+    supabase.from('team_departments').update({label:newLabel,icon:newIcon}).eq('id',deptId).then(r=>{if(r.error)console.error('Dept update err:',r.error);});
+    logActivity('access','Department updated: '+oldLabel+' → '+newLabel,'dept_update',{deptId:deptId},currentUser?.id);
+    bump();
+  }
+  function addDept(label, icon){
+    var trimmed = (label||'').trim();
+    if(!trimmed) return;
+    var slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'dept';
+    var existing = {}; TEAM_DEPTS.forEach(d=>{existing[d.id]=true;});
+    var id = slug; if(existing[id]) id = slug+'_'+Date.now().toString(36);
+    var row = {id:id, label:trimmed, icon:icon||'🏢', sort_order:TEAM_DEPTS.length, is_active:true};
+    supabase.from('team_departments').insert(row).then(r=>{if(r.error){console.error('Dept add err:',r.error);window.alert('Failed to add department: '+r.error.message);}});
+    TEAM_DEPTS.push({id:id, label:trimmed, icon:icon||'🏢', sections:[]});
+    logActivity('access','Department added: '+trimmed,'dept_add',{deptId:id,name:trimmed},currentUser?.id);
+    setNewDeptLabel(""); setNewDeptIcon("");
+    bump();
+  }
+  function deleteDept(deptId){
+    var d = TEAM_DEPTS.find(x=>x.id===deptId);
+    if(!d) return;
+    if((d.sections||[]).length>0){ window.alert('Cannot delete "'+d.label+'" — it still has sections. Delete or move them first.'); return; }
+    if(!window.confirm('Delete department "'+d.label+'"? This cannot be undone.')) return;
+    var idx = TEAM_DEPTS.findIndex(x=>x.id===deptId);
+    if(idx>=0) TEAM_DEPTS.splice(idx,1);
+    supabase.from('team_departments').delete().eq('id',deptId).then(r=>{if(r.error)console.error('Dept delete err:',r.error);});
+    logActivity('access','Department deleted: '+d.label,'dept_delete',{deptId:deptId},currentUser?.id);
+    bump();
+  }
+  function addSection(deptId, name){
+    var trimmed = (name||'').trim();
+    if(!trimmed) return;
+    if(ALL_DEPARTMENTS.includes(trimmed)){ window.alert('A section named "'+trimmed+'" already exists.'); return; }
+    var d = TEAM_DEPTS.find(x=>x.id===deptId);
+    if(!d) return;
+    var row = {name:trimmed, dept_id:deptId, sort_order:(d.sections||[]).length, is_active:true};
+    supabase.from('team_sections').insert(row).then(r=>{if(r.error){console.error('Section add err:',r.error);window.alert('Failed to add section: '+r.error.message);}});
+    d.sections = [...(d.sections||[]), trimmed];
+    ALL_DEPARTMENTS.push(trimmed);
+    logActivity('access','Section added: '+trimmed+' → '+d.label,'section_add',{deptId:deptId,name:trimmed},currentUser?.id);
+    setNewSectionBuf(p=>({...p,[deptId]:""}));
+    bump();
+  }
+  function renameSection(deptId, oldName, newName){
+    var trimmed = (newName||'').trim();
+    if(!trimmed || trimmed===oldName) return;
+    if(ALL_DEPARTMENTS.includes(trimmed)){ window.alert('A section named "'+trimmed+'" already exists.'); bump(); return; }
+    var d = TEAM_DEPTS.find(x=>x.id===deptId);
+    if(!d) return;
+    var idx = (d.sections||[]).indexOf(oldName);
+    if(idx<0) return;
+    d.sections[idx] = trimmed;
+    var gi = ALL_DEPARTMENTS.indexOf(oldName);
+    if(gi>=0) ALL_DEPARTMENTS[gi] = trimmed;
+    supabase.from('team_sections').update({name:trimmed}).eq('dept_id',deptId).eq('name',oldName).then(r=>{if(r.error)console.error('Section rename err:',r.error);});
+    logActivity('access','Section renamed: '+oldName+' → '+trimmed,'section_rename',{deptId:deptId,from:oldName,to:trimmed},currentUser?.id);
+    bump();
+  }
+  function deleteSection(deptId, name){
+    var usedBy = safeArr(empDb).filter(s=>s.section===name).length;
+    var msg = usedBy>0 ? ('⚠ '+usedBy+' staff member(s) are set to "'+name+'". Delete anyway? Their record keeps the name but it will vanish from this dropdown.') : ('Delete section "'+name+'"?');
+    if(!window.confirm(msg)) return;
+    var d = TEAM_DEPTS.find(x=>x.id===deptId);
+    if(!d) return;
+    d.sections = (d.sections||[]).filter(s=>s!==name);
+    var gi = ALL_DEPARTMENTS.indexOf(name);
+    if(gi>=0) ALL_DEPARTMENTS.splice(gi,1);
+    supabase.from('team_sections').delete().eq('dept_id',deptId).eq('name',name).then(r=>{if(r.error)console.error('Section delete err:',r.error);});
+    logActivity('access','Section deleted: '+name,'section_delete',{deptId:deptId,name:name},currentUser?.id);
+    bump();
+  }
+  function addVenue(name){
+    var trimmed = (name||'').trim();
+    if(!trimmed) return;
+    if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); return; }
+    var slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'venue';
+    var existing = {}; HOME_VENUES.forEach(v=>{existing[v.id]=true;});
+    var id = slug; if(existing[id]) id = slug+'_'+Date.now().toString(36);
+    var row = {id:id, name:trimmed, sort_order:HOME_VENUES.length*10+10, is_active:true};
+    supabase.from('home_venues').insert(row).then(r=>{if(r.error){console.error('Venue add err:',r.error);window.alert('Failed to add venue: '+r.error.message);}});
+    HOME_VENUES.push({id:id, name:trimmed, sort_order:row.sort_order});
+    VENUE_OPTIONS.push(trimmed);
+    logActivity('access','Home venue added: '+trimmed,'venue_add',{venueId:id,name:trimmed},currentUser?.id);
+    setNewVenueName("");
+    bump();
+  }
+  function renameVenue(venueId, newName){
+    var trimmed = (newName||'').trim();
+    var v = HOME_VENUES.find(x=>x.id===venueId);
+    if(!v || !trimmed || trimmed===v.name) return;
+    if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); bump(); return; }
+    var oldName = v.name;
+    var gi = VENUE_OPTIONS.indexOf(oldName);
+    v.name = trimmed;
+    if(gi>=0) VENUE_OPTIONS[gi] = trimmed;
+    supabase.from('home_venues').update({name:trimmed}).eq('id',venueId).then(r=>{if(r.error)console.error('Venue rename err:',r.error);});
+    logActivity('access','Home venue renamed: '+oldName+' → '+trimmed,'venue_rename',{venueId:venueId,from:oldName,to:trimmed},currentUser?.id);
+    bump();
+  }
+  function deleteVenue(venueId){
+    var v = HOME_VENUES.find(x=>x.id===venueId);
+    if(!v) return;
+    var usedBy = safeArr(empDb).filter(s=>s.venue===v.name).length;
+    var msg = usedBy>0 ? ('⚠ '+usedBy+' staff member(s) have "'+v.name+'" set as home venue. Delete anyway? Their record keeps it but it will vanish from this dropdown.') : ('Delete venue "'+v.name+'"?');
+    if(!window.confirm(msg)) return;
+    var idx = HOME_VENUES.findIndex(x=>x.id===venueId);
+    if(idx>=0) HOME_VENUES.splice(idx,1);
+    var gi = VENUE_OPTIONS.indexOf(v.name);
+    if(gi>=0) VENUE_OPTIONS.splice(gi,1);
+    supabase.from('home_venues').delete().eq('id',venueId).then(r=>{if(r.error)console.error('Venue delete err:',r.error);});
+    logActivity('access','Home venue deleted: '+v.name,'venue_delete',{venueId:venueId},currentUser?.id);
+    bump();
   }
 
   // ── State ──
@@ -248,6 +379,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               ? <button onClick={()=>setSelected(new Set())} style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Deselect All</button>
               : <button onClick={()=>setSelected(new Set(staff.map(getSID)))} style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Select All</button>
           )}
+          {canAdd&&<button onClick={()=>setShowMasterData(true)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🗂 {T2("Manage Sections & Venues")}</button>}
           {canAdd&&<button onClick={openAdd} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ {T2("Add Staff")}</button>}
         </div>
       </div>
@@ -551,6 +683,71 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             <button onClick={()=>deleteStaff(delId)} style={{flex:1,padding:"12px",borderRadius:10,background:C.red,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑 {T2("Delete")}</button>
             <button onClick={()=>setDelId(null)} style={{flex:1,padding:"12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ══════ MASTER DATA: DEPARTMENTS / SECTIONS / HOME VENUES ══════ */}
+      <Modal open={showMasterData} onClose={()=>setShowMasterData(false)} wide>
+        <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:17,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>🗂 {T2("Manage Sections & Venues")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Controls the Section and Home Venue dropdowns above — add, rename or remove without touching code.")}</div>
+        </div>
+        <div style={{padding:"20px 24px",maxHeight:"70vh",overflowY:"auto"}}>
+
+          {/* ── Departments & Sections ── */}
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:10}}>{T2("Departments & Sections")}</div>
+          {TEAM_DEPTS.map(d=>(
+            <div key={d.id+'_'+masterTick} style={{border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:10,background:C.bg}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                <input defaultValue={d.icon} onBlur={e=>updateDept(d.id,{icon:e.target.value})} style={{width:42,textAlign:"center",padding:"8px 4px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,background:C.surface}}/>
+                <input defaultValue={d.label} onBlur={e=>updateDept(d.id,{label:e.target.value})} style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,color:C.text,background:C.surface}}/>
+                <button onClick={()=>deleteDept(d.id)} title={T2("Delete department")} style={{padding:"7px 11px",borderRadius:8,border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red,cursor:"pointer",fontSize:12}}>🗑</button>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {(d.sections||[]).map(sec=>(
+                  <div key={sec} style={{display:"flex",alignItems:"center",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,paddingLeft:10}}>
+                    <input defaultValue={sec} onBlur={e=>{if(e.target.value.trim()!==sec) renameSection(d.id,sec,e.target.value);}} size={Math.max(6,sec.length)} style={{border:"none",background:"transparent",fontSize:12,color:C.text,padding:"6px 2px"}}/>
+                    <button onClick={()=>deleteSection(d.id,sec)} title={T2("Delete section")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"6px 8px"}}>✕</button>
+                  </div>
+                ))}
+                {(d.sections||[]).length===0&&<span style={{fontSize:11,color:C.faint,fontStyle:"italic"}}>{T2("No sections yet")}</span>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <input value={newSectionBuf[d.id]||""} onChange={e=>setNewSectionBuf(p=>({...p,[d.id]:e.target.value}))}
+                  onKeyDown={e=>{if(e.key==='Enter') addSection(d.id,newSectionBuf[d.id]);}}
+                  placeholder={T2("+ Add section")+"…"} style={{flex:1,padding:"7px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface}}/>
+                <button onClick={()=>addSection(d.id,newSectionBuf[d.id])} style={{padding:"7px 14px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ {T2("Add")}</button>
+              </div>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,marginBottom:24}}>
+            <input value={newDeptIcon} onChange={e=>setNewDeptIcon(e.target.value)} placeholder="🏢" style={{width:52,textAlign:"center",padding:"9px 4px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
+            <input value={newDeptLabel} onChange={e=>setNewDeptLabel(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter') addDept(newDeptLabel,newDeptIcon);}}
+              placeholder={T2("New department name")+"…"} style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
+            <button onClick={()=>addDept(newDeptLabel,newDeptIcon)} style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("Add Department")}</button>
+          </div>
+
+          {/* ── Home Venues ── */}
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:10}}>{T2("Home Venues")}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {HOME_VENUES.map(v=>(
+              <div key={v.id+'_'+masterTick} style={{display:"flex",alignItems:"center",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,paddingLeft:10}}>
+                <input defaultValue={v.name} onBlur={e=>renameVenue(v.id,e.target.value)} size={Math.max(6,v.name.length)} style={{border:"none",background:"transparent",fontSize:12,color:C.text,padding:"7px 2px"}}/>
+                <button onClick={()=>deleteVenue(v.id)} title={T2("Delete venue")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"7px 8px"}}>✕</button>
+              </div>
+            ))}
+            {HOME_VENUES.length===0&&<span style={{fontSize:11,color:C.faint,fontStyle:"italic"}}>{T2("No venues yet")}</span>}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={newVenueName} onChange={e=>setNewVenueName(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter') addVenue(newVenueName);}}
+              placeholder={T2("New venue name")+"…"} style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
+            <button onClick={()=>addVenue(newVenueName)} style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("Add Venue")}</button>
+          </div>
+        </div>
+        <div style={{padding:"14px 24px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end"}}>
+          <button onClick={()=>setShowMasterData(false)} style={{padding:"9px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Close")}</button>
         </div>
       </Modal>
 

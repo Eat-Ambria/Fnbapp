@@ -252,6 +252,9 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
         menu: kitchenNames,
         special: p.notes || null,
         event_items_initialized: true,
+        // V87 — carry over any custom dish's section/subsection tag so it
+        // shows in the same place if Build Menu opens this event next.
+        menu_section_overrides: p.menu_section_overrides || {},
       }).select().single();
       if (evRes.error) throw evRes.error;
 
