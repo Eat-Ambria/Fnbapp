@@ -13,7 +13,7 @@ import { logActivity } from './ActivityLog.jsx';
 function Modal({open, onClose, wide, children}) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 16px",overflowY:"auto",backdropFilter:"blur(2px)"}}>
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.5)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 16px",overflowY:"auto"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:wide?640:480,border:`1px solid ${C.border}`,boxShadow:"0 20px 60px rgba(0,0,0,.25)",animation:"fadeInUp .25s ease both"}}>
         {children}
       </div>

@@ -424,7 +424,7 @@ function PunchCapture(props) {
         React.createElement('button', {
           onClick: punchAnyway,
           style:Object.assign({}, BTN, {
-            background:'linear-gradient(135deg,'+C.wine+',#6D4A25)',color:'#fff'})
+            background:'linear-gradient(135deg,'+C.wine+',#14369B)',color:'#fff'})
         }, '📍 Punch Anyway'),
         React.createElement('button', {
           onClick: onCancel,

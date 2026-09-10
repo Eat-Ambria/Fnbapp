@@ -36,7 +36,7 @@ function VendorDirectory({lang="en"}) {
     <div>
       {/* Delete confirm */}
       {deleteConfirm&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(12,20,16,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:C.surface,borderRadius:14,padding:"28px 32px",maxWidth:340,textAlign:"center"}}>
             <div style={{fontSize:32,marginBottom:8}}>🗑</div>
             <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:5}}>Remove {deleteConfirm.name}?</div>

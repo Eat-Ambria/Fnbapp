@@ -20,15 +20,15 @@ const VENUE_COLORS = {
   AE: { bar: "#378ADD", bg: "#E6F1FB", text: "#0C447C", label: "AE" },
   AM: { bar: "#7F77DD", bg: "#EEEDFE", text: "#3C3489", label: "AM" },
 };
-function venueColor(code) { return VENUE_COLORS[code] || { bar: "#8E8678", bg: "#F1EFE8", text: "#5F5E5A", label: code || "?" }; }
+function venueColor(code) { return VENUE_COLORS[code] || { bar: "#61708C", bg: "#F1EFE8", text: "#5F5E5A", label: code || "?" }; }
 
 /* Category → dot color (stable per catCode) */
 const CAT_DOT_COLORS = {
   GRO: "#BA7517", BEV: "#378ADD", SPI: "#D85A30", BAK: "#7F77DD",
-  DAI: "#1D9E75", DRY: "#8E8678", FRV: "#1D9E75", FRF: "#D4537E",
+  DAI: "#1D9E75", DRY: "#61708C", FRV: "#1D9E75", FRF: "#D4537E",
   EXO: "#D85A30", PMF: "#D64040", IMP: "#BA7517",
 };
-function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#8E8678"; }
+function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#61708C"; }
 
 /* Transform raw Ops row into the shape our UI needs */
 function transformOpsItem(it) {
