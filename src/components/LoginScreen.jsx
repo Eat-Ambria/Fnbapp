@@ -3,6 +3,9 @@ import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { safeArr } from '../utils/helpers.js';
+import { K, type } from '../utils/theme.js';
+import { ripple } from '../utils/ripple.js';
+import { Icon, KButton } from './KitchenUI.jsx';
 import { VENUE_OPTIONS } from '../data/staffData.js';
 
 function LoginScreen({ empDb, onLogin, lang="en" }) {
@@ -86,7 +89,7 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
 
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{width:64,height:64,borderRadius:16,background:`linear-gradient(135deg, ${C.gold}, #8B6A14)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:700,color:"#fff",margin:"0 auto 16px",boxShadow:`0 8px 24px rgba(212,180,74,.25)`,letterSpacing:1,fontFamily:"var(--font-display)"}}>A</div>
+          <div style={{width:64,height:64,borderRadius:16,background:`linear-gradient(135deg, ${C.gold}, #1A46C4)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:700,color:"#fff",margin:"0 auto 16px",boxShadow:`0 8px 24px rgba(212,180,74,.25)`,letterSpacing:1,fontFamily:"var(--font-display)"}}>A</div>
           <div style={{fontSize:26,fontWeight:600,color:C.text,fontFamily:"var(--font-display)",letterSpacing:2}}>{T2("Ambria FnB Operations")}</div>
           <div style={{fontSize:12,color:C.muted,marginTop:6,letterSpacing:1.5,textTransform:"uppercase",fontWeight:500}}>{T2("F&B Kitchen Operations")}</div>
         </div>
@@ -127,7 +130,7 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         <button
           onClick={handleLogin}
           disabled={loading||!empId||pin.length<4}
-          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #A8891E)`,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
+          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #1A46C4)`,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
           {loading?T2("Signing in…"):T2("Sign In →")}
         </button>
 
@@ -139,28 +142,49 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
 
       {/* Venue selection overlay for section tablets */}
       {pendingEmp&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div className="fade-in-up" style={{background:C.surface,borderRadius:20,padding:"32px 28px",maxWidth:400,width:"100%",border:`1px solid ${C.border}`,boxShadow:"0 24px 64px rgba(0,0,0,.2)"}}>
-            <div style={{textAlign:"center",marginBottom:20}}>
-              <div style={{fontSize:28,marginBottom:8}}>🏠</div>
-              <div style={{fontSize:18,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>{T2("Select Venue")}</div>
-              <div style={{fontSize:12,color:C.muted,marginTop:4}}>{T2("Where is this tablet located today?")}</div>
+        // Same dialog language as the rest of the app: brand plate ground, the
+        // deep-green badge, a serif title and brand-green selection — not the
+        // gold-on-white card with a blue gradient button it used to be.
+        <div className="kh-scope" style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div className="kh-modal-card kh-cardart" style={{backgroundColor:K.surface,borderRadius:K.modalRadius,padding:"28px 26px 24px",maxWidth:440,width:"100%",border:`1px solid ${K.modalLine}`,boxShadow:K.shadowLift}}>
+            <div style={{display:"flex",gap:14,alignItems:"center",marginBottom:20}}>
+              <span style={{width:46,height:46,borderRadius:15,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="building" size={22} strokeWidth={1.85}/>
+              </span>
+              <div style={{minWidth:0}}>
+                <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle}}>{T2("Select Venue")}</div>
+                <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:1}}>{T2("Where is this tablet located today?")}</div>
+              </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
-              {VENUE_OPTIONS.map(v=>(
-                <button key={v} onClick={()=>setVenueOverride(v)}
-                  style={{padding:"16px 12px",borderRadius:12,border:`2px solid ${venueOverride===v?C.gold:C.border}`,background:venueOverride===v?C.goldBg:"transparent",cursor:"pointer",textAlign:"center"}}>
-                  <div style={{fontSize:14,fontWeight:venueOverride===v?700:400,color:venueOverride===v?C.gold:C.text}}>{v}</div>
-                </button>
-              ))}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+              {VENUE_OPTIONS.map(v=>{
+                const on = venueOverride===v;
+                return (
+                  <button key={v} onClick={()=>setVenueOverride(v)} onPointerDown={ripple}
+                    className={"kh-pickrow kh-rip"+(on?" is-on":"")}
+                    style={{display:"flex",alignItems:"center",gap:9,padding:"14px 13px",borderRadius:K.rMd,cursor:"pointer",textAlign:"left",
+                      transition:"background .16s ease, border-color .16s ease",
+                      background:on?K.brandBg:K.surface,border:`1px solid ${on?K.brandBorder:K.line}`}}>
+                    <span style={{width:20,height:20,borderRadius:6,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                      border:`1.5px solid ${on?K.brand:K.lineStrong}`,background:on?K.brand:K.surface,color:"#fff"}}>
+                      {on&&<Icon name="check" size={12} strokeWidth={2.6}/>}
+                    </span>
+                    <span style={{fontSize:13.5,fontWeight:on?700:500,color:on?K.brand:K.text,minWidth:0,overflowWrap:"anywhere"}}>{v}</span>
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={()=>{if(venueOverride)finalizeLogin(pendingEmp,venueOverride);}} disabled={!venueOverride}
-              style={{width:"100%",padding:"14px",borderRadius:14,background:venueOverride?`linear-gradient(135deg,${C.gold},#A8891E)`:C.border,color:venueOverride?"#fff":C.faint,border:"none",fontSize:15,fontWeight:700,cursor:venueOverride?"pointer":"not-allowed",fontFamily:"var(--font-display)",letterSpacing:1}}>
-              {T2("Continue")} →
-            </button>
-            <button onClick={()=>{setPendingEmp(null);setVenueOverride("");}} style={{width:"100%",marginTop:8,padding:"10px",borderRadius:10,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>
-              {T2("Back")}
-            </button>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <KButton variant="ghost" onClick={()=>{setPendingEmp(null);setVenueOverride("");}} style={{padding:"11px 22px",borderRadius:14}}>
+                {T2("Back")}
+              </KButton>
+              <KButton variant="brand" icon="chevronR" disabled={!venueOverride}
+                onClick={venueOverride?()=>finalizeLogin(pendingEmp,venueOverride):undefined}
+                style={{padding:"11px 22px",borderRadius:14,flexDirection:"row-reverse"}}>
+                {T2("Continue")}
+              </KButton>
+            </div>
           </div>
         </div>
       )}

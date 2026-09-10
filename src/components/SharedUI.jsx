@@ -1,7 +1,9 @@
 // Ambria FnB — Shared UI components
 // Extracted from App.jsx
 
-import React from "react";
+// useRef/useState/useEffect are used by SelfieCapture below — without them it
+// throws ReferenceError the moment it renders.
+import React, { useRef, useState, useEffect } from "react";
 import { C, AVATAR_COLORS, SECTION_META } from '../data/constants.js';
 import { T } from '../data/translations.js';
 
@@ -18,15 +20,42 @@ class ErrorBoundary extends React.Component {
     if(this.state.hasError){
       const lang = this.props.lang||"en";
       const isHi = lang==="hi";
+      const msg = this.state.error?.message || (isHi?"अप्रत्याशित त्रुटि।":"An unexpected error occurred.");
       return (
-        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:40,textAlign:"center"}}>
-          <div style={{fontSize:48,marginBottom:12}}>⚠️</div>
-          <div style={{fontSize:18,fontWeight:700,color:C.gold,marginBottom:8}}>{isHi?"कुछ गलत हो गया":"Something went wrong"}</div>
-          <div style={{fontSize:12,color:"#888",marginBottom:8,maxWidth:400}}>{this.state.error?.message||"An unexpected error occurred."}</div>
-          <div style={{fontSize:10,color:"#aaa",marginBottom:20}}>{isHi?"चिंता न करें, आपका डेटा सुरक्षित है।":"Don't worry, your data is safe."}</div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>this.setState({hasError:false,error:null,errorInfo:null})} style={{padding:"10px 24px",borderRadius:9,background:"#6B1818",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>↺ {isHi?"पुनः प्रयास":"Retry"}</button>
-            <button onClick={()=>{this.setState({hasError:false,error:null,errorInfo:null});try{window.location.reload();}catch(e){}}} style={{padding:"10px 24px",borderRadius:9,background:"#F2F1EE",color:"#444",border:"1px solid #ddd",fontSize:13,cursor:"pointer"}}>{isHi?"ऐप रिफ्रेश":"Refresh App"}</button>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"60vh",padding:24}}>
+          <div style={{maxWidth:460,width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,
+            boxShadow:"0 1px 3px rgba(17,28,51,.09), 0 6px 14px rgba(17,28,51,.07), 0 18px 40px rgba(17,28,51,.09)",
+            padding:"28px 28px 24px",textAlign:"left"}}>
+
+            <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14}}>
+              <span style={{width:44,height:44,borderRadius:13,flexShrink:0,background:C.amberBg,color:C.amber,
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠</span>
+              <div>
+                <div style={{fontSize:17,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:-.1}}>
+                  {isHi?"कुछ गलत हो गया":"Something went wrong"}
+                </div>
+                <div style={{fontSize:12.5,color:C.muted,marginTop:2}}>
+                  {isHi?"यह स्क्रीन लोड नहीं हो पाई। आपका डेटा सुरक्षित है।":"This screen failed to load. Your data is safe."}
+                </div>
+              </div>
+            </div>
+
+            {/* The actual message, monospaced — it is usually a developer string
+                and wrapping it in prose makes it harder to report accurately. */}
+            <div style={{background:C.bg,border:`1px solid ${C.borderLight}`,borderRadius:10,padding:"11px 13px",
+              fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace",fontSize:12,lineHeight:1.55,
+              color:C.text,wordBreak:"break-word",maxHeight:140,overflowY:"auto"}}>{msg}</div>
+
+            <div style={{display:"flex",gap:10,marginTop:18,justifyContent:"flex-end"}}>
+              <button onClick={()=>{this.setState({hasError:false,error:null,errorInfo:null});try{window.location.reload();}catch(e){}}}
+                style={{padding:"10px 18px",borderRadius:11,background:C.surface,color:C.muted,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                {isHi?"ऐप रिफ्रेश":"Refresh app"}
+              </button>
+              <button onClick={()=>this.setState({hasError:false,error:null,errorInfo:null})}
+                style={{padding:"10px 20px",borderRadius:11,background:C.gold,color:"#fff",border:"1px solid transparent",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                {isHi?"पुनः प्रयास":"Try again"}
+              </button>
+            </div>
           </div>
         </div>
       );
@@ -75,12 +104,16 @@ function STag({name}) {
   return <span style={{fontSize:11,fontWeight:500,padding:"2px 9px",borderRadius:20,background:m.bg,color:m.color,border:`1px solid ${m.color}20`}}>{m.icon} {name}</span>;
 }
 
-function Card({children,style={},className=""}) {
-  return <div className={"fade-in-up "+className} style={{
-    background:`linear-gradient(145deg, ${C.surface} 0%, ${C.darkCard} 100%)`,
+// No backdrop-filter here on purpose. It used to blur whatever sat behind the
+// card, which washed the card's own contents out now that the page has artwork
+// behind it — that was the "can't read it" problem, not the text colour.
+// backgroundColor rather than the background shorthand: the shorthand resets
+// background-image, which would erase the .kh-cardart artwork layered on top.
+function Card({children,style={},className="",art=true}) {
+  return <div className={"fade-in-up "+(art?"kh-cardart ":"")+className} style={{
+    backgroundColor:C.surface,
     border:`1px solid ${C.border}`,borderRadius:16,padding:"18px 22px",
-    boxShadow:`0 8px 32px ${C.shadow}, 0 0 1px ${C.glow}, inset 0 1px 0 rgba(255,255,255,.03)`,
-    backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",
+    boxShadow:`0 1px 3px rgba(17,28,51,.09), 0 6px 14px rgba(17,28,51,.07), 0 18px 40px rgba(17,28,51,.09)`,
     transition:"all .3s cubic-bezier(.23,1,.32,1)",
     ...style
   }}>{children}</div>;
