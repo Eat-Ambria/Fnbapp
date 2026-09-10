@@ -1122,7 +1122,13 @@ export default function App() {
       {/* Floating panel: inset from the window on all sides so every corner can
           round. Rounding only the inner corners left the flush edge square,
           which read as a bug rather than a choice. */}
-      <div style={{width:sideOpen?K.sbWidth:K.sbWidthMin,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",transition:"width .2s var(--ease-luxury)",overflow:"hidden"}}>
+      {/* Collapsed means GONE, not a narrow icon rail. A rail still occupies a
+          column and shows the whole nav, so collapsing bought almost no room and
+          left a strip of ambiguous icons. The panel is hidden outright and a
+          single expand control lives in the top bar — the same pattern the
+          section-tablet shell uses. */}
+      {sideOpen&&(
+      <div style={{width:K.sbWidth,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",overflow:"hidden"}}>
 
         {/* Decorative background art.
             Drop the artwork at Fnbapp/public/sidebar-bg.webp — BASE_URL is used
@@ -1176,19 +1182,14 @@ export default function App() {
                 <Icon name="chefHat" size={23} strokeWidth={1.6}/>
               </div>
             )}
-            {sideOpen&&(
-              <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(p=>!p)} title="Collapse"
-                style={{width:30,height:30,borderRadius:9,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
-                <Icon name="chevronL" size={15}/>
-              </button>
-            )}
-          </div>
-          {!sideOpen&&(
-            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(p=>!p)} title="Expand"
-              style={{width:"100%",height:30,marginTop:12,borderRadius:9,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}>
-              <Icon name="chevronR" size={15}/>
+            {/* Collapse. There is no matching expand button down here any more,
+                because the whole panel goes away when collapsed — the control to
+                bring it back lives in the top bar. */}
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(false)} title={T2("Collapse")}
+              style={{width:30,height:30,borderRadius:9,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="chevronL" size={15}/>
             </button>
-          )}
+          </div>
         </div>
 
         {/* ── Nav ── */}
@@ -1315,6 +1316,7 @@ export default function App() {
           </div>
         )}
       </div>
+      )}
 
       {/* ── MAIN CONTENT ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative"}}>
@@ -1327,7 +1329,20 @@ export default function App() {
             when hiding: collapsing its height changed the scroll container's size,
             which moved scrollTop, which fired another scroll event with the
             opposite direction — the bar flapped open and shut. */}
-        <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:10}}>
+        <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
+
+          {/* The only way back once the sidebar is collapsed, so it sits on the
+              left where the panel used to be rather than among the account
+              controls on the right. */}
+          {!sideOpen&&(
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(true)}
+              title={T2("Expand")} aria-label={T2("Expand")}
+              style={{width:38,height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="panelLeft" size={17} strokeWidth={2}/>
+            </button>
+          )}
+          <span style={{marginLeft:"auto"}}/>
+
 
           {/* Bell hidden for now — set SHOW_BELL back to true to restore it.
               Kept rather than deleted: the toggle behaviour and the pending-leave
