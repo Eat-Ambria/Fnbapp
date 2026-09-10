@@ -2,11 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/Fnbapp/favicon.ico" />
+    <!-- The old href pointed at a favicon.ico that never existed, so the tab icon
+         404'd. Both an .ico (browsers probe for one regardless of these tags) and
+         PNGs. Paths are root-relative: Vite prepends base (/Fnbapp/) itself, so a
+         literal /Fnbapp/ here produced /Fnbapp/Fnbapp/ and 404d. ?v= busts the favicon cache, which survives an ordinary reload —
+         bump it whenever the icon art changes. -->
+    <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=2" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#6B1818" />
-    <link rel="manifest" href="/Fnbapp/manifest.webmanifest"/>
-    <link rel="apple-touch-icon" href="/Fnbapp/icons/icon-192x192.svg"/>
+    <meta name="theme-color" content="#1C3D2B" />
+    <!-- No manual <link rel="manifest">: vite-plugin-pwa injects one with the
+         base applied. A hand-written tag here got emitted twice, and the manual
+         copy lost the /Fnbapp/ prefix. -->
+    <!-- 180px and flattened onto the tile green: iOS renders a transparent
+         apple-touch-icon on black. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -24,16 +35,19 @@
         --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* Left over from the old dark theme. The app is light now, so a near-black
+         page meant that any render failure showed as a dead black screen with no
+         clue what happened. Match the app shell instead. */
       html, body, #root {
         height: 100%;
-        background: #0A0908;
-        color: #F4F0E4;
+        background: #EFEDE4;
+        color: #111C33;
         font-family: var(--font-body);
         -webkit-font-smoothing: antialiased;
       }
       ::-webkit-scrollbar { width: 4px; height: 4px; }
-      ::-webkit-scrollbar-track { background: #131210; }
-      ::-webkit-scrollbar-thumb { background: #2A2520; border-radius: 2px; }
+      ::-webkit-scrollbar-track { background: #E5E2D6; }
+      ::-webkit-scrollbar-thumb { background: #C9C4B2; border-radius: 2px; }
       input, select, textarea, button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
     </style>
   </head>
