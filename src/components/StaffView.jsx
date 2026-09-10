@@ -4,7 +4,9 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
-import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
+// SectionHeader is used by the Request Leave block below — it was missing from
+// this import, so that section threw "SectionHeader is not defined".
+import { Avatar, Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 
 function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
   const T2 = s => T(s, lang);
@@ -44,7 +46,11 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
       {/* Tab bar */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 20px",display:"flex",gap:6}}>
         {[{id:"home",l:"🏠 Home"},{id:"attendance",l:"✅ Attendance"},{id:"leaves",l:"🌿 My Leaves"},{id:"profile",l:"👤 Profile"}].map(t=>(
-          <button key={t.id} onClick={()=>{setTab(t.id);if(t.id==="attendance")setAttStep("check");}} style={{
+          // setAttStep("check") used to be called here. The state it set was
+          // removed in an earlier refactor and nothing reads it any more, so the
+          // call only threw "setAttStep is not defined" and took the whole
+          // screen down the moment anyone opened the Attendance tab.
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
             padding:"12px 16px",border:"none",borderBottom:`2.5px solid ${tab===t.id?C.wine:"transparent"}`,
             background:"transparent",fontSize:12,fontWeight:tab===t.id?600:400,
             color:tab===t.id?C.wine:C.muted,cursor:"pointer",
