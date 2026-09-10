@@ -499,7 +499,7 @@ function GateKiosk({empDb, attendance, setAttendance, currentUser, setCurrentUse
             React.createElement('button',{
               onClick:function(){photoRef.current&&photoRef.current.click();},
               style:{padding:'14px 20px',borderRadius:12,width:'100%',
-                background:'linear-gradient(135deg,'+C.wine+',#6D4A25)',
+                background:'linear-gradient(135deg,'+C.wine+',#14369B)',
                 color:'#fff',border:'none',fontSize:13,fontWeight:700,
                 cursor:'pointer',minHeight:48,boxSizing:'border-box'}
             },'📸 Take Visitor Photo')

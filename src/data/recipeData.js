@@ -217,7 +217,11 @@ function getFullSteps(name){
 }
 
 // ─── DISH IMAGE MAP (Unsplash food photos) ───────────────────────────────────
-function getDishImageUrl(dishName) {
+// `strict` returns a photo ONLY for a dish that is actually in the map below.
+// Without it this falls through a first-word substring match, then keyword
+// guesses, then one generic photo for everything else — so unmapped dishes all
+// came out wearing the same wrong picture.
+function getDishImageUrl(dishName, strict = false) {
   const DISH_IMAGES = {
     "Paneer Lababdar":"https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=70",
     "Dal Makhani":"https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=70",
@@ -276,6 +280,7 @@ function getDishImageUrl(dishName) {
   };
   // Exact match
   if(DISH_IMAGES[dishName]) return DISH_IMAGES[dishName];
+  if(strict) return null;
   // Partial match
   const key = Object.keys(DISH_IMAGES).find(k=>dishName.toLowerCase().includes(k.toLowerCase())||k.toLowerCase().includes(dishName.split(" ")[0].toLowerCase()));
   if(key) return DISH_IMAGES[key];
@@ -301,7 +306,7 @@ function hydrateRecipeData(cfg) {
   // Hydrate categories
   if (cfg.recipeCategories && cfg.recipeCategories.length) {
     RECIPE_DB.cats = cfg.recipeCategories.map(c => ({
-      id: c.id, name: c.name, icon: c.icon || '📋', color: c.color || '#8E8678', count: 0
+      id: c.id, name: c.name, icon: c.icon || '📋', color: c.color || '#61708C', count: 0
     }));
   }
   // Hydrate recipes by category
@@ -393,7 +398,7 @@ function getCatIdForDish(dishName) {
 
 function getCatForDish(dishName) {
   const catId = getCatIdForDish(dishName);
-  return RECIPE_DB.cats.find(c => c.id === catId) || { id: catId || 'maincourse', name: catId || 'Other', icon: '🍽', color: '#8E8678' };
+  return RECIPE_DB.cats.find(c => c.id === catId) || { id: catId || 'maincourse', name: catId || 'Other', icon: '🍽', color: '#61708C' };
 }
 
 // ─── LEGACY COMPAT ──────────────────────────────────────────────
@@ -441,14 +446,23 @@ function getIngrForDish(dishName, targetPax) {
     if (firstQtyRow && (typeof firstQtyRow.qty === 'number' || firstQtyRow.qty === null)) {
       const basePax = rec.ingredients.base_pax || 300;
       const factor = (targetPax || basePax) / basePax;
-      return items.filter(it => it.type !== 'bg').map(it => ({
-        n: it.name,
-        h: readHi(it),
-        q: (it.qty || 0) * factor,
-        u: it.unit || "kg",
-        _newFmt: true,
-        ...(it.type === 'inv' ? { _type: 'inv', ops_inventory_id: it.ops_inventory_id || null } : {})
-      }));
+      return items.filter(it => it.type !== 'bg').map(it => (
+        // Section rows were being emitted as ordinary zero-qty ingredients, so
+        // every consumer that filters on q > 0 silently dropped them. Flag them
+        // the same way getIngrForYield does — a dish with five sub-preparations
+        // then reads as five groups instead of one flat list with Water in it
+        // five times. No rows are added or removed, only labelled.
+        it.isSection
+          ? { n: it.name, h: readHi(it), q: 0, u: '', _newFmt: true, _isSection: true }
+          : {
+              n: it.name,
+              h: readHi(it),
+              q: (it.qty || 0) * factor,
+              u: it.unit || "kg",
+              _newFmt: true,
+              ...(it.type === 'inv' ? { _type: 'inv', ops_inventory_id: it.ops_inventory_id || null } : {})
+            }
+      ));
     }
     // LEGACY schema (pre-V48): qty[] array indexed by pax_sizes
     if (rec.ingredients.pax_sizes?.length > 0) {

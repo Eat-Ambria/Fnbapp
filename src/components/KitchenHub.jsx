@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -16,6 +16,9 @@ import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
+import { K, type, tone } from '../utils/theme.js';
+import { ripple } from '../utils/ripple.js';
+import { Icon, KTabs, KButton, KPill, KBanner, KModal, KToast } from './KitchenUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -47,9 +50,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const hasCats = Array.isArray(userCats) && userCats.length > 0;
   const allowedCatIds = isSectionUser ? (hasCats ? userCats : null) : null;
   const sectionFilter = isSectionUser ? (hasCats ? userCats[0] : null) : null;
-  const sectionDisplayName = isSectionUser && hasCats
-    ? [...new Set(userCats.map(c => { const cat = RECIPE_DB.cats.find(cc=>cc.id===c); return cat ? cat.name : c; }).filter(Boolean))].join(' + ')
-    : null;
+  // Kept as a list, not a pre-joined string. Eleven station names glued with
+  // " + " ran the width of the screen and could not be read; the banner renders
+  // them as chips instead.
+  const sectionCatNames = isSectionUser && hasCats
+    ? [...new Set(userCats.map(c => { const cat = RECIPE_DB.cats.find(cc=>cc.id===c); return cat ? cat.name : c; }).filter(Boolean))]
+    : [];
+  const sectionDisplayName = sectionCatNames.length ? sectionCatNames.join(' + ') : null;
 
   const evList0 = safeArr(events);
   const evList = odcOnly ? evList0.filter(e=>/outdoor|odc/i.test(e.venue)) : evList0;
@@ -505,11 +512,48 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // -- Dish Name Mapping --
   const [showDishMap, setShowDishMap] = useState(false);
+  // Reset-current flow: one modal drives the confirm, the stale-tab block and the
+  // result, replacing the browser confirm()/alert() chain.
+  const [resetModal, setResetModal] = useState(null);
+  // Function picker for Reset. Present = the picker modal is open.
+  const [resetPick, setResetPick] = useState(null);  // { evs:[…], dates:[today,tomorrow] }
+  const [resetSel,  setResetSel]  = useState([]);    // selected event ids
+
+  // Shared by both paths (single function goes straight to confirm, multiple
+  // goes through the picker) so the delete behaves identically either way.
+  function runReset(targetIds, doneLabel){
+    setResetModal(null);
+    setResetPick(null);
+    setKitchenTracking(p=>{
+      const o = (p&&typeof p==="object") ? {...p} : {};
+      targetIds.forEach(id => { delete o[id]; });
+      return o;
+    });
+    try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
+    try{localStorage.removeItem('ambria_kt');}catch(e){}
+    import('../lib/supabase.js').then(function(mod){
+      mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
+        if(r.error){
+          console.error('KT scoped clear error:', r.error);
+          setResetModal({ tone:"danger", icon:"alert", title:T2("Reset failed"), body:r.error.message });
+          return;
+        }
+        setResetModal({ tone:"ok", icon:"check", title:T2("Reset complete"), body:doneLabel });
+      });
+    }).catch(function(e){
+      console.error('KT clear import error:', e);
+      setResetModal({ tone:"danger", icon:"alert", title:T2("Reset failed"), body:String(e&&e.message||e) });
+    });
+  }
   const [dishMapSel, setDishMapSel] = useState({}); // {lmsName: recipeDishName}
   const [dishMapSaving, setDishMapSaving] = useState(false);
   const [dishMapSearch, setDishMapSearch] = useState("");
   const [dishMapDrop, setDishMapDrop] = useState(null); // lms_name of open dropdown row
   const [dishMapDropQ, setDishMapDropQ] = useState("");
+  // "all" | "unlinked" | "mapped" | "auto" — the header chips double as filters.
+  // With 163 dishes, the ~30 unlinked ones are the only actionable set, and
+  // hunting for them by scrolling was the whole problem with this screen.
+  const [dishMapFilter, setDishMapFilter] = useState("all");
 
   // -- Yield editing --
   const YIELD_UNITS = ["kg","gm","ltr","ml","piece","chafing dish"];
@@ -531,10 +575,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     var ym = yieldModal;
     setYieldModal(null);
     var ingr = getIngrForDish(ym.dish.name, ym.pax);
+    // What was actually made. Handed back to the caller so it lands on the dish
+    // and the dispatch list can say how much is going out, not just how many.
+    var qty = parseFloat(yieldQty) || null;
+    var made = qty ? { madeQty: qty, madeUnit: yieldUnit } : null;
     if (ingr && ingr.length > 0) {
-      setUsageModal({evId:ym.dish.fEvId, idx:ym.dish.fIdx, dishName:ym.dish.name, pax:ym.pax, isPrepDay:ym.isPrepDay, ingredients:ingr, onConfirm:ym.onConfirm, yieldQty:parseFloat(yieldQty)||null, yieldUnit:yieldUnit});
+      setUsageModal({evId:ym.dish.fEvId, idx:ym.dish.fIdx, dishName:ym.dish.name, pax:ym.pax, isPrepDay:ym.isPrepDay, ingredients:ingr, onConfirm:ym.onConfirm, yieldQty:qty, yieldUnit:yieldUnit, made:made});
       setUsageActuals({});
-    } else { ym.onConfirm(); }
+    } else { ym.onConfirm(made); }
   }
   async function saveUsageAndDone() {
     if (!usageModal) return;
@@ -545,7 +593,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     try {
       await supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
     } catch(e) { console.error('Usage log save error:', e); }
-    usageModal.onConfirm();
+    usageModal.onConfirm(usageModal.made);
     setUsageModal(null);
   }
 
@@ -554,8 +602,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [analyticsDate, setAnalyticsDate] = useState(null);
   const [calMo, setCalMo] = useState(()=>new Date().getMonth());
   const [calYr, setCalYr] = useState(()=>new Date().getFullYear());
-  const ANA_VP={"Ambria Pushpanjali":{code:"AP",c:"#D85A30"},"Ambria Exotica":{code:"AE",c:"#BA7517"},"Manaktala Farm":{code:"MKT",c:"#8B5E2F"},"Ambria Restro":{code:"AR",c:"#1D9E75"},"Outdoor Catering (ODC)":{code:"ODC",c:"#7F77DD"},"Ambria Manaktala":{code:"AM",c:"#BA7517"}};
-  const anaGp=v=>ANA_VP[v]||{code:"EV",c:"#8B5E2F"};
+  const ANA_VP={"Ambria Pushpanjali":{code:"AP",c:"#D85A30"},"Ambria Exotica":{code:"AE",c:"#BA7517"},"Manaktala Farm":{code:"MKT",c:"#2563EB"},"Ambria Restro":{code:"AR",c:"#1D9E75"},"Outdoor Catering (ODC)":{code:"ODC",c:"#7F77DD"},"Ambria Manaktala":{code:"AM",c:"#BA7517"}};
+  const anaGp=v=>ANA_VP[v]||{code:"EV",c:"#2563EB"};
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
@@ -983,7 +1031,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   function sigCtx(){
     const c=sigCanvasRef.current;if(!c)return null;
-    const ctx=c.getContext('2d');ctx.strokeStyle='#D4B44A';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+    const ctx=c.getContext('2d');ctx.strokeStyle='#2563EB';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
     return ctx;
   }
   function sigPos(e,c){
@@ -1050,19 +1098,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const _TOM=_freshTomorrow();
     setKitchenTracking(p=>{
       const o=p&&typeof p==="object"?{...p}:{};
+      // mergeDishState, not a spread: see its comment in utils/helpers.js —
+      // a shallow merge lets a stale step map erase a just-recorded Done.
       if(d1FnFilter==="combined" && dishInfo?.name){
         const cKey=ck(dishInfo.name);
-        var _ck="__combined_"+_TOM;o[_ck]={...(o[_ck]||{}),[cKey]:{...(o[_ck]?.[cKey]||{}),...upd}};
+        var _ck="__combined_"+_TOM;o[_ck]={...(o[_ck]||{}),[cKey]:mergeDishState(o[_ck]?.[cKey],upd)};
         var propUpd=Object.assign({},upd); delete propUpd.mesaDone;
         if(Object.keys(propUpd).length>0){
           (dishInfo.fns||[]).forEach(fn=>{
             const k2=dk(fn.evId,fn.idx);
-            o[fn.evId]={...(o[fn.evId]||{}),[k2]:{...(o[fn.evId]?.[k2]||{}),...propUpd}};
+            o[fn.evId]={...(o[fn.evId]||{}),[k2]:mergeDishState(o[fn.evId]?.[k2],propUpd)};
           });
         }
       } else {
         const k2=dk(evId,idx);
-        o[evId]={...(o[evId]||{}),[k2]:{...(o[evId]?.[k2]||{}),...upd}};
+        o[evId]={...(o[evId]||{}),[k2]:mergeDishState(o[evId]?.[k2],upd)};
       }
       return o;
     });
@@ -1149,14 +1199,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     return {ing:null, effKg:null, warn:null, planned:false};
   }
 
+  // `icon` names map to the inline-SVG set in KitchenUI.jsx — see PATHS there.
   const TABS=[
-    {v:"today",   l:T2("Event day")},
-    {v:"d1",      l:T2("Prep day")},
+    // "Event Day" (capital D) is the key that exists in the Hindi dict —
+    // the old "Event day" fell through untranslated.
+    {v:"today",   l:T2("Event Day"),  icon:"calendar"},
+    {v:"d1",      l:T2("Prep Day"),   icon:"clipboard"},
     // {v:"scaling", ...} — REMOVED in Phase 3: merged into Planning tab (multiplier slider now lives there)
-    {v:"sops",    l:T2("SOPs")},
-    {v:"planning",l:"📋 "+T2("Planning")},
-    {v:"analytics",l:"📊 "+T2("Analytics")},
-    {v:"closing", l:"🍲 "+T2("Closing")},
+    {v:"sops",    l:T2("SOPs"),       icon:"book"},
+    {v:"planning",l:T2("Planning"),   icon:"layers"},
+    {v:"analytics",l:T2("Analytics"), icon:"chart"},
+    {v:"closing", l:T2("Closing"),    icon:"check"},
   ];
   const TABS_FILTERED = isSectionUser
     ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v))
@@ -1165,28 +1218,169 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // -- Inline dish card (shows live progress) --
 
   return(
-    <div style={{position:"relative"}}>
+    // .kh-scope activates the Kitchen Hub design system (hover states, focus
+    // ring, responsive grids) defined in utils/theme.js. Scoped so no other
+    // screen is affected.
+    <div className="kh-scope" style={{position:"relative"}}>
 
-      {/* Section tablet banner */}
-      {sectionFilter && hasCats && (()=>{
-        const bannerCat = RECIPE_DB.cats.find(c=>c.id===userCats[0]);
-        const bannerColor = bannerCat?.color || C.gold;
-        return (
-          <div style={{background:bannerColor+'15',border:'1px solid '+bannerColor+'40',
-            borderRadius:12,padding:'12px 16px',marginBottom:14,
-            display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:24}}>{bannerCat?.icon||'??'}</span>
-            <div>
-              <div style={{fontSize:14,fontWeight:700,color:bannerColor}}>{sectionDisplayName}</div>
-              <div style={{fontSize:11,color:C.muted}}>Showing only your assigned categories</div>
+      {/* Which functions to reset. Body is built at render time, not stored in
+          state, so the checkboxes reflect the current selection. */}
+      <KModal
+        open={!!resetPick}
+        toneName="danger"
+        iconTone="brand"
+        icon="layers"
+        title={T2("Which functions do you want to reset?")}
+        confirmLabel={`${T2("Delete")} (${resetSel.length})`}
+        confirmIcon="trash"
+        cancelLabel={T2("Cancel")}
+        subhead={resetPick && (
+          // The day is the same for every row (the picker is scoped to the
+          // active tab's date), so it is stated once here rather than repeated
+          // on each line.
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{...type.label,color:K.sbLabel}}>
+              {resetSel.length} {resetSel.length!==1?T2("functions"):T2("function")} {T2("selected")}
+            </span>
+            <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:6,
+              padding:"5px 12px",borderRadius:K.rPill,background:K.brandBg,
+              border:`1px solid ${K.brandBorder}`,color:K.brandText,fontSize:12.5,fontWeight:600}}>
+              <Icon name="calendar" size={13} strokeWidth={2}/>{resetPick.evs[0]?._label} · {resetPick.day}
+            </span>
+          </div>
+        )}
+        onClose={()=>setResetPick(null)}
+        confirmDisabled={resetSel.length===0}
+        onConfirm={()=>{
+          const evs = resetPick.evs;
+          const ids = evs.filter(e=>resetSel.includes(e.id)).map(e=>e.id);
+          // __combined_<date> holds the combined-view tracking for the whole day,
+          // so only clear it when every function that day is selected — otherwise
+          // resetting one function would wipe the others' combined data too.
+          const allSelected = evs.every(e=>resetSel.includes(e.id));
+          const targets = allSelected ? [...ids, "__combined_"+resetPick.day] : ids;
+          runReset(targets, `${T2("Cleared")} ${ids.length} ${ids.length!==1?T2("functions"):T2("function")} — ${resetPick.day}.`);
+        }}
+        body={resetPick && (
+          <div>
+            {/* Caps the modal height on a day with many functions — the buttons
+                must stay reachable without scrolling the whole dialog. */}
+            <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:16,
+              maxHeight:260,overflowY:"auto",paddingRight:2}}>
+              {resetPick.evs.map(ev=>{
+                const on = resetSel.includes(ev.id);
+                return (
+                  <button key={ev.id} type="button" className={"kh-pickrow kh-rip"+(on?" is-on":"")}
+                    onPointerDown={ripple}
+                    onClick={()=>setResetSel(p=>on?p.filter(x=>x!==ev.id):[...p,ev.id])}
+                    style={{display:"flex",alignItems:"center",gap:14,padding:"13px 15px",borderRadius:K.rLg,cursor:"pointer",textAlign:"left",
+                      transition:"background .16s ease, border-color .16s ease",
+                      background:on?K.brandBg:K.surface,border:`1px solid ${on?K.brandBorder:K.modalLine}`}}>
+                    <span style={{width:26,height:26,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                      transition:"background .16s ease, border-color .16s ease",
+                      border:`1.5px solid ${on?K.brand:K.lineStrong}`,background:on?K.brand:K.surface,color:"#fff"}}>
+                      {on && <Icon name="check" size={15} strokeWidth={2.6}/>}
+                    </span>
+                    <span style={{minWidth:0,flex:1}}>
+                      <span style={{display:"block",fontSize:15,fontWeight:700,color:K.hdrTitle,letterSpacing:"-.1px"}}>{ev.guest||T2("Function")}</span>
+                      <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>
+                        {ev.pax} pax{ev.time?` · ${ev.time}`:""}
+                      </span>
+                    </span>
+                    {/* Service time, repeated as a glyph — reads as "this is a
+                        timed function" at a glance without another text column. */}
+                    <span style={{width:34,height:34,borderRadius:K.rPill,flexShrink:0,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      background:on?K.surface:K.brandSoft,border:`1px solid ${on?K.brandBorder:K.modalLine}`,color:K.brand}}>
+                      <Icon name="clock" size={17} strokeWidth={1.9}/>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Only the consequence is red — the picker itself stays on-theme. */}
+            <div style={{display:"flex",alignItems:"center",gap:13,padding:"14px 16px",borderRadius:K.rLg,
+              background:K.dangerBg,border:`1px solid ${K.dangerBorder}`}}>
+              <span style={{width:40,height:40,borderRadius:K.rPill,flexShrink:0,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                background:"rgba(217,70,63,.13)",color:K.danger}}>
+                <Icon name="alert" size={20} strokeWidth={1.9}/>
+              </span>
+              <span style={{fontSize:13.5,color:"#B0322C",lineHeight:1.5}}>
+                {T2("This permanently deletes step timers, selfies and completion status for the selected functions. This cannot be undone.")}
+              </span>
             </div>
           </div>
-        );
-      })()}
+        )}
+      />
+
+      {/* One state, two presentations. A notice — no onConfirm, so its only
+          button was "Done" — is a RESULT, and a result does not deserve a modal
+          that blocks the screen until you dismiss it. Those become toasts.
+          Anything that asks a question keeps the dialog. Splitting on
+          `onConfirm` means every existing call site is routed correctly without
+          being touched. */}
+      <KToast
+        open={!!resetModal && !resetModal.onConfirm}
+        toneName={resetModal?.tone}
+        icon={resetModal?.icon}
+        title={resetModal?.title}
+        body={resetModal?.body}
+        onClose={()=>setResetModal(null)}
+      />
+
+      <KModal
+        open={!!resetModal && !!resetModal.onConfirm}
+        toneName={resetModal?.tone}
+        icon={resetModal?.icon}
+        title={resetModal?.title}
+        body={resetModal?.body}
+        confirmLabel={resetModal?.confirmLabel}
+        cancelLabel={T2("Cancel")}
+        onConfirm={resetModal?.onConfirm}
+        onClose={()=>setResetModal(null)}
+      />
+
+      {/* Section tablet banner */}
+      {sectionFilter && hasCats && (
+        // Brand plate, not a per-category accent — this is chrome, and it was
+        // the last thing on the tablet still picking its colour from whichever
+        // station the device happens to be assigned to.
+        <div className="kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.hdrLine}`,borderLeft:`4px solid ${K.brand}`,
+          borderRadius:K.rLg,padding:'15px 18px',marginBottom:14,boxShadow:K.shadowCard}}>
+          {/* A real heading, not a micro-label. At 10.5px uppercase this was the
+              quietest thing on a screen whose whole point is telling the tablet
+              which stations it is responsible for. */}
+          <div style={{display:'flex',alignItems:'center',gap:13,marginBottom:12}}>
+            <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
+              display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <Icon name="layers" size={26} strokeWidth={1.8}/>
+            </span>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{...type.pageTitle,fontSize:28,color:K.hdrTitle}}>{T2("Your stations")}</div>
+              <div style={{fontSize:14,color:K.hdrMeta,marginTop:3}}>{T2("Showing only your assigned categories")}</div>
+            </div>
+            <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0,
+              minWidth:34,height:34,padding:'0 11px',borderRadius:K.rPill,
+              background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brand,
+              fontSize:15,fontWeight:700,fontVariantNumeric:'tabular-nums'}}>{sectionCatNames.length}</span>
+          </div>
+          {/* One chip per station. A single joined line of eleven names was a
+              wall of text nobody could pick their own station out of. */}
+          <div style={{display:'flex',flexWrap:'wrap',gap:7}}>
+            {sectionCatNames.map((n,i)=>(
+              <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'5px 12px',borderRadius:K.rPill,
+                background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brandText,
+                fontSize:12.5,fontWeight:600,whiteSpace:'nowrap'}}>{n}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* -- Chef Photo Modal -- */}
       {readyModal&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"}}>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.62)",display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"}}>
           <div style={{background:C.surface,borderRadius:20,padding:"22px 20px",maxWidth:420,width:"100%",border:`2px solid ${C.greenBorder}`,boxShadow:"0 32px 80px rgba(0,0,0,.7)"}}>
             <div style={{textAlign:"center",marginBottom:14}}>
               <div style={{fontSize:28,marginBottom:6}}>🎉</div>
@@ -1239,7 +1433,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- SOP Add/Edit Modal -- */}
       {sopModal&&!editingSteps&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 12px",overflowY:"auto"}}>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 12px",overflowY:"auto"}}>
           <div style={{background:C.surface,borderRadius:18,padding:"22px 20px",maxWidth:540,width:"100%",border:`2px solid ${C.goldBorder}`,boxShadow:"0 24px 60px rgba(0,0,0,.5)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <div style={{fontSize:17,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{sopModal.mode==="edit"?"✏️ Edit Recipe SOP":"➕ Add Recipe SOP"}</div>
@@ -1336,7 +1530,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- CSV IMPORT MODAL -- */}
       {csvImport&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
           <div style={{background:C.surface,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`,boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
             <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📥 Import Ingredients CSV</div>
@@ -1407,30 +1601,66 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             : T2("LMS marked this as a Custom menu with")+" "+menuLen+" "+T2("dish(es) — verify with admin that all dishes are correctly listed before cooking.");
           const pkgNote = (isCustom||!pkg) ? "" : " — "+T2("Package")+": "+pkg;
           return (
-            <div key={"menu-warn-"+ev.id} style={{marginBottom:12,padding:"14px 18px",borderRadius:12,background:C.redBg,border:`2px solid ${C.red}`,display:"flex",alignItems:"flex-start",gap:12}}>
-              <span style={{fontSize:24,flexShrink:0,lineHeight:1}}>⚠️</span>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:4}}>{heading} — {ev.guest||T2("Function")} ({isToday?T2("today"):T2("tomorrow")})</div>
-                <div style={{fontSize:12,color:C.red,lineHeight:1.5}}>{ev.venue||""} — {ev.date} — {ev.pax} {T2("pax")} — {ev.time||"TBD"}{pkgNote} — {body}</div>
-              </div>
-              {currentUser&&currentUser.role==='admin'&&(
-                <button onClick={function(){
-                  if(!window.confirm("Mark menu as built for '"+(ev.guest||"function")+"'?\n\nThis clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor.")) return;
-                  supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
-                    if(r.error){alert('Failed to save: '+r.error.message);console.error(r.error);}
+            <KBanner
+              key={"menu-warn-"+ev.id}
+              toneName="danger"
+              icon="alert"
+              style={{marginBottom:12}}
+              title={`${heading} — ${ev.guest||T2("Function")} (${isToday?T2("today"):T2("tomorrow")})`}
+              sub={`${ev.venue||""} — ${ev.date} — ${ev.pax} ${T2("pax")} — ${ev.time||"TBD"}${pkgNote} — ${body}`}
+              right={
+              currentUser&&currentUser.role==='admin'&&(
+                <KButton variant="danger" size="sm" icon="check" onClick={function(){
+                  // In-app dialog rather than window.confirm — and the result is
+                  // reported too, which the browser confirm never did: a failed
+                  // Supabase write used to be a silent alert behind the banner.
+                  setResetModal({
+                    tone:"warn", icon:"alert",
+                    title:`${T2("Mark menu as built for")} "${ev.guest||T2("function")}"?`,
+                    body:T2("This clears the warning banner. Only do this after confirming all dishes are correctly set in Menu Editor."),
+                    confirmLabel:T2("Mark as built"),
+                    onConfirm:function(){
+                      setResetModal(null);
+                      import('../lib/supabase.js').then(function(mod){
+                        if(!mod.supabase){
+                          setResetModal({tone:"danger",icon:"alert",title:T2("Not connected"),
+                            body:T2("No database connection — try again once you are back online."),
+                            confirmLabel:T2("Close")});
+                          return;
+                        }
+                        mod.supabase.from('events').update({custom_menu_confirmed:true}).eq('id',ev.id).then(function(r){
+                          if(r.error){
+                            console.error(r.error);
+                            setResetModal({tone:"danger",icon:"alert",title:T2("Could not save"),
+                              body:String(r.error.message||r.error),confirmLabel:T2("Close")});
+                          }else{
+                            setResetModal({tone:"ok",icon:"check",title:T2("Menu marked as built"),
+                              body:`${ev.guest||T2("Function")} — ${T2("the warning banner will clear on the next sync.")}`,
+                              confirmLabel:T2("Done")});
+                          }
+                        });
+                      });
+                    },
                   });
-                }} style={{padding:'8px 14px',borderRadius:8,background:C.surface,border:`1.5px solid ${C.red}`,color:C.red,fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>? {T2("Menu built")}</button>
+                }}>{T2("Menu built")}</KButton>
               )}
-            </div>
+            />
           );
         });
       })()}
-      <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,marginBottom:20,gap:0}}>
-        {TABS_FILTERED.map(t=>(
-          <button key={t.v} onClick={()=>setTab(s=>{if(s!==t.v&&(t.v==="d1"||s==="d1")){setD1View("all");setD1FnFilter("combined");}return t.v;})} style={{padding:"10px 18px",fontSize:13,fontWeight:tab===t.v?500:400,cursor:"pointer",background:"none",color:tab===t.v?C.gold:C.muted,border:"none",borderBottom:`2px solid ${tab===t.v?C.gold:"transparent"}`,whiteSpace:"nowrap"}}>{t.l}</button>
-        ))}
+      <KTabs
+        items={TABS_FILTERED}
+        value={tab}
+        onChange={v=>setTab(s=>{if(s!==v&&(v==="d1"||s==="d1")){setD1View("all");setD1FnFilter("combined");}return v;})}
+        right={<>
         {currentUser&&currentUser.role==='admin'&&(
-          <button onClick={function(){
+          // Quiet by default. It is a rarely used destructive admin action, so
+          // it sits as a small neutral chip and only turns red on hover — the
+          // red outline made it compete with the tab strip it sits beside.
+          <KButton variant="ghost" size="sm" icon="undo" title={T2("Reset current")}
+            className="kh-btn-quietdanger"
+            style={{borderRadius:K.rPill,color:K.textMuted,padding:"6px 13px"}}
+            onClick={function(){
             // Recompute TODAY/TOMORROW FRESH at click time.
             // The module-load constants become stale if this tab has been open across midnight —
             // that is how July 15/16 kitchen_tracking data got nuked in one accidental Reset click.
@@ -1442,26 +1672,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             // Hard block: if module-load TODAY differs from real today, the whole session is
             // stale. Force reload rather than delete data belonging to yesterday.
             if(TODAY_NOW !== TODAY){
-              alert(
-                "? This tab was opened on "+TODAY+" but today is "+TODAY_NOW+".\n\n"+
-                "The app's date has drifted across midnight. Reloading now to prevent "+
-                "accidental deletion of past data. Try Reset again after reload."
-              );
-              window.location.reload();
+              setResetModal({
+                tone:"warn", icon:"alert",
+                title:T2("This tab is out of date"),
+                body:`${T2("Opened on")} ${TODAY}, ${T2("but today is")} ${TODAY_NOW}.\n\n`+
+                  T2("The date drifted across midnight. Reload before resetting, so data from the wrong day is never deleted."),
+                confirmLabel:T2("Reload now"),
+                onConfirm:()=>window.location.reload(),
+              });
               return;
             }
 
-            // Refilter events using fresh dates (defensive against any state drift)
+            // "Reset current" resets the day you are actually looking at: Prep Day
+            // works on tomorrow, every other tab on today. It used to wipe BOTH
+            // days at once, which is why functions from another date showed up.
             const _all = safeArr(events);
-            const todayEvs2 = _all.filter(e=>e.date===TODAY_NOW);
-            const tomorrowEvs2 = _all.filter(e=>e.date===TOMORROW_NOW);
-            const todayIds = todayEvs2.map(e=>e.id);
-            const tomorrowIds = tomorrowEvs2.map(e=>e.id);
-            const evIds = [...todayIds, ...tomorrowIds];
-            const combKeys = ["__combined_"+TODAY_NOW, "__combined_"+TOMORROW_NOW];
-            const targetIds = [...evIds, ...combKeys];
+            const isPrepTab = tab === "d1";
+            const scopeDay  = isPrepTab ? TOMORROW_NOW : TODAY_NOW;
+            const dayLabel  = isPrepTab ? T2("Tomorrow") : T2("Today");
+            const scopeEvs  = _all.filter(e=>e.date===scopeDay);
+            const evIds     = scopeEvs.map(e=>e.id);
+            const targetIds = [...evIds, "__combined_"+scopeDay];
             if(evIds.length === 0){
-              alert("No events on "+TODAY_NOW+" or "+TOMORROW_NOW+" — nothing to reset.");
+              setResetModal({
+                tone:"idle", icon:"calendar",
+                title:T2("Nothing to reset"),
+                body:`${T2("No functions on")} ${scopeDay}.`,
+              });
               return;
             }
             const totalDishes = evIds.reduce((n, id)=>{
@@ -1469,37 +1706,35 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               return n + (evObj ? menuArr(evObj).length : 0);
             }, 0);
 
-            // Confirmation shows the ACTUAL DATES so admin can spot a stale session before wiping
-            if(!window.confirm(
-              "? DELETE kitchen tracking rows from database?\n\n"+
-              "Today ("+TODAY_NOW+"): "+todayEvs2.length+" event"+(todayEvs2.length!==1?"s":"")+"\n"+
-              "Tomorrow ("+TOMORROW_NOW+"): "+tomorrowEvs2.length+" event"+(tomorrowEvs2.length!==1?"s":"")+"\n"+
-              "Total: ~"+totalDishes+" dishes across "+targetIds.length+" ev_id(s).\n\n"+
-              "PERMANENTLY deletes step timers, selfies, completion status for these dates.\n"+
-              "Other dates are NOT touched. Cannot undo."
-            )) return;
-            setKitchenTracking(p=>{
-              const o = (p&&typeof p==="object") ? {...p} : {};
-              targetIds.forEach(id => { delete o[id]; });
-              return o;
+            // More than one function that day: let the admin pick which, rather
+            // than wiping all of them in one click.
+            const pickEvs = scopeEvs.map(e=>({...e, _day:scopeDay, _label:dayLabel}));
+            if(pickEvs.length > 1){
+              setResetSel(pickEvs.map(e=>e.id));   // default: everything selected
+              setResetPick({ evs:pickEvs, day:scopeDay });
+              return;
+            }
+
+            // Single function — no point asking which one.
+            setResetModal({
+              tone:"danger", icon:"alert",
+              title:T2("Delete kitchen tracking for this function?"),
+              body:
+                `${pickEvs[0]?.guest||T2("Function")} — ${pickEvs[0]?._day}\n`+
+                `~${totalDishes} ${T2("dishes")}\n\n`+
+                T2("This permanently deletes step timers, selfies and completion status. Other dates are not touched. This cannot be undone."),
+              confirmLabel:T2("Delete"),
+              onConfirm:()=>runReset(
+                targetIds,
+                `${T2("Cleared")} ${targetIds.length} ev_id ${T2("row(s) for")} ${TODAY_NOW} + ${TOMORROW_NOW}.`
+              ),
             });
-            try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
-            try{localStorage.removeItem('ambria_kt');}catch(e){}
-            supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
-              if(r.error) console.error('KT scoped clear error:', r.error);
-              else console.log('? Supabase kitchen_tracking cleared for', targetIds.length, 'ev_ids ('+TODAY_NOW+' + '+TOMORROW_NOW+')');
-            });
-            alert("? Reset complete. Deleted "+targetIds.length+" ev_id row(s) for "+TODAY_NOW+" + "+TOMORROW_NOW+".");
-          }} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
-            ? {T2("Reset current")}
-          </button>
+          }}>
+            {T2("Reset current")}
+          </KButton>
         )}
-        {currentUser&&currentUser.role==='admin'&&(
-          <button onClick={()=>setShowDishMap(true)} style={{padding:'5px 10px',borderRadius:8,background:"none",border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:500,cursor:'pointer',marginLeft:currentUser.role==='admin'?0:'auto',marginBottom:6,whiteSpace:"nowrap"}}>
-            🔗 {T2("Dish Map")}
-          </button>
-        )}
-      </div>
+        </>}
+      />
 
       {/* --- EVENT DAY — only cooking/dispatch for today's functions --- */}
       {tab==="today"&&(
@@ -1529,18 +1764,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             onBeforeDishDone={openUsageModal}
           />
         ):(
-          <div style={{textAlign:"center",padding:"60px 20px"}}>
-            <div style={{fontSize:48,marginBottom:16}}>🍽️</div>
-            <div style={{fontSize:18,fontWeight:500,color:C.text,marginBottom:8}}>{T2("No event today")}</div>
-            <div style={{fontSize:13,color:C.muted,marginBottom:20}}>{T2("Event day cooking tasks will appear here when there's a function scheduled for today.")}</div>
+          <div style={{background:K.surface,border:`1px solid ${K.line}`,borderRadius:K.rLg,boxShadow:K.shadowCard,textAlign:"center",padding:"56px 20px"}}>
+            <div style={{width:56,height:56,borderRadius:K.rLg,background:K.accentSoft,color:K.accent,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+              <span style={{fontSize:26}}>🍽️</span>
+            </div>
+            <div style={{fontSize:17,fontWeight:700,color:K.text,marginBottom:8}}>{T2("No event today")}</div>
+            <div style={{fontSize:13,color:K.textMuted,marginBottom:20,lineHeight:1.6}}>{T2("Event day cooking tasks will appear here when there's a function scheduled for today.")}</div>
             {tomorrowEvs.length>0&&(
-              <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.border}`,fontSize:13,color:C.gold}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:K.rMd,background:K.infoBg,border:`1px solid ${K.infoBorder}`,fontSize:12.5,color:K.info,fontWeight:600}}>
                 <span>📅</span>
                 <span>{T2("Next up")}: {tomorrowLabel} — {tomorrowEvs.map(e=>`${e.guest||"Function"} (${e.pax} pax)`).join(", ")}</span>
               </div>
             )}
-            <div style={{marginTop:16}}>
-              <button onClick={()=>setTab("d1")} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:500,cursor:"pointer"}}>{T2("Go to Prep day")} ?</button>
+            <div style={{marginTop:18,display:"flex",justifyContent:"center"}}>
+              <KButton variant="accent" icon="clipboard" onClick={()=>setTab("d1")}>{T2("Go to Prep day")}</KButton>
             </div>
           </div>
         )
@@ -1567,7 +1804,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             const o = p && typeof p === "object" ? { ...p } : {};
             const scope = isCombined ? ("__combined_"+_TOM) : (activeEv ? activeEv.id : null);
             if (!scope) return o;
-            o[scope] = { ...(o[scope] || {}), [sK]: { ...(o[scope]?.[sK] || {}), ...upd } };
+            // Same fix as EventDayTab's ssWrite: merge items_done against the
+            // LATEST state rather than replacing it with a render-time snapshot,
+            // or a second tick moments later undoes the first.
+            o[scope] = { ...(o[scope] || {}), [sK]: mergeDishState(o[scope]?.[sK], upd) };
             return o;
           });
         }
@@ -1638,10 +1878,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                 const total = agg.items.length;
                 const pct = total > 0 ? Math.round(collected / total * 100) : 0;
+                // Send only the key that changed — rebuilding the whole map from
+                // a render-time snapshot is what let one tick overwrite another.
                 const toggle = (i) => {
                   const k = itemKey(i);
                   const cur = ssReadD1(catId).items_done || {};
-                  ssWriteD1(catId, { items_done: { ...cur, [k]: !cur[k] } });
+                  ssWriteD1(catId, { items_done: { [k]: !cur[k] } });
                 };
                 // V74 — collapsible + searchable + categorized
                 const listOpen = !!d1SecIngrOpen[catId];
@@ -1928,6 +2170,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       {renderSecStoreCardD1(sec, secItems, catObj2?.name || sec, true)}
                       {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map((dish,di)=>{
                         const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name).mesaDone;
+                        // Dish tracking state + section-store completion, used by the
+                        // "Mark prep done" gate further down. Both were referenced there
+                        // but never declared in this scope (ReferenceError on expand).
+                        const d2s = ds(dish.fEvId,dish.fIdx,dish.name);
+                        const ssDone = !!ssReadD1(sec).end;
                         const cKey = `d1dish_${dish.name.replace(/\s/g,"_")}`;
                         const isExp = expandedDishes.has(cKey);
                         const sp = dish.specials&&dish.specials.length>0 ? dish.specials.map(s=>s.instruction).join(", ") : "";
@@ -2015,7 +2262,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                                     {!sbDone&&!sbStarted&&sb.tm>0&&<div style={{fontSize:12,color:C.faint,marginTop:3}}>? {sb.tm>=60?Math.floor(sb.tm/60)+"m":sb.tm+"s"}</div>}
                                                   </div>
                                                   <div style={{flexShrink:0}}>
-                                                    {!sbDone&&sbPrevD&&!sbStarted&&sb.tm>0&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2d.starts||{}),[sbk]:Date.now()}},dish);}} style={{padding:"8px 16px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#A8891E)`,color:"#0A0908",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>? {Math.floor(sb.tm/60)}m</button>}
+                                                    {!sbDone&&sbPrevD&&!sbStarted&&sb.tm>0&&<button onClick={e=>{e.stopPropagation();setDs(dish.fEvId,dish.fIdx,{starts:{...(d2d.starts||{}),[sbk]:Date.now()}},dish);}} style={{padding:"8px 16px",borderRadius:10,background:`linear-gradient(135deg,${C.gold},#1A46C4)`,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>? {Math.floor(sb.tm/60)}m</button>}
                                                     {!sbDone&&sbPrevD&&!sbStarted&&!sb.tm&&<button onClick={e=>{e.stopPropagation();const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:fmtStamp()}};if(sbi===step.subs.length-1){upd.doneElapsed={...(d2d.doneElapsed||{}),[sk]:d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0};}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>? {T2("Done")}</button>}
                                                     {!sbDone&&sbStarted&&<button onClick={e=>{e.stopPropagation();const el=d2d.starts?.[sbk]?Math.floor((Date.now()-d2d.starts[sbk])/1000):0;const upd={manual:{...(d2d.manual||{}),[sbk]:true},manualAt:{...(d2d.manualAt||{}),[sbk]:fmtStamp()},doneElapsed:{...(d2d.doneElapsed||{}),[sbk]:el}};if(sbi===step.subs.length-1){upd.doneElapsed[sk]=d2d.starts?.[sk]?Math.floor((Date.now()-d2d.starts[sk])/1000):0;}setDs(dish.fEvId,dish.fIdx,upd,dish);}} style={{padding:"8px 16px",borderRadius:10,background:sbOver?`linear-gradient(135deg,${C.red},#801818)`:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>{sbOver?"?":"?"} {T2("Done")}</button>}
                                                     
@@ -4162,7 +4409,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const unlinked = rows.filter(r=>r.status==="unlinked");
         const mapped = rows.filter(r=>r.status==="mapped");
         const auto = rows.filter(r=>r.status==="auto");
-        const filteredRows = dishMapSearch ? rows.filter(r=>r.lms.toLowerCase().includes(dishMapSearch.toLowerCase())||(r.sopName||"").toLowerCase().includes(dishMapSearch.toLowerCase())) : rows;
+        const dq = dishMapSearch.trim().toLowerCase();
+        const filteredRows = rows.filter(r=>{
+          if(dishMapFilter!=="all" && r.status!==dishMapFilter) return false;
+          if(!dq) return true;
+          return r.lms.toLowerCase().includes(dq) || (r.sopName||"").toLowerCase().includes(dq);
+        });
+        // "__none__" is the sentinel for "deliberately has no SOP" — it is not a
+        // real recipe name, so it must never be shown as if it were one.
+        const isNoneSop = n => !n || String(n).trim().toLowerCase()==="__none__";
 
         async function saveMappings(){
           const entries = Object.entries(dishMapSel).filter(([k,v])=>v);
@@ -4176,13 +4431,27 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               else DISH_NAME_MAP[lmsName] = recipeName;
             }
             setDishMapSel({});
-            alert('? '+entries.length+' mapping(s) saved');
-          }catch(e){console.error('Map save error:',e);alert('Error saving');}
+            // resetModal is this screen's generic notice dialog — reused here so
+            // the mapping flow gets the app's own framing instead of window.alert.
+            setResetModal({tone:"ok",icon:"check",title:T2("Mappings saved"),
+              body:`${entries.length} ${entries.length===1?T2("mapping"):T2("mappings")} ${T2("saved")}.`,
+              confirmLabel:T2("Done")});
+          }catch(e){
+            console.error('Map save error:',e);
+            setResetModal({tone:"danger",icon:"alert",title:T2("Could not save"),
+              body:String(e?.message||e),confirmLabel:T2("Close")});
+          }
           setDishMapSaving(false);
         }
 
+        function askRemoveMapping(lmsName){
+          setResetModal({tone:"danger",icon:"trash",title:T2("Remove this mapping?"),
+            body:`"${lmsName}" ${T2("will no longer be linked to a SOP recipe.")}`,
+            confirmLabel:T2("Remove"),
+            onConfirm:()=>{setResetModal(null);removeMapping(lmsName);}});
+        }
+
         async function removeMapping(lmsName){
-          if(!confirm('Remove mapping for "'+lmsName+'"?')) return;
           try{
             const sb = supabase; if(!sb)return;
             await sb.from('dish_name_map').delete().eq('lms_name',lmsName);
@@ -4194,42 +4463,111 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const pendingCount = Object.values(dishMapSel).filter(Boolean).length;
 
         return(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 0",overflowY:"auto"}} onClick={e=>{if(e.target===e.currentTarget)setShowDishMap(false);}}>
-          <div style={{background:C.surface,borderRadius:16,width:"min(96vw,700px)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
+        // Only the row list scrolls. The overlay used to scroll too, so reaching
+        // the end of the list chained the scroll outward and dragged the whole
+        // dialog up until the title was clipped off the top of the window.
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflow:"hidden"}} onClick={e=>{if(e.target===e.currentTarget)setShowDishMap(false);}}>
+          <div className="kh-modal-card" style={{background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,width:"min(96vw,760px)",maxHeight:"calc(100vh - 40px)",display:"flex",flexDirection:"column",boxShadow:K.shadowLift,overflow:"hidden"}}>
             {/* Header */}
-            <div style={{padding:"18px 20px 14px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🔗 Dish Name Mapping</div>
-                  <div style={{fontSize:12,color:C.muted,marginTop:3}}>Link LMS menu items ? SOP recipes — {lmsNames.length} dishes</div>
+            <div style={{position:"relative",padding:"22px 24px 16px",borderBottom:`1px solid ${K.modalLine}`,flexShrink:0}}>
+              <button onClick={()=>setShowDishMap(false)} onPointerDown={ripple} aria-label={T2("Close")} className="kh-modal-x kh-rip"
+                style={{position:"absolute",top:16,right:16,width:34,height:34,borderRadius:K.rPill,background:K.surface,border:`1px solid ${K.modalLine}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}>
+                <Icon name="close" size={16} strokeWidth={2.1}/>
+              </button>
+              <div style={{display:"flex",gap:14,alignItems:"center",paddingRight:44}}>
+                <span style={{width:46,height:46,borderRadius:15,flexShrink:0,background:K.brandBg,color:K.brand,border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="link" size={22} strokeWidth={1.85}/>
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle}}>{T2("Dish Name Mapping")}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
+                    {T2("Link LMS menu items")}<Icon name="chevronR" size={13} strokeWidth={2.2}/>{T2("SOP recipes")}
+                    <span style={{color:K.textFaint}}>· {lmsNames.length} {T2("dishes")}</span>
+                  </div>
                 </div>
-                <button onClick={()=>setShowDishMap(false)} style={{width:32,height:32,borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>?</button>
               </div>
-              {/* Stats */}
-              <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
-                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>? {unlinked.length} unlinked</span>
-                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold}}>🔗 {mapped.length} mapped</span>
-                <span style={{padding:"4px 10px",borderRadius:6,fontSize:11,fontWeight:600,background:C.greenBg,border:`1px solid ${C.greenBorder}`,color:C.green}}>? {auto.length} auto-matched</span>
+              {/* Status chips are filters, not just counters. Selected chip fills
+                  in its own tone; the rest stay outline so the active one reads
+                  at a glance. */}
+              <div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+                {[
+                  {k:"all",      n:rows.length,      l:T2("all"),          ic:"layers", t:tone("brand")},
+                  {k:"unlinked", n:unlinked.length,  l:T2("unlinked"),     ic:"alert",  t:tone("danger")},
+                  {k:"mapped",   n:mapped.length,    l:T2("mapped"),       ic:"link",   t:tone("brand")},
+                  {k:"auto",     n:auto.length,      l:T2("auto-matched"), ic:"check",  t:tone("ok")},
+                ].map(c=>{
+                  const on = dishMapFilter===c.k;
+                  return (
+                    <button key={c.k} type="button" className="kh-rip kh-chipfilter" onPointerDown={ripple}
+                      onClick={()=>setDishMapFilter(on?"all":c.k)} aria-pressed={on}
+                      style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:K.rPill,
+                        cursor:"pointer",fontSize:12,fontWeight:600,lineHeight:1.4,whiteSpace:"nowrap",fontFamily:K.fontBody,
+                        background:on?c.t.fg:c.t.bg, color:on?"#fff":c.t.fg,
+                        border:`1px solid ${on?"transparent":c.t.border}`}}>
+                      <Icon name={c.ic} size={12} strokeWidth={2}/>{c.n} {c.l}
+                    </button>
+                  );
+                })}
               </div>
               {/* Search */}
-              <input value={dishMapSearch} onChange={e=>setDishMapSearch(e.target.value)} placeholder="Search dishes..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.darkCard,marginTop:10,boxSizing:"border-box"}}/>
+              <div className="ash-search" style={{display:"flex",alignItems:"center",gap:9,marginTop:12,padding:"9px 13px",borderRadius:K.rMd,background:K.surface,border:`1px solid ${K.modalLine}`}}>
+                <Icon name="search" size={15} color={K.textFaint}/>
+                <input value={dishMapSearch} onChange={e=>setDishMapSearch(e.target.value)} placeholder={T2("Search dishes...")}
+                  style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:13,color:K.text,fontFamily:K.fontBody}}/>
+                {dishMapSearch&&(
+                  <button onClick={()=>setDishMapSearch("")} aria-label={T2("Clear")}
+                    style={{border:"none",background:"transparent",color:K.textFaint,cursor:"pointer",display:"flex",padding:0}}>
+                    <Icon name="close" size={14} strokeWidth={2.2}/>
+                  </button>
+                )}
+              </div>
             </div>
-            {/* Body */}
-            <div style={{overflowY:"auto",flex:1,padding:"8px 12px"}}>
+            {/* Body — overscrollBehavior stops the scroll chaining that clipped the header */}
+            <div className="kh-mapbody" style={{overflowY:"auto",overscrollBehavior:"contain",flex:1,padding:"10px 14px"}}>
               {dishMapDrop&&<div style={{position:"fixed",inset:0,zIndex:15}} onClick={()=>setDishMapDrop(null)}/>}
               {filteredRows.map((row,ri)=>{
                 const sel = dishMapSel[row.lms];
                 const isUnlinked = row.status==="unlinked"&&!sel;
+                // One tone per row state drives the rail, the marker and the
+                // sub-line, so the three never drift apart.
+                const rt = sel ? tone("warn")
+                         : row.status==="unlinked" ? tone("danger")
+                         : row.status==="mapped"   ? tone("brand")
+                         : tone("ok");
+                const noneSop = !sel && row.status==="mapped" && isNoneSop(row.sopName);
                 return(
-                <div key={ri} style={{padding:"10px 8px",borderBottom:`1px solid ${C.borderLight}`,display:"flex",gap:10,alignItems:"center",background:isUnlinked?C.redBg+"60":"transparent",borderRadius:6,marginBottom:2}}>
-                  {/* Status dot */}
-                  <div style={{width:8,height:8,borderRadius:4,flexShrink:0,background:row.status==="unlinked"?(sel?C.amber:C.red):row.status==="mapped"?C.gold:C.green}}/>
+                // A grid, not a flex row: the SOP controls have to sit in a true
+                // column. As flex they took their width from each dish name, so
+                // no two lined up and the list looked ragged.
+                <div key={ri} className="kh-maprow" style={{position:"relative",padding:"11px 13px 11px 15px",
+                  background:isUnlinked?"rgba(217,70,63,.05)":"transparent",
+                  borderBottom:`1px solid ${K.lineSoft}`,borderRadius:K.rSm,marginBottom:1}}>
+                  {/* Left rail — replaces the full red fill that used to swallow
+                      whole rows and made the list unreadable. */}
+                  <span style={{position:"absolute",left:0,top:7,bottom:7,width:3,borderRadius:"0 3px 3px 0",
+                    background:isUnlinked||sel?rt.fg:"transparent"}}/>
+                  {/* Status marker */}
+                  <span style={{width:24,height:24,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:rt.bg,color:rt.fg,border:`1px solid ${rt.border}`}}>
+                    <Icon name={sel?"undo":row.status==="unlinked"?"alert":row.status==="mapped"?"link":"check"} size={13} strokeWidth={2}/>
+                  </span>
                   {/* LMS name */}
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.lms}</div>
-                    {row.status==="auto"&&!sel&&<div style={{fontSize:10,color:C.green,marginTop:2}}>auto ? {row.sopName}</div>}
-                    {row.status==="mapped"&&!sel&&<div style={{fontSize:10,color:C.gold,marginTop:2}}>mapped ? {row.sopName}</div>}
-                    {sel&&<div style={{fontSize:10,color:C.amber,marginTop:2}}>? {sel.split("/")[0].trim()} (unsaved)</div>}
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:K.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.lms}</div>
+                    {/* The arrow is an icon, not a glyph — the "→" that used to sit
+                        here had been mangled into a literal "?" in the source. */}
+                    {sel
+                      ? <div style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:K.warn,marginTop:2,minWidth:0}}><Icon name="chevronR" size={11} strokeWidth={2.4}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.split("/")[0].trim()} · {T2("unsaved")}</span></div>
+                      : noneSop
+                        ? <div style={{fontSize:11,color:K.textFaint,marginTop:2,fontStyle:"italic"}}>{T2("marked as having no SOP")}</div>
+                        : row.status==="unlinked"
+                          ? <div style={{fontSize:11,color:K.danger,marginTop:2}}>{T2("no SOP recipe linked")}</div>
+                          : <div style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:row.status==="auto"?K.ok:K.brandText,marginTop:2,minWidth:0}}>
+                              <span>{row.status==="auto"?T2("auto"):T2("mapped")}</span>
+                              <Icon name="chevronR" size={11} strokeWidth={2.4}/>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.sopName}</span>
+                              {row.cat&&<span style={{color:K.textFaint,flexShrink:0}}>· {row.cat}</span>}
+                            </div>}
                   </div>
                   {/* Dropdown / status */}
                   {(()=>{
@@ -4240,27 +4578,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     const grouped = {};
                     filtered.forEach(r=>{if(!grouped[r.cat])grouped[r.cat]=[];grouped[r.cat].push(r);});
                     return(
-                    <div style={{position:"relative",flexShrink:0,maxWidth:240,minWidth:160}}>
-                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        <button onClick={()=>{if(isOpen){setDishMapDrop(null);}else{setDishMapDrop(row.lms);setDishMapDropQ("");}}} style={{flex:1,padding:"6px 10px",borderRadius:8,border:`1px solid ${isUnlinked&&!display?C.red:display?C.greenBorder:C.border}`,fontSize:11,fontWeight:display?600:400,color:display?C.text:C.faint,background:display?C.greenBg+"40":C.surface,cursor:"pointer",textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minHeight:30}}>
-                          {display||"Select SOP..."}
+                    <>
+                      <div style={{position:"relative",minWidth:0}}>
+                        {/* Chevron inside makes it read as a dropdown. Without it
+                            a filled control looks like a static label and nobody
+                            realises a mapping can be changed. */}
+                        <button onClick={()=>{if(isOpen){setDishMapDrop(null);}else{setDishMapDrop(row.lms);setDishMapDropQ("");}}} onPointerDown={ripple} className="kh-rip kh-mapsel"
+                          title={display||T2("Select SOP...")}
+                          style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 10px 8px 12px",borderRadius:K.rSm,
+                            border:isUnlinked&&!display?`1px dashed ${K.danger}`:`1px solid ${display?K.brandBorder:K.line}`,
+                            fontSize:12,fontWeight:display?600:400,color:display?K.text:K.textFaint,
+                            background:display?K.brandBg:K.surface,cursor:"pointer",textAlign:"left",minHeight:34,fontFamily:K.fontBody}}>
+                          <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{display||T2("Select SOP...")}</span>
+                          <Icon name="chevronD" size={13} strokeWidth={2} style={{flexShrink:0,opacity:.55,transform:isOpen?"rotate(180deg)":"none",transition:"transform .16s"}}/>
                         </button>
-                        {(row.status==="mapped"&&!sel)&&<button onClick={()=>removeMapping(row.lms)} style={{padding:"3px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>?</button>}
-                        {sel&&<button onClick={()=>setDishMapSel(p=>({...p,[row.lms]:null}))} style={{padding:"3px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:10,cursor:"pointer",flexShrink:0}}>?</button>}
-                      </div>
                       {isOpen&&(
-                        <div style={{position:"absolute",top:"100%",right:0,zIndex:20,width:280,maxHeight:260,background:C.surface,border:`1.5px solid ${C.gold}`,borderRadius:10,boxShadow:"0 8px 30px rgba(0,0,0,.25)",marginTop:4,display:"flex",flexDirection:"column"}}>
-                          <div style={{padding:"8px 8px 6px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-                            <input autoFocus value={dishMapDropQ} onChange={e=>setDishMapDropQ(e.target.value)} placeholder="Type to search recipes..." style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.darkCard,boxSizing:"border-box"}}/>
+                        <div style={{position:"absolute",top:"100%",right:0,zIndex:20,width:280,maxHeight:260,background:K.surface,border:`1px solid ${K.brandBorder}`,borderRadius:K.rMd,boxShadow:K.shadowLift,marginTop:4,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                          <div style={{padding:"8px",borderBottom:`1px solid ${K.lineSoft}`,flexShrink:0}}>
+                            <input autoFocus value={dishMapDropQ} onChange={e=>setDishMapDropQ(e.target.value)} placeholder={T2("Type to search recipes...")} style={{width:"100%",padding:"7px 10px",borderRadius:K.rSm,border:`1px solid ${K.line}`,fontSize:12,color:K.text,background:K.surfaceAlt,boxSizing:"border-box",fontFamily:K.fontBody}}/>
                           </div>
-                          <div style={{overflowY:"auto",flex:1}}>
-                            {Object.keys(grouped).length===0&&<div style={{padding:16,textAlign:"center",fontSize:11,color:C.faint}}>No recipes match</div>}
+                          <div style={{overflowY:"auto",overscrollBehavior:"contain",flex:1}}>
+                            {Object.keys(grouped).length===0&&<div style={{padding:16,textAlign:"center",fontSize:11.5,color:K.textFaint}}>{T2("No recipes match")}</div>}
                             {Object.entries(grouped).map(([catName,recs])=>(
                               <div key={catName}>
-                                <div style={{padding:"6px 10px 3px",fontSize:10,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:.4,background:C.goldBg+"40",position:"sticky",top:0}}>{catName}</div>
+                                <div style={{...type.label,fontSize:10,padding:"7px 11px 4px",color:K.brandText,background:K.brandBg,position:"sticky",top:0}}>{catName}</div>
                                 {recs.map((r,i)=>(
-                                  <div key={i} onMouseDown={e=>{e.preventDefault();setDishMapSel(p=>({...p,[row.lms]:r.n}));setDishMapDrop(null);}} style={{padding:"6px 12px",fontSize:12,color:C.text,cursor:"pointer",borderBottom:`1px solid ${C.borderLight}`,background:(display===r.n)?C.greenBg:"transparent"}} onMouseEnter={e=>e.currentTarget.style.background=C.goldBg} onMouseLeave={e=>e.currentTarget.style.background=(display===r.n)?C.greenBg:"transparent"}>
-                                    {(()=>{if(!q)return r.n;const idx=r.n.toLowerCase().indexOf(q);if(idx<0)return r.n;return <>{r.n.slice(0,idx)}<b style={{color:C.gold}}>{r.n.slice(idx,idx+q.length)}</b>{r.n.slice(idx+q.length)}</>;})()}
+                                  <div key={i} onMouseDown={e=>{e.preventDefault();setDishMapSel(p=>({...p,[row.lms]:r.n}));setDishMapDrop(null);}} style={{padding:"7px 12px",fontSize:12.5,color:K.text,cursor:"pointer",borderBottom:`1px solid ${K.lineSoft}`,background:(display===r.n)?K.brandBg:"transparent"}} onMouseEnter={e=>e.currentTarget.style.background=K.brandSoft} onMouseLeave={e=>e.currentTarget.style.background=(display===r.n)?K.brandBg:"transparent"}>
+                                    {(()=>{if(!q)return r.n;const idx=r.n.toLowerCase().indexOf(q);if(idx<0)return r.n;return <>{r.n.slice(0,idx)}<b style={{color:K.brand}}>{r.n.slice(idx,idx+q.length)}</b>{r.n.slice(idx+q.length)}</>;})()}
                                   </div>
                                 ))}
                               </div>
@@ -4268,18 +4612,60 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                         </div>
                       )}
-                    </div>
+                      </div>
+                      {/* The action slot is ALWAYS rendered, empty when there is
+                          nothing to do. Rendering it conditionally shifted the
+                          SOP column by 30px between rows, which is what made the
+                          whole list look misaligned. */}
+                      <span style={{display:"flex",justifyContent:"center"}}>
+                        {sel
+                          ? <button onClick={()=>setDishMapSel(p=>({...p,[row.lms]:null}))} className="kh-maprow-del" title={T2("Undo")} aria-label={T2("Undo")} style={{width:30,height:30,borderRadius:K.rSm,background:"transparent",border:`1px solid ${K.line}`,color:K.textFaint,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><Icon name="undo" size={14} strokeWidth={2}/></button>
+                          : row.status==="mapped"
+                            ? <button onClick={()=>askRemoveMapping(row.lms)} className="kh-maprow-del" title={T2("Remove mapping")} aria-label={T2("Remove mapping")} style={{width:30,height:30,borderRadius:K.rSm,background:"transparent",border:`1px solid ${K.line}`,color:K.textFaint,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><Icon name="trash" size={14} strokeWidth={1.9}/></button>
+                            : null}
+                      </span>
+                    </>
                     );
                   })()}
                 </div>
               );})}
-              {filteredRows.length===0&&<div style={{textAlign:"center",padding:30,color:C.faint,fontSize:13}}>No dishes match search</div>}
+              {filteredRows.length===0&&(
+                <div style={{textAlign:"center",padding:"44px 20px"}}>
+                  <span style={{width:52,height:52,borderRadius:16,margin:"0 auto 12px",background:K.brandBg,color:K.brand,border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon name="search" size={24} strokeWidth={1.7}/>
+                  </span>
+                  <div style={{fontSize:14,fontWeight:600,color:K.text}}>{T2("Nothing here")}</div>
+                  <div style={{fontSize:12.5,color:K.textMuted,marginTop:3}}>
+                    {dishMapFilter!=="all"&&dq ? T2("No dish matches this search in this filter.")
+                      : dishMapFilter!=="all" ? T2("No dish has this status.")
+                      : T2("No dishes match search")}
+                  </div>
+                  {(dishMapFilter!=="all"||dq)&&(
+                    <div style={{marginTop:14,display:"flex",justifyContent:"center"}}>
+                      <KButton variant="ghost" icon="undo" onClick={()=>{setDishMapFilter("all");setDishMapSearch("");}}>{T2("Clear filters")}</KButton>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+            {/* Result count — with a filter on, you need to know how much of the
+                163 you are actually looking at. */}
+            {filteredRows.length>0&&(dishMapFilter!=="all"||dq)&&(
+              <div style={{flexShrink:0,padding:"8px 24px",borderTop:`1px solid ${K.lineSoft}`,...type.label,fontSize:10.5,color:K.textFaint}}>
+                {T2("Showing")} {filteredRows.length} {T2("of")} {rows.length}
+              </div>
+            )}
             {/* Footer */}
             {pendingCount>0&&(
-              <div style={{padding:"12px 16px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-                <span style={{fontSize:12,color:C.amber,fontWeight:600}}>{pendingCount} unsaved mapping{pendingCount>1?"s":""}</span>
-                <button onClick={saveMappings} disabled={dishMapSaving} style={{padding:"10px 24px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",opacity:dishMapSaving?.6:1,minHeight:40}}>{dishMapSaving?"Saving...":"💾 Save Mappings"}</button>
+              <div style={{padding:"14px 20px",borderTop:`1px solid ${K.modalLine}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexShrink:0,flexWrap:"wrap"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:12.5,color:K.warn,fontWeight:600}}>
+                  <Icon name="alert" size={14} strokeWidth={2}/>
+                  {pendingCount} {pendingCount===1?T2("unsaved mapping"):T2("unsaved mappings")}
+                </span>
+                <KButton variant="brand" icon="check" disabled={dishMapSaving} onClick={saveMappings}
+                  style={{padding:"11px 22px",borderRadius:14}}>
+                  {dishMapSaving?T2("Saving..."):T2("Save Mappings")}
+                </KButton>
               </div>
             )}
           </div>
@@ -4292,33 +4678,43 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* --- Ingredient Usage Modal --- */}
       {yieldModal && (
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setYieldModal(null);yieldModal.onConfirm();}}>
-          <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:400,boxShadow:"0 8px 32px rgba(0,0,0,.2)",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
-            <div style={{padding:"20px 24px",borderBottom:"1px solid "+C.border}}>
-              <div style={{fontSize:16,fontWeight:700,color:C.text}}>⚖️ Yield / Weight</div>
-              <div style={{fontSize:12,color:C.muted,marginTop:4}}>{yieldModal.dish.name} — {yieldModal.pax} pax</div>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>{setYieldModal(null);yieldModal.onConfirm();}}>
+          <div className="kh-modal-card kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,width:"100%",maxWidth:430,boxShadow:K.shadowLift,overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+            <div style={{position:"relative",padding:"22px 24px 16px",borderBottom:`1px solid ${K.modalLine}`}}>
+              <div style={{display:"flex",gap:13,alignItems:"center"}}>
+                <span style={{width:44,height:44,borderRadius:14,flexShrink:0,background:K.brandBg,color:K.brand,border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="box" size={21} strokeWidth={1.85}/>
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{...type.sectionHead,fontSize:20,color:K.hdrTitle}}>{T2("Yield / Weight")}</div>
+                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{yieldModal.dish.name} · {yieldModal.pax} pax</div>
+                </div>
+              </div>
             </div>
-            <div style={{padding:"24px"}}>
-              <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:4}}>How much quantity was made?</div>
-              <div style={{fontSize:13,color:C.muted,marginBottom:16}}>कितनी मात्रा बनी?</div>
+            <div style={{padding:"20px 24px 4px"}}>
+              <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle}}>{T2("How much quantity was made?")}</div>
+              <div style={{fontSize:13.5,color:K.hdrMeta,marginTop:2,marginBottom:16}}>कितनी मात्रा बनी?</div>
               <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
-                <div style={{flex:2}}>
-                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Quantity / मात्रा</div>
+                <div style={{flex:2,minWidth:0}}>
+                  <div style={{...type.label,fontSize:10,color:K.textMuted,marginBottom:6}}>Quantity / मात्रा</div>
+                  {/* Big, centred, tabular — this is punched in on a tablet with
+                      wet hands, so the target is deliberately oversized. */}
                   <input type="number" step="any" inputMode="decimal" autoFocus
                     value={yieldQty}
                     onChange={e=>setYieldQty(e.target.value)}
                     placeholder="0"
-                    style={{width:"100%",padding:"14px 16px",borderRadius:10,border:"2px solid "+C.goldBorder,fontSize:22,fontWeight:700,textAlign:"center",color:C.text,background:C.bg,boxSizing:"border-box"}} />
+                    className="kh-yieldinput"
+                    style={{width:"100%",padding:"14px 16px",borderRadius:K.rMd,border:`1.5px solid ${yieldQty?K.brandBorder:K.line}`,fontSize:24,fontWeight:700,textAlign:"center",color:K.text,background:yieldQty?K.brandBg:K.surfaceAlt,boxSizing:"border-box",fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums",outline:"none"}} />
                 </div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Unit / इकाई</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{...type.label,fontSize:10,color:K.textMuted,marginBottom:6}}>Unit / इकाई</div>
                   <select value={yieldUnit} onChange={e=>setYieldUnit(e.target.value)}
-                    style={{width:"100%",padding:"14px 8px",borderRadius:10,border:"2px solid "+C.border,fontSize:15,fontWeight:600,color:C.text,background:C.bg,cursor:"pointer",boxSizing:"border-box"}}>
+                    style={{width:"100%",padding:"16px 8px",borderRadius:K.rMd,border:`1.5px solid ${K.line}`,fontSize:15,fontWeight:600,color:K.text,background:K.surfaceAlt,cursor:"pointer",boxSizing:"border-box",fontFamily:K.fontBody}}>
                     <option value="kg">kg</option>
                     <option value="L">L (litre)</option>
                     <option value="gm">gm</option>
                     <option value="ml">ml</option>
-                    <option value="pcs">pcs / ???</option>
+                    <option value="pcs">pcs / पीस</option>
                     <option value="plates">plates</option>
                     <option value="bowls">bowls</option>
                     <option value="trays">trays</option>
@@ -4326,9 +4722,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>
               </div>
             </div>
-            <div style={{padding:"12px 24px 20px",display:"flex",gap:10}}>
-              <button onClick={()=>{setYieldQty("");proceedToIngredientUsage();}} style={{flex:1,padding:"12px",borderRadius:10,background:"transparent",border:"1px solid "+C.border,color:C.muted,fontSize:12,cursor:"pointer"}}>Skip</button>
-              <button onClick={proceedToIngredientUsage} disabled={!yieldQty} style={{flex:2,padding:"12px",borderRadius:10,background:yieldQty?C.gold:"#ccc",color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:yieldQty?"pointer":"default",opacity:yieldQty?1:0.6}}>Next ? ???</button>
+            <div style={{padding:"18px 24px 22px",display:"flex",gap:10}}>
+              <KButton variant="ghost" onClick={()=>{setYieldQty("");proceedToIngredientUsage();}} style={{flex:1,justifyContent:"center",padding:"12px",borderRadius:14}}>{T2("Skip")}</KButton>
+              <KButton variant="brand" icon="chevronR" disabled={!yieldQty} onClick={yieldQty?proceedToIngredientUsage:undefined}
+                style={{flex:2,justifyContent:"center",padding:"12px",borderRadius:14,flexDirection:"row-reverse"}}>{T2("Next")}</KButton>
             </div>
           </div>
         </div>
@@ -4406,40 +4803,62 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       })()}
 
       {usageModal && (
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
-          <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
-            <div style={{padding:"16px 20px",borderBottom:"1px solid "+C.border}}>
-              <div style={{fontSize:15,fontWeight:700,color:C.text}}>📊 Ingredient Usage</div>
-              <div style={{fontSize:12,color:C.muted,marginTop:2}}>{usageModal.dishName} — {usageModal.pax} pax {usageModal.isPrepDay?"(Prep Day)":"(Event Day)"}</div>
-            </div>
-            <div style={{flex:1,overflowY:"auto",padding:"0 20px"}}>
-              <div style={{display:"flex",padding:"10px 0 6px",borderBottom:"2px solid "+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5}}>
-                <div style={{flex:2}}>Ingredient</div>
-                <div style={{flex:1,textAlign:"right"}}>Scaled</div>
-                <div style={{flex:1,textAlign:"right"}}>Actual</div>
-              </div>
-              {usageModal.ingredients.map((ing,i) => (
-                <div key={i} style={{display:"flex",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.borderLight,fontSize:12}}>
-                  <div style={{flex:2}}>
-                    <div style={{color:C.text,fontWeight:500}}>{ing.n}</div>
-                    {ing.h && <div style={{fontSize:10,color:C.muted}}>{ing.h}</div>}
-                  </div>
-                  <div style={{flex:1,textAlign:"right",color:C.muted,fontSize:11}}>{Math.round(ing.q*100)/100} {ing.u}</div>
-                  <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
-                    <input type="number" step="any" inputMode="decimal"
-                      placeholder={String(Math.round(ing.q*100)/100)}
-                      value={usageActuals[ing.n]||""}
-                      onChange={e=>{const v=e.target.value;setUsageActuals(p=>({...p,[ing.n]:v}));}}
-                      style={{width:64,padding:"5px 6px",borderRadius:6,border:"1px solid "+C.border,fontSize:12,textAlign:"right",background:C.bg,color:C.text}} />
-                    <div style={{fontSize:9,color:C.faint,marginTop:1}}>{ing.u}</div>
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
+          <div className="kh-modal-card kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,width:"100%",maxWidth:560,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:K.shadowLift}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"22px 24px 16px",borderBottom:`1px solid ${K.modalLine}`,flexShrink:0}}>
+              <div style={{display:"flex",gap:13,alignItems:"center"}}>
+                <span style={{width:44,height:44,borderRadius:14,flexShrink:0,background:K.brandBg,color:K.brand,border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="chart" size={21} strokeWidth={1.85}/>
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{...type.sectionHead,fontSize:20,color:K.hdrTitle}}>{T2("Ingredient Usage")}</div>
+                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {usageModal.dishName} · {usageModal.pax} pax · {usageModal.isPrepDay?T2("Prep Day"):T2("Event Day")}
                   </div>
                 </div>
-              ))}
-              <div style={{padding:"8px 0",fontSize:10,color:C.muted,fontStyle:"italic"}}>Leave blank if scaled quantity was correct</div>
+              </div>
             </div>
-            <div style={{padding:"12px 20px",borderTop:"1px solid "+C.border,display:"flex",gap:10}}>
-              <button onClick={()=>{usageModal.onConfirm();setUsageModal(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"transparent",border:"1px solid "+C.border,color:C.muted,fontSize:12,cursor:"pointer"}}>Skip</button>
-              <button onClick={saveUsageAndDone} style={{flex:2,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save & Done ?</button>
+            {/* A grid, so the two number columns line up regardless of how long
+                an ingredient name runs. */}
+            <div style={{flex:1,overflowY:"auto",overscrollBehavior:"contain",padding:"0 24px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 92px 96px",gap:12,alignItems:"center",
+                padding:"12px 0 8px",borderBottom:`1px solid ${K.lineStrong}`,position:"sticky",top:0,background:K.surface,zIndex:1}}>
+                <div style={{...type.label,fontSize:10,color:K.textMuted}}>{T2("Ingredient")}</div>
+                <div style={{...type.label,fontSize:10,color:K.textMuted,textAlign:"right"}}>{T2("Scaled")}</div>
+                <div style={{...type.label,fontSize:10,color:K.textMuted,textAlign:"right"}}>{T2("Actual")}</div>
+              </div>
+              {usageModal.ingredients.map((ing,i) => {
+                const scaled = Math.round(ing.q*100)/100;
+                const edited = (usageActuals[ing.n]||"") !== "";
+                return (
+                <div key={i} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 92px 96px",gap:12,alignItems:"center",
+                  padding:"10px 0",borderBottom:`1px solid ${K.lineSoft}`}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:600,color:K.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ing.n}</div>
+                    {ing.h && <div style={{fontSize:11.5,color:K.textMuted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ing.h}</div>}
+                  </div>
+                  <div style={{textAlign:"right",color:K.hdrMeta,fontSize:12.5,fontVariantNumeric:"tabular-nums"}}>{scaled} {ing.u}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"flex-end"}}>
+                    {/* Tints when a value is entered, so an overridden row is
+                        obvious without reading the numbers. */}
+                    <input type="number" step="any" inputMode="decimal"
+                      placeholder={String(scaled)}
+                      value={usageActuals[ing.n]||""}
+                      onChange={e=>{const v=e.target.value;setUsageActuals(p=>({...p,[ing.n]:v}));}}
+                      className="kh-yieldinput"
+                      style={{width:62,padding:"7px 8px",borderRadius:K.rSm,border:`1.5px solid ${edited?K.brandBorder:K.line}`,fontSize:13,fontWeight:edited?700:400,textAlign:"right",background:edited?K.brandBg:K.surfaceAlt,color:K.text,boxSizing:"border-box",fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums",outline:"none"}} />
+                    <span style={{fontSize:11,color:K.textFaint,width:26,flexShrink:0}}>{ing.u}</span>
+                  </div>
+                </div>
+                );
+              })}
+              <div style={{display:"flex",alignItems:"center",gap:7,padding:"12px 0 4px",fontSize:12,color:K.textMuted}}>
+                <Icon name="note" size={13} strokeWidth={1.9}/>{T2("Leave blank if the scaled quantity was correct")}
+              </div>
+            </div>
+            <div style={{padding:"16px 24px 20px",borderTop:`1px solid ${K.modalLine}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
+              <KButton variant="ghost" onClick={()=>{usageModal.onConfirm();setUsageModal(null);}} style={{padding:"11px 22px",borderRadius:14}}>{T2("Skip")}</KButton>
+              <KButton variant="brand" icon="check" onClick={saveUsageAndDone} style={{padding:"11px 22px",borderRadius:14}}>{T2("Save & Done")}</KButton>
             </div>
           </div>
         </div>

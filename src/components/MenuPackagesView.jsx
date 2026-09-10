@@ -1812,7 +1812,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       {/* CSV IMPORT MODAL                                        */}
       {/* ════════════════════════════════════════════════════════ */}
       {csvOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={closeCsvImport}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={closeCsvImport}>
           <div onClick={function(e) { e.stopPropagation(); }}
             style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 820, width: "100%", maxHeight: "85vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
 

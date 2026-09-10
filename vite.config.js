@@ -70,27 +70,32 @@ export default defineConfig({
         name: 'Ambria FnB Operations',
         short_name: 'Ambria FnB',
         description: 'Kitchen operations, attendance, dispatch and prep tracking for Ambria Cuisines',
-        theme_color: '#6B1818',
-        background_color: '#0A0908',
+        // Were #6B1818 / #0A0908 from the old warm-red theme. theme_color tints
+        // the Android status bar and background_color paints the splash behind
+        // the icon, so it matches the icon tile's own green.
+        theme_color: '#1C3D2B',
+        background_color: '#002010',
         display: 'standalone',
         orientation: 'any',
         scope: '/Fnbapp/',
         start_url: '/Fnbapp/',
         icons: [
           {
-            src: '/Fnbapp/icons/icon-192x192.svg',
+            src: '/Fnbapp/icons/icon-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml',
+            type: 'image/png',
           },
           {
-            src: '/Fnbapp/icons/icon-512x512.svg',
+            src: '/Fnbapp/icons/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
           },
           {
-            src: '/Fnbapp/icons/icon-maskable-512x512.svg',
+            // Separate art: Android crops maskable icons to a circle/squircle, so
+            // this one is flattened onto the tile green with safe-zone padding.
+            src: '/Fnbapp/icons/icon-maskable-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'maskable',
           },
         ],

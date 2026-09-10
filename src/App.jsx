@@ -18,9 +18,12 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr, mergeDishState } from './utils/helpers.js';
 
 // Components
+import { K, type } from './utils/theme.js';
+import { ripple } from './utils/ripple.js';
+import { Icon } from './components/Icons.jsx';
 import { ErrorBoundary, Avatar } from './components/SharedUI.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
@@ -60,6 +63,18 @@ function matchMenuPackage(rawName) {
   return match || rawName; // return matched key or original (will fall through as custom)
 }
 
+// Screen id → line-icon name (glyphs live in components/Icons.jsx).
+// Kept as a lookup rather than a field on DEPT_NAV so the nav arrays stay
+// data-only and a screen added in one place picks up an icon here.
+const NAV_ICON = {
+  dashboard:"home",        kitchen:"chefHat",       store:"box",
+  team:"users",            menus:"fileText",        transport:"truck",
+  vendors:"contact",       dept_service:"plate",    dept_crockery:"cup",
+  dept_beverages:"drink",  dept_odc:"tent",         proposals:"note",
+  booked_functions:"calendarDays", sales_catalogue:"tag",
+  access:"lock",           logs:"listCheck",
+};
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -68,8 +83,36 @@ export default function App() {
   const [allocRules,setAllocRules]   = useState({});
   const [dbChecklists,setDbChecklists] = useState({});
   const [tabletScreen,setTabletScreen] = useState("kitchen");
-  const [tabletSidebarOpen,setTabletSidebarOpen] = useState(false);
+  // Open by default, like the admin sidebar. It started closed back when it was
+  // an overlay that covered the screen; it is a docked panel now, so hiding it
+  // on every load just meant reaching for the toggle first thing.
+  const [tabletSidebarOpen,setTabletSidebarOpen] = useState(true);
   const T2 = s => T(s, lang);
+
+  // Collapsed sidebar nav groups, keyed by the divider id. Absent = open.
+  // Declared up here with the other state: the nav itself renders after several
+  // early returns, so a hook down there would be conditional.
+  const [navClosed,setNavClosed]       = useState({});
+  const [userMenuOpen,setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
+  useEffect(()=>{
+    if(!userMenuOpen) return;
+    const onDown = e => { if(userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false); };
+    const onEsc  = e => { if(e.key==="Escape") setUserMenuOpen(false); };
+    document.addEventListener("mousedown",onDown);
+    document.addEventListener("keydown",onEsc);
+    return ()=>{ document.removeEventListener("mousedown",onDown); document.removeEventListener("keydown",onEsc); };
+  },[userMenuOpen]);
+  // Fades content out at the top edge once scrolled, so the tab strip dissolves
+  // instead of being hard-clipped mid-row. Off at rest or the strip looks faded
+  // when nothing has moved.
+  const [scrolled,setScrolled]   = useState(false);
+  function onContentScroll(e){
+    // React bails out when the value is unchanged, so this does not re-render
+    // on every scroll event — only on the two crossings of the threshold.
+    setScrolled(e.currentTarget.scrollTop > 8);
+  }
+  const topFade = scrolled ? "linear-gradient(to bottom, transparent 0, #000 34px)" : "none";
 
   // ── PWA auto-update ──
   // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
@@ -190,28 +233,60 @@ export default function App() {
   };
 
   // ── Kitchen Tracking ──
-  const [kitchenTracking_raw, setKitchenTracking_raw] = useState({});
-  const setKitchenTracking = (updater) => {
-    setKitchenTracking_raw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      Object.keys(next||{}).forEach(evId => {
-        const prevEv = prev[evId]||{};
-        const nextEv = next[evId]||{};
+  // The Supabase sync used to run INSIDE the state updater. A state updater is
+  // called during render — and may be called more than once for a single
+  // update — so that fired duplicate writes and, worse, put a network call on
+  // the render path where any throw escapes the screen's ErrorBoundary and
+  // takes the whole app down (the blank page). It belongs in an effect.
+  // Seeded from localStorage. This state had NO local copy at all — it lived
+  // only in memory and in Supabase, so if the write failed, the table was not
+  // reachable, or the row simply had not landed yet, a refresh threw away
+  // everything the kitchen had ticked off. transportQueue right below already
+  // mirrors to localStorage; this now does the same.
+  const KT_LS_KEY = "ambria_kitchen_tracking";
+  const [kitchenTracking, setKitchenTracking] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}") || {}; }
+    catch { return {}; }
+  });
+  const ktSyncedRef = useRef({});
+  // Where the bell should send you back to. A ref, not state — nothing renders
+  // from it, so it must not cause a re-render when it changes.
+  const bellReturnRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(KT_LS_KEY, JSON.stringify(kitchenTracking || {})); }
+    catch { /* private mode or quota — Supabase is still the system of record */ }
+  }, [kitchenTracking]);
+  useEffect(() => {
+    const prev = ktSyncedRef.current;
+    const next = kitchenTracking;
+    if (prev === next) return;
+    ktSyncedRef.current = next;
+    try {
+      Object.keys(next || {}).forEach(evId => {
+        const prevEv = (prev && prev[evId]) || {};
+        const nextEv = (next && next[evId]) || {};
         Object.entries(nextEv).forEach(([dishKey, val]) => {
-          if(dishKey.startsWith("__")) return; // skip meta keys
-          const prevVal = prevEv[dishKey];
-          if(val && JSON.stringify(val) !== JSON.stringify(prevVal)) {
-            const safeData = JSON.parse(JSON.stringify(val));
-            dbUpsert("kitchen_tracking",{ev_id:evId,dish_key:dishKey,data:safeData},"ev_id,dish_key")
-              .then(()=>console.log("✅ KT synced:",dishKey))
-              .catch(e=>console.error("❌ KT sync fail:",dishKey,e));
-          }
+          // This used to skip every key starting with "__" as a "meta key", but
+          // those keys hold real, hard-won state:
+          //   __sec_<catId>     the collect-from-store list (items_done)
+          //   __dispatch_ready  whether a function has gone out
+          //   __dispatch_time   when it went out
+          // None of it was ever written to Supabase, so ticking off 39
+          // ingredients and refreshing threw the lot away. The data column is
+          // JSON and holds objects, booleans and strings alike, so there is
+          // nothing here that needs excluding.
+          if (val === undefined || JSON.stringify(val) === JSON.stringify(prevEv[dishKey])) return;
+          dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)) }, "ev_id,dish_key")
+            .catch(e => console.error("KT sync failed:", dishKey, e));
         });
       });
-      return next;
-    });
-  };
-  const kitchenTracking = kitchenTracking_raw;
+    } catch (e) {
+      // A sync failure must never blank the screen — the state is already set
+      // and the offline queue will retry.
+      console.error("KT sync error:", e);
+    }
+  }, [kitchenTracking]);
 
   // ── Transport Queue ──
   const [transportQueue, setTransportQueue_raw] = useState([]);
@@ -365,8 +440,23 @@ export default function App() {
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       if(ktData.length>0){
         const ktObj={};
-        ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data||{};});
-        setKitchenTracking_raw(ktObj);
+        // `?? {}`, not `|| {}` — the meta keys now sync too, and a stored
+        // `false` (an un-dispatched function) would otherwise come back as an
+        // empty object, which is truthy and would read as dispatched.
+        ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
+        // MERGE over whatever the local seed already holds — do not replace.
+        // A straight replace would wipe anything ticked off while the row had
+        // not reached Supabase yet. Server wins per key; local-only keys stay,
+        // and because the synced ref is set to the SERVER object those keys
+        // read as a diff and get pushed up on the next tick.
+        ktSyncedRef.current = ktObj;
+        setKitchenTracking(prev => {
+          const merged = { ...(prev || {}) };
+          Object.keys(ktObj).forEach(evId => {
+            merged[evId] = { ...(merged[evId] || {}), ...ktObj[evId] };
+          });
+          return merged;
+        });
       }
       if(tqData.length>0){
         setTransportQueue_raw(tqData.map(q=>({id:q.id,dishName:q.dish_name,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined})));
@@ -457,7 +547,13 @@ export default function App() {
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
     const u5 = dbSubscribe('kitchen_tracking', (payload) => {
-      if(payload.new){const {ev_id,dish_key,data}=payload.new;setKitchenTracking_raw(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:data||{}}}));}
+      // MERGE the incoming row, never replace it. A realtime echo can arrive
+      // carrying a snapshot older than what the chef just tapped on this very
+      // tablet; replacing wholesale then wiped that tap, which is the other
+      // half of "I press Done and it undoes itself". Merging keeps keys the
+      // echo doesn't mention while still applying the ones it does — so a real
+      // undo from another tablet (an explicit false) still comes through.
+      if(payload.new){const {ev_id,dish_key,data}=payload.new;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
     });
     const u6 = dbSubscribe('leaves', (payload) => {
       const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
@@ -588,8 +684,8 @@ export default function App() {
       {id:"_divider_kitchen",label:"KITCHEN",icon:"",divider:true},
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
-      {id:"_divider_ops",label:"OPERATIONS",icon:"",divider:true},
       {id:"menus",label:"Menu Packages",icon:"📜"},
+      {id:"_divider_ops",label:"OPERATIONS",icon:"",divider:true},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
       {id:"vendors",label:"Vendor Directory",icon:"📇"},
@@ -614,28 +710,75 @@ export default function App() {
     ],
   };
 
+  // Department accent colours — kept distinguishable from each other, but all
+  // pulled into the cool/indigo family so the sidebar matches the app palette
+  // in data/constants.js.
   const DEPT_META = {
-    kitchen:{name:"Kitchen",icon:"👨‍🍳",color:"#D4A843"},
-    service:{name:"Service",icon:"🍽️",color:"#5B8FD0"},
-    crockery:{name:"Crockery",icon:"🍶",color:"#8A70C8"},
-    beverages:{name:"Beverages",icon:"🥤",color:"#50B0A0"},
-    transport:{name:"Transportation",icon:"🚛",color:"#D4A843"},
-    odc:{name:"ODC",icon:"🏕️",color:C.gold},
-    management:{name:"Management",icon:"🔐",color:"#9060C8"},
-    sales:{name:"Sales",icon:"📝",color:"#B85450"},
+    kitchen:{name:"Kitchen",icon:"👨‍🍳",color:"#2563EB"},
+    service:{name:"Service",icon:"🍽️",color:"#0EA5E9"},
+    crockery:{name:"Crockery",icon:"🍶",color:"#7C5CE0"},
+    beverages:{name:"Beverages",icon:"🥤",color:"#129A6C"},
+    transport:{name:"Transportation",icon:"🚛",color:"#C4790C"},
+    odc:{name:"ODC",icon:"🏕️",color:"#0E8F9E"},
+    management:{name:"Management",icon:"🔐",color:"#2563EB"},
+    sales:{name:"Sales",icon:"📝",color:"#D9463F"},
   };
 
   const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
   const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
   const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
+  // Today's function(s) shown in the page header, so no screen has to repeat
+  // the date/pax/time line in its own body.
+  const todayEvsHdr = safeArr(events)
+    .filter(e=>e.date===TODAY)
+    .sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  // Event details ride in the header ONLY when the day has a single function.
+  // With two or more, one time and a summed pax describe neither of them, so
+  // the whole block is dropped rather than shown misleadingly — the Event Day
+  // tab's function selector is where multi-function days get broken down.
+  const singleEvToday = todayEvsHdr.length === 1 ? todayEvsHdr[0] : null;
+  const headerEvents  = singleEvToday
+    ? `${singleEvToday.guest||"Function"} (${singleEvToday.pax} pax · ${singleEvToday.time||"TBD"})`
+    : "";
+  const nextEvToday = singleEvToday;
+  const paxToday    = singleEvToday ? (+singleEvToday.pax||0) : 0;
+  // Topbar search = quick-nav over the screens this user can actually reach.
   const showStaffView = currentUser&&currentUser.role==="staff";
 
   // Loading
   if(!appReady) return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
-      <div style={{fontSize:32,marginBottom:4}}>🔥</div>
-      <div style={{color:C.gold,fontSize:14,fontFamily:"var(--font-display)"}}>Loading Ambria FnB Operations…</div>
+    <div style={{minHeight:"100vh",background:K.shellBg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,position:"relative",overflow:"hidden"}}>
+      {/* Same artwork as the app itself, so the boot screen is the app arriving
+          rather than a separate holding page. */}
+      <img src={`${import.meta.env.BASE_URL}page-bg.webp`} alt="" aria-hidden="true" draggable="false"
+        onError={e=>{ e.currentTarget.style.display="none"; }}
+        style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:K.pageBgOpacity,pointerEvents:"none"}}/>
+
+      <div className="ash-boot" style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center"}}>
+        {/* The real app icon. drop-shadow, not box-shadow: the PNG has rounded
+            corners with transparency, so a box shadow would render as a square
+            behind it. Falls back to the chef-hat tile if the file is missing. */}
+        <img className="ash-boot-mark" src={`${import.meta.env.BASE_URL}icons/icon-192x192.png`}
+          alt="Ambria Cuisines" draggable="false"
+          onError={e=>{ const el=e.currentTarget; el.style.display="none"; if(el.nextSibling) el.nextSibling.style.display="flex"; }}
+          style={{width:96,height:96,display:"block",filter:"drop-shadow(0 14px 30px rgba(28,61,43,.34))"}}/>
+        <div style={{display:"none",width:96,height:96,borderRadius:28,background:K.hdrBadge,color:K.hdrBadgeIcon,alignItems:"center",justifyContent:"center",boxShadow:"0 14px 34px rgba(28,61,43,.32)"}}>
+          <Icon name="chefHat" size={46} strokeWidth={1.5}/>
+        </div>
+
+        <div style={{fontSize:10.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.4,marginTop:26}}>
+          {T2("Kitchen Operations")}
+        </div>
+        <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle,marginTop:6}}>Ambria Cuisines</div>
+
+        {/* Indeterminate: several Supabase loads run in parallel, so there is no
+            honest percentage to show. */}
+        <div style={{width:190,height:3,borderRadius:2,background:K.hdrChipLine,overflow:"hidden",marginTop:22}}>
+          <div className="ash-boot-bar" style={{width:"38%",height:"100%",borderRadius:2,background:`linear-gradient(90deg,${K.sbGoldSoft},${K.hdrBadge})`}}/>
+        </div>
+        <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:14,letterSpacing:.2}}>{T2("Loading your kitchen…")}</div>
+      </div>
     </div>
   );
   // Login
@@ -654,15 +797,17 @@ export default function App() {
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
     const TABLET_NAV=[
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
+      {id:"dashboard",label:"Dashboard"},
+      {id:"kitchen",label:"Kitchen Hub"},
+      {id:"store",label:"Store & Inventory"},
     ].filter(function(n){ return canAccessScreen(currentUser, n.id); });
     const _cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
     const _catObjs = _cats.map(function(c){ return (RECIPE_DB.cats||[]).find(function(x){ return x.id===c; }); }).filter(Boolean);
     const _firstCat = _catObjs[0]||null;
     const _catNames = _catObjs.length>0?_catObjs.map(function(c){ return c.name; }).join(' + '):'';
-    const _hdrColor = _firstCat?.color || C.gold;
+    // The per-category accent is gone: the tablet shell now uses the brand
+    // plate like the admin app, so the chrome no longer changes colour with
+    // whichever station happens to be assigned to the tablet.
     const _title = currentUser.name || _catNames || currentUser.section || 'Kitchen';
     function tabletContent(scr){
       switch(scr){
@@ -673,49 +818,224 @@ export default function App() {
       }
     }
     return (
-      <div style={{display:"flex",height:"100vh",background:C.bg,overflow:"hidden"}}>
+      // Same shell language as the admin app: ivory ground, a floating sidebar
+      // panel with a deep-green active pill and gold rail, and the brand plate
+      // across the top. The tablet had its own older styling, so the two halves
+      // of the same product looked like different apps.
+      <div className="kh-scope" style={{position:"relative",display:"flex",height:"100vh",background:K.shellBg,overflow:"hidden"}}>
+        {/* Same page artwork as the admin shell, spanning the whole window so it
+            shows behind the floating sidebar's rounded corners rather than a
+            flat gap. BASE_URL, not a bare "/", because vite sets base:'/Fnbapp/'. */}
+        <img src={`${import.meta.env.BASE_URL}page-bg.webp`} alt="" aria-hidden="true" draggable="false"
+          onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center",
+            opacity:K.pageBgOpacity,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
+
         {tabletSidebarOpen&&(
-          <div style={{width:220,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
-            <div style={{padding:"16px 14px",borderBottom:`1px solid ${C.borderLight}`}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:18}}>{_firstCat?.icon||'🍽'}</span>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:_hdrColor,fontFamily:'var(--font-display)'}}>{_title}</div>
-                  <div style={{fontSize:10,color:C.muted}}>{_catNames}</div>
+          <div style={{position:"relative",zIndex:1,width:K.sbWidth,margin:"10px 0 10px 10px",borderRadius:22,background:K.sbBg,border:`1px solid ${K.sbLine}`,
+            boxShadow:K.sidebarShadow,display:"flex",flexDirection:"column",flexShrink:0,overflow:"hidden"}}>
+            {/* Sidebar artwork — hides itself if the file is missing. */}
+            <img src={`${import.meta.env.BASE_URL}sidebar-bg.webp`} alt="" aria-hidden="true" draggable="false"
+              onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+              style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",
+                opacity:.65,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
+
+            {/* Brand — the Ambria wordmark, same treatment (and same sheen) as
+                the admin sidebar. Falls back to .png, then to the chef-hat mark
+                if neither file is present. */}
+            <div style={{position:"relative",zIndex:1,padding:"22px 16px 20px",flexShrink:0}}>
+              {/* Collapse sits INSIDE the panel, like the admin sidebar. The
+                  tablet hides its sidebar completely rather than shrinking to an
+                  icon rail, so the button to bring it back has to live in the
+                  header band — see the topbar below. */}
+              <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setTabletSidebarOpen(false)}
+                title={T2("Collapse")} aria-label={T2("Collapse")}
+                style={{position:"absolute",top:14,right:14,zIndex:2,width:30,height:30,borderRadius:9,
+                  background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}>
+                <Icon name="chevronL" size={15}/>
+              </button>
+              <span className="ash-logo-wrap" style={{width:194,maxWidth:"100%",margin:"0 auto",["--logo-mask"]:`url(${import.meta.env.BASE_URL}ambria-logo.webp)`}}>
+                <img className="ash-logo" src={`${import.meta.env.BASE_URL}ambria-logo.webp`} alt="Ambria Cuisines" draggable="false"
+                  onError={e=>{ const el=e.currentTarget;
+                    const wrap = el.closest(".ash-logo-wrap");
+                    if(!el.dataset.pngFallback){
+                      el.dataset.pngFallback="1";
+                      const png = el.src.replace(/\.webp$/,".png");
+                      el.src = png;
+                      if(wrap) wrap.style.setProperty("--logo-mask",`url(${png})`);
+                    } else {
+                      el.style.display="none";
+                      if(wrap) wrap.querySelectorAll(".ash-logo-sheen").forEach(s=>s.remove());
+                      if(el.parentElement?.nextSibling) el.parentElement.nextSibling.style.display="flex";
+                    } }}
+                  style={{display:"block",width:"100%",height:"auto",userSelect:"none"}}/>
+                <span className="ash-logo-sheen" aria-hidden="true"/>
+              </span>
+              {/* Shown only if the logo file is missing */}
+              <div style={{display:"none",alignItems:"center",gap:10}}>
+                <Icon name="chefHat" size={22} strokeWidth={1.6} color={K.sbText}/>
+                <span style={{fontFamily:"var(--font-display)",fontSize:18,fontWeight:700,color:K.sbText}}>Ambria Cuisines</span>
+              </div>
+            </div>
+
+            {/* Which tablet this is. The station list lives in the banner on the
+                page, not here — it ran to eleven names and could not fit. */}
+            <div style={{position:"relative",zIndex:1,padding:"0 16px 20px",flexShrink:0,borderBottom:`1px solid ${K.sbLine}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:11,padding:"12px 13px",borderRadius:14,
+                background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`}}>
+                <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="chefHat" size={18} strokeWidth={1.8}/>
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{...type.label,fontSize:9.5,color:K.sbLabel}}>{T2("Tablet")}</div>
+                  <div style={{fontFamily:"var(--font-display)",fontSize:16,fontWeight:700,letterSpacing:-.1,color:K.sbText,
+                    marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{_title}</div>
                 </div>
               </div>
             </div>
-            <nav style={{flex:1,padding:"8px",overflowY:"auto"}}>
+            <nav style={{position:"relative",zIndex:1,flex:1,padding:"16px 8px 10px",overflowY:"auto"}}>
               {TABLET_NAV.map(function(item){
                 var active=tabletScreen===item.id;
                 return(
-                  <button key={item.id} onClick={function(){setTabletScreen(item.id);setTabletSidebarOpen(false);}} style={{
-                    display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",
-                    borderRadius:10,marginBottom:4,cursor:"pointer",textAlign:"left",
-                    background:active?_hdrColor+"12":"transparent",
-                    border:active?"1.5px solid "+_hdrColor+"25":"1.5px solid transparent",
-                    borderLeft:active?"3px solid "+_hdrColor:"3px solid transparent",
-                    color:active?_hdrColor:C.muted,fontSize:12,fontWeight:active?600:400}}>
-                    <span style={{fontSize:15}}>{item.icon}</span>{item.label}
+                  <button key={item.id} className={"ash-nav kh-rip"+(active?" is-active":"")} onPointerDown={ripple}
+                    // Navigating does NOT close the sidebar. That was a holdover
+                    // from when it was an overlay with no collapse control of
+                    // its own; now it has one, so switching screens should leave
+                    // it exactly where the user put it — as in the admin app.
+                    onClick={function(){setTabletScreen(item.id);}} style={{
+                    position:"relative",overflow:"hidden",
+                    display:"flex",alignItems:"center",gap:12,width:"100%",padding:"8px 10px",
+                    borderRadius:14,marginBottom:7,cursor:"pointer",textAlign:"left",minHeight:56,border:"none",
+                    background:active?K.sbActiveBg:"transparent",
+                    color:active?K.sbActiveText:K.sbText,
+                    boxShadow:active?"0 6px 16px rgba(28,61,43,.26)":"none"}}>
+                    {active&&<span style={{position:"absolute",left:0,top:8,bottom:8,width:4,borderRadius:"0 3px 3px 0",background:K.sbGoldSoft}}/>}
+                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                      background:active?"rgba(255,255,255,.12)":K.sbChipBg,
+                      border:`1px solid ${active?"rgba(255,255,255,.18)":K.sbChipLine}`,
+                      color:active?K.sbActiveText:K.sbText}}>
+                      <Icon name={NAV_ICON[item.id]||"layers"} size={19} strokeWidth={active?1.9:1.6}/>
+                    </span>
+                    <span style={{fontFamily:"var(--font-display)",fontSize:17,fontWeight:active?700:600,letterSpacing:-.1,
+                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T2(item.label)}</span>
                   </button>
                 );
               })}
             </nav>
-            <div style={{padding:"12px",borderTop:`1px solid ${C.border}`}}>
-              <button onClick={handleLogout} style={{width:"100%",padding:"10px",borderRadius:10,background:"none",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>← Exit</button>
+            {/* No Exit button here. Signing out lives in the user chip in the
+                top bar, exactly as it does in the admin app — one place for
+                "who am I / get me out", not two. */}
+
+            {/* Footer plate — the wave, the artwork and the strapline are all
+                baked into the image, same as the admin sidebar. */}
+            <div style={{position:"relative",zIndex:1,flexShrink:0,lineHeight:0}}>
+              <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
+                onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+                style={{display:"block",width:"100%",height:K.sbFooterH,
+                  objectFit:"cover",objectPosition:"center bottom",
+                  pointerEvents:"none",userSelect:"none"}}/>
             </div>
           </div>
         )}
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-          <div style={{flexShrink:0,padding:"10px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
-            <button onClick={function(){setTabletSidebarOpen(function(p){return !p;});}} style={{width:36,height:36,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:C.muted}}>
-              {tabletSidebarOpen?"✕":"☰"}
-            </button>
-            <span style={{fontSize:16}}>{_firstCat?.icon||'🍽'}</span>
-            <div style={{fontSize:14,fontWeight:700,color:_hdrColor,fontFamily:'var(--font-display)'}}>{_title}</div>
-            <div style={{fontSize:11,color:C.muted}}>{'· '+_catNames+' · '+TODAY_LABEL}</div>
+        <div style={{position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+          {/* Top bar — expand control on the left, identity on the right, the
+              same pair the admin shell carries above its header plate. */}
+          <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
+            {!tabletSidebarOpen&&(
+              <button onClick={function(){setTabletSidebarOpen(true);}} onPointerDown={ripple}
+                className="ash-iconbtn kh-rip" title={T2("Expand")} aria-label={T2("Expand")}
+                style={{width:38,height:38,borderRadius:10,border:`1px solid ${K.line}`,background:K.surface,
+                  cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:K.textMuted,flexShrink:0,padding:0}}>
+                <Icon name="panelLeft" size={17} strokeWidth={2}/>
+              </button>
+            )}
+            {/* Identity + sign out, exactly as in admin — Exit no longer sits in
+                the sidebar, so there is one place for "who am I / get me out". */}
+            <div ref={userMenuRef} style={{position:"relative",flexShrink:0,marginLeft:"auto"}}>
+              <button className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={()=>setUserMenuOpen(o=>!o)}
+                style={{display:"flex",alignItems:"center",gap:9,padding:"4px 10px 4px 4px",height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,cursor:"pointer"}}>
+                <Avatar name={currentUser?.name||"T"} size={28} index={0}/>
+                <span style={{fontSize:13,fontWeight:600,color:K.text,whiteSpace:"nowrap"}}>{currentUser?.name}</span>
+                <Icon name="chevronD" size={14} color={K.textFaint} style={{transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
+              </button>
+              {userMenuOpen&&(
+                <div style={{position:"absolute",top:44,right:0,zIndex:60,minWidth:230,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
+                  <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
+                    <div style={{fontSize:13,fontWeight:700,color:K.text}}>{currentUser?.name}</div>
+                    <div style={{fontSize:11.5,color:K.textMuted,marginTop:2}}>{_catObjs.length} {_catObjs.length===1?T2("station"):T2("stations")}{currentUser?.venue?` · ${currentUser.venue}`:""}</div>
+                  </div>
+                  <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setLang(l=>l==="en"?"hi":"en");setUserMenuOpen(false);}}
+                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                    <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
+                  </button>
+                  <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
+                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                    <Icon name="logout" size={15}/>{T("Sign out",lang)}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          <div style={{flex:1,overflow:"auto",padding:"20px"}}>
+
+          {/* Same padding and the same top fade as the admin content column.
+              Without the mask, rows scrolled up to a hard edge under the user
+              chip and the whole band read as clipped. 10px top so the brand
+              plate lines up with the sidebar panel. */}
+          <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
+            maskImage:topFade,WebkitMaskImage:topFade}}>
+            {/* Brand plate — the same construction as the admin page header:
+                decorative leaf, screen badge, eyebrow, serif title, meta line,
+                and the at-a-glance chips on the right. */}
+            <div style={{paddingBottom:18}}>
+              <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,
+                padding:"22px 26px",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
+                  style={{position:"absolute",top:-26,right:-18,pointerEvents:"none",opacity:.5}}>
+                  <g fill="none" stroke="#D9C08A" strokeWidth="1.6" strokeLinecap="round">
+                    <path d="M188 6c-34 22-58 56-66 96-4 22-3 44 4 66"/>
+                    <path d="M182 34c-22 2-40 14-50 32M186 62c-24 0-44 10-56 28M188 92c-24-2-45 6-58 24M186 122c-22-4-42 0-55 16"/>
+                    <path d="M214 44c-20 26-30 58-28 92"/>
+                    <path d="M212 70c-14 4-25 13-30 26M214 98c-15 1-27 8-33 20"/>
+                  </g>
+                </svg>
+
+                <div style={{width:64,height:64,borderRadius:20,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative"}}>
+                  <Icon name={NAV_ICON[tabletScreen]||"layers"} size={32} strokeWidth={1.6}/>
+                </div>
+
+                <div style={{flex:"1 1 320px",minWidth:0,position:"relative"}}>
+                  {/* The tablet's own name is the heading, as it was before —
+                      a device is identified by which tablet it is, not by which
+                      screen happens to be open. The screen name moves to the
+                      meta line beside the date. */}
+                  <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
+                  <div style={{...type.pageTitle,fontSize:38,color:K.hdrTitle,marginTop:2}}>{_title}</div>
+                  <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:10,fontSize:13,color:K.hdrMeta}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:7}}><Icon name="calendar" size={15}/>{TODAY_LABEL}</span>
+                    <span style={{color:K.hdrEyebrow}}>·</span>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:7}}>
+                      <Icon name={NAV_ICON[tabletScreen]||"layers"} size={15}/>
+                      <span style={{color:K.hdrMetaStrong}}>{T(TABLET_NAV.find(n=>n.id===tabletScreen)?.label||"Kitchen Hub",lang)}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {_catObjs.length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:14,flexShrink:0,position:"relative",flexWrap:"wrap"}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrLiveBg,color:K.hdrLiveText,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>
+                      <span style={{width:9,height:9,borderRadius:"50%",background:K.hdrLiveDot}}/>{T2("On duty")}
+                    </span>
+                    <span style={{width:1,height:34,background:K.hdrChipLine}}/>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrChipBg,border:`1px solid ${K.hdrChipLine}`,color:K.hdrMetaStrong,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>
+                      <Icon name="layers" size={17}/>{_catObjs.length} {_catObjs.length===1?T2("station"):T2("stations")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {tabletContent(tabletScreen)}
           </div>
         </div>
@@ -770,7 +1090,16 @@ export default function App() {
   }
 
   return (
-    <div style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:C.bg,overflow:"hidden",flexDirection:"column"}}>
+    <div className="ash-shell" style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:K.shellBg,overflow:"hidden",flexDirection:"column",position:"relative"}}>
+
+      {/* Page artwork spans the WHOLE window, not just the content column, so the
+          floating sidebar sits on it. Behind the sidebar's rounded corners you
+          then see the image rather than a flat gap.
+          File: Fnbapp/public/page-bg.webp (a .png there works too). */}
+      <img src={`${import.meta.env.BASE_URL}page-bg.webp`} alt="" aria-hidden="true" draggable="false"
+        onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+        style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center",
+          opacity:K.pageBgOpacity,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
       {/* ── PWA update banner ── */}
       {updateReady&&(
         <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
@@ -786,97 +1115,340 @@ export default function App() {
         </div>
       )}
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-      {/* ── SIDEBAR (tablet: 260px, glass effect) ── */}
-      <div style={{width:sideOpen?260:56,background:C.surface,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",transition:"width 0.2s ease",overflow:"hidden"}}>
-        <button onClick={()=>setSideOpen(p=>!p)} style={{position:"absolute",top:26,right:sideOpen?10:8,zIndex:2,background:C.surfaceHover||C.bg,border:`1px solid ${C.border}`,borderRadius:6,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:11,color:C.muted,padding:0}}>{sideOpen?"◂":"▸"}</button>
+      {/* ── SIDEBAR ──
+          Ivory panel with a deep-green strip down the window edge and a green
+          footer plate. Every decorative layer is pointer-events:none and hidden
+          when collapsed, so the 72px rail stays a clean icon strip. */}
+      {/* Floating panel: inset from the window on all sides so every corner can
+          round. Rounding only the inner corners left the flush edge square,
+          which read as a bug rather than a choice. */}
+      {/* Collapsed means GONE, not a narrow icon rail. A rail still occupies a
+          column and shows the whole nav, so collapsing bought almost no room and
+          left a strip of ambiguous icons. The panel is hidden outright and a
+          single expand control lives in the top bar — the same pattern the
+          section-tablet shell uses. */}
+      {sideOpen&&(
+      <div style={{width:K.sbWidth,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",overflow:"hidden"}}>
 
-        {/* Dept badge + branding */}
-        <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${C.borderLight}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-            <div style={{width:42,height:42,borderRadius:12,background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}90)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",boxShadow:`0 4px 12px ${curDeptMeta.color}30`}}>{curDeptMeta.icon}</div>
-            {sideOpen&&<div>
-              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T2(curDeptMeta.name)}</div>
-              <div style={{fontSize:11,color:C.muted,letterSpacing:.3}}>Ambria Cuisines</div>
-            </div>}
+        {/* Decorative background art.
+            Drop the artwork at Fnbapp/public/sidebar-bg.webp — BASE_URL is used
+            (not a bare "/") because vite.config.js sets base:'/Fnbapp/', so an
+            absolute path would 404 on GitHub Pages. If the file is missing the
+            image hides itself and the plain ivory panel shows through. */}
+        {sideOpen&&(
+          <img src={`${import.meta.env.BASE_URL}sidebar-bg.webp`} alt="" aria-hidden="true" draggable="false"
+            onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+            style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",
+              opacity:.65,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
+        )}
+
+        {/* ── Brand ── */}
+        <div style={{position:"relative",zIndex:1,padding:sideOpen?"18px 16px 14px":"18px 10px 14px",flexShrink:0}}>
+          {/* Expanded: the Ambria wordmark. Collapsed: the chef-hat mark, since a
+              wordmark cannot read at 84px. Drop the logo at
+              Fnbapp/public/ambria-logo.webp (a .png there works too — the error
+              handler falls back to it, then to the chef-hat mark if neither exists). */}
+          <div style={{display:"flex",alignItems:"flex-start",gap:13}}>
+            {sideOpen ? (
+              <div style={{minWidth:0,flex:1}}>
+                {/* ambria-logo.webp is the dark-on-light version (the white
+                    lettering was repainted deep green). The original white mark is
+                    kept as ambria-logo-onDark.webp for any dark surface. */}
+                <span className="ash-logo-wrap" style={{width:194,maxWidth:"100%",margin:"0 auto",["--logo-mask"]:`url(${import.meta.env.BASE_URL}ambria-logo.webp)`}}>
+                  <img className="ash-logo" src={`${import.meta.env.BASE_URL}ambria-logo.webp`} alt="Ambria Cuisines" draggable="false"
+                    onError={e=>{ const el=e.currentTarget;
+                      const wrap = el.closest(".ash-logo-wrap");
+                      if(!el.dataset.pngFallback){
+                        el.dataset.pngFallback="1";
+                        const png = el.src.replace(/\.webp$/,".png");
+                        el.src = png;
+                        if(wrap) wrap.style.setProperty("--logo-mask",`url(${png})`);
+                      } else {
+                        el.style.display="none";
+                        if(wrap) wrap.querySelectorAll(".ash-logo-sheen").forEach(s=>s.remove());
+                        if(el.parentElement?.nextSibling) el.parentElement.nextSibling.style.display="flex";
+                      } }}
+                    style={{display:"block",width:"100%",height:"auto",userSelect:"none"}}/>
+                  <span className="ash-logo-sheen" aria-hidden="true"/>
+                </span>
+                {/* Shown only if the logo file is missing */}
+                <div style={{display:"none",alignItems:"center",gap:10}}>
+                  <Icon name="chefHat" size={22} strokeWidth={1.6} color={K.sbText}/>
+                  <span style={{fontFamily:"var(--font-display)",fontSize:18,fontWeight:700,color:K.sbText}}>Ambria Cuisines</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{width:44,height:44,borderRadius:14,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 6px 16px rgba(28,61,43,.28)"}}>
+                <Icon name="chefHat" size={23} strokeWidth={1.6}/>
+              </div>
+            )}
+            {/* Collapse. There is no matching expand button down here any more,
+                because the whole panel goes away when collapsed — the control to
+                bring it back lives in the top bar. */}
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(false)} title={T2("Collapse")}
+              style={{width:30,height:30,borderRadius:9,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="chevronL" size={15}/>
+            </button>
           </div>
         </div>
 
-        {/* Nav items (tablet: larger touch targets) */}
-        <nav style={{flex:1,padding:"10px 12px",overflowY:"auto"}}>
-          {screen==="access"&&(
-            <button onClick={()=>{setActiveDept(null);setScreen("dashboard");}} style={{width:"100%",padding:"12px 14px",borderRadius:10,marginBottom:8,cursor:"pointer",background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,color:C.purple,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:8,minHeight:42}}>
-              ← Back to Departments
+        {/* ── Nav ── */}
+        <nav style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:sideOpen?"4px 14px 10px":"4px 10px 10px",overflowY:"auto"}}>
+          {screen==="access"&&sideOpen&&(
+            <button className="ash-btn ash-btn-ghost" onClick={()=>{setActiveDept(null);setScreen("dashboard");}}
+              style={{width:"100%",padding:"10px 14px",borderRadius:12,marginBottom:10,cursor:"pointer",background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,fontSize:12.5,fontWeight:600,display:"flex",alignItems:"center",gap:8,minHeight:42}}>
+              <Icon name="chevronL" size={14}/> Back to Departments
             </button>
           )}
-          {curNav.filter(item=>item.divider||canAccessScreen(currentUser, item.id)).map(item=>{
-            if(item.divider){
+          {(()=>{
+            // Fold the flat nav array (items + divider markers) into groups so each
+            // section header can collapse the rows beneath it. One shared row
+            // renderer keeps grouped and icon-rail rendering identical.
+            const visible = curNav.filter(item=>item.divider||canAccessScreen(currentUser, item.id));
+            const groups = [];
+            let cur = {id:"_ungrouped", label:"", items:[]};
+            visible.forEach(item=>{
+              if(item.divider){
+                if(cur.items.length) groups.push(cur);
+                cur = {id:item.id, label:item.label.replace(/──/g,'').trim(), items:[]};
+              } else cur.items.push(item);
+            });
+            if(cur.items.length) groups.push(cur);
+
+            const navRow = item => {
+              const active=screen===item.id;
+              const badge=item.id==="team"&&pendingLv>0?pendingLv:0;
               return(
-                <div key={item.id} style={{fontSize:9,fontWeight:700,color:C.faint,textTransform:'uppercase',letterSpacing:1.2,padding:'10px 11px 4px',marginTop:4}}>
-                  {item.label.replace(/──/g,'').trim()}
+                <button key={item.id} className={"ash-nav kh-rip"+(active?" is-active":"")} onPointerDown={ripple} onClick={()=>setScreen(item.id)}
+                  title={!sideOpen?T(item.label,lang):undefined}
+                  style={{
+                    position:"relative",overflow:"hidden",
+                    display:"flex",alignItems:"center",justifyContent:sideOpen?"space-between":"center",
+                    width:"100%",padding:sideOpen?"8px 10px":"8px 0",borderRadius:14,marginBottom:4,
+                    cursor:"pointer",textAlign:"left",minHeight:56,border:"none",
+                    background:active?K.sbActiveBg:"transparent",
+                    color:active?K.sbActiveText:K.sbText,
+                    boxShadow:active?"0 6px 16px rgba(28,61,43,.26)":"none",
+                  }}>
+                  {/* Gold rail on the active row */}
+                  {active&&<span style={{position:"absolute",left:0,top:8,bottom:8,width:4,borderRadius:"0 3px 3px 0",background:K.sbGoldSoft}}/>}
+                  <span style={{display:"flex",alignItems:"center",gap:sideOpen?13:0,minWidth:0}}>
+                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                      background:active?"rgba(255,255,255,.12)":K.sbChipBg,
+                      border:`1px solid ${active?"rgba(255,255,255,.18)":K.sbChipLine}`,
+                      color:active?K.sbActiveText:K.sbText}}>
+                      <Icon name={NAV_ICON[item.id]||"layers"} size={19} strokeWidth={active?1.9:1.6}/>
+                    </span>
+                    {sideOpen&&<span style={{fontFamily:"var(--font-display)",fontSize:17,fontWeight:active?700:600,letterSpacing:-.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T(item.label,lang)}</span>}
+                  </span>
+                  {sideOpen&&(badge>0
+                    ? <span style={{background:active?"rgba(255,255,255,.16)":K.sbBadgeBg,color:active?K.sbActiveText:K.sbBadgeText,fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:9,flexShrink:0}}>{badge}</span>
+                    : active ? <Icon name="chevronR" size={16}/> : null)}
+                </button>
+              );
+            };
+
+            // Is this group showing? Groups start closed; the one holding the
+            // current screen opens so you can always see where you are.
+            const isGroupOpen = g => {
+              const explicit = navClosed[g.id];
+              return explicit !== undefined ? !explicit : g.items.some(i=>i.id===screen);
+            };
+
+            // The collapsed rail follows the SAME open/closed state. It used to
+            // force every group open, so collapsing the sidebar to save space
+            // produced a taller strip than the expanded one. Ungrouped items
+            // (no label) always show — that is the primary nav.
+            if(!sideOpen){
+              const shown = groups.filter(g=>!g.label || isGroupOpen(g));
+              return shown.map((g,gi)=>(
+                <div key={g.id}>
+                  {gi>0&&<div style={{height:1,background:K.sbLine,margin:"10px 6px"}}/>}
+                  {g.items.map(navRow)}
+                </div>
+              ));
+            }
+
+            return groups.map(g=>{
+              const hasActive = g.items.some(i=>i.id===screen);
+              const closed    = !isGroupOpen(g);
+              const badgeSum  = g.items.reduce((n,i)=>n+(i.id==="team"?pendingLv:0),0);
+              if(!g.label) return <div key={g.id}>{g.items.map(navRow)}</div>;
+              return(
+                <div key={g.id}>
+                  <button className="ash-navgroup kh-rip" onPointerDown={ripple} onClick={()=>setNavClosed(p=>({...p,[g.id]:!closed}))}
+                    aria-expanded={!closed}
+                    style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"transparent",border:"none",
+                      padding:"16px 6px 8px",cursor:"pointer",textAlign:"left",borderRadius:8}}>
+                    <span style={{fontSize:11.5,fontWeight:700,color:K.sbTagline,textTransform:"uppercase",letterSpacing:1.7}}>{g.label}</span>
+                    {/* When a section is folded away, show that something inside it
+                        still wants attention — otherwise it silently disappears. */}
+                    {closed&&hasActive&&<span title={T2("Current screen is in here")} style={{width:6,height:6,borderRadius:"50%",background:K.sbGoldSoft,flexShrink:0}}/>}
+                    {closed&&badgeSum>0&&<span style={{background:K.sbBadgeBg,color:K.sbBadgeText,fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:7}}>{badgeSum}</span>}
+                    {/* Hairline carries the eye from the label to the chevron and
+                        makes each section read as a real divider, not stray text. */}
+                    <span style={{flex:1,height:1,background:K.sbLine,minWidth:8}}/>
+                    <span style={{display:"flex",color:K.sbLabel,transition:"transform .18s",transform:closed?"rotate(-90deg)":"none"}}>
+                      <Icon name="chevronD" size={15}/>
+                    </span>
+                  </button>
+                  {!closed&&g.items.map(navRow)}
                 </div>
               );
-            }
-            const active=screen===item.id;
-            const badge=item.id==="team"&&pendingLv>0?pendingLv:0;
-            return(
-              <button key={item.id} onClick={()=>setScreen(item.id)} style={{
-                display:"flex",alignItems:"center",justifyContent:"space-between",
-                width:"100%",padding:"13px 16px",borderRadius:12,marginBottom:5,
-                cursor:"pointer",textAlign:"left",minHeight:48,
-                background:active?curDeptMeta.color+"12":"transparent",
-                border:active?`1.5px solid ${curDeptMeta.color}25`:"1.5px solid transparent",
-                borderLeft:active?`3px solid ${curDeptMeta.color}`:"3px solid transparent",
-                color:active?curDeptMeta.color:C.muted,
-                fontSize:13,fontWeight:active?600:400,letterSpacing:.3,
-                boxShadow:active?`0 2px 12px ${curDeptMeta.color}10`:"none",
-              }}>
-                <span style={{display:"flex",alignItems:"center",gap:sideOpen?12:0,justifyContent:sideOpen?"flex-start":"center"}}>
-                  <span style={{fontSize:17,opacity:active?1:.7}}>{item.icon}</span>{sideOpen&&T(item.label,lang)}
-                </span>
-                {badge>0&&<span style={{background:`linear-gradient(135deg, ${curDeptMeta.color}, ${curDeptMeta.color}80)`,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,boxShadow:`0 2px 6px ${curDeptMeta.color}30`}}>{badge}</span>}
-              </button>
-            );
-          })}
+            });
+          })()}
         </nav>
 
-        {/* Sidebar footer — pinned to bottom */}
-        <div style={{flexShrink:0,marginTop:"auto"}}>
-        <div style={{padding:"0 16px 8px",display:supabase?"block":"none"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:supaLive===false?C.redBg:supaLive===true?C.greenBg:C.surfaceHover||C.bg,border:`1px solid ${supaLive===false?C.redBorder:supaLive===true?C.greenBorder:C.border}`}}>
-            <span style={{width:6,height:6,borderRadius:"50%",flexShrink:0,background:supaLive===null?C.muted:supaLive?C.green:C.red,boxShadow:supaLive?`0 0 4px ${C.green}`:"none"}}/>
-            <span style={{fontSize:10,fontWeight:600,color:supaLive===null?C.muted:supaLive?C.green:C.red,letterSpacing:.3}}>{supaLive===null?"Connecting…":supaLive?"Live Sync":"Offline"}</span>
-            {offlineQueueCount>0&&<span style={{marginLeft:2,padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700,background:C.amber+"30",color:C.amber,border:`1px solid ${C.amber}50`,letterSpacing:.3}}>{offlineQueueCount} queued</span>}
+        {/* User block lives in the topbar next to the bell, not here. */}
+
+        {/* ── Footer artwork ──
+            Drop it at Fnbapp/public/sidebar-footer.webp. The wave, the plate art
+            and the "From our kitchen…" line are all baked into the image, so
+            nothing is drawn here — the ivory top of the artwork blends into the
+            panel. Missing file hides itself rather than showing a broken icon. */}
+        {sideOpen&&(
+          <div style={{position:"relative",zIndex:1,flexShrink:0,marginTop:"auto",lineHeight:0}}>
+            <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
+              onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+              style={{display:"block",width:"100%",height:K.sbFooterH,
+                objectFit:"cover",objectPosition:"center bottom",
+                pointerEvents:"none",userSelect:"none"}}/>
           </div>
-        </div>
-        {/* User + lang + logout */}
-        <div style={{padding:sideOpen?"16px 16px":"10px 8px",borderTop:`1px solid ${C.borderLight}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:sideOpen?12:8,justifyContent:sideOpen?"flex-start":"center"}}>
-            <Avatar name={currentUser?.name||"A"} size={sideOpen?34:28} index={0}/>
-            {sideOpen&&<div>
-              <div style={{fontSize:12,fontWeight:600,color:C.text,letterSpacing:.3}}>{currentUser?.name}</div>
-              <div style={{fontSize:11,color:C.muted}}>{currentUser?.id}</div>
-            </div>}
-          </div>
-          {sideOpen?<div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setLang(l=>l==="en"?"hi":"en")} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:curDeptMeta.color,fontSize:11,padding:"10px 10px",cursor:"pointer",fontWeight:600,minHeight:42}}>
-              {lang==="en"?"🇮🇳 हिंदी":"🇬🇧 English"}
-            </button>
-            <button onClick={handleLogout} style={{flex:1,background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.muted,fontSize:11,padding:"10px 10px",cursor:"pointer",minHeight:42,fontWeight:500}}>{T("Sign out",lang)}</button>
-          </div>:<button onClick={handleLogout} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:14,padding:"6px",cursor:"pointer"}}>🚪</button>}
-        </div>
-        </div>
+        )}
       </div>
+      )}
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"16px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-          <div>
-            <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
-            <div style={{fontSize:12,color:C.muted,marginTop:3,letterSpacing:.3}}>{T2(curDeptMeta.name)} · {TODAY_LABEL}</div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative"}}>
+
+
+        {/* Header + screen share one scroll container, so the brand plate scrolls
+            away with the content instead of pinning and clipping it. */}
+        {/* ── ALERTS BAR ──
+            Slim row holding just the notification bell. Transform + opacity only
+            when hiding: collapsing its height changed the scroll container's size,
+            which moved scrollTop, which fired another scroll event with the
+            opposite direction — the bar flapped open and shut. */}
+        <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
+
+          {/* The only way back once the sidebar is collapsed, so it sits on the
+              left where the panel used to be rather than among the account
+              controls on the right. */}
+          {!sideOpen&&(
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(true)}
+              title={T2("Expand")} aria-label={T2("Expand")}
+              style={{width:38,height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="panelLeft" size={17} strokeWidth={2}/>
+            </button>
+          )}
+          <span style={{marginLeft:"auto"}}/>
+
+
+          {/* Bell hidden for now — set SHOW_BELL back to true to restore it.
+              Kept rather than deleted: the toggle behaviour and the pending-leave
+              badge below are worth keeping if it comes back. Clicking it when
+              Team is already open returns you to the screen you came from. */}
+          {false&&canAccessScreen(currentUser,"team")&&(
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple}
+              onClick={()=>{
+                if(screen==="team"){ setScreen(bellReturnRef.current || "kitchen"); }
+                else { bellReturnRef.current = screen; setScreen("team"); }
+              }}
+              title={pendingLv>0?`${pendingLv} ${T2("pending leave request(s)")}`:T2("No pending approvals")}
+              style={{position:"relative",width:38,height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="bell" size={17}/>
+              {pendingLv>0&&<span style={{position:"absolute",top:8,right:8,width:8,height:8,borderRadius:"50%",background:K.danger,border:`2px solid ${K.surface}`}}/>}
+            </button>
+          )}
+
+          {/* User chip + menu — the only home for sign out and the language toggle */}
+          <div ref={userMenuRef} style={{position:"relative",flexShrink:0}}>
+            <button className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={()=>setUserMenuOpen(o=>!o)}
+              style={{display:"flex",alignItems:"center",gap:9,padding:"4px 10px 4px 4px",height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,cursor:"pointer"}}>
+              <Avatar name={currentUser?.name||"A"} size={28} index={0}/>
+              <span style={{fontSize:13,fontWeight:600,color:K.text,whiteSpace:"nowrap"}}>{currentUser?.name}</span>
+              <Icon name="chevronD" size={14} color={K.textFaint} style={{transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
+            </button>
+            {userMenuOpen&&(
+              <div style={{position:"absolute",top:44,right:0,zIndex:60,minWidth:210,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
+                <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
+                  <div style={{fontSize:13,fontWeight:700,color:K.text}}>{currentUser?.name}</div>
+                  <div style={{fontSize:11.5,color:K.textMuted,marginTop:2}}>{currentUser?.id} · {currentUser?.role==="admin"?"Admin":currentUser?.role}</div>
+                </div>
+                <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setLang(l=>l==="en"?"hi":"en");setUserMenuOpen(false);}}
+                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                  <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
+                </button>
+                {/* No Access Manager shortcut here — it is already a nav item. */}
+                <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
+                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                  <Icon name="logout" size={15}/>{T("Sign out",lang)}
+                </button>
+              </div>
+            )}
           </div>
-          
         </div>
-        <div style={{flex:1,overflowY:"auto",padding:"28px 32px",scrollBehavior:"smooth"}}>
+
+        {/* Top padding matches the sidebar's 10px margin so the brand plate and
+            the sidebar panel start on the same line. */}
+        <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
+          maskImage:topFade,WebkitMaskImage:topFade}}>
+
+        {/* ── PAGE HEADER — brand plate ── */}
+        <div style={{paddingBottom:18}}>
+          <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"22px 26px",display:"flex",alignItems:"center",gap:22,flexWrap:"wrap"}}>
+
+            {/* Decorative leaf, top-right */}
+            <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
+              style={{position:"absolute",top:-26,right:-18,pointerEvents:"none",opacity:.5}}>
+              <g fill="none" stroke="#D9C08A" strokeWidth="1.6" strokeLinecap="round">
+                <path d="M188 6c-34 22-58 56-66 96-4 22-3 44 4 66"/>
+                <path d="M182 34c-22 2-40 14-50 32M186 62c-24 0-44 10-56 28M188 92c-24-2-45 6-58 24M186 122c-22-4-42 0-55 16"/>
+                <path d="M214 44c-20 26-30 58-28 92"/>
+                <path d="M212 70c-14 4-25 13-30 26M214 98c-15 1-27 8-33 20"/>
+              </g>
+            </svg>
+
+            {/* Screen badge — icon follows the current screen (same map the sidebar
+                uses), so the chef hat only ever appears on Kitchen Hub. */}
+            <div style={{width:64,height:64,borderRadius:20,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 6px 18px rgba(28,61,43,.28)"}}>
+              <Icon name={NAV_ICON[screen]||"layers"} size={32} strokeWidth={1.6}/>
+            </div>
+
+            {/* Eyebrow · title · meta */}
+            <div style={{flex:"1 1 320px",minWidth:0,position:"relative"}}>
+              <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
+              <div style={{...type.pageTitle,fontSize:38,color:K.hdrTitle,marginTop:2}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
+              <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:10,fontSize:13,color:K.hdrMeta}}>
+                {/* No department chip. For an admin it always read "Management",
+                    which is already stated by the user chip in the top bar and
+                    by the sidebar they are looking at. */}
+                <span style={{display:"inline-flex",alignItems:"center",gap:7}}><Icon name="calendar" size={15}/>{TODAY_LABEL}</span>
+                {headerEvents&&<>
+                  <span style={{color:K.hdrEyebrow}}>·</span>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:7}}><Icon name="users" size={15}/><span style={{color:K.hdrMetaStrong}}>{headerEvents}</span></span>
+                </>}
+              </div>
+            </div>
+
+            {/* Live status + at-a-glance chips */}
+            {nextEvToday&&(
+              <div style={{display:"flex",alignItems:"center",gap:14,flexShrink:0,position:"relative",flexWrap:"wrap"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrLiveBg,color:K.hdrLiveText,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
+                  <span style={{width:9,height:9,borderRadius:"50%",background:K.hdrLiveDot}}/>{T2("Active Event")}
+                </span>
+                <span style={{width:1,height:34,background:K.hdrChipLine}}/>
+                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrChipBg,border:`1px solid ${K.hdrChipLine}`,color:K.hdrMetaStrong,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
+                  <Icon name="clock" size={17}/>{nextEvToday.time||"TBD"}
+                </span>
+                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrChipBg,border:`1px solid ${K.hdrChipLine}`,color:K.hdrMetaStrong,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
+                  <Icon name="users" size={17}/>{paxToday} {T2("pax")}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
           <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
         </div>
       </div>

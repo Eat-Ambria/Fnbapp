@@ -465,7 +465,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       {/* Custom dish: confirm its SOP/recipe category before adding it in */}
       {pendingCustom && (
         <div onClick={function() { if (!customSaving) setPendingCustom(null); }}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={function(e) { e.stopPropagation(); }}
             style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 2 }}>{pendingCustom.name}</div>

@@ -49,13 +49,13 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const VP = {
     "Ambria Pushpanjali":{code:"AP",c:"#D85A30",bg:"#FAECE7"},
     "Ambria Exotica":{code:"AE",c:"#BA7517",bg:"#FAEEDA"},
-    "Manaktala Farm":{code:"MKT",c:"#8B5E2F",bg:"#FDF6EE"},
+    "Manaktala Farm":{code:"MKT",c:"#2563EB",bg:"#EAF1FE"},
     "Ambria Restro":{code:"AR",c:"#1D9E75",bg:"#E1F5EE"},
     "Outdoor Catering (ODC)":{code:"ODC",c:"#7F77DD",bg:"#EEEDFE"},
     "Ambria Manaktala":{code:"AM",c:"#BA7517",bg:"#FAEEDA"},
     "Ambria Cuisine":{code:"AC",c:"#378ADD",bg:"#E6F1FB"},
   };
-  const gp = v => VP[v]||{code:"EV",c:"#8B5E2F",bg:"#FDF6EE"};
+  const gp = v => VP[v]||{code:"EV",c:"#2563EB",bg:"#EAF1FE"};
 
   // State
   const [yr, setYr] = useState(today.getFullYear());

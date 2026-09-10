@@ -2,22 +2,34 @@
 // App config (colors, sections, nav) stays here.
 // Operational data (vendors, vehicles, cold items) → empty, hydrated from Supabase.
 
+// ─── APP PALETTE ────────────────────────────────────────────────
+// Blue / cool-neutral system. Values are kept in sync with the `K`
+// tokens in utils/theme.js — change both together if you retheme.
+//
+// Key names are historical (the app used to be warm gold/cream), so a few
+// read oddly against their values. What they actually mean now:
+//   gold / goldBg / goldBorder → THE PRIMARY ACCENT (buttons, active states)
+//   wine / wineMid             → deeper accent, used as gradient partners
+//   cream                      → primary text colour
+//   darkCard / darkCardHover   → card surfaces (light, despite the name)
+// Renaming them is a large mechanical change across ~2,900 call sites, so the
+// names were left alone deliberately.
 const C = {
-  navy:"#1A1816",
-  wine:"#8B5E2F",   wineMid:"#6D4A25",  wineBg:"#FDF6EE",   wineBorder:"#E8D5BD",
-  bg:"#F7F5F0",     surface:"#FFFFFF",   surfaceHover:"#F2F0EB",
-  border:"#E2DFD8", borderLight:"#ECEAE4",
-  text:"#1A1816",   muted:"#8E8678",     faint:"#B8B2A6",
-  green:"#1D9E75",  greenBg:"#E1F5EE",   greenBorder:"#9FE1CB",
-  red:"#D64040",    redBg:"#FCEBEB",     redBorder:"#F7C1C1",
-  amber:"#BA7517",  amberBg:"#FAEEDA",   amberBorder:"#FAC775",
-  blue:"#378ADD",   blueBg:"#E6F1FB",    blueBorder:"#B5D4F4",
-  purple:"#7F77DD", purpleBg:"#EEEDFE",  purpleBorder:"#CECBF6",
-  teal:"#1D9E75",   tealBg:"#E1F5EE",    tealBorder:"#9FE1CB",
-  gold:"#8B5E2F",   goldBg:"#FDF6EE",    goldBorder:"#E8D5BD",
-  cream:"#1A1816",  darkCard:"#FFFFFF",  darkCardHover:"#F7F5F0",
-  shadow:"rgba(0,0,0,.08)",
-  glow:"rgba(139,94,47,.06)",
+  navy:"#111C33",
+  wine:"#1A46C4",   wineMid:"#14369B",  wineBg:"#EAF1FE",   wineBorder:"#C5D8FB",
+  bg:"#F6F8FC",     surface:"#FFFFFF",   surfaceHover:"#F1F5FD",
+  border:"#E5EAF3", borderLight:"#F0F3F9",
+  text:"#111C33",   muted:"#61708C",     faint:"#96A2B8",
+  green:"#129A6C",  greenBg:"#E6F7F0",   greenBorder:"#B4E8D3",
+  red:"#D9463F",    redBg:"#FDECEB",     redBorder:"#F6C6C3",
+  amber:"#C4790C",  amberBg:"#FDF3E2",   amberBorder:"#F5DBA6",
+  blue:"#0EA5E9",   blueBg:"#E4F5FE",    blueBorder:"#B6E5FB",
+  purple:"#7C5CE0", purpleBg:"#F0EBFC",  purpleBorder:"#DACFF7",
+  teal:"#129A6C",   tealBg:"#E6F7F0",    tealBorder:"#B4E8D3",
+  gold:"#2563EB",   goldBg:"#EAF1FE",    goldBorder:"#C5D8FB",
+  cream:"#111C33",  darkCard:"#FFFFFF",  darkCardHover:"#F6F8FC",
+  shadow:"rgba(17,28,51,.07)",
+  glow:"rgba(37,99,235,.06)",
   glass:"rgba(255,255,255,.92)",
 };
 
@@ -41,7 +53,7 @@ let SECTION_META = {
   "Crockery":       {color:"#7F77DD", bg:"#EEEDFE", dot:"#7F77DD", icon:"🍶"},
   "Transportation": {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"🚛"},
   "ODC":            {color:"#D85A30", bg:"#FAECE7", dot:"#D85A30", icon:"🏕️"},
-  "Management":     {color:"#8B5E2F", bg:"#FDF6EE", dot:"#8B5E2F", icon:"👑"},
+  "Management":     {color:"#2563EB", bg:"#EAF1FE", dot:"#2563EB", icon:"👑"},
   "Outdoor Staff":  {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"👷"},
 };
 
@@ -105,7 +117,7 @@ function hydrateConstants(config) {
     // Rebuild SECTION_META from Supabase, preserving all initial keys (kitchen legacy names + non-kitchen depts)
     var newMeta = {};
     cats.forEach(function(c){
-      newMeta[c.name] = {color:c.color||'#8E8678', bg:(c.color||'#8E8678')+'18', dot:c.color||'#8E8678', icon:c.icon||'📋'};
+      newMeta[c.name] = {color:c.color||'#61708C', bg:(c.color||'#61708C')+'18', dot:c.color||'#61708C', icon:c.icon||'📋'};
     });
     Object.keys(SECTION_META).forEach(function(k){ if(!newMeta[k]) newMeta[k] = SECTION_META[k]; });
     SECTION_META = newMeta;

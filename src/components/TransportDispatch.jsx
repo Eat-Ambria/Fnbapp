@@ -501,7 +501,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               <div style={{padding:"10px 18px",borderBottom:`1px solid ${C.border}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🚛 {T2("Dispatch Plan")}</div>
-                  <button onClick={()=>addVehicle(ev.id)} style={{padding:"5px 12px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32}}>+ {T2("Add Vehicle")}</button>
+                  <button onClick={()=>addVehicle(ev.id)} style={{padding:"5px 12px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32}}>+ {T2("Add Vehicle")}</button>
                 </div>
                 {dispatch.assignments.map((asgn,ai)=>{
                   const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛",type:"dry"};
@@ -589,7 +589,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                               <div style={{width:20,height:20,borderRadius:6,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
                                 background:dispatched?C.green:ready?C.amber:"transparent",
                                 border:`2px solid ${dispatched?C.green:ready?C.amber:C.border}`}}>
-                                {(ready||dispatched)&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}
+                                {(ready||dispatched)&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
                               </div>
                               {/* Dish name */}
                               <div style={{flex:1,minWidth:0}}>
@@ -597,15 +597,15 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                               </div>
                               {/* Status badge */}
                               <div style={{flexShrink:0,minWidth:80}}>
-                                {dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#0A0A0F",fontWeight:700}}>🚛 {dispatchTime}</span>}
-                                {ready&&!dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#0A0A0F",fontWeight:700}}>✅ {readyTime}</span>}
+                                {dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#fff",fontWeight:700}}>🚛 {dispatchTime}</span>}
+                                {ready&&!dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#fff",fontWeight:700}}>✅ {readyTime}</span>}
                                 {!ready&&!dispatched&&<span style={{fontSize:10,color:C.muted}}>⏳</span>}
                               </div>
                               {/* LOAD checkbox */}
                               <div onClick={(e)=>{e.stopPropagation();setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),loaded:!isLoaded}}));}}
                                 style={{width:32,height:32,borderRadius:8,border:`2px solid ${isLoaded?C.amber:C.border}`,background:isLoaded?C.amber:"transparent",
                                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                                {isLoaded&&<span style={{color:"#0A0A0F",fontSize:14,fontWeight:700}}>✓</span>}
+                                {isLoaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
                               </div>
                               {/* UNLOAD checkbox */}
                               <div onClick={(e)=>{e.stopPropagation();if(isLoaded)setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),unloaded:!isUnloaded}}));}}
@@ -663,7 +663,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                                   setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,loadingList:a2.loadingList.map((ll,lli)=>lli!==li?ll:{...ll,checked:!ll.checked})})}));
                                 }} style={{display:"flex",gap:6,alignItems:"center",padding:"4px 0",cursor:"pointer"}}>
                                   <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${item.checked?C.green:C.border}`,background:item.checked?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                    {item.checked&&<span style={{color:"#0A0A0F",fontSize:8,fontWeight:700}}>✓</span>}
+                                    {item.checked&&<span style={{color:"#fff",fontSize:8,fontWeight:700}}>✓</span>}
                                   </div>
                                   <span style={{fontSize:11,color:item.checked?C.green:C.text,textDecoration:item.checked?"line-through":"none"}}>{item.name}</span>
                                 </div>
@@ -761,7 +761,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   <Card style={{marginBottom:12,padding:"12px 16px"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                       <span style={{fontSize:12,fontWeight:700,color:C.muted}}>🚛 {T2("Vehicles")}</span>
-                      <button onClick={()=>addVehicle(ev.id)} style={{padding:"6px 14px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>
+                      <button onClick={()=>addVehicle(ev.id)} style={{padding:"6px 14px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>
                     </div>
                     {dispatch.assignments.map((asgn,ai)=>{
                       const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛"};
@@ -859,20 +859,20 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                               <div key={di} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 4px",borderBottom:di<filtered.length-1?`1px solid ${C.borderLight}`:"none",background:isUnloaded?C.greenBg+"40":isLoaded?C.amberBg+"20":"transparent"}}>
                                 <div style={{width:22,height:22,borderRadius:6,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
                                   background:dispatched2?C.green:ready?C.amber:"transparent",border:`2px solid ${dispatched2?C.green:ready?C.amber:C.border}`}}>
-                                  {(ready||dispatched2)&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}
+                                  {(ready||dispatched2)&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
                                 </div>
                                 <div style={{flex:1,minWidth:0}}>
                                   <div style={{fontSize:13,fontWeight:500,color:C.text}}>{d.name}</div>
                                 </div>
                                 <div style={{flexShrink:0,minWidth:70}}>
-                                  {dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#0A0A0F",fontWeight:700}}>🚛 {dispatchTime}</span>}
-                                  {ready&&!dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#0A0A0F",fontWeight:700}}>✅ {readyTime}</span>}
+                                  {dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#fff",fontWeight:700}}>🚛 {dispatchTime}</span>}
+                                  {ready&&!dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#fff",fontWeight:700}}>✅ {readyTime}</span>}
                                   {!ready&&!dispatched2&&<span style={{fontSize:11,color:C.muted}}>⏳ Preparing</span>}
                                 </div>
                                 <div onClick={(e)=>{e.stopPropagation();setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),loaded:!isLoaded}}));}}
                                   style={{width:32,height:32,borderRadius:8,border:`2px solid ${isLoaded?C.amber:C.border}`,background:isLoaded?C.amber:"transparent",
                                     display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                                  {isLoaded&&<span style={{color:"#0A0A0F",fontSize:14,fontWeight:700}}>✓</span>}
+                                  {isLoaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
                                 </div>
                                 <div onClick={(e)=>{e.stopPropagation();if(isLoaded)setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),unloaded:!isUnloaded}}));}}
                                   style={{width:32,height:32,borderRadius:8,border:`2px solid ${isUnloaded?"#5B8FD0":C.border}`,background:isUnloaded?"#5B8FD0":"transparent",
@@ -901,7 +901,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🚛 {T2("Fleet Management")}</div>
               <div style={{fontSize:12,color:C.muted,marginTop:2}}>{fleetList.length} {T2("vehicles")}, {fleetList.filter(v=>{var loc=getVehicleLocation(v.id);return loc.status!=="At Base";}).length} {T2("active today")}</div>
             </div>
-            {isAdmin&&<button onClick={()=>{setVehForm({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});setEditVehId(null);setShowAddVeh(true);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>}
+            {isAdmin&&<button onClick={()=>{setVehForm({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});setEditVehId(null);setShowAddVeh(true);}} style={{padding:"8px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>}
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>

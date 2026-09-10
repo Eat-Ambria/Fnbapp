@@ -5,6 +5,14 @@
 This is the project memory for Claude Code. Read this entire file
 before making ANY changes to the codebase.
 
+**ALSO READ `MEMORY.md`** in this folder. This file holds the project's standing
+rules; `MEMORY.md` holds the change log — what was changed, why, the root causes
+of bugs already fixed, and a list of traps in this codebase that have each cost
+real debugging time (template-literal backticks in `theme.js`, JSX comments in JS
+slots, `!important` and inline styles, container queries, portalled CSS scope).
+Read it before editing `theme.js`, `KitchenUI.jsx`, `EventDayTab.jsx` or the
+kitchen-tracking state, and append to it when you make a non-obvious change.
+
 ---
 
 ## CRITICAL RULES

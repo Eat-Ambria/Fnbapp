@@ -189,7 +189,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
   const bg = {minHeight:"100vh",background:"#0A0A0F",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px",color:"#F0ECE0"};
   const cardStyle = {background:"#161514",borderRadius:20,border:`1px solid #2A2824`,padding:"28px 32px",maxWidth:600,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,.5)"};
   const inputStyle = {width:"100%",padding:"14px 16px",borderRadius:12,border:`1px solid #2A2824`,fontSize:14,color:"#F0ECE0",background:"#1A1918",boxSizing:"border-box",minHeight:48};
-  const goldBtn = {padding:"14px 28px",borderRadius:12,background:`linear-gradient(135deg,#C4A44A,#8B6914)`,color:"#0A0A0F",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:52,width:"100%"};
+  const goldBtn = {padding:"14px 28px",borderRadius:12,background:`linear-gradient(135deg,#3B82F6,#1A46C4)`,color:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:"pointer",minHeight:52,width:"100%"};
 
   return (
     <div style={bg}>
@@ -199,7 +199,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
       {/* Venue header */}
       {currentUser&&currentUser.venue&&(
         <div style={{textAlign:"center",padding:"12px",marginBottom:16,background:"#1A1714",borderRadius:12,border:"1px solid #2A2520",width:"100%",maxWidth:500,boxSizing:"border-box"}}>
-          <div style={{fontSize:18,fontWeight:700,color:"#D4B44A",fontFamily:"var(--font-display)"}}>{currentUser.venue}</div>
+          <div style={{fontSize:18,fontWeight:700,color:"#2563EB",fontFamily:"var(--font-display)"}}>{currentUser.venue}</div>
           <div style={{fontSize:11,color:"#7A6F62"}}>Gate Kiosk</div>
         </div>
       )}
@@ -250,7 +250,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
               if (secStaff.length===0) return null;
               return (
                 <div key={sec} style={{marginBottom:12}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#C4A44A",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>{sec}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#5B9BF5",marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>{sec}</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
                     {secStaff.map(function(s) {
                       var sid = s.staffListId||s.staff_id;
@@ -448,7 +448,7 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
             onKeyDown={e=>e.key==="Enter"&&verifyPin()} placeholder="• • • •" autoFocus maxLength={4}
             style={{...inputStyle,textAlign:"center",fontSize:28,letterSpacing:16,marginBottom:12}}/>
           {pinError&&<div style={{background:"#201212",border:"1px solid #3A1E1E",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#D64545",marginBottom:12,textAlign:"center"}}>{pinError}</div>}
-          <button onClick={verifyPin} disabled={pinInput.length<4} style={{...goldBtn,opacity:pinInput.length<4?.4:1,cursor:pinInput.length<4?"not-allowed":"pointer",background:punchAction==="out"?"linear-gradient(135deg,#D06040,#8B3020)":"linear-gradient(135deg,#D4B44A,#8B6914)"}}>
+          <button onClick={verifyPin} disabled={pinInput.length<4} style={{...goldBtn,opacity:pinInput.length<4?.4:1,cursor:pinInput.length<4?"not-allowed":"pointer",background:punchAction==="out"?"linear-gradient(135deg,#D06040,#8B3020)":"linear-gradient(135deg,#2563EB,#1A46C4)"}}>
             {punchAction==="out"?`👋 ${T2("Verify & Punch Out")}`:`${T2("Verify & Continue")} →`}
           </button>
           <div style={{display:"flex",gap:8,marginTop:12}}>
@@ -469,10 +469,10 @@ function KioskAttendance({ staffList, attendance, setAttendance, onClose, leaves
               {punchAction==="out"?T2("Photo for punch-out verification"):T2("Look at the camera for attendance photo")}
             </div>
           </div>
-          <div style={{position:"relative",width:280,height:210,margin:"0 auto 16px",borderRadius:16,overflow:"hidden",background:"#0A0A0F",border:"3px solid #C4A44A"}}>
+          <div style={{position:"relative",width:280,height:210,margin:"0 auto 16px",borderRadius:16,overflow:"hidden",background:"#0A0A0F",border:"3px solid #5B9BF5"}}>
             <video ref={vRef} style={{width:"100%",height:"100%",objectFit:"cover",transform:"scaleX(-1)"}} playsInline muted/>
             <canvas ref={cRef} style={{display:"none"}}/>
-            {!camReady&&!camErr&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#C4A44A",fontSize:13}}>{T2("Starting camera…")}</div>}
+            {!camReady&&!camErr&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#5B9BF5",fontSize:13}}>{T2("Starting camera…")}</div>}
             {camErr&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#D64545",fontSize:12,textAlign:"center",padding:20}}>{T2("Camera not available. Tap below to mark without photo.")}</div>}
             {/* Face guide overlay */}
             {camReady&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
