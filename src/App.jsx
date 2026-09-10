@@ -1,7 +1,7 @@
 ﻿// Ambria FnB Operations — Root App Component
 // Decomposed: all screens, data, and utilities are in separate modules
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
@@ -29,21 +29,25 @@ import { LoginScreen } from './components/LoginScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { DeptView } from './components/DeptView.jsx';
 import { StaffView } from './components/StaffView.jsx';
-import { KitchenHub } from './components/KitchenHub.jsx';
 import { KioskAttendance } from './components/KioskAttendance.jsx';
-import { TeamHub } from './components/TeamHub.jsx';
-import { TransportDispatch } from './components/TransportDispatch.jsx';
-import { StoreModule } from './components/StoreModule.jsx';
-import { MenuPackagesView } from './components/MenuPackagesView.jsx';
-
-import { VendorDirectory } from './components/VendorDirectory.jsx';
-import { AccessManager } from './components/AccessManager.jsx';
-import { GateKiosk } from './components/GateKiosk.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
-import { ODCModule } from './components/ODCModule.jsx';
-import { ProposalsView } from './components/ProposalsView.jsx';
-import { SalesCatalogueView } from './components/SalesCatalogueView.jsx';
-import { BookedFunctionsView } from './components/BookedFunctionsView.jsx';
+
+// Heavier, not-needed-on-first-paint screens — code-split so the initial bundle
+// (login + dashboard) doesn't have to parse every admin/kitchen screen up front.
+// Suspense fallbacks are wired at the two render call sites (tabletContent /
+// renderScreen) below.
+const KitchenHub          = React.lazy(() => import('./components/KitchenHub.jsx').then(m => ({ default: m.KitchenHub })));
+const TeamHub             = React.lazy(() => import('./components/TeamHub.jsx').then(m => ({ default: m.TeamHub })));
+const TransportDispatch   = React.lazy(() => import('./components/TransportDispatch.jsx').then(m => ({ default: m.TransportDispatch })));
+const StoreModule         = React.lazy(() => import('./components/StoreModule.jsx').then(m => ({ default: m.StoreModule })));
+const MenuPackagesView    = React.lazy(() => import('./components/MenuPackagesView.jsx').then(m => ({ default: m.MenuPackagesView })));
+const VendorDirectory     = React.lazy(() => import('./components/VendorDirectory.jsx').then(m => ({ default: m.VendorDirectory })));
+const AccessManager       = React.lazy(() => import('./components/AccessManager.jsx').then(m => ({ default: m.AccessManager })));
+const GateKiosk           = React.lazy(() => import('./components/GateKiosk.jsx').then(m => ({ default: m.GateKiosk })));
+const ODCModule           = React.lazy(() => import('./components/ODCModule.jsx').then(m => ({ default: m.ODCModule })));
+const ProposalsView       = React.lazy(() => import('./components/ProposalsView.jsx').then(m => ({ default: m.ProposalsView })));
+const SalesCatalogueView  = React.lazy(() => import('./components/SalesCatalogueView.jsx').then(m => ({ default: m.SalesCatalogueView })));
+const BookedFunctionsView = React.lazy(() => import('./components/BookedFunctionsView.jsx').then(m => ({ default: m.BookedFunctionsView })));
 
 // ── LMS menu name normalization ──
 // LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg".
@@ -88,6 +92,14 @@ export default function App() {
   // on every load just meant reaching for the toggle first thing.
   const [tabletSidebarOpen,setTabletSidebarOpen] = useState(true);
   const T2 = s => T(s, lang);
+  // Shown for the moment a code-split screen's chunk is still downloading
+  // (React.lazy below) — first visit to a given tab only, cached after. Declared
+  // this early so it's in scope for both the section-tablet and desktop render paths.
+  const SCREEN_LOADING = (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"80px 20px",color:C.muted,fontSize:13}}>
+      {T2("Loading…")}
+    </div>
+  );
 
   // Collapsed sidebar nav groups, keyed by the divider id. Absent = open.
   // Declared up here with the other state: the nav itself renders after several
@@ -788,9 +800,11 @@ export default function App() {
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
       <div style={{minHeight:'100vh',background:C.bg,padding:20}}>
-        <GateKiosk empDb={empDb} attendance={attendance}
-          setAttendance={setAttendance} currentUser={currentUser}
-          setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
+        <Suspense fallback={SCREEN_LOADING}>
+          <GateKiosk empDb={empDb} attendance={attendance}
+            setAttendance={setAttendance} currentUser={currentUser}
+            setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
+        </Suspense>
       </div>
     );
   }
@@ -1036,7 +1050,7 @@ export default function App() {
               </div>
             </div>
 
-            {tabletContent(tabletScreen)}
+            <Suspense fallback={SCREEN_LOADING}>{tabletContent(tabletScreen)}</Suspense>
           </div>
         </div>
       </div>
@@ -1449,7 +1463,7 @@ export default function App() {
           </div>
         </div>
 
-          <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
+          <ErrorBoundary key={screen} lang={lang}><Suspense fallback={SCREEN_LOADING}>{renderScreen(screen)}</Suspense></ErrorBoundary>
         </div>
       </div>
       </div>

@@ -442,12 +442,26 @@ function DishSectionsEditor(props) {
       '\n• Keep the target\'s own mappings unchanged';
     if (!window.confirm(verb + warn)) return;
     setDishMergeSaving(true);
+    // A merge that hung here previously left "Working…" up forever with nothing
+    // in the console. Log + cap each half so a stuck step is now visible and
+    // recoverable instead of an indefinite spinner.
+    function withTimeout(p, label, ms) {
+      const t = ms || 15000;
+      console.log('[dish-merge] ' + label + ' — starting');
+      const t0 = Date.now();
+      let timer;
+      const timeoutP = new Promise(function(_, reject){ timer = setTimeout(function(){ reject(new Error('Timed out after ' + t + 'ms: ' + label)); }, t); });
+      return Promise.race([p, timeoutP]).then(
+        function(v){ clearTimeout(timer); console.log('[dish-merge] ' + label + ' — done in ' + (Date.now() - t0) + 'ms'); return v; },
+        function(e){ clearTimeout(timer); console.error('[dish-merge] ' + label + ' — FAILED after ' + (Date.now() - t0) + 'ms:', e); throw e; }
+      );
+    }
     try {
-      const result = await props.onMergeDishes(sources, target);
+      const result = await withTimeout(props.onMergeDishes(sources, target), 'merge core (' + sources.length + ' source(s) -> "' + target + '")');
       setDishMergeOpen(false);
       setDishMergeTarget('');
       clearBulk();
-      await loadData();
+      await withTimeout(loadData(), 'reload sections after merge');
       alert((isRename ? 'Renamed. ' : 'Merged ' + sources.length + ' dish(es) into "' + target + '". ') + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
     } catch (e) {
       alert('Merge failed: ' + (e.message || e));
@@ -468,22 +482,26 @@ function DishSectionsEditor(props) {
         const targetList = dishesBySection[targetSectionId] || [];
         baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
       }
-      const updates = {};
-      let ok = 0;
-      for (let i = 0; i < names.length; i++) {
-        const name = names[i];
+      // Fire all row updates in parallel instead of one round trip per dish —
+      // sequential awaits here made a 10-dish bulk move take 10x one request's latency.
+      const results = await Promise.all(names.map(function(name, i){
         const newSectionId = isUnassign ? null : targetSectionId;
         const newSort = isUnassign ? null : baseSort + (i + 1) * 10;
-        const { data, error } = await supabase.from('dishes_master')
+        return supabase.from('dishes_master')
           .update({ section_id: newSectionId, sort_in_section: newSort })
           .eq('dish_name', name)
-          .select('dish_name');
-        if (error) throw error;
-        if (data && data.length > 0) {
-          updates[name] = { section_id: newSectionId, sort_in_section: newSort };
+          .select('dish_name')
+          .then(function(res){ return { name: name, newSectionId: newSectionId, newSort: newSort, res: res }; });
+      }));
+      const updates = {};
+      let ok = 0;
+      results.forEach(function(r){
+        if (r.res.error) throw r.res.error;
+        if (r.res.data && r.res.data.length > 0) {
+          updates[r.name] = { section_id: r.newSectionId, sort_in_section: r.newSort };
           ok += 1;
         }
-      }
+      });
       // Optimistic local update
       setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
       clearBulk();
@@ -499,17 +517,21 @@ function DishSectionsEditor(props) {
     const sourceDishes = dishesBySection[mergeModal.sourceId] || [];
     setSaving(true);
     try {
-      const movedUpdates = {};
-      for (let i = 0; i < sourceDishes.length; i++) {
-        const d = sourceDishes[i];
+      // Parallel per-dish updates — same fix as bulkMoveTo, a section merge with
+      // dozens of dishes was doing one sequential round trip per dish.
+      const results = await Promise.all(sourceDishes.map(function(d, i){
         const newSort = maxSort + (i + 1) * 10;
-        const { data, error } = await supabase.from('dishes_master')
+        return supabase.from('dishes_master')
           .update({ section_id: mergeTargetId, sort_in_section: newSort })
           .eq('dish_name', d.name)
-          .select('dish_name');
-        if (error) throw error;
-        if (data && data.length > 0) movedUpdates[d.name] = { section_id: mergeTargetId, sort_in_section: newSort };
-      }
+          .select('dish_name')
+          .then(function(res){ return { name: d.name, newSort: newSort, res: res }; });
+      }));
+      const movedUpdates = {};
+      results.forEach(function(r){
+        if (r.res.error) throw r.res.error;
+        if (r.res.data && r.res.data.length > 0) movedUpdates[r.name] = { section_id: mergeTargetId, sort_in_section: r.newSort };
+      });
       const { error: delErr } = await supabase.from('dish_catalogue_sections').delete().eq('id', mergeModal.sourceId);
       if (delErr) throw delErr;
       // V73: optimistic local update
