@@ -7,6 +7,8 @@ import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
+import { K, type, tone } from '../utils/theme.js';
+import { Icon, KTabs } from './KitchenUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
 import { RECIPE_DB } from '../data/recipeData.js';
@@ -235,35 +237,52 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
     setDeleteConfirm(null);
   }
 
+  // Icons, not emoji — same set the rest of the app uses.
   const TABS = [
-    {id:"attendance", l:"✅ Attendance"},
-    {id:"monthly",    l:"📊 Monthly"},
-    {id:"chefs",      l:"🤝 Outside Staff & Vendors"},
-    {id:"directory",  l:"🪪 Team"},
+    {id:"attendance", l:"Attendance",               icon:"check"},
+    {id:"monthly",    l:"Monthly",                  icon:"chart"},
+    {id:"chefs",      l:"Outside Staff & Vendors",  icon:"contact"},
+    {id:"directory",  l:"Team",                     icon:"users"},
   ];
 
   return (
     <div>
 
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>👥 Team</div>
-          <div style={{fontSize:13,color:C.muted,marginTop:3}}>{TODAY_LABEL} · {punchedIn}/{totalActive} present</div>
+      {/* Header — brand plate, same construction as the other screens */}
+      <div className="kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.hdrLine}`,borderRadius:K.rXl,
+        boxShadow:K.shadowCard,padding:"18px 22px",marginBottom:14,
+        display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,minWidth:0}}>
+          <span style={{width:46,height:46,borderRadius:15,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon name="users" size={22} strokeWidth={1.85}/>
+          </span>
+          <div style={{minWidth:0}}>
+            <div style={{...type.sectionHead,fontSize:24,color:K.hdrTitle}}>{T2("Team")}</div>
+            <div style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:K.hdrMeta,marginTop:2,flexWrap:"wrap"}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="calendar" size={13} strokeWidth={2}/>{TODAY_LABEL}</span>
+              <span style={{color:K.textFaint}}>·</span>
+              <span style={{fontVariantNumeric:"tabular-nums"}}>
+                <b style={{color:K.hdrMetaStrong,fontWeight:700}}>{punchedIn}</b>/{totalActive} {T2("present")}
+              </span>
+            </div>
+          </div>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <div style={{background:C.greenBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
-            <div style={{fontSize:18,fontWeight:700,color:C.green}}>{present}</div>
-            <div style={{fontSize:11,color:C.green}}>{T2("Present")}</div>
-          </div>
-          <div style={{background:C.redBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
-            <div style={{fontSize:18,fontWeight:700,color:C.red}}>{todayRecs.filter(a=>a.status==="Absent").length}</div>
-            <div style={{fontSize:11,color:C.red}}>{T2("Absent")}</div>
-          </div>
-          <div style={{background:C.wineBg,borderRadius:9,padding:"8px 14px",textAlign:"center"}}>
-            <div style={{fontSize:18,fontWeight:700,color:C.gold}}>{pending.length}</div>
-            <div style={{fontSize:11,color:C.gold}}>Pending</div>
-          </div>
+        {/* Counts read as data: tone-tinted tiles with tabular figures, not
+            three flat blocks in three unrelated colours. */}
+        <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
+          {[
+            {v:present, l:T2("Present"), t:tone("ok")},
+            {v:todayRecs.filter(a=>a.status==="Absent").length, l:T2("Absent"), t:tone("danger")},
+            {v:pending.length, l:T2("Pending"), t:tone("warn")},
+          ].map((s,i)=>(
+            <div key={i} style={{minWidth:76,padding:"9px 16px",borderRadius:K.rMd,textAlign:"center",
+              background:s.t.bg,border:`1px solid ${s.t.border}`}}>
+              <div style={{fontSize:22,fontWeight:700,color:s.t.fg,lineHeight:1.1,letterSpacing:-.4,
+                fontVariantNumeric:"tabular-nums"}}>{s.v}</div>
+              <div style={{...type.label,fontSize:9.5,color:s.t.fg,marginTop:3,opacity:.85}}>{s.l}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -294,15 +313,10 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         </div>
       ))}
 
-      {/* Tab bar */}
-      <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${C.border}`,paddingBottom:10,overflowX:"auto"}}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            padding:"7px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",flexShrink:0,
-            background:tab===t.id?C.wine:"transparent",color:tab===t.id?"#fff":C.muted,
-            border:`1.5px solid ${tab===t.id?C.wine:C.border}`
-          }}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
-        ))}
+      {/* Tab bar — the shared ivory tray with a solid deep-green active pill,
+          same as Kitchen Hub. */}
+      <div className="kh-scope">
+        <KTabs items={TABS.map(t=>({v:t.id,l:T2(t.l),icon:t.icon}))} value={tab} onChange={setTab}/>
       </div>
 
       {/* ── ATTENDANCE ── */}
@@ -571,7 +585,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             </div>
           </div>}
           {monthDetailEmp && (
-            <div onClick={function(){setMonthDetailEmp(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+            <div onClick={function(){setMonthDetailEmp(null);}} style={{position:'fixed',inset:0,background:'rgba(12,20,16,.55)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
               <div onClick={function(e){e.stopPropagation();}} style={{background:C.surface,borderRadius:14,padding:'20px 24px',maxWidth:560,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,paddingBottom:12,borderBottom:'1px solid '+C.border}}>
                   <div>
@@ -657,11 +671,11 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
           </div>
           {/* Vendor Portal banner */}
           {vendorSubTab==="portal" && (
-            <div style={{background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:12,padding:"12px 18px",marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
               <span style={{fontSize:24}}>🏢</span>
               <div>
-                <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"var(--font-display)"}}>{T2("Vendor Portal View")}</div>
-                <div style={{fontSize:11,color:"rgba(255,255,255,.65)"}}>You are viewing as a vendor. Accept, edit or reject bookings sent from kitchen management.</div>
+                <div style={{fontSize:13,fontWeight:700,color:C.gold,fontFamily:"var(--font-display)"}}>{T2("Vendor Portal View")}</div>
+                <div style={{fontSize:11,color:C.muted}}>You are viewing as a vendor. Accept, edit or reject bookings sent from kitchen management.</div>
               </div>
             </div>
           )}
@@ -993,7 +1007,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       {tab==="directory" && (
         <div style={{position:"relative"}}>
           {deleteConfirm && (
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{position:"fixed",inset:0,background:"rgba(12,20,16,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <div style={{background:C.surface,borderRadius:16,padding:"28px 32px",maxWidth:380,width:"90%",textAlign:"center"}}>
                 <div style={{fontSize:32,marginBottom:12}}>🗑</div>
                 <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6}}>Remove {deleteConfirm.name}?</div>
@@ -1009,7 +1023,7 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
           {/* Search + filter + add + PIN toggle */}
           <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
             <input value={dirSearch} onChange={e=>setDirSearch(e.target.value)} placeholder={T2("Search name or ID…")} style={{flex:1,minWidth:160,padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/>
-            <button onClick={()=>setShowPins(!showPins)} style={{padding:"7px 12px",borderRadius:8,background:showPins?C.gold:C.surface,color:showPins?"#0A0A0F":C.muted,border:`1px solid ${showPins?C.gold:C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>🔐 {showPins?T2("Hide PINs"):T2("Show PINs")}</button>
+            <button onClick={()=>setShowPins(!showPins)} style={{padding:"7px 12px",borderRadius:8,background:showPins?C.gold:C.surface,color:showPins?"#fff":C.muted,border:`1px solid ${showPins?C.gold:C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>🔐 {showPins?T2("Hide PINs"):T2("Show PINs")}</button>
             <select value={dirFilter} onChange={e=>setDirFilter(e.target.value)} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
               <option value="All">{T2("All Sections")}</option>
               {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
