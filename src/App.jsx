@@ -256,6 +256,14 @@ export default function App() {
   // everything the kitchen had ticked off. transportQueue right below already
   // mirrors to localStorage; this now does the same.
   const KT_LS_KEY = "ambria_kitchen_tracking";
+  // The kitchen_tracking table's own columns — some pre-existing rows in this
+  // table have a dish_key literally equal to one of these (likely seed/test
+  // data from before this table's schema settled, e.g. dish_key: "updated_at"
+  // with the row's own timestamp as its "data"). Loaded as though it were real
+  // per-dish state, that key's value keeps drifting every read/write cycle,
+  // which looks "changed" to the diff below and gets re-uploaded forever —
+  // thousands of pointless requests a session. Never load or re-upload one.
+  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at"]);
   const [kitchenTracking, setKitchenTracking] = useState(() => {
     try { return JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}") || {}; }
     catch { return {}; }
@@ -288,6 +296,7 @@ export default function App() {
           // ingredients and refreshing threw the lot away. The data column is
           // JSON and holds objects, booleans and strings alike, so there is
           // nothing here that needs excluding.
+          if (KT_RESERVED_KEYS.has(dishKey)) return; // poisoned row — see KT_RESERVED_KEYS
           if (val === undefined || JSON.stringify(val) === JSON.stringify(prevEv[dishKey])) return;
           dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)) }, "ev_id,dish_key")
             .catch(e => console.error("KT sync failed:", dishKey, e));
@@ -455,7 +464,7 @@ export default function App() {
         // `?? {}`, not `|| {}` — the meta keys now sync too, and a stored
         // `false` (an un-dispatched function) would otherwise come back as an
         // empty object, which is truthy and would read as dispatched.
-        ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
+        ktData.forEach(row=>{if(KT_RESERVED_KEYS.has(row.dish_key))return;if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
         // MERGE over whatever the local seed already holds — do not replace.
         // A straight replace would wipe anything ticked off while the row had
         // not reached Supabase yet. Server wins per key; local-only keys stay,
@@ -565,7 +574,7 @@ export default function App() {
       // half of "I press Done and it undoes itself". Merging keeps keys the
       // echo doesn't mention while still applying the ones it does — so a real
       // undo from another tablet (an explicit false) still comes through.
-      if(payload.new){const {ev_id,dish_key,data}=payload.new;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      if(payload.new){const {ev_id,dish_key,data}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
     });
     const u6 = dbSubscribe('leaves', (payload) => {
       const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
