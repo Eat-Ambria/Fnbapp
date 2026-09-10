@@ -11,6 +11,10 @@ import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { KioskAttendance } from './KioskAttendance.jsx';
+// Used by the ODC "Kitchen Tasks" tab further down. It was referenced without
+// ever being imported, so opening that tab threw "KitchenHub is not defined".
+// KitchenHub does not import DeptView, so there is no cycle here.
+import { KitchenHub } from './KitchenHub.jsx';
 import { guessSectionForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
 
 function calcDispatch(time){
@@ -113,7 +117,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // ── DEPARTMENT SELECTOR ──
   if(!selDept && !forceDept) return (
-    <div style={{minHeight:"100vh",background:`linear-gradient(145deg,#0A0A0F 0%,#161514 50%,#0E0D0B 100%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
+    <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 10%, #FFFFFF 0%, ${C.bg} 55%, #EFEEF6 100%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       {/* Top bar */}
       <div style={{position:"absolute",top:16,left:24,right:24,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -168,12 +172,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* Gate Kiosk — admin and kiosk_gate role only */}
       {(currentUser?.role==="admin"||currentUser?.role==="kiosk_gate")&&(
         <div style={{marginTop:28,maxWidth:780,width:"100%"}}>
-          <div style={{background:`linear-gradient(155deg,#06060A 0%,#12100A 40%,#0A0908 100%)`,borderRadius:16,padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,boxShadow:`0 1px 2px ${C.shadow}, 0 8px 24px ${C.shadow}`,borderRadius:16,padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16}}>
             <div>
-              <div style={{fontSize:16,fontWeight:700,color:"#fff"}}> 🖥 {T2("Property Gate Kiosk")}</div>
-              <div style={{fontSize:11,color:"rgba(196,164,74,.6)",marginTop:3}}>{T2("Guard records attendance for ALL staff at property entrance")}</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.text}}> 🖥 {T2("Property Gate Kiosk")}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{T2("Guard records attendance for ALL staff at property entrance")}</div>
             </div>
-            <button onClick={()=>setKioskMode(true)} style={{padding:"12px 28px",borderRadius:12,background:C.gold,color:"#0A0A0F",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,minHeight:48}}>
+            <button onClick={()=>setKioskMode(true)} style={{padding:"12px 28px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,minHeight:48}}>
               {T2("Launch Kiosk")} →
             </button>
           </div>
@@ -632,7 +636,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                       <div key={i} onClick={()=>setBevChecks(p=>({...p,[ev.id+"_bev"]:{...(p[ev.id+"_bev"]||{}),[d]:!done}}))}
                         style={{display:"flex",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,alignItems:"center",minHeight:40}}>
                         <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {done&&<span style={{color:"#0A0A0F",fontSize:12,fontWeight:700}}>✓</span>}
+                          {done&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}
                         </div>
                         <span style={{fontSize:11,color:done?C.green:C.text}}>🥤 {d}</span>
                       </div>
@@ -678,7 +682,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                   return (
                     <div key={bk} style={{marginBottom:6,background:C.surface,border:`1.5px solid ${bd.ready?C.greenBorder:runSi>=0?C.amberBorder:C.border}`,borderRadius:12,overflow:"hidden"}}>
                       <div onClick={()=>setExpandedDish(isExp?null:bk)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",gap:12,alignItems:"center"}}>
-                        <div style={{width:32,height:32,borderRadius:8,background:bd.ready?C.green:runSi>=0?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:bd.ready||runSi>=0?"#0A0A0F":C.muted,flexShrink:0}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:bd.ready?C.green:runSi>=0?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:bd.ready||runSi>=0?"#fff":C.muted,flexShrink:0}}>
                           {bd.ready?"✓":runSi>=0?"⏱":"🥤"}
                         </div>
                         <div style={{flex:1}}>
@@ -700,7 +704,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                             const prevOk2 = si===0||!!(bd.manual?.[(si-1)])||(bd.starts?.[(si-1)]&&steps[si-1].tm&&Math.floor((Date.now()-(bd.starts[si-1]||0))/1000)>=steps[si-1].tm);
                             return (
                               <div key={si} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
-                                <div style={{width:32,height:32,borderRadius:8,background:sDone?C.green:sRunning?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone||sRunning?"#0A0A0F":C.muted,flexShrink:0}}>{sDone?"✓":si+1}</div>
+                                <div style={{width:32,height:32,borderRadius:8,background:sDone?C.green:sRunning?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone||sRunning?"#fff":C.muted,flexShrink:0}}>{sDone?"✓":si+1}</div>
                                 <div style={{flex:1}}>
                                   <div style={{fontSize:12,fontWeight:700,color:sDone?C.green:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</div>
                                   {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i}</div>}
@@ -712,8 +716,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                                       {sRunning?`⏱ ${fmtT(sEl)} / ${fmtT(sTm)} — ${fmtT(sRem)} ${T2("left")}`:sDone?`✓ ${fmtT(sTm)}`:`⏱ ${fmtT(sTm)}`}
                                     </div>
                                   </div>}
-                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),starts:{...((p[bk]||{}).starts||{}),[si]:Date.now()}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
-                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),manual:{...((p[bk]||{}).manual||{}),[si]:true}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),starts:{...((p[bk]||{}).starts||{}),[si]:Date.now()}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
+                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),manual:{...((p[bk]||{}).manual||{}),[si]:true}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
                                   {!sRunning&&!sDone&&!prevOk2&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
                                 </div>
                               </div>
@@ -800,8 +804,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                     </div>
                     {/* Status buttons */}
                     <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
-                      {vs.status==="🏠 At Base"&&<button onClick={()=>{setVeh(v.id,{status:"📦 Loading"});logTrip(v.id,"Loading started");}} style={{padding:"8px 14px",borderRadius:8,background:C.amber,color:"#0A0A0F",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>📦 {T2("Start Loading")}</button>}
-                      {vs.status==="📦 Loading"&&<button onClick={()=>{setVeh(v.id,{status:"🚛 En Route"});logTrip(v.id,"Departed for venue");}} style={{padding:"8px 14px",borderRadius:8,background:C.gold,color:"#0A0A0F",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>🚛 {T2("Dispatch")}</button>}
+                      {vs.status==="🏠 At Base"&&<button onClick={()=>{setVeh(v.id,{status:"📦 Loading"});logTrip(v.id,"Loading started");}} style={{padding:"8px 14px",borderRadius:8,background:C.amber,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>📦 {T2("Start Loading")}</button>}
+                      {vs.status==="📦 Loading"&&<button onClick={()=>{setVeh(v.id,{status:"🚛 En Route"});logTrip(v.id,"Departed for venue");}} style={{padding:"8px 14px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>🚛 {T2("Dispatch")}</button>}
                       {vs.status==="🚛 En Route"&&<button onClick={()=>{setVeh(v.id,{status:"📍 At Venue"});logTrip(v.id,"Arrived at venue");}} style={{padding:"8px 14px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>📍 {T2("Arrived")}</button>}
                       {vs.status==="📍 At Venue"&&<button onClick={()=>{setVeh(v.id,{status:"↩ Returning"});logTrip(v.id,"Returning to base");}} style={{padding:"8px 14px",borderRadius:8,background:"#5B8FD0",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>↩ {T2("Return")}</button>}
                       {vs.status==="↩ Returning"&&<button onClick={()=>{setVeh(v.id,{status:"🏠 At Base",event:"",driver:""});logTrip(v.id,"Back at base");}} style={{padding:"8px 14px",borderRadius:8,background:C.surface,color:C.text,border:`1px solid ${C.border}`,fontSize:11,fontWeight:600,cursor:"pointer",minHeight:36}}>🏠 {T2("At Base")}</button>}
@@ -882,7 +886,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                       const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
                       return(
                         <div key={idx} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 0",borderBottom:idx<menu.length-1?`1px solid ${C.borderLight}`:"none"}}>
-                          <div style={{width:28,height:28,borderRadius:8,background:isDispatched?C.green:isReady?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:isDispatched||isReady?"#0A0A0F":C.muted,flexShrink:0}}>
+                          <div style={{width:28,height:28,borderRadius:8,background:isDispatched?C.green:isReady?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:isDispatched||isReady?"#fff":C.muted,flexShrink:0}}>
                             {isDispatched?"🚛":isReady?"✓":"⏳"}
                           </div>
                           <div style={{flex:1}}>
@@ -961,7 +965,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                         <div key={item.id} onClick={()=>{if(!item.isFood||foodReady)setLoadChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:!checked}}));}}
                           style={{display:"flex",gap:10,alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:(!item.isFood||foodReady)?"pointer":"default",opacity:item.isFood&&!foodReady?.4:1}}>
                           <div style={{width:24,height:24,borderRadius:6,border:`2px solid ${checked?C.green:C.border}`,background:checked?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            {checked&&<span style={{color:"#0A0A0F",fontSize:10,fontWeight:700}}>✓</span>}
+                            {checked&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
                           </div>
                           <div style={{flex:1}}>
                             <div style={{fontSize:13,fontWeight:checked?400:600,color:checked?C.green:C.text,textDecoration:checked?"line-through":"none"}}>{item.cat} {item.name}</div>
