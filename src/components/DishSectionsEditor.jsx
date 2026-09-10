@@ -56,6 +56,14 @@ function DishSectionsEditor(props) {
   const [dishAssignments, setDishAssignments] = useState({});
   const [expanded, setExpanded] = useState(new Set());
   const [loading, setLoading] = useState(true);
+  // Every edit (rename, veg toggle, add section, merge...) calls loadData() to
+  // pull the fresh rows back — but the render below used to gate the ENTIRE
+  // list on `loading`, so each of those refetches unmounted the whole list for
+  // a moment and remounted it once done. React can't preserve scroll position
+  // across that (it's new DOM, not a patch), so every edit dropped you back at
+  // the top. Only the very first load should hide the list; every refetch
+  // after that updates the data in place while the list stays mounted.
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [addingSection, setAddingSection] = useState(false);
@@ -86,6 +94,7 @@ function DishSectionsEditor(props) {
       console.error('[Sections] load failed:', e);
     } finally {
       setLoading(false);
+      setHasLoadedOnce(true);
     }
   }
 
@@ -733,9 +742,9 @@ function DishSectionsEditor(props) {
         )}
       </div>
 
-      {loading && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>Loading…</div>}
+      {loading && !hasLoadedOnce && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>Loading…</div>}
 
-      {!loading && sections.length === 0 && (
+      {hasLoadedOnce && !loading && sections.length === 0 && (
         <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12, background: C.surface, border: '0.5px dashed ' + C.border, borderRadius: 10 }}>
           No sections defined for {DEPTS.find(function(d){ return d.id === dept; }).label} yet. Click <b>+ Add section</b> to create the first one.
         </div>
@@ -769,7 +778,7 @@ function DishSectionsEditor(props) {
         </div>
       )}
 
-      {!loading && topSections.length > 0 && (
+      {hasLoadedOnce && topSections.length > 0 && (
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
           <SortableContext items={topSectionIds} strategy={verticalListSortingStrategy}>
             {topSections.map(function(sec){
@@ -784,7 +793,7 @@ function DishSectionsEditor(props) {
       )}
 
       {/* Unassigned bucket */}
-      {!loading && unassignedList.length > 0 && (
+      {hasLoadedOnce && unassignedList.length > 0 && (
         <div style={{ background: C.redBg, border: '0.5px solid ' + C.red, borderRadius: 10, marginTop: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px' }}>
             <span style={{ cursor: 'pointer', color: C.red, fontSize: 11, padding: '0 2px' }} onClick={function(){ toggleExpand('__unassigned__'); }}>
