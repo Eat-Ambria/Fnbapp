@@ -233,4 +233,45 @@ function categorizeIngredient(name) {
 // Display order (matches typical store walking order: produce → cold → dry → spices → liquid)
 const INGR_CATEGORY_ORDER = ['Vegetables & herbs', 'Dairy & eggs', 'Meat & seafood', 'Grains & flour', 'Spices & seasonings', 'Oils, sauces & sweets', 'Liquids & stocks', 'Other'];
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER };
+// ── Dish-tracking merge ────────────────────────────────────────────────────
+// Step state lives in nested maps keyed by step: manual, manualAt, starts,
+// doneElapsed, stepTm. Every "Done" handler builds its update by spreading the
+// copy of that map it captured at render time:
+//
+//     setDs(..., { manual: { ...d2d.manual, [stepKey]: true } })
+//
+// A plain shallow merge then REPLACES the live map with that snapshot. Tap two
+// steps in quick succession — or tap one while a Supabase sync re-render is in
+// flight — and the second handler is still holding the pre-first-tap snapshot,
+// so the first tap is erased. That is the "I press Done and it undoes itself"
+// bug: nothing undid it, the write was overwritten by a stale copy.
+//
+// Merging these maps one level deep makes a stale snapshot harmless: the keys
+// it does not know about survive, and the key it does carry still wins (so an
+// explicit false from Undo still applies).
+// items_done belongs here too: the collect-from-store list is the same shape
+// (a map keyed by item) written the same way, and it had the same bug — tick an
+// ingredient, and a slightly older snapshot from the next write or from a
+// realtime echo put the tick straight back.
+const DISH_STEP_MAPS = ['manual', 'manualAt', 'starts', 'doneElapsed', 'stepTm', 'items_done'];
+
+function mergeDishState(prev, upd) {
+  // Not every tracked value is a dish-state object. The same store also holds
+  // booleans and strings (__dispatch_ready, __dispatch_time); spreading those
+  // silently turns them into {}, so hand them straight back instead.
+  const isPlain = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (!isPlain(upd)) return upd;
+  const base = isPlain(prev) ? prev : {};
+  const next = { ...base, ...upd };
+  for (var i = 0; i < DISH_STEP_MAPS.length; i++) {
+    var k = DISH_STEP_MAPS[i];
+    var incoming = upd ? upd[k] : undefined;
+    if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
+      var existing = base[k] && typeof base[k] === 'object' ? base[k] : {};
+      next[k] = { ...existing, ...incoming };
+    }
+  }
+  return next;
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState };
