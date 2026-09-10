@@ -17,9 +17,9 @@ body { font-family: var(--font-body); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0A0908; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #555; }
+::-webkit-scrollbar-track { background: #F1F0F6; }
+::-webkit-scrollbar-thumb { background: #CFCCDD; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #B3AFC7; }
 
 /* Smooth transitions for all interactive elements */
 button, select, input, textarea {
@@ -34,8 +34,8 @@ select, input, textarea {
 }
 input:focus, select:focus, textarea:focus {
   outline: none !important;
-  border-color: #D4B44A !important;
-  box-shadow: 0 0 0 3px rgba(212,180,74,.12) !important;
+  border-color: #2563EB !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.14) !important;
 }
 
 /* Animations */
@@ -60,8 +60,8 @@ input:focus, select:focus, textarea:focus {
   100% { background-position: 200% 0; }
 }
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(212,180,74,.15); }
-  50% { box-shadow: 0 0 20px rgba(212,180,74,.3); }
+  0%, 100% { box-shadow: 0 0 8px rgba(37,99,235,.15); }
+  50% { box-shadow: 0 0 20px rgba(37,99,235,.3); }
 }
 @keyframes breathe {
   0%, 100% { transform: scale(1); }
