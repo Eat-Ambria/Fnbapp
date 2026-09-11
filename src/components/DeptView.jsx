@@ -76,6 +76,10 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const todayAtts = safeArr(attendance).filter(a=>a.date===TODAY);
   const todayEvs = safeArr(events).filter(e=>e.date===TODAY);
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
+  // Fruits' D-1 Store Req needs to cover today (edit a pick made late) and any
+  // future function, not just tomorrow — the fruits actually needed can be
+  // decided whenever, not on a strict D-1 cadence like kitchen prep.
+  const upcomingEvs = safeArr(events).filter(e=>e.date>=TODAY).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 
   // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
   // Beverages gets its own dedicated Ops dept below, so it's excluded here —
@@ -804,13 +808,17 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {selDept==="fruits"&&activeTab==="store_req"&&(
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("D-1 Store Requirements")}</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these from store today for tomorrow's functions")}</div>
-          {tomorrowEvs.map(ev=>{
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Pick the fruits for any upcoming function — today's can still be edited, not just tomorrow's")}</div>
+          {upcomingEvs.map(ev=>{
             const fruitItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Fruits");
             if(fruitItems.length===0) return null;
+            const isToday=ev.date===TODAY;
             return (
               <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{ev.guest}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{ev.guest}</div>
+                  <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:8,background:isToday?C.goldBg:C.bg,color:isToday?C.gold:C.muted,border:`1px solid ${isToday?C.goldBorder:C.border}`}}>{isToday?T2("Today"):ev.date}</span>
+                </div>
                 <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {fruitItems.length} {T2("beverages")}</div>
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   {fruitItems.map((d,i)=>(
@@ -820,8 +828,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {tomorrowEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits")).length===0&&(
-            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for tomorrow")}</div>
+          {upcomingEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits")).length===0&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No upcoming functions need fruit selections")}</div>
           )}
         </div>
       )}
