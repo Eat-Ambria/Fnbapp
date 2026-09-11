@@ -9,7 +9,7 @@ import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
-import { getCatForDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
+import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
@@ -159,6 +159,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion}}
+  const [fruitSelections, setFruitSelections] = useState([]); // rows from event_fruit_selections — per-function fruit-counter picks made in Fruits Ops
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
   const [recipesModalIng, setRecipesModalIng] = useState(null); // {name,hindi,unit,dishes:[]} — showing which recipes use this ingredient
   const [mapSearch, setMapSearch] = useState("");
@@ -270,12 +271,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
     async function loadIssueState() {
       setIssueLoading(true);
       try {
-        const [aData, iData, mData] = await Promise.all([
+        const [aData, iData, mData, fData] = await Promise.all([
           fetchAllRows(() => supabase.from('store_issue_assignments').select('*')),
           fetchAllRows(() => supabase.from('store_issues').select('*')),
           fetchAllRows(() => supabase.from('ingredient_item_map').select('*')),
+          fetchAllRows(() => supabase.from('event_fruit_selections').select('*')),
         ]);
         const aRes = { data: aData }, iRes = { data: iData }, mRes = { data: mData };
+        setFruitSelections(fData || []);
         if (aRes.data) {
           const map = {};
           aRes.data.forEach(r => { map[r.event_id + "::" + r.section_name] = r.venue_code; });
@@ -595,11 +598,21 @@ function StoreModule({events, lang="en", currentUser=null}) {
       const pax = +ev.pax || 0;
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
       safeArr(ev.menu).forEach(dishName => {
+        const isFruitSel = isFruitSelectionDish(dishName);
         const cat = getCatForDish(dishName);
-        if (cat.id === "beverages") return;
-        const sec = cat.name;
-        const meta = { color: cat.color || C.muted, icon: cat.icon || "🍽" };
-        const ingr = getIngrForDish(dishName, pax);
+        if (!isFruitSel && cat.id === "beverages") return;
+        const sec = isFruitSel ? "Fruits" : cat.name;
+        const meta = isFruitSel ? { color: "#D97A3E", icon: "🍓" } : { color: cat.color || C.muted, icon: cat.icon || "🍽" };
+        // Fruit-counter dishes have no recipe — the actual fruits are picked
+        // per-function in Fruits Ops (event_fruit_selections) and already
+        // carry a real ops_inventory_id, so they skip getIngrForDish/
+        // ingredient_item_map entirely and go straight into the same
+        // inv-typed item shape the shortage build already knows how to use.
+        const ingr = isFruitSel
+          ? fruitSelections
+              .filter(r => r.event_id === ev.id && r.dish_name === dishName)
+              .map(r => ({ n: r.ops_item_name, h: r.ops_item_hindi || "", q: (+r.qty_per_cover || 1) * pax, u: r.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: r.ops_inventory_id || null }))
+          : getIngrForDish(dishName, pax);
         if (!ingr || ingr.length === 0) return;
         const isNew = ingr[0]?._newFmt;
         if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };

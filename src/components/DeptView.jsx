@@ -11,29 +11,38 @@ import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { KioskAttendance } from './KioskAttendance.jsx';
+import { FruitSelectionPicker } from './FruitSelectionPicker.jsx';
 // Used by the ODC "Kitchen Tasks" tab further down. It was referenced without
 // ever being imported, so opening that tab threw "KitchenHub is not defined".
 // KitchenHub does not import DeptView, so there is no cycle here.
 import { KitchenHub } from './KitchenHub.jsx';
-import { getExplicitCatIdForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
+import { getExplicitCatIdForDish, isFruitSelectionDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
 
 // Dish→department membership used to fall back to guessSectionForDish() — a
 // pure regex match on the dish NAME — for any dish with no explicit SOP tag.
 // ~140 real dishes in the library (Fruit Cream, Namak Pare, Hakka Noodles...)
 // have never been explicitly tagged at all, and the fuzzy guess routed them
 // into whichever department's regex happened to match the name — e.g. "Fruit
-// Cream" and "4+4 Fruits" tripped Beverages' `fruits` clause and showed up in
-// Beverages Ops despite never being tagged Beverages by anyone. Per V-uncategorized-fix,
-// an untagged dish now surfaces as its own visible "Uncategorized" bucket
-// instead of being silently guessed into a department — Kitchen Tasks/Menu
-// show it so staff know it still needs a tag in Dish Library, rather than it
-// landing on the wrong Ops screen.
+// Cream" tripped Beverages' `fruits` clause and showed up in Beverages Ops
+// despite never being tagged Beverages by anyone. An untagged dish now
+// surfaces as its own visible "Uncategorized" bucket instead of being
+// silently guessed into a department — Kitchen Tasks/Menu show it so staff
+// know it still needs a tag in Dish Library, rather than it landing on the
+// wrong Ops screen.
+//
+// "3+3 Fruits" / "4 Indian Fruits" style dishes are the one deliberate
+// exception — there's no fixed recipe or inventory item to TAG them to (the
+// specific fruits vary per function), so instead of asking anyone to
+// maintain a dish_categories tag for these, they're recognized by NAME
+// PATTERN (parseFruitSpec/isFruitSelectionDish) and always route to Fruits
+// Ops automatically.
 function sectionForDish(name) {
   var explicit = getExplicitCatIdForDish(name);
   if (explicit) {
     var cat = (RECIPE_DB.cats || []).find(function(c) { return c.id === explicit; });
     if (cat) return cat.name;
   }
+  if (isFruitSelectionDish(name)) return 'Fruits';
   return 'Uncategorized';
 }
 
@@ -69,9 +78,11 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
 
   // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
-  // Beverages and Fruits both get their own dedicated Ops dept below, so they're
-  // excluded here — otherwise their staff would double up under Kitchen's list too.
-  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages'&&c.id!=='fruits').map(c=>c.name);
+  // Beverages gets its own dedicated Ops dept below, so it's excluded here —
+  // otherwise its staff would double up under Kitchen's list too. Fruits has
+  // no SOP recipe category at all (see sectionForDish/isFruitSelectionDish),
+  // so it never appears in RECIPE_DB.cats and needs no exclusion here.
+  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages').map(c=>c.name);
 
   // 6 Departments
   const DEPTS = [
@@ -801,20 +812,10 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
                 <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{ev.guest}</div>
                 <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {fruitItems.length} {T2("beverages")}</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {fruitItems.map((d,i)=>{
-                    const ck = fruitChecks[ev.id+"_fruit"]||{};
-                    const done = !!ck[d];
-                    return (
-                      <div key={i} onClick={()=>setFruitChecks(p=>({...p,[ev.id+"_fruit"]:{...(p[ev.id+"_fruit"]||{}),[d]:!done}}))}
-                        style={{display:"flex",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,alignItems:"center",minHeight:40}}>
-                        <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {done&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}
-                        </div>
-                        <span style={{fontSize:11,color:done?C.green:C.text}}>🍓 {d}</span>
-                      </div>
-                    );
-                  })}
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {fruitItems.map((d,i)=>(
+                    <FruitSelectionPicker key={i} eventId={ev.id} dishName={d} lang={lang}/>
+                  ))}
                 </div>
               </Card>
             );

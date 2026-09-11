@@ -19,7 +19,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  */
 export async function fetchCateringStoreItemsLite() {
   if (!opsSupabase) return [];
-  const SELECT = 'id,name,name_hindi,unit,brand,pack_size_qty,pack_size_unit';
+  const SELECT = 'id,inventory_id,name,name_hindi,unit,brand,pack_size_qty,pack_size_unit';
   let all = [], from = 0, PAGE = 1000;
   while (true) {
     const { data, error } = await opsSupabase

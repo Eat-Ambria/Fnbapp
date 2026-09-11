@@ -413,6 +413,37 @@ function getSectionForDish(dishName) {
   return cat.name;
 }
 
+// ─── FRUIT-COUNTER DISH DETECTION ────────────────────────────────
+// "3+3 Fruits", "4 Indian Fruits", "5 Indian & 5 Imported Fruits" etc. aren't
+// real recipes — they're a live counter where the SPECIFIC fruits vary per
+// function (whatever's in season / available that day), so there's no fixed
+// SOP recipe or inventory item to tag them to. Detected by NAME PATTERN
+// (counts + "fruits") rather than any dish_categories tag, so these dishes
+// route to Fruits Ops automatically — no manual tagging step required, and
+// no risk of the tag drifting out of sync with the naming convention.
+// Returns { indian, imported } counts (either may be 0) or null if this isn't
+// a fruit-counter-style dish.
+function parseFruitSpec(dishName) {
+  if (!dishName) return null;
+  const n = dishName.toLowerCase().trim();
+  if (!/fruits?/.test(n)) return null;
+  // "N Indian & M Imported Fruits" / "N Indian and M Imported Fruits"
+  let m = n.match(/(\d+)\s*indian\b[^\d]*?(\d+)\s*imported\b/);
+  if (m) return { indian: +m[1], imported: +m[2] };
+  // "N+N Fruits" / "N+Nfruits" — order is Indian+Imported by convention
+  m = n.match(/(\d+)\s*\+\s*(\d+)\s*fruits?/);
+  if (m) return { indian: +m[1], imported: +m[2] };
+  // Single-side dish: "N Indian Fruits" or "N Imported Fruits"
+  m = n.match(/^(\d+)\s*indian\s*fruits?$/);
+  if (m) return { indian: +m[1], imported: 0 };
+  m = n.match(/^(\d+)\s*imported\s*fruits?$/);
+  if (m) return { indian: 0, imported: +m[1] };
+  return null;
+}
+function isFruitSelectionDish(dishName) {
+  return !!parseFruitSpec(dishName);
+}
+
 // ─── INGREDIENT HELPERS (shared across KitchenHub, EventDayTab, StoreModule) ──
 function interpolatePax(qtyArr, sizes, targetPax) {
   if (!qtyArr || !sizes || sizes.length === 0) return 0;
@@ -751,4 +782,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };
