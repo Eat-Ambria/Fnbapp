@@ -124,7 +124,6 @@ export default function App() {
     // on every scroll event — only on the two crossings of the threshold.
     setScrolled(e.currentTarget.scrollTop > 8);
   }
-  const topFade = scrolled ? "linear-gradient(to bottom, transparent 0, #000 34px)" : "none";
 
   // ── PWA auto-update ──
   // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
@@ -1012,11 +1011,17 @@ export default function App() {
           </div>
 
           {/* Same padding and the same top fade as the admin content column.
-              Without the mask, rows scrolled up to a hard edge under the user
-              chip and the whole band read as clipped. 10px top so the brand
-              plate lines up with the sidebar panel. */}
-          <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
-            maskImage:topFade,WebkitMaskImage:topFade}}>
+              Without it, rows scrolled up to a hard edge under the user chip
+              and the whole band read as clipped. 10px top so the brand plate
+              lines up with the sidebar panel. */}
+          <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth"}}>
+            {/* Fade replaces a CSS mask that used to sit on this same scrolling
+                div. mask-image also turns its element into a containing block
+                for any position:fixed descendant — so a modal opened from
+                anywhere inside here (arbitrarily deep) got faded/clipped at the
+                top along with the scrolled content. A plain sticky overlay
+                achieves the same look without trapping fixed children. */}
+            {scrolled&&<div style={{position:"sticky",top:0,zIndex:2,height:34,marginBottom:-34,pointerEvents:"none",background:`linear-gradient(to bottom, ${K.shellBg} 0%, transparent 100%)`}}/>}
             {/* Brand plate — the same construction as the admin page header:
                 decorative leaf, screen badge, eyebrow, serif title, meta line,
                 and the at-a-glance chips on the right. */}
@@ -1352,7 +1357,12 @@ export default function App() {
       )}
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative"}}>
+      {/* zIndex must be >= the sidebar's (3) — position:relative alone puts this
+          at the "auto" paint layer, which always renders BEHIND a sibling with
+          an explicit positive z-index regardless of DOM order. Without this, any
+          fixed-position modal a screen renders (nested arbitrarily deep inside
+          here) painted UNDER the sidebar panel instead of over it. */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative",zIndex:3}}>
 
 
         {/* Header + screen share one scroll container, so the brand plate scrolls
@@ -1424,8 +1434,15 @@ export default function App() {
 
         {/* Top padding matches the sidebar's 10px margin so the brand plate and
             the sidebar panel start on the same line. */}
-        <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
-          maskImage:topFade,WebkitMaskImage:topFade}}>
+        <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth"}}>
+
+        {/* Fade replaces a CSS mask that used to sit on this same scrolling
+            div. mask-image also turns its element into a containing block for
+            any position:fixed descendant — so a modal opened from anywhere
+            inside here (arbitrarily deep) got faded/clipped at the top along
+            with the scrolled content. A plain sticky overlay achieves the same
+            look without trapping fixed children. */}
+        {scrolled&&<div style={{position:"sticky",top:0,zIndex:2,height:34,marginBottom:-34,pointerEvents:"none",background:`linear-gradient(to bottom, ${K.shellBg} 0%, transparent 100%)`}}/>}
 
         {/* ── PAGE HEADER — brand plate ── */}
         <div style={{paddingBottom:18}}>
