@@ -15,7 +15,24 @@ import { KioskAttendance } from './KioskAttendance.jsx';
 // ever being imported, so opening that tab threw "KitchenHub is not defined".
 // KitchenHub does not import DeptView, so there is no cycle here.
 import { KitchenHub } from './KitchenHub.jsx';
-import { guessSectionForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
+import { guessSectionForDish, getExplicitCatIdForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
+
+// Dish→department membership below used to be guessSectionForDish() alone — a
+// pure regex match on the dish NAME, completely blind to whatever SOP tag was
+// actually set for it in Build Menu / Dish Library. That let a name like
+// "Roasted Dry Fruits" match the Beverages regex's `\bfruits\b` clause and
+// show up in Beverages Ops even when explicitly tagged to a different SOP
+// category elsewhere. This checks the explicit tag first (same source of
+// truth Build Menu/Kitchen Hub use) and only falls back to the fuzzy guess —
+// unchanged — for a dish with no explicit tag at all.
+function sectionForDish(name) {
+  var explicit = getExplicitCatIdForDish(name);
+  if (explicit) {
+    var cat = (RECIPE_DB.cats || []).find(function(c) { return c.id === explicit; });
+    if (cat) return cat.name;
+  }
+  return guessSectionForDish(name);
+}
 
 function calcDispatch(time){
   if(!time) return "TBD";
@@ -275,8 +292,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         const secDishes = {};
         todayEvs.forEach(ev=>{
           (ev.menu||[]).forEach((name,idx)=>{
-            if(guessSectionForDish(name)==="Beverages") return; // beverages handled by Beverages dept
-            const sec = guessSectionForDish(name);
+            if(sectionForDish(name)==="Beverages") return; // beverages handled by Beverages dept
+            const sec = sectionForDish(name);
             if(!secDishes[sec]) secDishes[sec]=[];
             const dId = ev.id+"|"+idx;
             const kt = safeObj(kitchenTracking);
@@ -323,9 +340,9 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           {todayEvs.map(ev=>(
             <Card key={ev.id} style={{marginBottom:10,padding:"12px 14px"}}>
               <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>{ev.guest} — {ev.menuPackage||"Custom"}</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>guessSectionForDish(d)!=="Beverages").length} {T2("dishes")}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages").length} {T2("dishes")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {(ev.menu||[]).filter(d=>guessSectionForDish(d)!=="Beverages").map((d,i)=>{const sec=guessSectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
+                {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages").map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
               </div>
             </Card>
           ))}
@@ -622,7 +639,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("D-1 Store Requirements")}</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these from store today for tomorrow's functions")}</div>
           {tomorrowEvs.map(ev=>{
-            const bevItems = safeArr(ev.menu).filter(d=>guessSectionForDish(d)==="Beverages");
+            const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
             if(bevItems.length===0) return null;
             return (
               <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
@@ -646,7 +663,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {tomorrowEvs.filter(ev=>safeArr(ev.menu).some(d=>guessSectionForDish(d)==="Beverages")).length===0&&(
+          {tomorrowEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages")).length===0&&(
             <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for tomorrow")}</div>
           )}
         </div>
@@ -659,7 +676,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Tap any beverage to start prep. Timers run until complete.")}</div>
           {todayEvs.map(ev=>{
             const menu = safeArr(ev.menu);
-            const bevItems = menu.map((d,i)=>({name:d,idx:i})).filter(x=>guessSectionForDish(x.name)==="Beverages");
+            const bevItems = menu.map((d,i)=>({name:d,idx:i})).filter(x=>sectionForDish(x.name)==="Beverages");
             if(bevItems.length===0) return null;
             const bevReady = bevItems.filter(b=>{const bk=`bev_${ev.id}_${b.idx}`;return bevChecks[bk]?.ready;}).length;
             return (
@@ -737,7 +754,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </div>
             );
           })}
-          {todayEvs.every(ev=>!safeArr(ev.menu).some(d=>guessSectionForDish(d)==="Beverages"))&&(
+          {todayEvs.every(ev=>!safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages"))&&(
             <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages in today's functions")}</div>
           )}
         </div>
@@ -747,7 +764,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {selDept==="beverages"&&activeTab==="menu"&&(
         <div>
           {todayEvs.map(ev=>{
-            const bevItems = safeArr(ev.menu).filter(d=>guessSectionForDish(d)==="Beverages");
+            const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
             if(bevItems.length===0) return null;
             return (
               <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
@@ -856,7 +873,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
             {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events today")}</div>}
 
             {allEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>guessSectionForDish(d)!=="Beverages");
+              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
               const needsDispatch=!/pushpanjali|exotica/i.test(ev.venue);
               const readyItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.ready;});
               const dispatchedItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.dispatchReady;});
@@ -882,7 +899,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                       const d=kt[ev.id]?.[`d_${idx}`]||{};
                       const isReady=!!d.ready;
                       const isDispatched=!!d.dispatchReady;
-                      const sec=guessSectionForDish(name);
+                      const sec=sectionForDish(name);
                       const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
                       return(
                         <div key={idx} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 0",borderBottom:idx<menu.length-1?`1px solid ${C.borderLight}`:"none"}}>
@@ -930,7 +947,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
             {dispatchEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No venues need dispatch today")}</div>}
 
             {dispatchEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>guessSectionForDish(d)!=="Beverages");
+              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
               const ck=loadChecks[ev.id]||{};
               const loaded=Object.values(ck).filter(Boolean).length;
               const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
@@ -1042,7 +1059,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                   <div style={{fontSize:12,fontWeight:700,color:group.color,marginBottom:8,textTransform:"uppercase"}}>{group.label} ({group.evs.length})</div>
                   {group.evs.map(ev=>{
                     const isSel=activeOdcId===ev.id;
-                    const menu=safeArr(ev.menu).filter(d=>guessSectionForDish(d)!=="Beverages");
+                    const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
                     const readyCount=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.ready||d?.dispatchReady;}).length;
                     return(
                       <Card key={ev.id} onClick={()=>setSelOdcId(isSel?null:ev.id)} style={{marginBottom:8,padding:0,overflow:"hidden",cursor:"pointer",border:`2px solid ${isSel?C.gold:C.border}`}}>
@@ -1069,7 +1086,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                             <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:8}}>🍽 {T2("Menu Breakdown")}</div>
                             {(()=>{
                               const bySec={};
-                              menu.forEach((n,i)=>{const s=guessSectionForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
+                              menu.forEach((n,i)=>{const s=sectionForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
                               return Object.entries(bySec).map(([sec,items])=>{
                                 const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
                                 const rd=items.filter(d=>{const dk=kt[ev.id]?.[`d_${d.idx}`];return dk?.ready||dk?.dispatchReady;}).length;
