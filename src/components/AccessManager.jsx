@@ -40,6 +40,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     {v:"service",            l:"🍽 F&B Dept"},
     {v:"crockery",           l:"🍶 Crockery Dept"},
     {v:"beverages",          l:"🥤 Beverages Dept"},
+    {v:"fruits",             l:"🍓 Fruits Dept"},
     {v:"transport",          l:"🚛 Transport"},
     {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
     {v:"staff",              l:"👤 Basic Staff — Attendance only"},
@@ -357,7 +358,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(filterRole==="admin" && s.role!=="admin") return false;
     if(filterRole==="head_chef" && s.role!=="head_chef") return false;
     if(filterRole==="tablet" && !s.role?.startsWith("section_")) return false;
-    if(filterRole==="dept" && !["service","crockery","beverages","transport","kiosk_gate"].includes(s.role)) return false;
+    if(filterRole==="dept" && !["service","crockery","beverages","fruits","transport","kiosk_gate"].includes(s.role)) return false;
     if(filterRole==="staff" && s.role!=="staff") return false;
     if(filterDept!=="all" && (s.dept||"kitchen")!==filterDept) return false;
     if(!showBasicStaff && filterRole!=="staff" && s.role==="staff") return false;

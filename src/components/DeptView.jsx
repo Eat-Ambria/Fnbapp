@@ -15,23 +15,26 @@ import { KioskAttendance } from './KioskAttendance.jsx';
 // ever being imported, so opening that tab threw "KitchenHub is not defined".
 // KitchenHub does not import DeptView, so there is no cycle here.
 import { KitchenHub } from './KitchenHub.jsx';
-import { guessSectionForDish, getExplicitCatIdForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
+import { getExplicitCatIdForDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
 
-// Dish→department membership below used to be guessSectionForDish() alone — a
-// pure regex match on the dish NAME, completely blind to whatever SOP tag was
-// actually set for it in Build Menu / Dish Library. That let a name like
-// "Roasted Dry Fruits" match the Beverages regex's `\bfruits\b` clause and
-// show up in Beverages Ops even when explicitly tagged to a different SOP
-// category elsewhere. This checks the explicit tag first (same source of
-// truth Build Menu/Kitchen Hub use) and only falls back to the fuzzy guess —
-// unchanged — for a dish with no explicit tag at all.
+// Dish→department membership used to fall back to guessSectionForDish() — a
+// pure regex match on the dish NAME — for any dish with no explicit SOP tag.
+// ~140 real dishes in the library (Fruit Cream, Namak Pare, Hakka Noodles...)
+// have never been explicitly tagged at all, and the fuzzy guess routed them
+// into whichever department's regex happened to match the name — e.g. "Fruit
+// Cream" and "4+4 Fruits" tripped Beverages' `fruits` clause and showed up in
+// Beverages Ops despite never being tagged Beverages by anyone. Per V-uncategorized-fix,
+// an untagged dish now surfaces as its own visible "Uncategorized" bucket
+// instead of being silently guessed into a department — Kitchen Tasks/Menu
+// show it so staff know it still needs a tag in Dish Library, rather than it
+// landing on the wrong Ops screen.
 function sectionForDish(name) {
   var explicit = getExplicitCatIdForDish(name);
   if (explicit) {
     var cat = (RECIPE_DB.cats || []).find(function(c) { return c.id === explicit; });
     if (cat) return cat.name;
   }
-  return guessSectionForDish(name);
+  return 'Uncategorized';
 }
 
 function calcDispatch(time){
@@ -50,6 +53,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const [svcChecks, setSvcChecks] = useState({});
   const [crockChecks, setCrockChecks] = useState({});
   const [bevChecks, setBevChecks] = useState({});
+  const [fruitChecks, setFruitChecks] = useState({});
   const [expandedDish, setExpandedDish] = useState(null);
   const [bevTick, setBevTick] = useState(0);
   const [vehStatus, setVehStatus] = useState({});
@@ -65,7 +69,9 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
 
   // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
-  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages').map(c=>c.name);
+  // Beverages and Fruits both get their own dedicated Ops dept below, so they're
+  // excluded here — otherwise their staff would double up under Kitchen's list too.
+  const KITCHEN_SECTIONS = (RECIPE_DB.cats||[]).filter(c=>c.id!=='beverages'&&c.id!=='fruits').map(c=>c.name);
 
   // 6 Departments
   const DEPTS = [
@@ -81,6 +87,9 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     {id:"beverages",name:"Beverages",icon:"🥤",color:"#50B0A0",bg:"#0E1E1A",
       desc:"Mocktails, juices, tea/coffee, water service",descHi:"मॉकटेल, जूस, चाय/कॉफी, पानी सेवा",
       sections:[], staffFilter:s=>s.section==="Beverages"},
+    {id:"fruits",name:"Fruits",icon:"🍓",color:"#D97A3E",bg:"#241B10",
+      desc:"Fruit counters, seasonal fruit stations, fresh-cut fruit service",descHi:"फल काउंटर, मौसमी फल स्टेशन",
+      sections:[], staffFilter:s=>s.section==="Fruits"},
     {id:"transport",name:"Transportation",icon:"🚛",color:"#D4A843",bg:"#1A1610",
       desc:"Vehicle dispatch, loading, route management",descHi:"वाहन रवानगी, लोडिंग, मार्ग प्रबंधन",
       sections:["Transportation"], staffFilter:s=>s.section==="Transportation"},
@@ -156,7 +165,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,maxWidth:780,width:"100%"}}>
         {DEPTS.map(dept=>{
           const odcCount = todayEvs.filter(e=>(e.venue||"").includes("ODC")).length;
-          const DEPT_SCREEN = {kitchen:"kitchen",service:"dept_service",crockery:"dept_crockery",beverages:"dept_beverages",transport:"transport",odc:"dept_odc"};
+          const DEPT_SCREEN = {kitchen:"kitchen",service:"dept_service",crockery:"dept_crockery",beverages:"dept_beverages",fruits:"dept_fruits",transport:"transport",odc:"dept_odc"};
           const hasAccess = canAccessScreen(currentUser, DEPT_SCREEN[dept.id]||dept.id);
           return (
             <button key={dept.id}
@@ -215,6 +224,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
     crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
     beverages:[{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
+    fruits:   [{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🍓 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`}],
     odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`}],
   };
@@ -292,7 +302,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         const secDishes = {};
         todayEvs.forEach(ev=>{
           (ev.menu||[]).forEach((name,idx)=>{
-            if(sectionForDish(name)==="Beverages") return; // beverages handled by Beverages dept
+            if(sectionForDish(name)==="Beverages"||sectionForDish(name)==="Fruits") return; // handled by their own depts
             const sec = sectionForDish(name);
             if(!secDishes[sec]) secDishes[sec]=[];
             const dId = ev.id+"|"+idx;
@@ -340,9 +350,9 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           {todayEvs.map(ev=>(
             <Card key={ev.id} style={{marginBottom:10,padding:"12px 14px"}}>
               <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>{ev.guest} — {ev.menuPackage||"Custom"}</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages").length} {T2("dishes")}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").length} {T2("dishes")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages").map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
+                {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
               </div>
             </Card>
           ))}
@@ -779,6 +789,152 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       )}
 
+      {/* ══════ FRUITS: D-1 Store Requirements ══════ */}
+      {selDept==="fruits"&&activeTab==="store_req"&&(
+        <div>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("D-1 Store Requirements")}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these from store today for tomorrow's functions")}</div>
+          {tomorrowEvs.map(ev=>{
+            const fruitItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Fruits");
+            if(fruitItems.length===0) return null;
+            return (
+              <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{ev.guest}</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {fruitItems.length} {T2("beverages")}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {fruitItems.map((d,i)=>{
+                    const ck = fruitChecks[ev.id+"_fruit"]||{};
+                    const done = !!ck[d];
+                    return (
+                      <div key={i} onClick={()=>setFruitChecks(p=>({...p,[ev.id+"_fruit"]:{...(p[ev.id+"_fruit"]||{}),[d]:!done}}))}
+                        style={{display:"flex",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,alignItems:"center",minHeight:40}}>
+                        <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {done&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}
+                        </div>
+                        <span style={{fontSize:11,color:done?C.green:C.text}}>🍓 {d}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })}
+          {tomorrowEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits")).length===0&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for tomorrow")}</div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ FRUITS: Live Prep (Today — with timers) ══════ */}
+      {selDept==="fruits"&&activeTab==="live_prep"&&(
+        <div>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>🍓 {T2("Live Beverage Prep")}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Tap any beverage to start prep. Timers run until complete.")}</div>
+          {todayEvs.map(ev=>{
+            const menu = safeArr(ev.menu);
+            const fruitItems = menu.map((d,i)=>({name:d,idx:i})).filter(x=>sectionForDish(x.name)==="Fruits");
+            if(fruitItems.length===0) return null;
+            const fruitReady = fruitItems.filter(b=>{const bk=`fruit_${ev.id}_${b.idx}`;return fruitChecks[bk]?.ready;}).length;
+            return (
+              <div key={ev.id} style={{marginBottom:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"12px 16px",background:C.surface,borderRadius:12,border:`1px solid ${C.border}`}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:C.text}}>{ev.guest}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")}</div>
+                  </div>
+                  <div style={{fontSize:16,fontWeight:700,color:fruitReady===fruitItems.length?C.green:C.amber}}>{fruitReady}/{fruitItems.length}</div>
+                </div>
+                {fruitItems.map(b=>{
+                  const bk = `fruit_${ev.id}_${b.idx}`;
+                  const bd = fruitChecks[bk]||{};
+                  const steps = getFullSteps(b.name);
+                  const isExp = expandedDish===bk;
+                  const runSi = steps.findIndex((_,si)=>bd.starts?.[si]&&!(bd.manual?.[si])&&!(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm));
+                  const doneSi = steps.filter((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);}).length;
+
+                  return (
+                    <div key={bk} style={{marginBottom:6,background:C.surface,border:`1.5px solid ${bd.ready?C.greenBorder:runSi>=0?C.amberBorder:C.border}`,borderRadius:12,overflow:"hidden"}}>
+                      <div onClick={()=>setExpandedDish(isExp?null:bk)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",gap:12,alignItems:"center"}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:bd.ready?C.green:runSi>=0?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:bd.ready||runSi>=0?"#fff":C.muted,flexShrink:0}}>
+                          {bd.ready?"✓":runSi>=0?"⏱":"🍓"}
+                        </div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:600,color:bd.ready?C.green:C.text}}>{b.name}</div>
+                          <div style={{fontSize:12,color:C.muted}}>{doneSi}/{steps.length} {T2("steps")} {bd.readyAt?"· ✅ "+bd.readyAt:""}</div>
+                        </div>
+                        {runSi>=0&&(()=>{const el3=Math.floor((Date.now()-(bd.starts?.[runSi]||Date.now()))/1000);const tm3=steps[runSi]?.tm||0;const rem3=Math.max(0,tm3-el3);return <div style={{fontSize:14,fontWeight:700,color:C.amber,flexShrink:0}}>{fmtT(rem3)}</div>;})()}
+                        <span style={{fontSize:16,color:C.muted,transform:isExp?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>▾</span>
+                      </div>
+                      {isExp&&(
+                        <div style={{padding:"10px 16px",borderTop:`1px solid ${C.border}`}}>
+                          {steps.map((step,si)=>{
+                            const sRunning = !!(bd.starts?.[si])&&!(bd.manual?.[si])&&!(bd.starts?.[si]&&step.tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=step.tm);
+                            const sDone = !!(bd.manual?.[si])||(bd.starts?.[si]&&step.tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=step.tm);
+                            const sEl = sRunning?Math.floor((Date.now()-bd.starts[si])/1000):0;
+                            const sTm = step.tm||0;
+                            const sRem = Math.max(0,sTm-sEl);
+                            const sPct = sTm>0?Math.min(100,Math.round(sEl/sTm*100)):(sDone?100:0);
+                            const prevOk2 = si===0||!!(bd.manual?.[(si-1)])||(bd.starts?.[(si-1)]&&steps[si-1].tm&&Math.floor((Date.now()-(bd.starts[si-1]||0))/1000)>=steps[si-1].tm);
+                            return (
+                              <div key={si} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
+                                <div style={{width:32,height:32,borderRadius:8,background:sDone?C.green:sRunning?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone||sRunning?"#fff":C.muted,flexShrink:0}}>{sDone?"✓":si+1}</div>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:12,fontWeight:700,color:sDone?C.green:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</div>
+                                  {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i}</div>}
+                                  {sTm>0&&<div style={{marginTop:6}}>
+                                    <div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}>
+                                      <div style={{height:"100%",width:sPct+"%",background:sDone?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/>
+                                    </div>
+                                    <div style={{fontSize:11,color:sRunning?C.amber:sDone?C.green:C.muted}}>
+                                      {sRunning?`⏱ ${fmtT(sEl)} / ${fmtT(sTm)} — ${fmtT(sRem)} ${T2("left")}`:sDone?`✓ ${fmtT(sTm)}`:`⏱ ${fmtT(sTm)}`}
+                                    </div>
+                                  </div>}
+                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),starts:{...((p[bk]||{}).starts||{}),[si]:Date.now()}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
+                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),manual:{...((p[bk]||{}).manual||{}),[si]:true}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                  {!sRunning&&!sDone&&!prevOk2&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {steps.every((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);})&&!bd.ready&&(
+                            <button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}}));}}
+                              style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:48}}>
+                              ✅ {T2("Mark as Ready")} — {b.name}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+          {todayEvs.every(ev=>!safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits"))&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages in today's functions")}</div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ FRUITS: Menu ══════ */}
+      {selDept==="fruits"&&activeTab==="menu"&&(
+        <div>
+          {todayEvs.map(ev=>{
+            const fruitItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Fruits");
+            if(fruitItems.length===0) return null;
+            return (
+              <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{ev.guest}</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {fruitItems.length} {T2("beverages")}</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {fruitItems.map((d,i)=><span key={i} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"#D97A3E15",border:"1px solid #D97A3E30",color:"#D97A3E"}}>🍓 {d}</span>)}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
       {/* ══════ TRANSPORT: Live Transport View ══════ */}
       {selDept==="transport"&&activeTab==="live"&&(()=>{
         const STATUSES=["🏠 At Base","📦 Loading","🚛 En Route","📍 At Venue","↩ Returning"];
@@ -873,7 +1029,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
             {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events today")}</div>}
 
             {allEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
+              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
               const needsDispatch=!/pushpanjali|exotica/i.test(ev.venue);
               const readyItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.ready;});
               const dispatchedItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.dispatchReady;});
@@ -947,7 +1103,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
             {dispatchEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No venues need dispatch today")}</div>}
 
             {dispatchEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
+              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
               const ck=loadChecks[ev.id]||{};
               const loaded=Object.values(ck).filter(Boolean).length;
               const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
@@ -1059,7 +1215,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                   <div style={{fontSize:12,fontWeight:700,color:group.color,marginBottom:8,textTransform:"uppercase"}}>{group.label} ({group.evs.length})</div>
                   {group.evs.map(ev=>{
                     const isSel=activeOdcId===ev.id;
-                    const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages");
+                    const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
                     const readyCount=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.ready||d?.dispatchReady;}).length;
                     return(
                       <Card key={ev.id} onClick={()=>setSelOdcId(isSel?null:ev.id)} style={{marginBottom:8,padding:0,overflow:"hidden",cursor:"pointer",border:`2px solid ${isSel?C.gold:C.border}`}}>

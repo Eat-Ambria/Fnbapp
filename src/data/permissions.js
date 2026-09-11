@@ -16,6 +16,7 @@ const SCREEN_PERMISSIONS = {
   dept_service:   {label:"Service Ops",         icon:"🍽", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
   dept_crockery:  {label:"Crockery Ops",        icon:"🍶", perms:[{id:"dept_crockery.view",type:"view",label:"View crockery"},{id:"dept_crockery.check",type:"action",label:"Complete checklist"}]},
   dept_beverages: {label:"Beverages Ops",       icon:"🥤", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
+  dept_fruits:    {label:"Fruits Ops",          icon:"🍓", perms:[{id:"dept_fruits.view",type:"view",label:"View fruits"},{id:"dept_fruits.check",type:"action",label:"Complete checklist"}]},
   dept_odc:       {label:"ODC Operations",      icon:"🏕", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
   access:         {label:"Access Manager",      icon:"🔐", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
   proposals:        {label:"Proposals",           icon:"📝", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
@@ -31,7 +32,7 @@ const PRESET_ROLES = {
   admin: {
     label: "Admin — Full Access",
     tier: 4,
-    screens: ["dashboard","kitchen","store","team","transport","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_odc","proposals","sales_catalogue","booked_functions"],
+    screens: ["dashboard","kitchen","store","team","transport","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_fruits","dept_odc","proposals","sales_catalogue","booked_functions"],
     // Admin gets everything — no need to list elevated actions
   },
   head_chef: {
@@ -56,6 +57,12 @@ const PRESET_ROLES = {
     label: "Beverages Dept",
     tier: 2,
     screens: ["dashboard","dept_beverages","menus","team","store"],
+    elevated: [],
+  },
+  fruits: {
+    label: "Fruits Dept",
+    tier: 2,
+    screens: ["dashboard","dept_fruits","menus","team","store"],
     elevated: [],
   },
   transport: {
