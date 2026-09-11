@@ -117,8 +117,7 @@ function SideBlock({ side, label, color, need, picked, search, setSearch, opsIte
         {picked.map(r => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 8, background: color + '15', border: `1px solid ${color}35` }}>
             <span style={{ fontSize: 11, color: C.text, fontWeight: 600 }}>{r.ops_item_name}</span>
-            <input type="number" step="0.01" value={r.qty_per_cover} onChange={e => setQty(r.id, e.target.value)}
-              style={{ width: 46, padding: '2px 4px', borderRadius: 4, border: `1px solid ${C.border}`, fontSize: 10, textAlign: 'center' }} />
+            <QtyInput value={r.qty_per_cover} onCommit={q => setQty(r.id, q)} />
             <span style={{ fontSize: 9, color: C.muted }}>{r.ops_item_unit}/{T2('cover')}</span>
             <button onClick={() => removeItem(r.id, r.ops_item_id)} disabled={saving === r.ops_item_id}
               style={{ background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 13, padding: 0 }}>✕</button>
@@ -144,6 +143,25 @@ function SideBlock({ side, label, color, need, picked, search, setSearch, opsIte
         </div>
       )}
     </div>
+  );
+}
+
+// Local text buffer, committed on blur — a plain controlled <input
+// value={r.qty_per_cover}> fought the user's typing: clearing "1" to type
+// "0.25" passes through "" and "0" along the way, both of which parseFloat
+// to a falsy/invalid number, so the old onChange bailed out without
+// updating state and the input snapped back to the last committed value.
+function QtyInput({ value, onCommit }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  return (
+    <input type="number" step="0.01" value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => {
+        const q = parseFloat(draft);
+        if (q > 0) onCommit(q); else setDraft(String(value));
+      }}
+      style={{ width: 46, padding: '2px 4px', borderRadius: 4, border: `1px solid ${C.border}`, fontSize: 10, textAlign: 'center' }} />
   );
 }
 
