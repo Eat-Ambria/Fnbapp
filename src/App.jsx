@@ -74,7 +74,7 @@ const NAV_ICON = {
   dashboard:"home",        kitchen:"chefHat",       store:"box",
   team:"users",            menus:"fileText",        transport:"truck",
   vendors:"contact",       dept_service:"plate",    dept_crockery:"cup",
-  dept_beverages:"drink",  dept_odc:"tent",         proposals:"note",
+  dept_beverages:"drink",  dept_fruits:"apple",     dept_odc:"tent",         proposals:"note",
   booked_functions:"calendarDays", sales_catalogue:"tag",
   access:"lock",           logs:"listCheck",
 };
@@ -693,6 +693,13 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
     ],
+    fruits: [
+      {id:"dashboard",label:"Dashboard",icon:"📊"},
+      {id:"dept_fruits",label:"Fruit Operations",icon:"🍓"},
+      {id:"menus",label:"Menu",icon:"📜"},
+      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"store",label:"Store & Inventory",icon:"📦"},
+    ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
@@ -713,6 +720,7 @@ export default function App() {
       {id:"dept_service",label:"Service Ops",icon:"🍽"},
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
+      {id:"dept_fruits",label:"Fruits Ops",icon:"🍓"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
       {id:"_divider_sales",label:"SALES",icon:"",divider:true},
       {id:"proposals",label:"Proposals",icon:"📝"},
@@ -739,6 +747,7 @@ export default function App() {
     service:{name:"Service",icon:"🍽️",color:"#0EA5E9"},
     crockery:{name:"Crockery",icon:"🍶",color:"#7C5CE0"},
     beverages:{name:"Beverages",icon:"🥤",color:"#129A6C"},
+    fruits:{name:"Fruits",icon:"🍓",color:"#D97A3E"},
     transport:{name:"Transportation",icon:"🚛",color:"#C4790C"},
     odc:{name:"ODC",icon:"🏕️",color:"#0E8F9E"},
     management:{name:"Management",icon:"🔐",color:"#2563EB"},
@@ -1104,6 +1113,7 @@ export default function App() {
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" allocRules={allocRules} setAllocRules={setAllocRules} currentUser={currentUser}/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
+      case "dept_fruits":    return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="fruits"/>;
       case "dept_odc":       return <ODCModule events={events} lang={lang} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
       case "proposals":         return <ProposalsView lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "sales_catalogue":   return <SalesCatalogueView lang={lang} currentUser={currentUser}/>;
