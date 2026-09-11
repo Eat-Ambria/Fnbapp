@@ -956,7 +956,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if(!collBags[sec]) collBags[sec]={items:{},events:[],meta:secObj.meta};
             if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
             Object.values(secObj.items).forEach(ing=>{
-              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[]};
+              // Carry the direct inv-link through the merge too — otherwise a
+              // fruit pick (or any dish_store_map-only dish) loses its
+              // ops_inventory_id here and reads as "Unlinked" in Collective
+              // even though it's linked, same bug as the per-event IngRow.
+              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[],_type:ing._type||null,ops_inventory_id:ing.ops_inventory_id||null};
               var collMerged=addQtyWithUnitNorm(collBags[sec].items[ing.name],ing.totalQty,ing.unit);
               collBags[sec].items[ing.name].totalQty=collMerged.totalQty;
               collBags[sec].items[ing.name].unit=collMerged.unit;
@@ -978,8 +982,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
         /* shared ingredient row renderer */
         function IngRow({ing, evId, sec, idx, total}){
           const done = isIssued(evId,sec,ing.name);
-          const stock = getStockForIngredient(ing.name);
-          const isMapped = !!ingredientMap[ing.name];
+          // A fruit pick (or any dish resolved via a direct dish_store_map,
+          // see buildEventBags) already carries a real ops_inventory_id and
+          // was never meant to go through the name-based ingredient_item_map
+          // at all — checking only ingredientMap[ing.name] flagged it
+          // "Unlinked" even though it's linked, just via the other path.
+          const isDirectInv = ing._type === 'inv' && !!ing.ops_inventory_id;
+          const stock = isDirectInv ? getStockByInventoryId(ing.ops_inventory_id) : getStockForIngredient(ing.name);
+          const isMapped = isDirectInv || !!ingredientMap[ing.name];
           var reqSU = stock ? ing.totalQty * (stock.conversion || 1) : 0;
           return(
             <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
@@ -1209,8 +1219,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                   <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
                                   <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
                                   {(()=>{
-                                    const stock=getStockForIngredient(ing.name);
-                                    const isMapped=!!ingredientMap[ing.name];
+                                    const isDirectInv=ing._type==='inv'&&!!ing.ops_inventory_id;
+                                    const stock=isDirectInv?getStockByInventoryId(ing.ops_inventory_id):getStockForIngredient(ing.name);
+                                    const isMapped=isDirectInv||!!ingredientMap[ing.name];
                                     if(isMapped&&stock){var rSU=ing.totalQty*(stock.conversion||1);return <div style={{fontSize:10,color:stock.available>=rSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{rSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(rSU-stock.available,stock.unit):""}{stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}</div>;}
                                     if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
                                     return null;
