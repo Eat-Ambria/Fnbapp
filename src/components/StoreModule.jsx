@@ -9,7 +9,7 @@ import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
-import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
+import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
@@ -154,6 +154,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueDate, setIssueDate] = useState("all");
   const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
   const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
+  const [issueExpGroup, setIssueExpGroup] = useState(null); // expanded dept-group key "evId::grp::kitchen|beverages|fruits"
   const [issueExpSec, setIssueExpSec] = useState(null); // expanded section key "evId::secName"
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
@@ -600,7 +601,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
       safeArr(ev.menu).forEach(dishName => {
         const isFruitSel = isFruitSelectionDish(dishName);
         const cat = getCatForDish(dishName);
-        if (!isFruitSel && cat.id === "beverages") return;
         const sec = isFruitSel ? "Fruits" : cat.name;
         const meta = isFruitSel ? { color: "#D97A3E", icon: "🍓" } : { color: cat.color || C.muted, icon: cat.icon || "🍽" };
         // Fruit-counter dishes have no recipe — the actual fruits are picked
@@ -608,11 +608,26 @@ function StoreModule({events, lang="en", currentUser=null}) {
         // carry a real ops_inventory_id, so they skip getIngrForDish/
         // ingredient_item_map entirely and go straight into the same
         // inv-typed item shape the shortage build already knows how to use.
-        const ingr = isFruitSel
-          ? fruitSelections
-              .filter(r => r.event_id === ev.id && r.dish_name === dishName)
-              .map(r => ({ n: r.ops_item_name, h: r.ops_item_hindi || "", q: (+r.qty_per_cover || 1) * pax, u: r.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: r.ops_inventory_id || null }))
-          : getIngrForDish(dishName, pax);
+        let ingr;
+        if (isFruitSel) {
+          ingr = fruitSelections
+            .filter(r => r.event_id === ev.id && r.dish_name === dishName)
+            .map(r => ({ n: r.ops_item_name, h: r.ops_item_hindi || "", q: (+r.qty_per_cover || 1) * pax, u: r.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: r.ops_inventory_id || null }));
+        } else {
+          ingr = getIngrForDish(dishName, pax);
+          // Beverages (and any other dish) with no recipe ingredients but a
+          // direct 1:1 store mapping (dish_store_map) used to be entirely
+          // invisible to Smart Issue — getIngrForDish only ever looks at
+          // recipes, and beverage dishes were also unconditionally skipped
+          // here regardless. Fall back to the store mapping itself as a
+          // single-item "ingredient" so a mapped dish always shows up.
+          if (!ingr || ingr.length === 0) {
+            const store = resolveDishStore(dishName);
+            if (store) {
+              ingr = [{ n: store.ops_item_name, h: store.ops_item_hindi || "", q: (+store.qty_per_cover || 1) * pax, u: store.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: store.ops_inventory_id || null }];
+            }
+          }
+        }
         if (!ingr || ingr.length === 0) return;
         const isNew = ingr[0]?._newFmt;
         if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };
@@ -1063,46 +1078,80 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     </div>
                   </div>
 
-                  {/* Sections inside event */}
-                  {isExpanded&&secEntries.map(([sec,secObj])=>{
-                    const m=secObj.meta;
-                    const list=secIngList(secObj);
-                    const cnt=secIssuedCount(evId,sec,list);
-                    const allDone=cnt===list.length&&list.length>0;
-                    const secKey=evId+"::"+sec;
-                    const secExpanded=issueExpSec===secKey;
-
-                    return(
-                      <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                        {/* Section header */}
-                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                            <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                            <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
-                            <VenueTag evId={evId} sec={sec}/>
-                            {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                          </div>
-                        </div>
-
-                        {/* Ingredient rows */}
-                        {secExpanded&&<div style={{padding:"0 16px"}}>
-                          {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
-                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                            <div style={{padding:"6px 0 10px"}}>
-                              <button onClick={()=>issueAllForSection(evId,sec,list)}
-                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                              </button>
+                  {/* Sections inside event — grouped by which team actually
+                      issues/preps them. Store issues to three separate teams
+                      (Kitchen, Beverages, Fruits), not just Kitchen, so each
+                      gets its own collapsible group instead of one flat list. */}
+                  {isExpanded&&(()=>{
+                    const DEPT_GROUPS=[
+                      {key:"kitchen",label:T2("Kitchen"),icon:"👨‍🍳",match:s=>s!=="Beverages"&&s!=="Fruits"},
+                      {key:"beverages",label:T2("Beverages"),icon:"🥤",match:s=>s==="Beverages"},
+                      {key:"fruits",label:T2("Fruits"),icon:"🍓",match:s=>s==="Fruits"},
+                    ];
+                    const grouped=DEPT_GROUPS.map(g=>({...g,secs:secEntries.filter(([sec])=>g.match(sec))})).filter(g=>g.secs.length>0);
+                    return grouped.map(g=>{
+                      const gKey=evId+"::grp::"+g.key;
+                      const gExpanded=issueExpGroup===gKey;
+                      const gTotal=g.secs.length;
+                      const gDone=g.secs.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
+                      return(
+                        <div key={g.key} style={{borderTop:`1px solid ${C.borderLight}`}}>
+                          {/* Dept-group header */}
+                          <div onClick={()=>setIssueExpGroup(gExpanded?null:gKey)} style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:C.bg}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontSize:15}}>{g.icon}</span>
+                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g.label}</span>
+                              <span style={{fontSize:11,color:C.muted}}>({g.secs.length} {T2("sections")})</span>
                             </div>
-                          )}
-                        </div>}
-                      </div>
-                    );
-                  })}
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                              <span style={{fontSize:12,fontWeight:600,color:gDone===gTotal&&gTotal>0?C.green:C.muted}}>{gDone}/{gTotal}</span>
+                              <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:gExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
+                            </div>
+                          </div>
+
+                          {gExpanded&&g.secs.map(([sec,secObj])=>{
+                            const m=secObj.meta;
+                            const list=secIngList(secObj);
+                            const cnt=secIssuedCount(evId,sec,list);
+                            const allDone=cnt===list.length&&list.length>0;
+                            const secKey=evId+"::"+sec;
+                            const secExpanded=issueExpSec===secKey;
+
+                            return(
+                              <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
+                                {/* Section header */}
+                                <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px 11px 30px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                                    <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
+                                    <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
+                                    <VenueTag evId={evId} sec={sec}/>
+                                    {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
+                                  </div>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                                    <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
+                                    <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
+                                  </div>
+                                </div>
+
+                                {/* Ingredient rows */}
+                                {secExpanded&&<div style={{padding:"0 16px"}}>
+                                  {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
+                                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
+                                    <div style={{padding:"6px 0 10px"}}>
+                                      <button onClick={()=>issueAllForSection(evId,sec,list)}
+                                        style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                                        ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    });
+                  })()}
                 </Card>
               );
             })}
