@@ -18,7 +18,7 @@ import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIP
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
-import { Icon, KTabs, KButton, KPill, KBanner, KModal, KToast } from './KitchenUI.jsx';
+import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast } from './KitchenUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -1221,6 +1221,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     // .kh-scope activates the Kitchen Hub design system (hover states, focus
     // ring, responsive grids) defined in utils/theme.js. Scoped so no other
     // screen is affected.
+    //
     // The hub fills the shell's content box and scrolls INSIDE itself: banners
     // and the tab strip sit in the fixed top block, only the panel below moves.
     // height:100% resolves because the shell's content box is a flex item with
@@ -2102,52 +2103,94 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            {/* -- Function selector tabs -- */}
-            {d1Evs.length>1&&(
-              <div style={{display:"flex",gap:0,borderRadius:12,overflow:"hidden",border:`1.5px solid ${C.border}`,marginBottom:16}}>
-                <button onClick={()=>setD1FnFilter("combined")}
-                  style={{flex:1,padding:"12px 10px",border:"none",cursor:"pointer",background:isCombined?C.gold:"transparent",textAlign:"center",minHeight:52}}>
-                  <div style={{fontSize:13,fontWeight:isCombined?700:500,color:isCombined?"#fff":C.text}}>👥 Combined</div>
-                  <div style={{fontSize:11,color:isCombined?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{combinedPax} pax — {d1Evs.length} functions</div>
+            {/* Function selector — the same segmented strip Event Day uses: an
+                ivory tray, a deep-green underline on the selected segment, and
+                the fill-up animation on click. */}
+            {d1Evs.length>1&&(()=>{
+              const fillUp = (e) => {
+                const el = e.currentTarget;
+                const s = document.createElement("span");
+                s.className = "kh-fillup";
+                el.appendChild(s);
+                s.addEventListener("animationend", () => s.remove());
+              };
+              const Seg = ({ segKey, sel, icon, title, meta, first, warn }) => (
+                <button className={"kh-btn kh-seg"+(sel?" is-active":"")}
+                  onClick={(e)=>{ fillUp(e); setD1FnFilter(segKey); }}
+                  style={{
+                    flex:"1 1 230px", minWidth:0, display:"flex", alignItems:"center", gap:14,
+                    padding:"16px 20px", border:"none", borderLeft:first?"none":`1px solid ${K.lineSoft}`,
+                    cursor:"pointer", textAlign:"left",
+                    background:sel?K.segSelBg:"transparent",
+                    boxShadow:sel?`inset 0 -3px 0 ${K.segSelBar}`:"none",
+                  }}>
+                  <span className="kh-seg-chip" style={{position:"relative",zIndex:1,width:44,height:44,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:sel?K.segChipSelBg:K.segChipBg, color:sel?K.segSelBar:K.hdrMeta}}>
+                    <Icon name={icon} size={20} strokeWidth={1.8}/>
+                  </span>
+                  <span style={{position:"relative",zIndex:1,minWidth:0}}>
+                    <span style={{display:"flex",alignItems:"center",gap:6,fontSize:16,fontWeight:700,color:K.hdrTitle,minWidth:0}}>
+                      <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</span>
+                      {warn&&<span style={{color:K.warn,display:"flex",flexShrink:0}} title={T2("Menu not confirmed")}><Icon name="alert" size={14} strokeWidth={2.2}/></span>}
+                    </span>
+                    <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meta}</span>
+                  </span>
                 </button>
-                {d1Evs.map(ev=>{
-                  const isSel=d1FnFilter===ev.id;
-                  const odcWarn=ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed;
-                  return(
-                    <button key={ev.id} onClick={()=>setD1FnFilter(ev.id)}
-                      style={{flex:1,padding:"12px 10px",border:"none",borderLeft:`1px solid ${C.border}`,cursor:"pointer",background:isSel?C.gold:odcWarn?C.amberBg:"transparent",textAlign:"center",minHeight:52}}>
-                      <div style={{fontSize:13,fontWeight:isSel?700:500,color:isSel?"#fff":C.text}}>{ev.guest||"Function"}{odcWarn&&<span style={{marginLeft:4,fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:4,background:isSel?"rgba(255,255,255,.3)":C.amber,color:isSel?"#fff":"#fff"}}>? menu</span>}</div>
-                      <div style={{fontSize:11,color:isSel?"rgba(255,255,255,.8)":C.muted,marginTop:2}}>{ev.pax} pax — {ev.odc_location||ev.venue||""} — {ev.time||"TBD"}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",borderRadius:14,overflow:"hidden",border:`1px solid ${K.line}`,marginBottom:14,background:K.surface,boxShadow:K.shadowCard}}>
+                  <Seg segKey="combined" sel={isCombined} first icon="layers"
+                    title={T2("Combined")}
+                    meta={`${combinedPax} pax · ${d1Evs.length} ${T2("functions")}`}/>
+                  {d1Evs.map(ev=>(
+                    <Seg key={ev.id} segKey={ev.id} sel={d1FnFilter===ev.id} icon="users"
+                      warn={ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed}
+                      title={ev.guest||T2("Function")}
+                      meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"}`}/>
+                  ))}
+                </div>
+              );
+            })()}
 
-            {/* -- Summary card -- */}
+            {/* Stats — the same tiles Event Day leads with, so the two tabs read
+                as one screen rather than two different products. */}
+            {(()=>{
+              const pct=totalD1>0?Math.round(totalD1Done/totalD1*100):0;
+              return(
+                <div className="kh-stats" style={{marginBottom:14}}>
+                  <KStat large={isSectionUser} icon="check"    toneName="ok"   value={totalD1Done}            label={T2("Prepped")} />
+                  <KStat large={isSectionUser} icon="clock"    toneName="warn" value={Math.max(0,totalD1-totalD1Done)} label={T2("Pending")} />
+                  <KStat large={isSectionUser} icon="utensils" toneName="idle" value={totalD1}                label={T2("Dishes")} />
+                  <KStat large={isSectionUser} icon="users"    toneName="teal" value={(totalD1Pax||0).toLocaleString()} label={T2("Pax")} />
+                  <KStat large={isSectionUser} icon="chart"    toneName={pct===100?"ok":pct>0?"warn":"idle"} value={pct+"%"} label={T2("Progress")} />
+                </div>
+              );
+            })()}
+
+            {/* Context line — who this prep is for */}
             {(()=>{
               const pct=totalD1>0?Math.round(totalD1Done/totalD1*100):0;
               const headerLabel = isCombined
                 ? `${d1Label} ${T2("prep")} — ${T2("Combined")}`
                 : `${d1Label} — ${activeEv?.guest||"Function"}`;
               return(
-                <div style={{background:C.surface,borderLeft:`3px solid ${isCombined?C.gold:C.green}`,border:`1.5px solid ${C.border}`,borderLeftWidth:3,borderRadius:10,padding:"14px 16px",marginBottom:20}}>
-                  <div style={{fontSize:10,fontWeight:500,color:isCombined?C.gold:C.green,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{headerLabel}</div>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                    <div style={{fontSize:22,fontWeight:500,color:isCombined?C.gold:C.green,lineHeight:1.1}}>{totalD1Pax||"—"} <span style={{fontSize:12,fontWeight:400,color:C.muted}}>pax</span></div>
-                    <div style={{fontSize:11,color:C.muted}}>{totalD1Done} / {totalD1} {T2("done")}</div>
-                  </div>
-                  <div style={{height:3,background:C.border,borderRadius:2,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:isCombined?C.gold:C.green,borderRadius:2,transition:"width .3s"}}/></div>
-                  {isCombined?(
-                    <div style={{fontSize:11,color:C.muted,marginTop:6}}>{d1Evs.map(e=>`${e.guest||"Function"} (${e.pax} pax — ${e.time||"TBD"})`).join(" — ")}</div>
-                  ):(
-                    <div style={{fontSize:11,color:C.muted,marginTop:6}}>{activeEv?.guest} — {activeEv?.venue||""} — {activeEv?.pax} pax — {activeEv?.time||"TBD"}{activeEv?.menu_package?" — "+activeEv.menu_package:""}</div>
-                  )}
-                  {!isCombined&&(
-                    <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber}}>
-                      ℹ️ {T2("Viewing single function. Prep is done collectively — switch to Combined for cooking, use this view for dispatch sign-off.")}
+                // Progress and pax now live in the stat tiles above, so this is
+                // just the context line: which functions this prep covers.
+                <div className="kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.hdrLine}`,borderLeft:`4px solid ${K.brand}`,
+                  borderRadius:K.rLg,padding:"14px 18px",marginBottom:14,boxShadow:K.shadowCard,
+                  display:"flex",alignItems:"center",gap:13,flexWrap:"wrap"}}>
+                  <span style={{width:38,height:38,borderRadius:12,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon name={isCombined?"layers":"users"} size={19} strokeWidth={1.85}/>
+                  </span>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{...type.label,fontSize:10,color:K.sbLabel}}>{headerLabel}</div>
+                    <div style={{fontSize:13,color:K.hdrMeta,marginTop:2,overflowWrap:"anywhere"}}>
+                      {isCombined
+                        ? d1Evs.map(e=>`${e.guest||T2("Function")} (${e.pax} pax · ${e.time||"TBD"})`).join("  ·  ")
+                        : `${activeEv?.guest||""} · ${activeEv?.venue||""} · ${activeEv?.pax} pax · ${activeEv?.time||"TBD"}`}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })()}
@@ -4775,7 +4818,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <span>{planIngrModal.pax} pax</span>
                 </div>
               </div>
-              <div style={{flex:1,overflowY:"auto",padding:"0 20px"}}>
+              <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"0 20px"}}>
                 <div style={{display:"flex",padding:"10px 0 6px",borderBottom:"2px solid "+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5}}>
                   <div style={{flex:2}}>{T2("Ingredient")}</div>
                   <div style={{flex:1,textAlign:"right"}}>{T2("Quantity")}</div>
@@ -4836,7 +4879,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
             {/* A grid, so the two number columns line up regardless of how long
                 an ingredient name runs. */}
-            <div style={{flex:1,overflowY:"auto",overscrollBehavior:"contain",padding:"0 24px"}}>
+            <div style={{flex:1,minHeight:0,overflowY:"auto",overscrollBehavior:"contain",padding:"0 24px"}}>
               <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 92px 96px",gap:12,alignItems:"center",
                 padding:"12px 0 8px",borderBottom:`1px solid ${K.lineStrong}`,position:"sticky",top:0,background:K.surface,zIndex:1}}>
                 <div style={{...type.label,fontSize:10,color:K.textMuted}}>{T2("Ingredient")}</div>

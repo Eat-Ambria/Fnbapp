@@ -1956,4 +1956,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
   );
 }
 
-export { EventDayTab };
+// StepRow is exported so Prep Day can render its steps with the same component
+// rather than keeping a parallel copy that drifts out of step on styling, on
+// the Undo key-shape fix, and on the overtime alarm.
+export { EventDayTab, StepRow };
