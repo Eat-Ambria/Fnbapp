@@ -423,6 +423,19 @@ const KITCHEN_CSS = `
    NOTE: no backticks in this block — the stylesheet is a JS template literal
    and a stray backtick ends it. */
 
+/* ── Sidebar footer plate ────────────────────────────────────────────────
+   On a short window this plate left almost no room for the nav list, so opening
+   a group pushed items behind it and they read as truncated.
+
+   The height is all-or-nothing, NOT scaled. The artwork is bottom-anchored and
+   cropped with object-fit:cover, so trimming the height eats into the wave from
+   the top and leaves a sliver — shrinking it was exactly the broken notch the
+   sbFooterH comment warns about. On a short screen it is dropped entirely
+   instead, which frees the same space without mangling the image. The nav list
+   then owns that space and scrolls on its own. */
+.ash-sb-footer { height: 288px; }
+@media (max-height: 820px) { .ash-sb-footer { display: none !important; } }
+
 /* Dish-name-mapping list. Unscoped — it lives in a portalled dialog.
    Four fixed tracks so the SOP controls form a real column: status marker,
    dish name, the select, the action slot. The action slot is always present

@@ -937,7 +937,7 @@ export default function App() {
             <div style={{position:"relative",zIndex:1,flexShrink:0,lineHeight:0}}>
               <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
                 onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
-                style={{display:"block",width:"100%",height:K.sbFooterH,
+                className="ash-sb-footer" style={{display:"block",width:"100%",
                   objectFit:"cover",objectPosition:"center bottom",
                   pointerEvents:"none",userSelect:"none"}}/>
             </div>
@@ -1311,10 +1311,10 @@ export default function App() {
             nothing is drawn here — the ivory top of the artwork blends into the
             panel. Missing file hides itself rather than showing a broken icon. */}
         {sideOpen&&(
-          <div style={{position:"relative",zIndex:1,flexShrink:0,marginTop:"auto",lineHeight:0}}>
+          <div style={{position:"relative",zIndex:1,flexShrink:0,lineHeight:0}}>
             <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
               onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
-              style={{display:"block",width:"100%",height:K.sbFooterH,
+              className="ash-sb-footer" style={{display:"block",width:"100%",
                 objectFit:"cover",objectPosition:"center bottom",
                 pointerEvents:"none",userSelect:"none"}}/>
           </div>
