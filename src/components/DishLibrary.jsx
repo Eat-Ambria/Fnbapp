@@ -149,6 +149,24 @@ function pickDefaultTarget(cluster) {
   });
   return sorted[0].dish_name;
 }
+
+// A merge that never resolved left the modal stuck on "Working…" forever with
+// nothing in the console to explain why. Every merge step now logs when it
+// starts/finishes and is capped at 15s — a step that's still pending past that
+// throws a clear "which step, how long" error instead of hanging the UI.
+function withStepTimeout(promise, label, ms) {
+  var t = ms || 15000;
+  var timer;
+  console.log('[merge] ' + label + ' — starting');
+  var t0 = Date.now();
+  var timeoutP = new Promise(function(_, reject) {
+    timer = setTimeout(function() { reject(new Error('Timed out after ' + t + 'ms: ' + label)); }, t);
+  });
+  return Promise.race([promise, timeoutP]).then(
+    function(v) { clearTimeout(timer); console.log('[merge] ' + label + ' — done in ' + (Date.now() - t0) + 'ms'); return v; },
+    function(e) { clearTimeout(timer); console.error('[merge] ' + label + ' — FAILED after ' + (Date.now() - t0) + 'ms:', e); throw e; }
+  );
+}
 // ═══════════════════════════════════════════════════════════════════
 
 function DishLibrary(props) {
@@ -188,6 +206,10 @@ function DishLibrary(props) {
 
   // ── Data ─────────────────────────────────────────────────────────
   var enriched = useMemo(function() {
+    // Sections tab doesn't use any of this — skip the per-dish package/Hindi/store
+    // lookups entirely while it's the active view instead of paying for the flat
+    // list's data on every keystroke over there too.
+    if (view !== 'library') return [];
     var raw = getAllDishes({ includeInactive: showRetired });
     return raw.map(function(d) {
       var name = d.dish_name;
@@ -209,7 +231,7 @@ function DishLibrary(props) {
         catId: d.catId || '',
       };
     });
-  }, [props.refreshKey, showRetired, localBump]);
+  }, [props.refreshKey, showRetired, localBump, view]);
 
   var totals = useMemo(function() {
     var t = { total: enriched.length, sop: 0, inv: 0, unmapped: 0, unused: 0 };
@@ -321,34 +343,40 @@ function DishLibrary(props) {
     });
     if (affected.length === 0) return { affected: 0 };
     // Fetch fresh sections JSONB from Supabase for each affected package
-    var fetchRes = await supabase.from('menu_packages').select('name, dishes, sections').in('name', affected);
+    var fetchRes = await withStepTimeout(
+      supabase.from('menu_packages').select('name, dishes, sections').in('name', affected),
+      'fetch ' + affected.length + ' affected package(s)'
+    );
     if (fetchRes.error) throw fetchRes.error;
     var pkgRows = fetchRes.data || [];
-    // Rewrite each package
-    for (var pi = 0; pi < pkgRows.length; pi++) {
-      var row = pkgRows[pi];
-      var rewriteList = function(arr) {
-        var out = [];
-        var seen = {};
-        (arr || []).forEach(function(name) {
-          var nm = name in renameMap ? renameMap[name] : name;
-          if (nm == null) return; // stripped
-          if (seen[nm]) return;   // dedupe
-          seen[nm] = true;
-          out.push(nm);
-        });
-        return out;
-      };
+    var rewriteList = function(arr) {
+      var out = [];
+      var seen = {};
+      (arr || []).forEach(function(name) {
+        var nm = name in renameMap ? renameMap[name] : name;
+        if (nm == null) return; // stripped
+        if (seen[nm]) return;   // dedupe
+        seen[nm] = true;
+        out.push(nm);
+      });
+      return out;
+    };
+    // Rewrite each affected package — independent rows, so fire all updates together
+    // instead of one sequential round trip per package (a dish used across most of the
+    // menu could mean 8-10+ packages, each paying its own network latency in turn).
+    await withStepTimeout(Promise.all(pkgRows.map(function(row) {
       var newDishes = rewriteList(row.dishes || []);
       var newSections = (row.sections || []).map(function(sec) {
         return { id: sec.id, name: sec.name, sop_category: sec.sop_category, dishes: rewriteList(sec.dishes || []) };
       });
-      var uRes = await supabase.from('menu_packages').update({ dishes: newDishes, sections: newSections }).eq('name', row.name);
-      if (uRes.error) throw uRes.error;
-      // Sync in-memory
-      MENU_PACKAGES[row.name] = newDishes;
-      try { setPackageSections(row.name, newSections, newDishes); } catch(e) {}
-    }
+      return supabase.from('menu_packages').update({ dishes: newDishes, sections: newSections }).eq('name', row.name)
+        .then(function(uRes) {
+          if (uRes.error) throw uRes.error;
+          // Sync in-memory
+          MENU_PACKAGES[row.name] = newDishes;
+          try { setPackageSections(row.name, newSections, newDishes); } catch(e) {}
+        });
+    })), 'rewrite ' + pkgRows.length + ' package(s)');
     // Clear localStorage caches so next hydration is fresh
     try {
       localStorage.removeItem('ambria_menu_packages');
@@ -375,19 +403,25 @@ function DishLibrary(props) {
   // Returns { affected } (# of packages updated).
   async function performMergeCore(sources, target) {
     // 1. Ensure target row exists in dishes_master
-    var insRes = await supabase.from('dishes_master').upsert({ dish_name: target, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
+    var insRes = await withStepTimeout(
+      supabase.from('dishes_master').upsert({ dish_name: target, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true }),
+      'upsert target "' + target + '" in dishes_master'
+    );
     if (insRes.error && insRes.error.code !== '23505') throw insRes.error;
     upsertDishMaster(target, { is_active: true });
-    // 2. Delete source rows from side tables
+    // 2. Delete source rows from side tables — 4 independent tables, fire together
+    // instead of paying 4 sequential round trips for one merge.
     if (sources.length > 0) {
-      var delCat  = await supabase.from('dish_categories').delete().in('dish_name', sources);
-      if (delCat.error) throw delCat.error;
-      var delHi   = await supabase.from('dish_hindi_map').delete().in('dish_name', sources);
-      if (delHi.error) throw delHi.error;
-      var delStr  = await supabase.from('dish_store_map').delete().in('dish_name', sources);
-      if (delStr.error) throw delStr.error;
-      var delNm   = await supabase.from('dish_name_map').delete().in('lms_name', sources);
-      if (delNm.error) throw delNm.error;
+      var delResults = await withStepTimeout(
+        Promise.all([
+          supabase.from('dish_categories').delete().in('dish_name', sources),
+          supabase.from('dish_hindi_map').delete().in('dish_name', sources),
+          supabase.from('dish_store_map').delete().in('dish_name', sources),
+          supabase.from('dish_name_map').delete().in('lms_name', sources),
+        ]),
+        'delete ' + sources.length + ' source dish(es) from side tables'
+      );
+      delResults.forEach(function(r) { if (r.error) throw r.error; });
       sources.forEach(function(s) {
         upsertDishHindi(s, '');
         upsertDishStoreMap(s, null);
@@ -401,7 +435,10 @@ function DishLibrary(props) {
     var affected = applyRes.affected;
     // 4. Delete source rows from dishes_master (last, so packages already rewritten)
     if (sources.length > 0) {
-      var delMst = await supabase.from('dishes_master').delete().in('dish_name', sources);
+      var delMst = await withStepTimeout(
+        supabase.from('dishes_master').delete().in('dish_name', sources),
+        'delete ' + sources.length + ' source dish(es) from dishes_master'
+      );
       if (delMst.error) throw delMst.error;
       sources.forEach(function(s) { deactivateDish(s); });
     }
@@ -565,7 +602,7 @@ function DishLibrary(props) {
       </div>
 
       {view === 'sections' && (
-        <DishSectionsEditor lang={lang} currentUser={currentUser} />
+        <DishSectionsEditor lang={lang} currentUser={currentUser} onMergeDishes={performMergeCore} />
       )}
 
       {view === 'library' && <>

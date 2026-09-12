@@ -56,6 +56,14 @@ function DishSectionsEditor(props) {
   const [dishAssignments, setDishAssignments] = useState({});
   const [expanded, setExpanded] = useState(new Set());
   const [loading, setLoading] = useState(true);
+  // Every edit (rename, veg toggle, add section, merge...) calls loadData() to
+  // pull the fresh rows back — but the render below used to gate the ENTIRE
+  // list on `loading`, so each of those refetches unmounted the whole list for
+  // a moment and remounted it once done. React can't preserve scroll position
+  // across that (it's new DOM, not a patch), so every edit dropped you back at
+  // the top. Only the very first load should hide the list; every refetch
+  // after that updates the data in place while the list stays mounted.
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [addingSection, setAddingSection] = useState(false);
@@ -86,6 +94,7 @@ function DishSectionsEditor(props) {
       console.error('[Sections] load failed:', e);
     } finally {
       setLoading(false);
+      setHasLoadedOnce(true);
     }
   }
 
@@ -409,6 +418,67 @@ function DishSectionsEditor(props) {
   }
   function clearBulk() { setBulkSel(new Set()); }
 
+  // V90 — merge duplicate dish NAMES (e.g. "Chutney" + "Chutney (Tomato / Mint / Homemade)")
+  // into one canonical dish. Reuses the parent Dish Library's merge logic (rewrites every
+  // menu package + drops the merged names' Hindi/SOP/Inventory mappings) via onMergeDishes —
+  // this component only owns the target-picker UI and its own bulkSel selection.
+  const [dishMergeOpen, setDishMergeOpen] = useState(false);
+  const [dishMergeTarget, setDishMergeTarget] = useState('');
+  const [dishMergeSaving, setDishMergeSaving] = useState(false);
+  function openDishMerge() {
+    if (bulkSel.size === 0) return;
+    const sorted = Array.from(bulkSel).sort();
+    setDishMergeTarget(sorted[0]);
+    setDishMergeOpen(true);
+  }
+  function closeDishMerge() {
+    if (dishMergeSaving) return;
+    setDishMergeOpen(false);
+    setDishMergeTarget('');
+  }
+  async function confirmDishMerge() {
+    if (!props.onMergeDishes) return;
+    const target = (dishMergeTarget || '').trim();
+    if (!target) { alert('Enter a target dish name.'); return; }
+    const selectedNames = Array.from(bulkSel);
+    const sources = selectedNames.filter(function(n){ return n !== target; });
+    if (sources.length === 0) { alert('Target is the same as the selected dish. Nothing to merge.'); return; }
+    const isRename = selectedNames.length === 1;
+    const verb = isRename ? 'Rename "' + sources[0] + '" to "' + target + '"?' : 'Merge ' + sources.length + ' dish(es) into "' + target + '"?';
+    const warn = '\n\nThis will:' +
+      '\n• Replace the merged name(s) in every menu package that references them' +
+      '\n• Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings' +
+      '\n• Keep the target\'s own mappings unchanged';
+    if (!window.confirm(verb + warn)) return;
+    setDishMergeSaving(true);
+    // A merge that hung here previously left "Working…" up forever with nothing
+    // in the console. Log + cap each half so a stuck step is now visible and
+    // recoverable instead of an indefinite spinner.
+    function withTimeout(p, label, ms) {
+      const t = ms || 15000;
+      console.log('[dish-merge] ' + label + ' — starting');
+      const t0 = Date.now();
+      let timer;
+      const timeoutP = new Promise(function(_, reject){ timer = setTimeout(function(){ reject(new Error('Timed out after ' + t + 'ms: ' + label)); }, t); });
+      return Promise.race([p, timeoutP]).then(
+        function(v){ clearTimeout(timer); console.log('[dish-merge] ' + label + ' — done in ' + (Date.now() - t0) + 'ms'); return v; },
+        function(e){ clearTimeout(timer); console.error('[dish-merge] ' + label + ' — FAILED after ' + (Date.now() - t0) + 'ms:', e); throw e; }
+      );
+    }
+    try {
+      const result = await withTimeout(props.onMergeDishes(sources, target), 'merge core (' + sources.length + ' source(s) -> "' + target + '")');
+      setDishMergeOpen(false);
+      setDishMergeTarget('');
+      clearBulk();
+      await withTimeout(loadData(), 'reload sections after merge');
+      alert((isRename ? 'Renamed. ' : 'Merged ' + sources.length + ' dish(es) into "' + target + '". ') + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
+    } catch (e) {
+      alert('Merge failed: ' + (e.message || e));
+    } finally {
+      setDishMergeSaving(false);
+    }
+  }
+
   // targetSectionId: a section id or '__unassign__'
   async function bulkMoveTo(targetSectionId) {
     if (!isAdmin || bulkSel.size === 0) return;
@@ -421,22 +491,26 @@ function DishSectionsEditor(props) {
         const targetList = dishesBySection[targetSectionId] || [];
         baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
       }
-      const updates = {};
-      let ok = 0;
-      for (let i = 0; i < names.length; i++) {
-        const name = names[i];
+      // Fire all row updates in parallel instead of one round trip per dish —
+      // sequential awaits here made a 10-dish bulk move take 10x one request's latency.
+      const results = await Promise.all(names.map(function(name, i){
         const newSectionId = isUnassign ? null : targetSectionId;
         const newSort = isUnassign ? null : baseSort + (i + 1) * 10;
-        const { data, error } = await supabase.from('dishes_master')
+        return supabase.from('dishes_master')
           .update({ section_id: newSectionId, sort_in_section: newSort })
           .eq('dish_name', name)
-          .select('dish_name');
-        if (error) throw error;
-        if (data && data.length > 0) {
-          updates[name] = { section_id: newSectionId, sort_in_section: newSort };
+          .select('dish_name')
+          .then(function(res){ return { name: name, newSectionId: newSectionId, newSort: newSort, res: res }; });
+      }));
+      const updates = {};
+      let ok = 0;
+      results.forEach(function(r){
+        if (r.res.error) throw r.res.error;
+        if (r.res.data && r.res.data.length > 0) {
+          updates[r.name] = { section_id: r.newSectionId, sort_in_section: r.newSort };
           ok += 1;
         }
-      }
+      });
       // Optimistic local update
       setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
       clearBulk();
@@ -452,17 +526,21 @@ function DishSectionsEditor(props) {
     const sourceDishes = dishesBySection[mergeModal.sourceId] || [];
     setSaving(true);
     try {
-      const movedUpdates = {};
-      for (let i = 0; i < sourceDishes.length; i++) {
-        const d = sourceDishes[i];
+      // Parallel per-dish updates — same fix as bulkMoveTo, a section merge with
+      // dozens of dishes was doing one sequential round trip per dish.
+      const results = await Promise.all(sourceDishes.map(function(d, i){
         const newSort = maxSort + (i + 1) * 10;
-        const { data, error } = await supabase.from('dishes_master')
+        return supabase.from('dishes_master')
           .update({ section_id: mergeTargetId, sort_in_section: newSort })
           .eq('dish_name', d.name)
-          .select('dish_name');
-        if (error) throw error;
-        if (data && data.length > 0) movedUpdates[d.name] = { section_id: mergeTargetId, sort_in_section: newSort };
-      }
+          .select('dish_name')
+          .then(function(res){ return { name: d.name, newSort: newSort, res: res }; });
+      }));
+      const movedUpdates = {};
+      results.forEach(function(r){
+        if (r.res.error) throw r.res.error;
+        if (r.res.data && r.res.data.length > 0) movedUpdates[r.name] = { section_id: mergeTargetId, sort_in_section: r.newSort };
+      });
       const { error: delErr } = await supabase.from('dish_catalogue_sections').delete().eq('id', mergeModal.sourceId);
       if (delErr) throw delErr;
       // V73: optimistic local update
@@ -664,9 +742,9 @@ function DishSectionsEditor(props) {
         )}
       </div>
 
-      {loading && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>Loading…</div>}
+      {loading && !hasLoadedOnce && <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12 }}>Loading…</div>}
 
-      {!loading && sections.length === 0 && (
+      {hasLoadedOnce && !loading && sections.length === 0 && (
         <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12, background: C.surface, border: '0.5px dashed ' + C.border, borderRadius: 10 }}>
           No sections defined for {DEPTS.find(function(d){ return d.id === dept; }).label} yet. Click <b>+ Add section</b> to create the first one.
         </div>
@@ -686,6 +764,13 @@ function DishSectionsEditor(props) {
             })}
             <option value="__unassign__">— Unassign —</option>
           </select>
+          {props.onMergeDishes && (
+            <button onClick={openDishMerge}
+              title={bulkSel.size === 1 ? 'Rename this dish (updates every package that uses it)' : 'Merge selected dishes into one canonical name (updates every package)'}
+              style={{ padding: '5px 12px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              🔀 {bulkSel.size === 1 ? 'Rename' : 'Merge'}
+            </button>
+          )}
           <button onClick={clearBulk}
             style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
             Clear
@@ -693,7 +778,7 @@ function DishSectionsEditor(props) {
         </div>
       )}
 
-      {!loading && topSections.length > 0 && (
+      {hasLoadedOnce && topSections.length > 0 && (
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
           <SortableContext items={topSectionIds} strategy={verticalListSortingStrategy}>
             {topSections.map(function(sec){
@@ -708,7 +793,7 @@ function DishSectionsEditor(props) {
       )}
 
       {/* Unassigned bucket */}
-      {!loading && unassignedList.length > 0 && (
+      {hasLoadedOnce && unassignedList.length > 0 && (
         <div style={{ background: C.redBg, border: '0.5px solid ' + C.red, borderRadius: 10, marginTop: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px' }}>
             <span style={{ cursor: 'pointer', color: C.red, fontSize: 11, padding: '0 2px' }} onClick={function(){ toggleExpand('__unassigned__'); }}>
@@ -753,6 +838,66 @@ function DishSectionsEditor(props) {
               <button onClick={doMerge} disabled={saving || !mergeTargetId}
                 style={{ padding: '7px 14px', background: C.gold, color: '#fff', border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: saving || !mergeTargetId ? 'not-allowed' : 'pointer', opacity: saving || !mergeTargetId ? 0.5 : 1 }}>
                 {mergeModal.dishCount > 0 ? 'Merge & delete' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dish merge modal (duplicate dish NAMES, not sections) */}
+      {dishMergeOpen && (
+        <div onClick={closeDishMerge}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 480, width: '100%', maxHeight: '85vh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
+                  🔀 {bulkSel.size === 1 ? 'Rename dish' : 'Merge ' + bulkSel.size + ' dishes'}
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>The target name replaces the others in every menu package.</div>
+              </div>
+              <button onClick={closeDishMerge} disabled={dishMergeSaving}
+                style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, cursor: dishMergeSaving ? 'not-allowed' : 'pointer', padding: 4 }}>×</button>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Selected — click one to make it the target</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, maxHeight: 140, overflowY: 'auto' }}>
+              {Array.from(bulkSel).sort().map(function(n){
+                const isT = n === dishMergeTarget;
+                return (
+                  <button key={n} onClick={function(){ setDishMergeTarget(n); }} disabled={dishMergeSaving}
+                    style={{ padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: dishMergeSaving ? 'not-allowed' : 'pointer',
+                      background: isT ? C.wine : C.bg, color: isT ? '#fff' : C.text,
+                      border: '1px solid ' + (isT ? C.wine : C.border), fontWeight: isT ? 600 : 400 }}>
+                    {isT ? '✓ ' : ''}{n}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Or type a new target name</div>
+              <input value={dishMergeTarget} onChange={function(e){ setDishMergeTarget(e.target.value); }} disabled={dishMergeSaving}
+                placeholder="Target dish name…"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid ' + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ padding: '10px 12px', background: C.amberBg, border: '1px solid ' + C.amberBorder, borderRadius: 6, fontSize: 11, color: C.text, marginBottom: 14, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, color: C.amber, marginBottom: 4 }}>⚠ What this does</div>
+              • Replaces the merged name(s) in every menu package that uses them<br/>
+              • Deletes the merged dish(es) from the library<br/>
+              • Drops the merged dishes' own Hindi / SOP / Inventory mappings — the target's are kept
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12, borderTop: '1px solid ' + C.border }}>
+              <button onClick={closeDishMerge} disabled={dishMergeSaving}
+                style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: dishMergeSaving ? 'not-allowed' : 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={confirmDishMerge} disabled={dishMergeSaving || !dishMergeTarget.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, background: C.wine, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: (dishMergeSaving || !dishMergeTarget.trim()) ? 'not-allowed' : 'pointer', opacity: (dishMergeSaving || !dishMergeTarget.trim()) ? 0.5 : 1 }}>
+                {dishMergeSaving ? 'Working…' : (bulkSel.size === 1 ? 'Rename' : 'Merge')}
               </button>
             </div>
           </div>

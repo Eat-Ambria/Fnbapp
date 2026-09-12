@@ -33,6 +33,16 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var [typeFilter, setTypeFilter] = useState("all");   // all | sop | inv | unmapped
   var [libBump, setLibBump] = useState(0);
 
+  // A dish's explicit tag can point at a category id that no longer exists —
+  // e.g. a category that was renamed/removed, or (seen in the wild) a stale
+  // cached dish_categories snapshot from before a cleanup. Treated as truthy
+  // by `||` checks, a ghost id like this silently acts as its OWN distinct
+  // "category" (no pill in the picker ever matches it, so there's nothing to
+  // click to clear it, and Save just re-persists the same ghost id forever).
+  // Anywhere a catId is checked for "is this dish really tagged", gate it
+  // through this first so a dead id is treated exactly like no tag at all.
+  function isRealCatId(id) { return !!id && (RECIPE_DB.cats || []).some(function(c) { return c.id === id; }); }
+
   // Build flat list of all dishes from Dish Library (dishes_master, not just RECIPE_DB.recipes)
   // Includes SOP-mapped, Inventory-mapped, Unmapped, and "No SOP" dishes. Retired dishes excluded.
   var allDishes = useMemo(function() {
@@ -45,7 +55,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                : (d.explicitNone ? 'nosop' : 'unmapped'));
       return {
         name: name,
-        catId: d.catId || 'other',
+        catId: isRealCatId(d.catId) ? d.catId : 'other',
         hindi: resolveDishHindi(name) || '',
         type: type,
       };
@@ -83,7 +93,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // "explicit tag or Extras" rule the package-linked branch below already uses.
   var selByCat = {};
   selected.forEach(function(name) {
-    var catId = getExplicitCatIdForDish(name) || "__extras__";
+    var explicit = getExplicitCatIdForDish(name);
+    var catId = isRealCatId(explicit) ? explicit : "__extras__";
     if (!selByCat[catId]) selByCat[catId] = [];
     selByCat[catId].push(name);
   });
@@ -158,16 +169,18 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var [recat, setRecat] = useState(null); // { name, catId } | null
   var [recatSaving, setRecatSaving] = useState(false);
   function openRecat(name) {
-    setRecat({ name: name, catId: getExplicitCatIdForDish(name) || '' });
+    var explicit = getExplicitCatIdForDish(name);
+    setRecat({ name: name, catId: isRealCatId(explicit) ? explicit : '' });
   }
   async function confirmRecat() {
     if (!recat) return;
     setRecatSaving(true);
     try {
-      // Left blank, a dish falls back into the "Extras" SOP category (if
-      // one's been set up) rather than truly uncategorized — same rule the
-      // custom-dish-add modal uses.
-      var catId = recat.catId || getExtrasCatId();
+      // Left blank (or pointing at a dead category id — see isRealCatId), a
+      // dish falls back into the "Extras" SOP category (if one's been set up)
+      // rather than truly uncategorized — same rule the custom-dish-add
+      // modal uses.
+      var catId = isRealCatId(recat.catId) ? recat.catId : getExtrasCatId();
       var res = catId
         ? await supabase.from('dish_categories').upsert({ dish_name: recat.name, category_id: catId }, { onConflict: 'dish_name' })
         : await supabase.from('dish_categories').delete().eq('dish_name', recat.name);
@@ -423,7 +436,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                     <span style={{ fontSize: 12, color: C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
                   </div>
                   {isOpen2 && g.names.map(function(name) {
-                    var explicitCat = getExplicitCatIdForDish(name) || '';
+                    var explicitCatRaw = getExplicitCatIdForDish(name);
+                    var explicitCat = isRealCatId(explicitCatRaw) ? explicitCatRaw : '';
                     return (
                       <div key={name} style={{ ...ROW, color: C.green, cursor: "default" }}>
                         <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer" }}>{name}</span>

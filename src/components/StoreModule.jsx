@@ -9,7 +9,7 @@ import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
-import { getCatForDish, RECIPE_DB, getIngrForDish } from '../data/recipeData.js';
+import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
@@ -154,11 +154,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueDate, setIssueDate] = useState("all");
   const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
   const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
+  const [issueExpGroup, setIssueExpGroup] = useState(null); // expanded dept-group key "evId::grp::kitchen|beverages|fruits"
   const [issueExpSec, setIssueExpSec] = useState(null); // expanded section key "evId::secName"
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion}}
+  const [fruitSelections, setFruitSelections] = useState([]); // rows from event_fruit_selections — per-function fruit-counter picks made in Fruits Ops
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
   const [recipesModalIng, setRecipesModalIng] = useState(null); // {name,hindi,unit,dishes:[]} — showing which recipes use this ingredient
   const [mapSearch, setMapSearch] = useState("");
@@ -270,12 +272,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
     async function loadIssueState() {
       setIssueLoading(true);
       try {
-        const [aData, iData, mData] = await Promise.all([
+        const [aData, iData, mData, fData] = await Promise.all([
           fetchAllRows(() => supabase.from('store_issue_assignments').select('*')),
           fetchAllRows(() => supabase.from('store_issues').select('*')),
           fetchAllRows(() => supabase.from('ingredient_item_map').select('*')),
+          fetchAllRows(() => supabase.from('event_fruit_selections').select('*')),
         ]);
         const aRes = { data: aData }, iRes = { data: iData }, mRes = { data: mData };
+        setFruitSelections(fData || []);
         if (aRes.data) {
           const map = {};
           aRes.data.forEach(r => { map[r.event_id + "::" + r.section_name] = r.venue_code; });
@@ -595,11 +599,35 @@ function StoreModule({events, lang="en", currentUser=null}) {
       const pax = +ev.pax || 0;
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
       safeArr(ev.menu).forEach(dishName => {
+        const isFruitSel = isFruitSelectionDish(dishName);
         const cat = getCatForDish(dishName);
-        if (cat.id === "beverages") return;
-        const sec = cat.name;
-        const meta = { color: cat.color || C.muted, icon: cat.icon || "🍽" };
-        const ingr = getIngrForDish(dishName, pax);
+        const sec = isFruitSel ? "Fruits" : cat.name;
+        const meta = isFruitSel ? { color: "#D97A3E", icon: "🍓" } : { color: cat.color || C.muted, icon: cat.icon || "🍽" };
+        // Fruit-counter dishes have no recipe — the actual fruits are picked
+        // per-function in Fruits Ops (event_fruit_selections) and already
+        // carry a real ops_inventory_id, so they skip getIngrForDish/
+        // ingredient_item_map entirely and go straight into the same
+        // inv-typed item shape the shortage build already knows how to use.
+        let ingr;
+        if (isFruitSel) {
+          ingr = fruitSelections
+            .filter(r => r.event_id === ev.id && r.dish_name === dishName)
+            .map(r => ({ n: r.ops_item_name, h: r.ops_item_hindi || "", q: (+r.qty_per_cover || 1) * pax, u: r.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: r.ops_inventory_id || null }));
+        } else {
+          ingr = getIngrForDish(dishName, pax);
+          // Beverages (and any other dish) with no recipe ingredients but a
+          // direct 1:1 store mapping (dish_store_map) used to be entirely
+          // invisible to Smart Issue — getIngrForDish only ever looks at
+          // recipes, and beverage dishes were also unconditionally skipped
+          // here regardless. Fall back to the store mapping itself as a
+          // single-item "ingredient" so a mapped dish always shows up.
+          if (!ingr || ingr.length === 0) {
+            const store = resolveDishStore(dishName);
+            if (store) {
+              ingr = [{ n: store.ops_item_name, h: store.ops_item_hindi || "", q: (+store.qty_per_cover || 1) * pax, u: store.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: store.ops_inventory_id || null }];
+            }
+          }
+        }
         if (!ingr || ingr.length === 0) return;
         const isNew = ingr[0]?._newFmt;
         if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };
@@ -928,7 +956,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if(!collBags[sec]) collBags[sec]={items:{},events:[],meta:secObj.meta};
             if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
             Object.values(secObj.items).forEach(ing=>{
-              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[]};
+              // Carry the direct inv-link through the merge too — otherwise a
+              // fruit pick (or any dish_store_map-only dish) loses its
+              // ops_inventory_id here and reads as "Unlinked" in Collective
+              // even though it's linked, same bug as the per-event IngRow.
+              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[],_type:ing._type||null,ops_inventory_id:ing.ops_inventory_id||null};
               var collMerged=addQtyWithUnitNorm(collBags[sec].items[ing.name],ing.totalQty,ing.unit);
               collBags[sec].items[ing.name].totalQty=collMerged.totalQty;
               collBags[sec].items[ing.name].unit=collMerged.unit;
@@ -950,8 +982,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
         /* shared ingredient row renderer */
         function IngRow({ing, evId, sec, idx, total}){
           const done = isIssued(evId,sec,ing.name);
-          const stock = getStockForIngredient(ing.name);
-          const isMapped = !!ingredientMap[ing.name];
+          // A fruit pick (or any dish resolved via a direct dish_store_map,
+          // see buildEventBags) already carries a real ops_inventory_id and
+          // was never meant to go through the name-based ingredient_item_map
+          // at all — checking only ingredientMap[ing.name] flagged it
+          // "Unlinked" even though it's linked, just via the other path.
+          const isDirectInv = ing._type === 'inv' && !!ing.ops_inventory_id;
+          const stock = isDirectInv ? getStockByInventoryId(ing.ops_inventory_id) : getStockForIngredient(ing.name);
+          const isMapped = isDirectInv || !!ingredientMap[ing.name];
           var reqSU = stock ? ing.totalQty * (stock.conversion || 1) : 0;
           return(
             <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
@@ -1050,46 +1088,80 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     </div>
                   </div>
 
-                  {/* Sections inside event */}
-                  {isExpanded&&secEntries.map(([sec,secObj])=>{
-                    const m=secObj.meta;
-                    const list=secIngList(secObj);
-                    const cnt=secIssuedCount(evId,sec,list);
-                    const allDone=cnt===list.length&&list.length>0;
-                    const secKey=evId+"::"+sec;
-                    const secExpanded=issueExpSec===secKey;
-
-                    return(
-                      <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                        {/* Section header */}
-                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                            <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                            <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
-                            <VenueTag evId={evId} sec={sec}/>
-                            {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                          </div>
-                        </div>
-
-                        {/* Ingredient rows */}
-                        {secExpanded&&<div style={{padding:"0 16px"}}>
-                          {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
-                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                            <div style={{padding:"6px 0 10px"}}>
-                              <button onClick={()=>issueAllForSection(evId,sec,list)}
-                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                              </button>
+                  {/* Sections inside event — grouped by which team actually
+                      issues/preps them. Store issues to three separate teams
+                      (Kitchen, Beverages, Fruits), not just Kitchen, so each
+                      gets its own collapsible group instead of one flat list. */}
+                  {isExpanded&&(()=>{
+                    const DEPT_GROUPS=[
+                      {key:"kitchen",label:T2("Kitchen"),icon:"👨‍🍳",match:s=>s!=="Beverages"&&s!=="Fruits"},
+                      {key:"beverages",label:T2("Beverages"),icon:"🥤",match:s=>s==="Beverages"},
+                      {key:"fruits",label:T2("Fruits"),icon:"🍓",match:s=>s==="Fruits"},
+                    ];
+                    const grouped=DEPT_GROUPS.map(g=>({...g,secs:secEntries.filter(([sec])=>g.match(sec))})).filter(g=>g.secs.length>0);
+                    return grouped.map(g=>{
+                      const gKey=evId+"::grp::"+g.key;
+                      const gExpanded=issueExpGroup===gKey;
+                      const gTotal=g.secs.length;
+                      const gDone=g.secs.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
+                      return(
+                        <div key={g.key} style={{borderTop:`1px solid ${C.borderLight}`}}>
+                          {/* Dept-group header */}
+                          <div onClick={()=>setIssueExpGroup(gExpanded?null:gKey)} style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:C.bg}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontSize:15}}>{g.icon}</span>
+                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g.label}</span>
+                              <span style={{fontSize:11,color:C.muted}}>({g.secs.length} {T2("sections")})</span>
                             </div>
-                          )}
-                        </div>}
-                      </div>
-                    );
-                  })}
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                              <span style={{fontSize:12,fontWeight:600,color:gDone===gTotal&&gTotal>0?C.green:C.muted}}>{gDone}/{gTotal}</span>
+                              <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:gExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
+                            </div>
+                          </div>
+
+                          {gExpanded&&g.secs.map(([sec,secObj])=>{
+                            const m=secObj.meta;
+                            const list=secIngList(secObj);
+                            const cnt=secIssuedCount(evId,sec,list);
+                            const allDone=cnt===list.length&&list.length>0;
+                            const secKey=evId+"::"+sec;
+                            const secExpanded=issueExpSec===secKey;
+
+                            return(
+                              <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
+                                {/* Section header */}
+                                <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px 11px 30px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                                    <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
+                                    <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
+                                    <VenueTag evId={evId} sec={sec}/>
+                                    {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
+                                  </div>
+                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                                    <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
+                                    <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
+                                  </div>
+                                </div>
+
+                                {/* Ingredient rows */}
+                                {secExpanded&&<div style={{padding:"0 16px"}}>
+                                  {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
+                                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
+                                    <div style={{padding:"6px 0 10px"}}>
+                                      <button onClick={()=>issueAllForSection(evId,sec,list)}
+                                        style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
+                                        ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    });
+                  })()}
                 </Card>
               );
             })}
@@ -1147,8 +1219,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                   <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
                                   <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
                                   {(()=>{
-                                    const stock=getStockForIngredient(ing.name);
-                                    const isMapped=!!ingredientMap[ing.name];
+                                    const isDirectInv=ing._type==='inv'&&!!ing.ops_inventory_id;
+                                    const stock=isDirectInv?getStockByInventoryId(ing.ops_inventory_id):getStockForIngredient(ing.name);
+                                    const isMapped=isDirectInv||!!ingredientMap[ing.name];
                                     if(isMapped&&stock){var rSU=ing.totalQty*(stock.conversion||1);return <div style={{fontSize:10,color:stock.available>=rSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{rSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(rSU-stock.available,stock.unit):""}{stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}</div>;}
                                     if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
                                     return null;

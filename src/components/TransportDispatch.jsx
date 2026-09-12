@@ -5,7 +5,7 @@ import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbUpsert, dbDelete } from '../lib/db.js';
-import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 
 // Module-level caches — persist across component remounts (tab switching), reduce first-open latency dramatically
@@ -701,7 +701,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             {allEvs.length>0&&(()=>{
               const selEv=allEvs.find(e=>e.id===selFnId)||allEvs[0];
               const p=gp(selEv.venue);
-              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(getCatIdForDish(d)!=="beverages")menu2r.push({name:d,origIdx:oi});});
+              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(getCatIdForDish(d)!=="beverages"&&!isFruitSelectionDish(d))menu2r.push({name:d,origIdx:oi});});
               const lc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.loaded).length;
               const uc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.unloaded).length;
               return(
@@ -738,7 +738,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               const p=gp(ev.venue);
               const fullMenu=(ev.menu||[]);
               const menu=[];
-              fullMenu.forEach((n,origIdx)=>{if(getCatIdForDish(n)!=="beverages")menu.push({name:n,origIdx});});
+              fullMenu.forEach((n,origIdx)=>{if(getCatIdForDish(n)!=="beverages"&&!isFruitSelectionDish(n))menu.push({name:n,origIdx});});
               const dispatch=dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
 
               // Group by section

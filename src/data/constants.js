@@ -49,12 +49,14 @@ let SECTION_META = {
   "Chaat":          {color:"#1D9E75", bg:"#E1F5EE", dot:"#1D9E75", icon:"🌮"},
   "Sweets":         {color:"#D4537E", bg:"#FBEAF0", dot:"#D4537E", icon:"🍮"},
   "Beverages":      {color:"#1D9E75", bg:"#E1F5EE", dot:"#1D9E75", icon:"☕"},
+  "Fruits":         {color:"#D97A3E", bg:"#FBEBDE", dot:"#D97A3E", icon:"🍓"},
   "Service":        {color:"#378ADD", bg:"#E6F1FB", dot:"#378ADD", icon:"🍽️"},
   "Crockery":       {color:"#7F77DD", bg:"#EEEDFE", dot:"#7F77DD", icon:"🍶"},
   "Transportation": {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"🚛"},
   "ODC":            {color:"#D85A30", bg:"#FAECE7", dot:"#D85A30", icon:"🏕️"},
   "Management":     {color:"#2563EB", bg:"#EAF1FE", dot:"#2563EB", icon:"👑"},
   "Outdoor Staff":  {color:"#BA7517", bg:"#FAEEDA", dot:"#BA7517", icon:"👷"},
+  "Uncategorized":  {color:"#9A6B00", bg:"#FCEFD2", dot:"#9A6B00", icon:"❓"},
 };
 
 // ─── OPERATIONAL DATA — hydrated from Supabase on boot ──────────

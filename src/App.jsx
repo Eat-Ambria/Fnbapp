@@ -1,7 +1,7 @@
 ﻿// Ambria FnB Operations — Root App Component
 // Decomposed: all screens, data, and utilities are in separate modules
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
 import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
@@ -29,21 +29,25 @@ import { LoginScreen } from './components/LoginScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { DeptView } from './components/DeptView.jsx';
 import { StaffView } from './components/StaffView.jsx';
-import { KitchenHub } from './components/KitchenHub.jsx';
 import { KioskAttendance } from './components/KioskAttendance.jsx';
-import { TeamHub } from './components/TeamHub.jsx';
-import { TransportDispatch } from './components/TransportDispatch.jsx';
-import { StoreModule } from './components/StoreModule.jsx';
-import { MenuPackagesView } from './components/MenuPackagesView.jsx';
-
-import { VendorDirectory } from './components/VendorDirectory.jsx';
-import { AccessManager } from './components/AccessManager.jsx';
-import { GateKiosk } from './components/GateKiosk.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
-import { ODCModule } from './components/ODCModule.jsx';
-import { ProposalsView } from './components/ProposalsView.jsx';
-import { SalesCatalogueView } from './components/SalesCatalogueView.jsx';
-import { BookedFunctionsView } from './components/BookedFunctionsView.jsx';
+
+// Heavier, not-needed-on-first-paint screens — code-split so the initial bundle
+// (login + dashboard) doesn't have to parse every admin/kitchen screen up front.
+// Suspense fallbacks are wired at the two render call sites (tabletContent /
+// renderScreen) below.
+const KitchenHub          = React.lazy(() => import('./components/KitchenHub.jsx').then(m => ({ default: m.KitchenHub })));
+const TeamHub             = React.lazy(() => import('./components/TeamHub.jsx').then(m => ({ default: m.TeamHub })));
+const TransportDispatch   = React.lazy(() => import('./components/TransportDispatch.jsx').then(m => ({ default: m.TransportDispatch })));
+const StoreModule         = React.lazy(() => import('./components/StoreModule.jsx').then(m => ({ default: m.StoreModule })));
+const MenuPackagesView    = React.lazy(() => import('./components/MenuPackagesView.jsx').then(m => ({ default: m.MenuPackagesView })));
+const VendorDirectory     = React.lazy(() => import('./components/VendorDirectory.jsx').then(m => ({ default: m.VendorDirectory })));
+const AccessManager       = React.lazy(() => import('./components/AccessManager.jsx').then(m => ({ default: m.AccessManager })));
+const GateKiosk           = React.lazy(() => import('./components/GateKiosk.jsx').then(m => ({ default: m.GateKiosk })));
+const ODCModule           = React.lazy(() => import('./components/ODCModule.jsx').then(m => ({ default: m.ODCModule })));
+const ProposalsView       = React.lazy(() => import('./components/ProposalsView.jsx').then(m => ({ default: m.ProposalsView })));
+const SalesCatalogueView  = React.lazy(() => import('./components/SalesCatalogueView.jsx').then(m => ({ default: m.SalesCatalogueView })));
+const BookedFunctionsView = React.lazy(() => import('./components/BookedFunctionsView.jsx').then(m => ({ default: m.BookedFunctionsView })));
 
 // ── LMS menu name normalization ──
 // LMS sends names like "Double Magnum - Veg", our keys are "Double Magnum Veg".
@@ -70,7 +74,7 @@ const NAV_ICON = {
   dashboard:"home",        kitchen:"chefHat",       store:"box",
   team:"users",            menus:"fileText",        transport:"truck",
   vendors:"contact",       dept_service:"plate",    dept_crockery:"cup",
-  dept_beverages:"drink",  dept_odc:"tent",         proposals:"note",
+  dept_beverages:"drink",  dept_fruits:"apple",     dept_odc:"tent",         proposals:"note",
   booked_functions:"calendarDays", sales_catalogue:"tag",
   access:"lock",           logs:"listCheck",
 };
@@ -88,6 +92,14 @@ export default function App() {
   // on every load just meant reaching for the toggle first thing.
   const [tabletSidebarOpen,setTabletSidebarOpen] = useState(true);
   const T2 = s => T(s, lang);
+  // Shown for the moment a code-split screen's chunk is still downloading
+  // (React.lazy below) — first visit to a given tab only, cached after. Declared
+  // this early so it's in scope for both the section-tablet and desktop render paths.
+  const SCREEN_LOADING = (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"80px 20px",color:C.muted,fontSize:13}}>
+      {T2("Loading…")}
+    </div>
+  );
 
   // Collapsed sidebar nav groups, keyed by the divider id. Absent = open.
   // Declared up here with the other state: the nav itself renders after several
@@ -233,6 +245,14 @@ export default function App() {
   // everything the kitchen had ticked off. transportQueue right below already
   // mirrors to localStorage; this now does the same.
   const KT_LS_KEY = "ambria_kitchen_tracking";
+  // The kitchen_tracking table's own columns — some pre-existing rows in this
+  // table have a dish_key literally equal to one of these (likely seed/test
+  // data from before this table's schema settled, e.g. dish_key: "updated_at"
+  // with the row's own timestamp as its "data"). Loaded as though it were real
+  // per-dish state, that key's value keeps drifting every read/write cycle,
+  // which looks "changed" to the diff below and gets re-uploaded forever —
+  // thousands of pointless requests a session. Never load or re-upload one.
+  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at"]);
   const [kitchenTracking, setKitchenTracking] = useState(() => {
     try { return JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}") || {}; }
     catch { return {}; }
@@ -286,6 +306,7 @@ export default function App() {
           // ingredients and refreshing threw the lot away. The data column is
           // JSON and holds objects, booleans and strings alike, so there is
           // nothing here that needs excluding.
+          if (KT_RESERVED_KEYS.has(dishKey)) return; // poisoned row — see KT_RESERVED_KEYS
           if (val === undefined || JSON.stringify(val) === JSON.stringify(prevEv[dishKey])) return;
           dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)) }, "ev_id,dish_key")
             .catch(e => console.error("KT sync failed:", dishKey, e));
@@ -453,7 +474,7 @@ export default function App() {
         // `?? {}`, not `|| {}` — the meta keys now sync too, and a stored
         // `false` (an un-dispatched function) would otherwise come back as an
         // empty object, which is truthy and would read as dispatched.
-        ktData.forEach(row=>{if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
+        ktData.forEach(row=>{if(KT_RESERVED_KEYS.has(row.dish_key))return;if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
         // MERGE over whatever the local seed already holds — do not replace.
         // A straight replace would wipe anything ticked off while the row had
         // not reached Supabase yet. Server wins per key; local-only keys stay,
@@ -563,7 +584,7 @@ export default function App() {
       // half of "I press Done and it undoes itself". Merging keeps keys the
       // echo doesn't mention while still applying the ones it does — so a real
       // undo from another tablet (an explicit false) still comes through.
-      if(payload.new){const {ev_id,dish_key,data}=payload.new;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      if(payload.new){const {ev_id,dish_key,data}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
     });
     const u6 = dbSubscribe('leaves', (payload) => {
       const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
@@ -682,6 +703,13 @@ export default function App() {
       {id:"team",label:"Team & Attendance",icon:"👥"},
       {id:"store",label:"Store & Inventory",icon:"📦"},
     ],
+    fruits: [
+      {id:"dashboard",label:"Dashboard",icon:"📊"},
+      {id:"dept_fruits",label:"Fruit Operations",icon:"🍓"},
+      {id:"menus",label:"Menu",icon:"📜"},
+      {id:"team",label:"Team & Attendance",icon:"👥"},
+      {id:"store",label:"Store & Inventory",icon:"📦"},
+    ],
     transport: [
       {id:"dashboard",label:"Dashboard",icon:"📊"},
       {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
@@ -702,6 +730,7 @@ export default function App() {
       {id:"dept_service",label:"Service Ops",icon:"🍽"},
       {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
       {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
+      {id:"dept_fruits",label:"Fruits Ops",icon:"🍓"},
       {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
       {id:"_divider_sales",label:"SALES",icon:"",divider:true},
       {id:"proposals",label:"Proposals",icon:"📝"},
@@ -728,6 +757,7 @@ export default function App() {
     service:{name:"Service",icon:"🍽️",color:"#0EA5E9"},
     crockery:{name:"Crockery",icon:"🍶",color:"#7C5CE0"},
     beverages:{name:"Beverages",icon:"🥤",color:"#129A6C"},
+    fruits:{name:"Fruits",icon:"🍓",color:"#D97A3E"},
     transport:{name:"Transportation",icon:"🚛",color:"#C4790C"},
     odc:{name:"ODC",icon:"🏕️",color:"#0E8F9E"},
     management:{name:"Management",icon:"🔐",color:"#2563EB"},
@@ -798,9 +828,11 @@ export default function App() {
   if(currentUser && currentUser.role === 'kiosk_gate') {
     return (
       <div style={{minHeight:'100vh',background:C.bg,padding:20}}>
-        <GateKiosk empDb={empDb} attendance={attendance}
-          setAttendance={setAttendance} currentUser={currentUser}
-          setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
+        <Suspense fallback={SCREEN_LOADING}>
+          <GateKiosk empDb={empDb} attendance={attendance}
+            setAttendance={setAttendance} currentUser={currentUser}
+            setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
+        </Suspense>
       </div>
     );
   }
@@ -1047,7 +1079,7 @@ export default function App() {
 
           {/* Only the screen scrolls. */}
           <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
-            {tabletContent(tabletScreen)}
+            <Suspense fallback={SCREEN_LOADING}>{tabletContent(tabletScreen)}</Suspense>
           </div>
         </div>
       </div>
@@ -1092,6 +1124,7 @@ export default function App() {
       case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" allocRules={allocRules} setAllocRules={setAllocRules} currentUser={currentUser}/>;
       case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
       case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
+      case "dept_fruits":    return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="fruits"/>;
       case "dept_odc":       return <ODCModule events={events} lang={lang} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
       case "proposals":         return <ProposalsView lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "sales_catalogue":   return <SalesCatalogueView lang={lang} currentUser={currentUser}/>;
@@ -1361,7 +1394,12 @@ export default function App() {
       )}
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative"}}>
+      {/* zIndex must be >= the sidebar's (3) — position:relative alone puts this
+          at the "auto" paint layer, which always renders BEHIND a sibling with
+          an explicit positive z-index regardless of DOM order. Without this, any
+          fixed-position modal a screen renders (nested arbitrarily deep inside
+          here) painted UNDER the sidebar panel instead of over it. */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",position:"relative",zIndex:3}}>
 
 
         {/* Header + screen share one scroll container, so the brand plate scrolls
@@ -1503,7 +1541,7 @@ export default function App() {
             the scrim dimmed the screen but stopped short of the header plate and
             the tab bar, which kept painting on top of the dialog. */}
         <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
-          <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
+          <ErrorBoundary key={screen} lang={lang}><Suspense fallback={SCREEN_LOADING}>{renderScreen(screen)}</Suspense></ErrorBoundary>
         </div>
       </div>
       </div>
