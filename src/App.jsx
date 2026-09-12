@@ -103,17 +103,6 @@ export default function App() {
     document.addEventListener("keydown",onEsc);
     return ()=>{ document.removeEventListener("mousedown",onDown); document.removeEventListener("keydown",onEsc); };
   },[userMenuOpen]);
-  // Fades content out at the top edge once scrolled, so the tab strip dissolves
-  // instead of being hard-clipped mid-row. Off at rest or the strip looks faded
-  // when nothing has moved.
-  const [scrolled,setScrolled]   = useState(false);
-  function onContentScroll(e){
-    // React bails out when the value is unchanged, so this does not re-render
-    // on every scroll event — only on the two crossings of the threshold.
-    setScrolled(e.currentTarget.scrollTop > 8);
-  }
-  const topFade = scrolled ? "linear-gradient(to bottom, transparent 0, #000 34px)" : "none";
-
   // ── PWA auto-update ──
   // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
   // deployed SW take over THIS already-open tab silently in the background —
@@ -252,6 +241,27 @@ export default function App() {
   // Where the bell should send you back to. A ref, not state — nothing renders
   // from it, so it must not cause a re-render when it changes.
   const bellReturnRef = useRef(null);
+  // The account menu is anchored with position:fixed rather than absolute. The
+  // sidebar panel sets overflow:hidden for its rounded corners and artwork, so
+  // an absolutely positioned menu opening downward was clipped at the panel
+  // edge. Fixed positioning escapes that, and the coordinates are taken from
+  // the button itself so it lands in the same place on every screen size.
+  const userChipRef = useRef(null);
+  const [userMenuPos, setUserMenuPos] = useState(null);
+  function openUserMenu() {
+    const el = userChipRef.current;
+    if (!el) { setUserMenuOpen(o => !o); return; }
+    const r = el.getBoundingClientRect();
+    const MENU_H = 150;
+    // Prefer below; flip above only when there genuinely is not room.
+    const below = window.innerHeight - r.bottom > MENU_H + 12;
+    setUserMenuPos({
+      left: r.left,
+      width: Math.max(r.width, 210),
+      ...(below ? { top: r.bottom + 6 } : { bottom: window.innerHeight - r.top + 6 }),
+    });
+    setUserMenuOpen(o => !o);
+  }
 
   useEffect(() => {
     try { localStorage.setItem(KT_LS_KEY, JSON.stringify(kitchenTracking || {})); }
@@ -983,16 +993,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Same padding and the same top fade as the admin content column.
-              Without the mask, rows scrolled up to a hard edge under the user
-              chip and the whole band read as clipped. 10px top so the brand
-              plate lines up with the sidebar panel. */}
-          <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
-            maskImage:topFade,WebkitMaskImage:topFade}}>
-            {/* Brand plate — the same construction as the admin page header:
-                decorative leaf, screen badge, eyebrow, serif title, meta line,
-                and the at-a-glance chips on the right. */}
-            <div style={{paddingBottom:18}}>
+          {/* Brand plate — static, outside the scroll container, exactly as in
+              the admin shell so both look and behave the same. The mask that
+              used to fade content under the top bar is gone with it: the plate
+              is opaque, so it hides whatever scrolls beneath it. */}
+          <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
               <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,
                 padding:"22px 26px",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
                 <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
@@ -1038,8 +1043,10 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+          </div>
 
+          {/* Only the screen scrolls. */}
+          <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
             {tabletContent(tabletScreen)}
           </div>
         </div>
@@ -1305,6 +1312,37 @@ export default function App() {
 
         {/* User block lives in the topbar next to the bell, not here. */}
 
+        {/* Account — moved out of the top bar and into the panel, where the
+            person's identity sits with the navigation rather than floating over
+            the content. The menu opens UPWARD because this sits at the bottom. */}
+        <div ref={userMenuRef} style={{position:"relative",zIndex:4,flexShrink:0,marginTop:"auto",padding:"10px 12px 12px",borderTop:`1px solid ${K.sbLine}`}}>
+          <button ref={userChipRef} className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={openUserMenu}
+            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"8px 10px",borderRadius:12,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,cursor:"pointer",textAlign:"left"}}>
+            <Avatar name={currentUser?.name||"A"} size={30} index={0}/>
+            <span style={{minWidth:0,flex:1}}>
+              <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.sbText,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{currentUser?.name}</span>
+              <span style={{display:"block",fontSize:11,color:K.sbLabel,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{currentUser?.role==="admin"?T2("Admin"):currentUser?.role}</span>
+            </span>
+            <Icon name="chevronD" size={14} color={K.sbLabel} style={{flexShrink:0,transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
+          </button>
+          {userMenuOpen&&userMenuPos&&(
+            <div style={{position:"fixed",...userMenuPos,zIndex:10002,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
+              <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
+                <div style={{fontSize:13,fontWeight:700,color:K.text,overflowWrap:"anywhere"}}>{currentUser?.name}</div>
+                <div style={{fontSize:11.5,color:K.textMuted,marginTop:2}}>{currentUser?.id}</div>
+              </div>
+              <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setLang(l=>l==="en"?"hi":"en");setUserMenuOpen(false);}}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
+              </button>
+              <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                <Icon name="logout" size={15}/>{T("Sign out",lang)}
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* ── Footer artwork ──
             Drop it at Fnbapp/public/sidebar-footer.webp. The wave, the plate art
             and the "From our kitchen…" line are all baked into the image, so
@@ -1365,7 +1403,10 @@ export default function App() {
             </button>
           )}
 
-          {/* User chip + menu — the only home for sign out and the language toggle */}
+          {/* The account chip lives in the sidebar now. It is mirrored here ONLY
+              while the sidebar is collapsed, because collapsing hides the panel
+              entirely and sign out would otherwise be unreachable. */}
+          {!sideOpen&&(
           <div ref={userMenuRef} style={{position:"relative",flexShrink:0}}>
             <button className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={()=>setUserMenuOpen(o=>!o)}
               style={{display:"flex",alignItems:"center",gap:9,padding:"4px 10px 4px 4px",height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,cursor:"pointer"}}>
@@ -1391,15 +1432,15 @@ export default function App() {
               </div>
             )}
           </div>
+          )}
         </div>
 
-        {/* Top padding matches the sidebar's 10px margin so the brand plate and
-            the sidebar panel start on the same line. */}
-        <div onScroll={onContentScroll} style={{position:"relative",zIndex:1,flex:1,overflowY:"auto",padding:"10px 32px 32px",scrollBehavior:"smooth",
-          maskImage:topFade,WebkitMaskImage:topFade}}>
-
-        {/* ── PAGE HEADER — brand plate ── */}
-        <div style={{paddingBottom:18}}>
+        {/* ── PAGE HEADER — brand plate ──
+            Outside the scroll container on purpose: it names the screen you are
+            on and carries the live event details, which stay useful while you
+            work down a long list. Top padding matches the sidebar's 10px margin
+            so the plate and the sidebar panel start on the same line. */}
+        <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
           <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"22px 26px",display:"flex",alignItems:"center",gap:22,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
@@ -1453,6 +1494,15 @@ export default function App() {
           </div>
         </div>
 
+        {/* Only the screen scrolls. minHeight:0 lets this flex child shrink so
+            overflowY actually scrolls instead of pushing past the window.
+            NO z-index here. It carried zIndex:1 from when the header scrolled
+            with the content; now that the header is a fixed sibling above it,
+            that z-index made this box a stacking context and every screen modal
+            inside it (position:fixed, zIndex:9999) was capped at level 1 — so
+            the scrim dimmed the screen but stopped short of the header plate and
+            the tab bar, which kept painting on top of the dialog. */}
+        <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
           <ErrorBoundary key={screen} lang={lang}>{renderScreen(screen)}</ErrorBoundary>
         </div>
       </div>
