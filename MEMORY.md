@@ -354,6 +354,19 @@ data structure:
 `dishName` carries the quantity (`"Bruschetta — 8.4 kg"`) because that is the
 field the transport screen shows as the row title.
 
+### 4.2b When "Send to transport" appears
+
+Gated on `secAllDone` — **every** dish in the station cooked. A station travels
+as one lot, so a partial load is not offered.
+
+Two earlier gates were wrong and should not come back:
+
+- `secStoreAll` (every ingredient ticked off the store list) put the button at
+  the wrong end of the workflow entirely — collecting raw material is the stage
+  *before* cooking, so it was offering to load uncooked ingredients onto the van.
+  The two stages are tracked separately; see the note above `secPct`.
+- `secReady > 0` (first dish ready) invited half-empty loads.
+
 ### 4.3 Toasts vs modals
 
 `KToast` was added. The rule:
@@ -368,6 +381,23 @@ site was routed correctly **without being touched**.
 Depending on `onClose` directly meant the effect re-ran on every render — and
 this screen re-renders every second to drive step timers — so the toast never
 survived long enough to dismiss itself.
+
+---
+
+### 4.4 "Done" on a collect run ticks the whole list
+
+`Done` on a Collect-from-store card used to write only `{ end: Date.now() }`. The
+run was over but the list underneath still read *"0 of 26 collected — 0%"*, which
+also made the station row above it report `0/26 collected` next to a cooked-dish
+bar at 0% — two separate stages both looking stalled. It now writes
+`{ end, items_done: markAllCollected(agg.items) }`, on **both** Event Day
+(`EventDayTab.jsx`) and Prep Day (`KitchenHub.jsx`). `mergeDishState` merges the
+delta, so rows ticked by hand beforehand stay ticked.
+
+The key rule for `items_done` lived as **four copy-pasted inline copies**. One
+drifting copy would have silently orphaned every tick on a screen. It is now a
+single `storeItemKey()` in `utils/helpers.js`, used everywhere, with tests
+covering the case-insensitivity and the kg↔gm family rule.
 
 ---
 
@@ -387,6 +417,49 @@ Two behaviour changes worth remembering:
 - **Navigating no longer closes the sidebar**, and the sidebar **starts open**.
   Both were holdovers from when it was a full-screen overlay with no collapse
   control of its own.
+
+---
+
+## 5b. Fixed page chrome — why the tab strip is NOT sticky
+
+The page header plate and the Kitchen Hub tab strip must stay put while only the
+content below them moves. Five attempts to do this with `position: sticky` on the
+strip were all rejected, and the reason is geometric, not cosmetic: **a pinned
+card narrower than the content column always lets the page slide past in the
+margins beside it.** Hiding that needs either an opaque band behind the card or a
+full-bleed bar — both were explicitly rejected, as was the bare overlap.
+
+The working shape has no trade-off, because nothing scrolls behind the strip at
+all:
+
+- `KTabs` (`KitchenUI.jsx`) does **no positioning**. It is a plain strip with a
+  bottom margin. Do not reintroduce a `sticky` prop.
+- `KitchenHub`'s root is `display:flex; flexDirection:column; height:100%`. The
+  banners and the tab strip are fixed children of that column; **everything below
+  the strip lives in its own `flex:1; minHeight:0; overflowY:auto` box.** The
+  shell's outer scroller therefore never scrolls on this screen.
+- `height:100%` resolves because the shell's content box is a flex item with
+  `flex:1; minHeight:0` (a definite height). Where it is not — `DeptView`'s ODC
+  embed — it falls back to `auto` and the page scrolls as one, the old behaviour.
+- **That scroll box carries `borderRadius: K.rXl`.** Cards scrolling out at its
+  top edge are clipped by it, and a square clip reads as a hard white bar across
+  the page. Radius is safe to add; mask and filter are not (see next point).
+- **No `mask-image` or `filter` on that scroll box.** Either would make it the
+  containing block for the `position: fixed` modals nested inside it and trap
+  them inside the scroll area. This is why there is no top fade any more; the
+  dead `topFade` / `onContentScroll` state in `App.jsx` was removed with it.
+
+Same rule for the header plate: it sits **outside** the scroll container in both
+shells. If a header element starts scrolling away, check that it has not been
+moved back inside the `overflowY:auto` div.
+
+**Do not cap the column width.** The header plate and the content below it must
+be exactly the same width — both are `padding: "10px 32px 0"` / `"18px 32px
+32px"` with no `max-width`, in both shells. Two attempts at a `MAX_COL` cap were
+rejected: capping everything left dead margins down both sides of the page, and
+capping the plate alone made it visibly narrower than the tab strip under it.
+If the long gap between the title and the status chips needs closing, change the
+plate's internal layout, not its width.
 
 ---
 
