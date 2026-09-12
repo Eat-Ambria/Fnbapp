@@ -540,6 +540,13 @@ const KITCHEN_CSS = `
 .kh-scope .kh-catbody { flex: 1; overflow-y: auto; max-height: 360px; }
 .kh-scope .kh-catbody::-webkit-scrollbar { width: 4px; }
 
+/* The hub's own scroll box (everything under the fixed tab strip). Its
+   scrollbar ran the full height of the page as a visible grey rail beside the
+   content, so it is hidden. Scrolling itself is untouched - wheel, trackpad,
+   touch, keyboard and scrollIntoView all still work. */
+.kh-scope .kh-hubscroll { scrollbar-width: none; -ms-overflow-style: none; }
+.kh-scope .kh-hubscroll::-webkit-scrollbar { width: 0; height: 0; }
+
 /* One ingredient row: emoji · name · qty · unit · collect toggle.
    The row is inert; only .kh-ingcheck at the end is interactive.
    The name column is a free 1fr so long names wrap instead of truncating. */

@@ -1221,7 +1221,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     // .kh-scope activates the Kitchen Hub design system (hover states, focus
     // ring, responsive grids) defined in utils/theme.js. Scoped so no other
     // screen is affected.
-    <div className="kh-scope" style={{position:"relative"}}>
+    // The hub fills the shell's content box and scrolls INSIDE itself: banners
+    // and the tab strip sit in the fixed top block, only the panel below moves.
+    // height:100% resolves because the shell's content box is a flex item with
+    // a definite height; where it is not (DeptView's ODC embed) it falls back
+    // to auto and the page simply scrolls as one, which is the old behaviour.
+    <div className="kh-scope" style={{position:"relative",display:"flex",flexDirection:"column",height:"100%",minHeight:0}}>
 
       {/* Which functions to reset. Body is built at render time, not stored in
           state, so the checkboxes reflect the current selection. */}
@@ -1735,6 +1740,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         )}
         </>}
       />
+
+      {/* Everything below the tab strip is the only thing that scrolls.
+          No mask/filter on this box: either would make it the containing block
+          for the position:fixed modals nested inside it and trap them.
+          The radius matters — cards scrolling out at the top edge are clipped by
+          this box, and a square clip reads as a hard white bar across the page.
+          Radius alone is safe; unlike mask/filter it traps nothing. */}
+      <div className="kh-hubscroll" style={{flex:1,minHeight:0,overflow:"auto",scrollBehavior:"smooth",borderRadius:K.rXl}}>
 
       {/* --- EVENT DAY — only cooking/dispatch for today's functions --- */}
       {tab==="today"&&(
@@ -4864,6 +4877,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         </div>
       )}
 
+      </div>
     </div>
   );
 }
