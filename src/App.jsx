@@ -895,7 +895,11 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <nav style={{position:"relative",zIndex:1,flex:1,padding:"16px 8px 10px",overflowY:"auto"}}>
+            {/* minHeight:0 is what makes overflowY work here. Without it a flex
+                child refuses to shrink below its content, so a long nav pushes
+                past the panel instead of scrolling inside it — which is how
+                items ended up hidden behind the footer plate. */}
+            <nav style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:"16px 8px 10px",overflowY:"auto"}}>
               {TABLET_NAV.map(function(item){
                 var active=tabletScreen===item.id;
                 return(
@@ -907,18 +911,18 @@ export default function App() {
                     onClick={function(){setTabletScreen(item.id);}} style={{
                     position:"relative",overflow:"hidden",
                     display:"flex",alignItems:"center",gap:12,width:"100%",padding:"8px 10px",
-                    borderRadius:14,marginBottom:7,cursor:"pointer",textAlign:"left",minHeight:56,border:"none",
+                    borderRadius:14,marginBottom:5,cursor:"pointer",textAlign:"left",minHeight:50,border:"none",
                     background:active?K.sbActiveBg:"transparent",
                     color:active?K.sbActiveText:K.sbText,
                     boxShadow:active?"0 6px 16px rgba(28,61,43,.26)":"none"}}>
                     {active&&<span style={{position:"absolute",left:0,top:8,bottom:8,width:4,borderRadius:"0 3px 3px 0",background:K.sbGoldSoft}}/>}
-                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    <span style={{width:36,height:36,borderRadius:11,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
                       background:active?"rgba(255,255,255,.12)":K.sbChipBg,
                       border:`1px solid ${active?"rgba(255,255,255,.18)":K.sbChipLine}`,
                       color:active?K.sbActiveText:K.sbText}}>
                       <Icon name={NAV_ICON[item.id]||"layers"} size={19} strokeWidth={active?1.9:1.6}/>
                     </span>
-                    <span style={{fontFamily:"var(--font-display)",fontSize:17,fontWeight:active?700:600,letterSpacing:-.1,
+                    <span style={{fontFamily:"var(--font-display)",fontSize:15.5,fontWeight:active?700:600,letterSpacing:-.1,
                       whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T2(item.label)}</span>
                   </button>
                 );
@@ -1225,7 +1229,7 @@ export default function App() {
                     position:"relative",overflow:"hidden",
                     display:"flex",alignItems:"center",justifyContent:sideOpen?"space-between":"center",
                     width:"100%",padding:sideOpen?"8px 10px":"8px 0",borderRadius:14,marginBottom:4,
-                    cursor:"pointer",textAlign:"left",minHeight:56,border:"none",
+                    cursor:"pointer",textAlign:"left",minHeight:50,border:"none",
                     background:active?K.sbActiveBg:"transparent",
                     color:active?K.sbActiveText:K.sbText,
                     boxShadow:active?"0 6px 16px rgba(28,61,43,.26)":"none",
@@ -1233,13 +1237,13 @@ export default function App() {
                   {/* Gold rail on the active row */}
                   {active&&<span style={{position:"absolute",left:0,top:8,bottom:8,width:4,borderRadius:"0 3px 3px 0",background:K.sbGoldSoft}}/>}
                   <span style={{display:"flex",alignItems:"center",gap:sideOpen?13:0,minWidth:0}}>
-                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                    <span style={{width:36,height:36,borderRadius:11,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
                       background:active?"rgba(255,255,255,.12)":K.sbChipBg,
                       border:`1px solid ${active?"rgba(255,255,255,.18)":K.sbChipLine}`,
                       color:active?K.sbActiveText:K.sbText}}>
                       <Icon name={NAV_ICON[item.id]||"layers"} size={19} strokeWidth={active?1.9:1.6}/>
                     </span>
-                    {sideOpen&&<span style={{fontFamily:"var(--font-display)",fontSize:17,fontWeight:active?700:600,letterSpacing:-.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T(item.label,lang)}</span>}
+                    {sideOpen&&<span style={{fontFamily:"var(--font-display)",fontSize:15.5,fontWeight:active?700:600,letterSpacing:-.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T(item.label,lang)}</span>}
                   </span>
                   {sideOpen&&(badge>0
                     ? <span style={{background:active?"rgba(255,255,255,.16)":K.sbBadgeBg,color:active?K.sbActiveText:K.sbBadgeText,fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:9,flexShrink:0}}>{badge}</span>

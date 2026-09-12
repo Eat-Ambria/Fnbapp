@@ -81,7 +81,10 @@ const K = {
   navHover:      "rgba(255,255,255,.82)",
 
   // ── Sidebar: ivory + deep green + gold (same family as the header plate) ──
-  sbWidth:      312,          // expanded
+  // 272, not 312. On a 1366-wide laptop the wider panel ate a fifth of the
+  // window and pushed table columns into truncation; the nav labels still fit
+  // comfortably at this width.
+  sbWidth:      272,          // expanded
   sbWidthMin:   84,           // collapsed icon rail
   // Sampled from the artwork PNGs: sidebar-bg ivory is #FBF9F4, sidebar-footer
   // ivory is #FBFBF7. The base has to sit in that range or the footer image's
