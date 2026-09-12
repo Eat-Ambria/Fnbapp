@@ -669,10 +669,13 @@ function EventDayTab({
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="clock" size={12} strokeWidth={2}/>30m</span>
                         </div>
                       </div>
-                      {/* Everything collected → offer to send it on. Sits to the
-                          left of Go Collect because it is the next step, not an
-                          alternative to it. */}
-                      {secStoreAll && (
+                      {/* Only once the WHOLE station is cooked. Two earlier
+                          gates were wrong: `secStoreAll` fired when the store
+                          lot was ticked off, which offered to load raw material
+                          onto the van (collecting is the stage before cooking),
+                          and `secReady > 0` fired on the first ready dish, which
+                          invited half-empty loads. A station travels as one lot. */}
+                      {secAllDone && (
                         <KButton variant="brand" icon="truck" onClick={() => {
                           // The station's DISHES, not its raw ingredients — what
                           // goes on the van is cooked food. Grouped BY FUNCTION:
