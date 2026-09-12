@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -1876,7 +1876,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <div style={{ fontSize: large?13:11, color: C.muted }}>{T2("One lot for all")} {itemsList.length} {T2("dishes")} · 30m</div>
                 </div>
                 {!ssStarted && !ssDone && <button onClick={()=>ssWriteD1(catId, { start: Date.now() })} style={{padding:large?"12px 18px":"10px 14px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:large?14:12,fontWeight:700,cursor:"pointer",minHeight:large?46:40,flexShrink:0}}>▶️ {T2("Go Collect")}</button>}
-                {ssStarted && !ssDone && <button onClick={()=>ssWriteD1(catId, { end: Date.now() })} style={{padding:large?"12px 18px":"10px 14px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:large?14:12,fontWeight:700,cursor:"pointer",minHeight:large?46:40,flexShrink:0}}>✓ {T2("Done")}</button>}
+                {/* Same rule as Event Day: Done closes the run and ticks every
+                    row, so the list never reads 0% after it is finished. */}
+                {ssStarted && !ssDone && <button onClick={()=>ssWriteD1(catId, { end: Date.now(), items_done: markAllCollected(agg.items) })} style={{padding:large?"12px 18px":"10px 14px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:large?14:12,fontWeight:700,cursor:"pointer",minHeight:large?46:40,flexShrink:0}}>✓ {T2("Done")}</button>}
               </div>
               {ssStarted && !ssDone && (
                 <div style={{ marginTop: 8 }}>
@@ -1886,8 +1888,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               )}
               {agg.items.length > 0 && (() => {
                 const itemsDone = secStore.items_done || {};
-                // Key by (name, family) so kg↔gm flips don't lose collected state
-                const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
+                // Key by (name, family) so kg↔gm flips don't lose collected
+                // state. Shared with Event Day and with markAllCollected.
+                const itemKey = storeItemKey;
                 const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                 const total = agg.items.length;
                 const pct = total > 0 ? Math.round(collected / total * 100) : 0;

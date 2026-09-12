@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState } from '../utils/helpers.js';
+import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
 import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel, getDishImageUrl } from '../data/recipeData.js';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -577,9 +577,8 @@ function EventDayTab({
         const _ssRow = ssRead(sec);
         const _ssAgg = aggSecIngredients(items);
         const _ssDoneMap = _ssRow.items_done || {};
-        const _ssKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
         const secStoreTotal = _ssAgg.items.length;
-        const secStoreDoneN = _ssAgg.items.filter(i => _ssDoneMap[_ssKey(i)]).length;
+        const secStoreDoneN = _ssAgg.items.filter(i => _ssDoneMap[storeItemKey(i)]).length;
         const secStoreAll = secStoreTotal > 0 && secStoreDoneN === secStoreTotal;
         const secOpen = isSecOpen(sec);
         const secAllDone = secReady === items.length;
@@ -744,7 +743,11 @@ function EventDayTab({
                         </KButton>
                       )}
                       {!ssStarted && !ssDone && <KButton variant="accent" onClick={() => ssWrite(sec, { start: Date.now() })} style={{ padding: "12px 20px", minHeight: 44 }}>▶ {T2("Go Collect")}</KButton>}
-                      {ssStarted && !ssDone && <KButton variant="accent" icon="check" onClick={() => ssWrite(sec, { end: Date.now() })} style={{ padding: "12px 20px", minHeight: 44, background: K.ok, boxShadow: "0 4px 14px rgba(18,154,108,.3)" }}>{T2("Done")}</KButton>}
+                      {/* Done closes the run AND ticks every row. Before this it
+                          only stamped `end`, so a finished collection could sit
+                          at "0 of 26 collected — 0%", which then made the dish
+                          progress below it look stalled too. */}
+                      {ssStarted && !ssDone && <KButton variant="accent" icon="check" onClick={() => ssWrite(sec, { end: Date.now(), items_done: markAllCollected(agg.items) })} style={{ padding: "12px 20px", minHeight: 44, background: K.ok, boxShadow: "0 4px 14px rgba(18,154,108,.3)" }}>{T2("Done")}</KButton>}
                     </div>
                     {ssStarted && !ssDone && (
                       <div style={{ marginTop: 10 }}>
@@ -754,8 +757,10 @@ function EventDayTab({
                     )}
                     {agg.items.length > 0 && (() => {
                       const itemsDone = secStore2.items_done || {};
-                      // Key by (name, family) so kg↔gm flips don't lose collected state
-                      const itemKey = (i) => (i.n || "").toLowerCase().trim() + "|" + (i.fam || i.u || "");
+                      // Key by (name, family) so kg↔gm flips don't lose collected
+                      // state. Shared with Prep Day and with markAllCollected —
+                      // two copies of this rule would mean ticks that disagree.
+                      const itemKey = storeItemKey;
                       const collected = agg.items.filter(i => itemsDone[itemKey(i)]).length;
                       const total = agg.items.length;
                       const pct = total > 0 ? Math.round(collected / total * 100) : 0;
