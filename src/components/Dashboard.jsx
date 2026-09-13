@@ -225,14 +225,16 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
 
       {/* ══ UNCONFIRMED MENU ALERTS (grouped by timeframe) ══ */}
       {(()=>{
-        const isCustom=ev=>!ev.menuPackage||ev.menuPackage==="(Custom)"||ev.menuPackage==="Custom";
+        const isCustom=ev=>!ev.custom_menu_confirmed&&(!ev.menuPackage||ev.menuPackage==="(Custom)"||ev.menuPackage==="Custom");
         const isODCUnconfirmed=ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed;
         // ODC functions never carry a menuPackage — they're bespoke by design —
         // so isCustom(ev) was permanently true for every one of them regardless
         // of odc_menu_confirmed. Saving "Edit function" correctly set the flag,
         // but the isCustom branch kept re-flagging the event anyway, so it
         // could never actually leave this list. ODC events are judged solely by
-        // odc_menu_confirmed; only non-ODC events are judged by isCustom.
+        // odc_menu_confirmed; only non-ODC events are judged by isCustom, which
+        // also respects custom_menu_confirmed (set via KitchenHub's "Mark menu
+        // as built" action) so a confirmed custom menu drops off this list too.
         const candidates = safeEvs.filter(ev=>ev.date>=todayStr && (ev.venue==="Outdoor Catering (ODC)" ? isODCUnconfirmed(ev) : isCustom(ev)));
         // Dedup by id (guard LMS sync duplicates); fallback to guest+date+venue for id-less rows
         const seen=new Set();
