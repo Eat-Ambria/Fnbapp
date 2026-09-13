@@ -367,6 +367,27 @@ function EventDayTab({
     if (!bySec[groupKey]) bySec[groupKey] = [];
     bySec[groupKey].push({ name: n, ...info });
   });
+  // A bg-type ingredient row can be entered in gm or ml (V72 allowed any unit),
+  // but this accumulator never converted — it added the raw number straight
+  // into a variable literally called totalKg, so a row entered as "650 gm"
+  // contributed 650 as if it were 650 KG, a 1000x inflation. Fixing the unit on
+  // a row (e.g. kg -> gm for a value that was always meant to be small) changed
+  // nothing here, since the numeric qty was identical either way and the unit
+  // was simply ignored. KitchenHub.jsx's own bg-demand aggregator already
+  // carries the correct V72 unit-aware conversion (kg/L 1:1, gm/ml /1000,
+  // non-mass/volume units skipped with a warning) — this just never got
+  // ported over here. Mirrored verbatim for consistency.
+  function toKgEquiv(qty, unit, bgName) {
+    const u = String(unit || 'kg').toLowerCase();
+    if (u === 'kg' || u === 'l') return qty;
+    if (u === 'gm' || u === 'ml') return qty / 1000;
+    if (!toKgEquiv._warned) toKgEquiv._warned = new Set();
+    if (!toKgEquiv._warned.has(bgName)) {
+      console.warn(`[bg-demand] BG '${bgName}' uses non-mass/volume unit '${unit}' — skipped from totalKg`);
+      toKgEquiv._warned.add(bgName);
+    }
+    return 0;
+  }
   // 9C — Demand-driven bg injection: sum kg per bg recipe from dishes' type='bg' rows,
   // inject each summed bg as ONE pseudo-dish with totalKg. Skip bgs with zero demand.
   Object.keys(bySec).forEach(catId => {
@@ -395,7 +416,7 @@ function EventDayTab({
       bgs.forEach(b => {
         if (!b.bgName || b.qty <= 0) return;
         if (!bgDemand[b.bgName]) bgDemand[b.bgName] = { totalKg: 0, fns: [] };
-        bgDemand[b.bgName].totalKg += Number(b.qty) || 0;
+        bgDemand[b.bgName].totalKg += toKgEquiv(Number(b.qty) || 0, b.unit, b.bgName);
         (d.fns || []).forEach(fn => {
           if (!bgDemand[b.bgName].fns.some(x => x.evId === fn.evId)) bgDemand[b.bgName].fns.push(fn);
         });
