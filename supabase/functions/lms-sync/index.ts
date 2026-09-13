@@ -467,14 +467,22 @@ Deno.serve(async (req) => {
     if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
 
     // ── Clean up cancelled / removed LMS events ──
-    // Any LMS-sourced event in the sync window that wasn't in this batch is gone from LMS
+    // Any LMS-sourced event in the sync window that wasn't in this batch is gone from LMS.
+    // MUST exclude already-tombstoned (is_deleted=true) rows: they're excluded from
+    // finalEvents/upsertedIds on purpose (that's the whole point of the tombstone), so
+    // without this filter every one of them looked "gone from LMS" and got hard-deleted
+    // right here — destroying the tombstone itself. The NEXT sync then found no tombstone
+    // to exclude it, so a still-active LMS booking the user had deleted locally just
+    // came right back. Once a row is tombstoned it should stay a tombstone forever, not
+    // get swept up by this cleanup too.
     const upsertedIds = new Set(finalEvents.map(e => e.id));
     const { data: existingLms } = await sb
       .from("events")
       .select("id")
       .gte("date", fromDate)
       .lte("date", uptoDate)
-      .like("id", "LMS-%");
+      .like("id", "LMS-%")
+      .or("is_deleted.is.null,is_deleted.eq.false");
 
     const toDelete = (existingLms || []).filter(e => !upsertedIds.has(e.id)).map(e => e.id);
     let deleted = 0;

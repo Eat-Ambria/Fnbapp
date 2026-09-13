@@ -329,7 +329,11 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:14,fontWeight:500,color:C.text}}>{ev.guest}</div>
                       <div style={{fontSize:12,color:C.muted,marginTop:2}}>
-                        {ev.venue} · {ev.time} · {ev.menuPackage||"Custom"}
+                        {/* ODC events all share the same generic venue value ("Outdoor
+                            Catering (ODC)") — the actual site name lives in odc_location
+                            (same field ODCModule.jsx labels "Location"), so show that too
+                            or this line reads identically for every outdoor function. */}
+                        {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {ev.menuPackage||"Custom"}
                         {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
                       </div>
                       {evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:evReady>=evMenu.length?C.greenBg:C.amberBg,color:evReady>=evMenu.length?"#0F6E56":"#854F0B"}}>{evReady}/{evMenu.length} dishes ready</span></div>}
