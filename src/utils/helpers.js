@@ -274,4 +274,22 @@ function mergeDishState(prev, upd) {
   return next;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState };
+// Identifies one row of a collect-from-store list inside `items_done`.
+// Keyed by (name, unit family) rather than by index or by the display unit, so a
+// kg<->gm flip caused by rescaling does not orphan an already-collected tick.
+// Shared because Event Day and Prep Day both write the same map — if the two
+// ever key it differently, ticks made on one screen vanish on the other.
+function storeItemKey(i) {
+  return ((i && i.n) || "").toLowerCase().trim() + "|" + ((i && (i.fam || i.u)) || "");
+}
+
+// Every row of a collect list marked collected, as one delta for mergeDishState.
+// Used by the "Done" button: finishing the collection run means everything in it
+// was collected, so the list and the progress bar must say so.
+function markAllCollected(items) {
+  const delta = {};
+  (items || []).forEach(function (it) { delta[storeItemKey(it)] = true; });
+  return delta;
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected };

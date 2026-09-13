@@ -18,12 +18,18 @@ import { Icon } from './Icons.jsx';
 // ── Tab strip ──────────────────────────────────────────────────────────────
 // items: [{ v, l, icon }]  ·  `right` renders flush-right on the same rule.
 // Tabs live inside an ivory tray; the active one is a solid deep-green pill.
+// The strip does NOT position itself. Every attempt to pin it from here failed:
+// a sticky card narrower than the column lets the page slide past in the
+// margins beside it, and covering that needs either a filled band or a
+// full-bleed bar, both of which were rejected. A host that wants the strip to
+// stay put keeps it OUTSIDE its scroll box instead (see KitchenHub), so there
+// is no overlap to hide.
 function KTabs({ items, value, onChange, right = null }) {
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap",
       background: K.tabBarBg, border: `1px solid ${K.tabBarLine}`,
-      borderRadius: 16, padding: 8, marginBottom: 14, boxShadow: K.shadowCard,
+      borderRadius: 16, padding: 8, boxShadow: K.shadowCard, marginBottom: 14,
     }}>
       {items.map(t => {
         const on = value === t.v;

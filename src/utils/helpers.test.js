@@ -5,7 +5,7 @@
 // by a stale copy. Every case below is one of the ways that happened.
 
 import { describe, it, expect } from 'vitest';
-import { mergeDishState } from './helpers.js';
+import { mergeDishState, storeItemKey, markAllCollected } from './helpers.js';
 
 describe('mergeDishState', () => {
   it('records a first step', () => {
@@ -101,5 +101,51 @@ describe('mergeDishState', () => {
     expect(s.manual).toBe(null); // explicit null wins; it is not merged into
     const t = mergeDishState({ manual: { A: true } }, { manual: ['x'] });
     expect(Array.isArray(t.manual)).toBe(true);
+  });
+});
+
+// The collect-from-store list. Its ticks live in the same `items_done` map that
+// mergeDishState protects, and the key rule used to be copy-pasted in four
+// places — one drifting copy would have silently orphaned every tick.
+describe('storeItemKey', () => {
+  it('ignores case and surrounding space in the name', () => {
+    expect(storeItemKey({ n: '  Onion ', fam: 'w' })).toBe(storeItemKey({ n: 'onion', fam: 'w' }));
+  });
+
+  it('keys on the unit FAMILY, so a kg<->gm rescale keeps the tick', () => {
+    // Same ingredient, same family, different display unit after rescaling.
+    expect(storeItemKey({ n: 'Onion', fam: 'w', u: 'gm' })).toBe(storeItemKey({ n: 'Onion', fam: 'w', u: 'kg' }));
+  });
+
+  it('keeps different families apart', () => {
+    expect(storeItemKey({ n: 'Milk', fam: 'v' })).not.toBe(storeItemKey({ n: 'Milk', fam: 'w' }));
+  });
+
+  it('falls back to the display unit when family is missing', () => {
+    expect(storeItemKey({ n: 'Egg', u: 'pcs' })).toBe('egg|pcs');
+  });
+});
+
+describe('markAllCollected', () => {
+  it('ticks every row of the list', () => {
+    const items = [{ n: 'Onion', fam: 'w' }, { n: 'Milk', fam: 'v' }, { n: 'Egg', u: 'pcs' }];
+    const delta = markAllCollected(items);
+    expect(Object.keys(delta)).toHaveLength(3);
+    expect(items.every(i => delta[storeItemKey(i)] === true)).toBe(true);
+  });
+
+  it('merges onto existing ticks instead of replacing them', () => {
+    // This is the whole point of the Done button: whatever was already ticked
+    // stays ticked, and everything else joins it at 100%.
+    const items = [{ n: 'Onion', fam: 'w' }, { n: 'Milk', fam: 'v' }];
+    const prev = { items_done: { [storeItemKey(items[0])]: true } };
+    const next = mergeDishState(prev, { end: 123, items_done: markAllCollected(items) });
+    expect(items.every(i => next.items_done[storeItemKey(i)] === true)).toBe(true);
+    expect(next.end).toBe(123);
+  });
+
+  it('survives an empty or missing list', () => {
+    expect(markAllCollected([])).toEqual({});
+    expect(markAllCollected(undefined)).toEqual({});
   });
 });

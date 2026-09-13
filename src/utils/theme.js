@@ -81,7 +81,10 @@ const K = {
   navHover:      "rgba(255,255,255,.82)",
 
   // ── Sidebar: ivory + deep green + gold (same family as the header plate) ──
-  sbWidth:      312,          // expanded
+  // 272, not 312. On a 1366-wide laptop the wider panel ate a fifth of the
+  // window and pushed table columns into truncation; the nav labels still fit
+  // comfortably at this width.
+  sbWidth:      272,          // expanded
   sbWidthMin:   84,           // collapsed icon rail
   // Sampled from the artwork PNGs: sidebar-bg ivory is #FBF9F4, sidebar-footer
   // ivory is #FBFBF7. The base has to sit in that range or the footer image's
@@ -420,6 +423,19 @@ const KITCHEN_CSS = `
    NOTE: no backticks in this block — the stylesheet is a JS template literal
    and a stray backtick ends it. */
 
+/* ── Sidebar footer plate ────────────────────────────────────────────────
+   On a short window this plate left almost no room for the nav list, so opening
+   a group pushed items behind it and they read as truncated.
+
+   The height is all-or-nothing, NOT scaled. The artwork is bottom-anchored and
+   cropped with object-fit:cover, so trimming the height eats into the wave from
+   the top and leaves a sliver — shrinking it was exactly the broken notch the
+   sbFooterH comment warns about. On a short screen it is dropped entirely
+   instead, which frees the same space without mangling the image. The nav list
+   then owns that space and scrolls on its own. */
+.ash-sb-footer { height: 288px; }
+@media (max-height: 820px) { .ash-sb-footer { display: none !important; } }
+
 /* Dish-name-mapping list. Unscoped — it lives in a portalled dialog.
    Four fixed tracks so the SOP controls form a real column: status marker,
    dish name, the select, the action slot. The action slot is always present
@@ -523,6 +539,13 @@ const KITCHEN_CSS = `
    and let just that card scroll. */
 .kh-scope .kh-catbody { flex: 1; overflow-y: auto; max-height: 360px; }
 .kh-scope .kh-catbody::-webkit-scrollbar { width: 4px; }
+
+/* The hub's own scroll box (everything under the fixed tab strip). Its
+   scrollbar ran the full height of the page as a visible grey rail beside the
+   content, so it is hidden. Scrolling itself is untouched - wheel, trackpad,
+   touch, keyboard and scrollIntoView all still work. */
+.kh-scope .kh-hubscroll { scrollbar-width: none; -ms-overflow-style: none; }
+.kh-scope .kh-hubscroll::-webkit-scrollbar { width: 0; height: 0; }
 
 /* One ingredient row: emoji · name · qty · unit · collect toggle.
    The row is inert; only .kh-ingcheck at the end is interactive.
