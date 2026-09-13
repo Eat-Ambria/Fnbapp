@@ -6,6 +6,7 @@ import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../u
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbUpsert, dbDelete } from '../lib/db.js';
 import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
+import { describeEventMenu } from '../data/menuPackages.js';
 import { logActivity } from './ActivityLog.jsx';
 
 // Module-level caches — persist across component remounts (tab switching), reduce first-open latency dramatically
@@ -479,7 +480,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
                   {[
                     {icon:"👥",label:"Pax",value:ev.pax,sub:`V:${ev.veg||ev.pax} NV:${ev.nonveg||0}`},
-                    {icon:"📜",label:"Package",value:ev.menuPackage||"Custom"},
+                    {icon:"📜",label:"Package",value:describeEventMenu(ev)},
                     {icon:"🍽",label:"Dishes",value:`${readyDishes}/${totalDishes} ready`,pct:readyPct},
                     {icon:"🚛",label:"Vehicles",value:`${allVehicles.length} assigned`},
                   ].map((s,i)=>(

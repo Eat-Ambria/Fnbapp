@@ -4,7 +4,7 @@ import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS }
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW } from '../utils/helpers.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
 import { canAccessScreen } from '../data/permissions.js';
 import { dbUpsert } from '../lib/db.js';
@@ -364,7 +364,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         <div>
           {todayEvs.map(ev=>(
             <Card key={ev.id} style={{marginBottom:10,padding:"12px 14px"}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>{ev.guest} — {ev.menuPackage||"Custom"}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>{ev.guest} — {describeEventMenu(ev)}</div>
               <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").length} {T2("dishes")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                 {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
@@ -1233,7 +1233,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                             <div>
                               <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{ev.guest}</div>
                               <div style={{fontSize:12,color:C.muted,marginTop:3}}>📍 {ev.venue} · ⏰ {ev.time} · 👥 {ev.pax} {T2("pax")}</div>
-                              <div style={{fontSize:12,color:C.muted}}>{ev.menuPackage||"Custom"} · {menu.length} {T2("dishes")} · 🚛 {T2("Dispatch")}: {calcDispatch(ev.time)}</div>
+                              <div style={{fontSize:12,color:C.muted}}>{describeEventMenu(ev)} · {menu.length} {T2("dishes")} · 🚛 {T2("Dispatch")}: {calcDispatch(ev.time)}</div>
                               {ev.date>TODAY&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📅 {ev.date}</div>}
                             </div>
                             <div style={{textAlign:"center",flexShrink:0}}>

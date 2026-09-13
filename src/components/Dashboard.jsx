@@ -5,7 +5,7 @@ import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
 import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
 import { MenuEditor } from './MenuEditor.jsx';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -333,7 +333,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                             Catering (ODC)") — the actual site name lives in odc_location
                             (same field ODCModule.jsx labels "Location"), so show that too
                             or this line reads identically for every outdoor function. */}
-                        {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {ev.menuPackage||"Custom"}
+                        {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {describeEventMenu(ev)}
                         {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
                       </div>
                       {evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:evReady>=evMenu.length?C.greenBg:C.amberBg,color:evReady>=evMenu.length?"#0F6E56":"#854F0B"}}>{evReady}/{evMenu.length} dishes ready</span></div>}
@@ -413,7 +413,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:500,color:C.text}}>{ev.guest}</div>
                   <div style={{fontSize:12,color:C.muted,marginTop:2}}>
-                    {(VP[ev.venue]||{}).code||"EV"} · {ev.time} · {ev.menuPackage||"Custom"}
+                    {(VP[ev.venue]||{}).code||"EV"} · {ev.time} · {describeEventMenu(ev)}
                     {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
                   </div>
                   {isD1&&evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:d1Done>0?C.greenBg:C.amberBg,color:d1Done>0?"#0F6E56":"#854F0B"}}>D-1 prep: {d1Done}/{evMenu.length} done</span></div>}

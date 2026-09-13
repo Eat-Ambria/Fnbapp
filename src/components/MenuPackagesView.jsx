@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { SALES_DEPTS } from '../data/salesConfig.js';
@@ -130,10 +130,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [pendingMenuDrop, setPendingMenuDrop] = useState(null); // { dishes, prevCount, nextCount } | null
 
   function commitMenu(dishes) {
+    // Used to clear menuPackage entirely on every save — so swapping even one
+    // dish in a "Luxury Veg" function turned it into a bare "Custom" menu
+    // everywhere (Dashboard, Dept Ops, Transport), losing the base package
+    // (and its section grouping) kitchen needs to know what they're cooking.
+    // Keep the base package on the event; describeEventMenu (menuPackages.js)
+    // derives "Luxury Veg + Swaps"/"+ Addons" at display time by diffing the
+    // saved menu against the package's own dish list.
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
         if (e.id !== selEv.id) return e;
-        return { ...e, menu: dishes, menuPackage: "" };
+        return { ...e, menu: dishes };
       });
     });
     syncEventItemsFromKitchenMenu(selEv.id, dishes);
@@ -1167,7 +1174,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             {isLms && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, fontWeight: 600 }}>LMS</span>}
                           </div>
                           <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
-                            {ev.venue} · {ev.time || "TBD"} · {ev.pax || "?"} pax{ev.menuPackage ? " · " + ev.menuPackage : ""}
+                            {ev.venue} · {ev.time || "TBD"} · {ev.pax || "?"} pax{ev.menuPackage ? " · " + describeEventMenu(ev) : ""}
                           </div>
                         </div>
                         <div style={{ textAlign: "right", flexShrink: 0 }}>

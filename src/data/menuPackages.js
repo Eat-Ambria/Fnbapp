@@ -81,6 +81,31 @@ async function refreshMenuPackages() {
   }
 }
 
+// Build Menu edits used to clear an event's menuPackage entirely (see
+// MenuPackagesView.jsx's commitMenu), so a "Luxury Veg" function that had a
+// couple of dishes swapped showed as a generic "Custom" everywhere — Dashboard,
+// Dept Ops, Transport — losing the one thing that told kitchen which base
+// menu (and section grouping) they were actually meant to cook. commitMenu no
+// longer clears it; this derives a display label at read time instead of
+// persisting one, so it stays correct even if the package's own dish list
+// changes later.
+function describeEventMenu(ev) {
+  if (!ev || !ev.menuPackage) return 'Custom';
+  const pkgDishes = MENU_PACKAGES[ev.menuPackage];
+  if (!pkgDishes) return ev.menuPackage; // package renamed/removed since — show the name as-is
+  const menu = Array.isArray(ev.menu) ? ev.menu : [];
+  // LMS events keep menu:[] while nothing has ever been touched (see App.jsx's
+  // isAutoResolved) — the dish list is the package's own, unmodified.
+  if (menu.length === 0) return ev.menuPackage;
+  const pkgSet = new Set(pkgDishes);
+  const menuSet = new Set(menu);
+  const added = menu.some(d => !pkgSet.has(d));
+  const removed = pkgDishes.some(d => !menuSet.has(d));
+  if (!added && !removed) return ev.menuPackage;
+  if (added && !removed) return ev.menuPackage + ' + Addons';
+  return ev.menuPackage + ' + Swaps';
+}
+
 export {
   MENU_PACKAGES,
   MENU_PACKAGE_NAMES,
@@ -89,5 +114,6 @@ export {
   MENU_PACKAGE_META,
   hydrateMenuPackages,
   hydrateMenuPackageSections,
-  refreshMenuPackages
+  refreshMenuPackages,
+  describeEventMenu
 };
