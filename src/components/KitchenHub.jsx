@@ -3320,10 +3320,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <div style={{padding:"9px 2px",fontSize:13,color:K.textFaint}}>{T2("from recipe")}</div>
+                                    ? <div style={{padding:"9px 2px",fontSize:13.5,color:K.textMuted}}>{T2("from recipe")}</div>
                                     : nameLocked
-                                      ? <div style={{padding:"9px 2px",fontSize:13,color:K.textMuted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.hi||<span style={{color:K.textFaint}}>{T2("auto")}</span>}</div>
-                                      : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
+                                      ? <div style={{padding:"9px 2px",fontSize:13.5,fontWeight:600,color:K.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.hi||<span style={{color:K.textFaint,fontWeight:500}}>{T2("auto")}</span>}</div>
+                                      : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,fontWeight:600,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                                   }
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
@@ -3498,7 +3498,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <span title={typeTitle} style={{color:typeColor,flexShrink:0,paddingTop:1}}><Icon name={typeIcon} size={15} strokeWidth={1.9}/></span>
                                   <span style={{minWidth:0}}>
                                     <span style={{display:"block",fontWeight:600,color:K.text}}>{ing.name}</span>
-                                    {hi&&<span style={{display:"block",fontSize:12,color:K.textFaint,marginTop:1}}>{hi}</span>}
+                                    {/* Devanagari at the same size and weight as
+                                        Latin reads noticeably lighter, so the
+                                        Hindi line gets a darker tone than a
+                                        secondary line would normally take. */}
+                                    {hi&&<span style={{display:"block",fontSize:12.5,fontWeight:500,color:K.textMuted,marginTop:2}}>{hi}</span>}
                                   </span>
                                 </span>
                               </td>
