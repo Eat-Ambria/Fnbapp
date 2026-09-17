@@ -4160,7 +4160,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         {secClosed}/{group.items.length}
                       </span>
                     </button>
-                    {isOpen && group.items.map(dish=>{
+                    {isOpen && (<div className="kh-closegrid">{group.items.map(dish=>{
                       const row = closeRows[dish];
                       const planKg = evPlanRows[closeEventId]?.[dish]?.target_yield_kg || null;
                       const lkg = row?.leftover_kg;
@@ -4169,15 +4169,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const isSaving = closeSaving.has(dish);
                       const isClosed = !!row;
                       return(
-                        <div key={dish} style={{marginTop:8,marginLeft:14,borderRadius:14,border:`1px solid ${isClosed?K.okBorder:K.cardWarmLine}`,backgroundColor:isClosed?K.okBg:"#FFFFFF",boxShadow:K.shadowCard,overflow:"hidden"}}>
-                          <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <div key={dish} style={{borderRadius:14,border:`1px solid ${isClosed?K.okBorder:K.cardWarmLine}`,backgroundColor:isClosed?K.okBg:"#FFFFFF",boxShadow:K.shadowCard,overflow:"hidden"}}>
+                          <div style={{padding:"13px 14px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                             <div style={{flex:1,minWidth:180}}>
                               <div style={{fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{dishLabel(dish, lang)}</div>
                               {planKg && <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,borderRadius:K.rPill,padding:"3px 10px",marginTop:5,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
                             </div>
                             <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:isSaving?K.warn:isClosed?K.ok:K.textFaint}}>{isSaving?<><Icon name="refresh" size={13} strokeWidth={2.1}/>{T2("Saving")}…</>:isClosed?<><Icon name="check" size={13} strokeWidth={2.3}/>{T2("Closed")}</>:null}</div>
                           </div>
-                          <div style={{padding:"0 16px 14px",display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div style={{padding:"10px 14px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"end"}}>
                             <div>
                               <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Leftover kg")}</div>
                               <input type="number" step="0.1" inputMode="decimal"
@@ -4185,7 +4185,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 key={"lkg-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:118,padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:C.surface,boxSizing:"border-box",minHeight:38}}/>
                             </div>
                             <div>
                               <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Pcs (opt.)")}</div>
@@ -4194,9 +4194,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 key={"lpcs-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:100,padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:"#FFFFFF",boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:"#FFFFFF",boxSizing:"border-box",minHeight:38}}/>
                             </div>
-                            <div style={{flex:1,minWidth:180}}>
+                            <div style={{gridColumn:"1 / -1"}}>
                               <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Notes")}</div>
                               <input type="text"
                                 defaultValue={notes}
@@ -4208,7 +4208,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                         </div>
                       );
-                    })}
+                    })}</div>)}
                   </div>
                 );
               })}

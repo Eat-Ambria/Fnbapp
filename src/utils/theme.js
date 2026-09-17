@@ -569,6 +569,20 @@ const KITCHEN_CSS = `
 .kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
 .kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
 
+/* Closing-tab dish cards — three up. Fixed tracks rather than auto-fill: the
+   card holds two number fields side by side and a notes field under them, and
+   below about 300px those stop fitting, so the column count steps down at
+   widths we choose instead of wherever auto-fill happens to break. */
+.kh-scope .kh-closegrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
+}
+@media (max-width: 1240px) { .kh-scope .kh-closegrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .kh-scope .kh-closegrid { grid-template-columns: minmax(0, 1fr); } }
+
 /* Closing-tab calendar. Only a clickable cell lights up — a future date has
    nothing to open, so hovering one must not suggest that it does. */
 .kh-scope .kh-calcell { transition: background .14s ease; }
