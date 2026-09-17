@@ -4106,7 +4106,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:closeExcludeUI?C.amberBg:C.bg,border:`1.5px solid ${closeExcludeUI?C.amberBorder:C.border}`,cursor:"pointer"}}>
                   <input type="checkbox" checked={closeExcludeUI} onChange={e=>toggleEventExclude(e.target.checked, ctx)} style={{width:18,height:18,accentColor:C.amber,cursor:"pointer"}}/>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:700,color:closeExcludeUI?C.amber:C.text}}>? {T2("Don't affect future ordering")}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:7,fontSize:13.5,fontWeight:700,color:closeExcludeUI?K.warn:K.hdrTitle}}><Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Don't affect future ordering")}</div>
                     <div style={{fontSize:10,color:C.muted,marginTop:1}}>{T2("Use for daily / repeat functions where a slight over-order is fine. Applies to every dish in this event.")}</div>
                   </div>
                 </label>
@@ -4124,14 +4124,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const secClosed = group.items.filter(d=>closeRows[d]).length;
                 return(
                   <div key={group.cat.id} style={{marginBottom:10}}>
+                    {/* Opaque, not a 8%-alpha wash of the station colour: over
+                        the page artwork that wash let the photograph through and
+                        the whole row read as broken. The station's colour stays,
+                        but only where colour means something — the left edge and
+                        the icon tile. The name is text, so it is text-coloured. */}
                     <button onClick={()=>setCloseSectionOpen(p=>({...p,[group.cat.id]:!p[group.cat.id]}))}
-                      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`,borderTop:"none",borderRight:"none",borderBottom:"none",cursor:"pointer",textAlign:"left"}}>
-                      <span style={{fontSize:12,color:group.cat.color||C.muted,transition:"transform 0.15s",transform:isOpen?"rotate(90deg)":"rotate(0)",display:"inline-block"}}>?</span>
-                      <span style={{fontSize:18}}>{group.cat.icon||"??"}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}{secClosed>0?` — ${secClosed} ${T2("closed")}`:""}</div>
-                      </div>
+                      className="kh-btn kh-rip" onPointerDown={ripple}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 16px",
+                        borderRadius:14,backgroundColor:K.cardWarm,
+                        border:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.cat.color||K.brand}`,
+                        boxShadow:K.shadowCard,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                      <span style={{display:"flex",flexShrink:0,color:K.textFaint,transition:"transform .15s",
+                        transform:isOpen?"rotate(90deg)":"rotate(0)"}}>
+                        <Icon name="chevronR" size={16} strokeWidth={2.2}/>
+                      </span>
+                      <span style={{width:36,height:36,borderRadius:11,flexShrink:0,fontSize:18,lineHeight:1,
+                        background:(group.cat.color||K.brand)+"18",
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>{group.cat.icon||"\u{1F37D}"}</span>
+                      <span style={{flex:1,minWidth:0}}>
+                        <span style={{display:"block",fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{group.cat.name||group.cat.id}</span>
+                        <span style={{display:"block",fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
+                          {group.items.length} {T2("dishes")}
+                        </span>
+                      </span>
+                      {/* Progress belongs on the right as a chip, not tacked onto
+                          the dish count with a dash. */}
+                      <span style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0,padding:"5px 12px",
+                        borderRadius:K.rPill,fontSize:12,fontWeight:700,
+                        background:secClosed===group.items.length?K.okBg:secClosed>0?K.warnBg:K.surfaceAlt,
+                        border:`1px solid ${secClosed===group.items.length?K.okBorder:secClosed>0?K.warnBorder:K.line}`,
+                        color:secClosed===group.items.length?K.ok:secClosed>0?K.warn:K.textFaint}}>
+                        {secClosed===group.items.length&&<Icon name="check" size={13} strokeWidth={2.3}/>}
+                        {secClosed}/{group.items.length}
+                      </span>
                     </button>
                     {isOpen && group.items.map(dish=>{
                       const row = closeRows[dish];
@@ -4142,41 +4169,41 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const isSaving = closeSaving.has(dish);
                       const isClosed = !!row;
                       return(
-                        <div key={dish} style={{marginTop:6,marginLeft:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
+                        <div key={dish} style={{marginTop:8,marginLeft:14,borderRadius:14,border:`1px solid ${isClosed?K.okBorder:K.cardWarmLine}`,backgroundColor:isClosed?K.okBg:"#FFFFFF",boxShadow:K.shadowCard,overflow:"hidden"}}>
                           <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                             <div style={{flex:1,minWidth:180}}>
-                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dishLabel(dish, lang)}</div>
-                              {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
+                              <div style={{fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{dishLabel(dish, lang)}</div>
+                              {planKg && <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,borderRadius:K.rPill,padding:"3px 10px",marginTop:5,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
                             </div>
-                            <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✅ "+T2("Closed"):""}</div>
+                            <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:isSaving?K.warn:isClosed?K.ok:K.textFaint}}>{isSaving?<><Icon name="refresh" size={13} strokeWidth={2.1}/>{T2("Saving")}…</>:isClosed?<><Icon name="check" size={13} strokeWidth={2.3}/>{T2("Closed")}</>:null}</div>
                           </div>
-                          <div style={{padding:"0 14px 12px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div style={{padding:"0 16px 14px",display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
                             <div>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Leftover kg")}</div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Leftover kg")}</div>
                               <input type="number" step="0.1" inputMode="decimal"
                                 defaultValue={lkg??""}
                                 key={"lkg-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:118,padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:C.surface,boxSizing:"border-box",minHeight:38}}/>
                             </div>
                             <div>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Pcs (opt.)")}</div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Pcs (opt.)")}</div>
                               <input type="number" step="1" inputMode="numeric"
                                 defaultValue={lpcs??""}
                                 key={"lpcs-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:80,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:100,padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:"#FFFFFF",boxSizing:"border-box",minHeight:38}}/>
                             </div>
                             <div style={{flex:1,minWidth:180}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Notes")}</div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Notes")}</div>
                               <input type="text"
                                 defaultValue={notes}
                                 key={"nts-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {notes:e.target.value}, ctx)}
                                 placeholder={T2("optional")}
-                                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                             </div>
                           </div>
                         </div>
@@ -4186,8 +4213,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 );
               })}
 
-              <div style={{marginTop:20,padding:"10px 14px",borderRadius:8,background:C.bg,fontSize:10,color:C.faint,textAlign:"center"}}>
-                {T2("Auto-saves on blur. The ? flag will be honored once order-suggestion is wired to this data.")}
+              {/* The old copy promised that "the ? flag will be honored once
+                  order-suggestion is wired to this data" — a sentence about an
+                  unbuilt feature, referring to a toggle whose label had been
+                  mangled to a bare "?". Left is the one fact a user needs. */}
+              <div style={{marginTop:20,padding:"12px 16px",borderRadius:12,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.cardWarmLine}`,display:"flex",alignItems:"center",justifyContent:"center",
+                gap:8,fontSize:12.5,color:K.hdrMeta}}>
+                <Icon name="check" size={14} strokeWidth={2}/>
+                {T2("Each field saves on its own as soon as you leave it")}
               </div>
             </>)}
           </div>
