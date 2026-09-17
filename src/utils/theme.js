@@ -123,6 +123,11 @@ const K = {
   // accent: it is the brand plate at the top of every screen. Retint here.
   hdrBg:       "linear-gradient(135deg, #FCFBF8 0%, #F8F7F2 58%, #F4F2EA 100%)",
   hdrLine:     "#EBE8DE",
+  // Warm ivory card face, for grids that are mostly card. The app's default
+  // card is a cool white, and a wall of a dozen of them reads as blank paper;
+  // this is the same ivory family as the header plate they sit under.
+  cardWarm:    "#FBFAF5",
+  cardWarmLine:"#E8E3D6",
   hdrBadge:    "#1C3D2B",
   hdrBadgeIcon:"#D9C08A",
   hdrEyebrow:  "#8C8C83",
@@ -546,6 +551,61 @@ const KITCHEN_CSS = `
    touch, keyboard and scrollIntoView all still work. */
 .kh-scope .kh-hubscroll { scrollbar-width: none; -ms-overflow-style: none; }
 .kh-scope .kh-hubscroll::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Any small panel that scrolls inside a rounded box - dropdown menus, picker
+   lists. The default rail is a hard grey line that runs the full height and
+   meets the rounded corner as a straight edge. This one is a floating pill
+   with nothing behind it, inset by a transparent border so it never touches
+   the corner. UNSCOPED: some of these panels are portalled out of .kh-scope. */
+.kh-thinscroll { scrollbar-width: thin; scrollbar-color: ${K.lineStrong} transparent; }
+.kh-thinscroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.kh-thinscroll::-webkit-scrollbar-track { background: transparent; }
+.kh-thinscroll::-webkit-scrollbar-thumb {
+  background: ${K.lineStrong};
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
+.kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Recipe SOPs — category cards ──────────────────────────────────────────
+   auto-fill, NOT auto-fit: auto-fit collapses the empty tracks, so a filtered
+   search that leaves one match would stretch that card across the whole row. */
+.kh-scope .kh-sopgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 700px) {
+  .kh-scope .kh-sopgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+}
+/* Recipe rows inside a category. Two up on a desktop, one up once a column can
+   no longer hold a 74px tile plus a name plus the two right-hand controls. */
+.kh-scope .kh-soprows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+/* The card's own colours are inline, so every hover rule that repaints one
+   needs !important to win. Not on transform - nothing sets that inline. */
+.kh-scope .kh-sopcard { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.kh-scope .kh-sopcard:hover { transform: translateY(-3px); border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
+.kh-scope .kh-sopcard:hover .kh-sopgo { background: ${K.brand} !important; border-color: ${K.brand} !important; color: #FFFFFF !important; }
+/* The "..." button only appears on hover or focus, so 13 cards do not read as
+   13 menus. Focus-within keeps it reachable from the keyboard. */
+.kh-scope .kh-sopmenu { opacity: 0; transition: opacity .15s ease; }
+.kh-scope .kh-sopcard:hover .kh-sopmenu,
+.kh-scope .kh-sopcard:focus-within .kh-sopmenu,
+.kh-scope .kh-sopmenu.is-open { opacity: 1; }
+.kh-scope .kh-sopmenu:hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; color: ${K.brandText} !important; }
+.kh-scope .kh-sopadd:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
+/* Coarse pointers never hover, so the menu would be unreachable on a tablet. */
+@media (hover: none) {
+  .kh-scope .kh-sopmenu { opacity: 1; }
+}
 
 /* One ingredient row: emoji · name · qty · unit · collect toggle.
    The row is inert; only .kh-ingcheck at the end is interactive.
