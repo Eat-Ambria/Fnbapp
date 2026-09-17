@@ -957,6 +957,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   }
   function moveRecipe(recipe,fromCatId,toCatId){
     if(!toCatId||toCatId===fromCatId) return;
+  // Destructive confirms go through the in-app dialog, not window.confirm: the
+  // browser one is unstyled OS chrome, it cannot say WHAT is being deleted in
+  // the app's own voice, and on a kiosk tablet it can be suppressed entirely —
+  // which would make a delete silent.
     var fromArr=RECIPE_DB.recipes[fromCatId]||[];
     var idx=fromArr.findIndex(r=>r.n===recipe.n);
     if(idx>=0) fromArr.splice(idx,1);
@@ -980,7 +984,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setSopSelected(new Set());setSopBulkMode(false);setSopBulkTarget("");
   }
   function deleteSop(recipe,catId){
-    if(!window.confirm('Delete "'+recipe.n+'"? This cannot be undone.'))return;
+    const nSteps=safeArr(recipe.steps).length;
+    const nIng=safeArr(recipe.ingredients?.items).filter(i=>!i.isSection).length;
+    const detail=[nSteps?`${nSteps} ${nSteps===1?T2("step"):T2("steps")}`:null,
+                  nIng?`${nIng} ${T2("ingredients")}`:null].filter(Boolean).join(" · ");
+    // The recipe name goes in the subhead, not the title. Titles that quote a
+    // long dish name wrap to two lines and bury the question being asked.
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this recipe?"),
+      subhead:(
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>{recipe.n}</div>
+          {detail&&<div style={{fontSize:13,color:K.hdrMeta,marginTop:2}}>{detail}</div>}
+        </div>
+      ),
+      body:T2("It is removed for everyone. This cannot be undone."),
+      confirmLabel:T2("Delete recipe"),
+      onConfirm:function(){setResetModal(null);doDeleteSop(recipe,catId);}});
+  }
+  function doDeleteSop(recipe,catId){
     const cid=catId||sopCat||"";
     const arr=RECIPE_DB.recipes[cid]||[];
     const idx=arr.findIndex(r=>r.n===recipe.n);
@@ -1004,6 +1026,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         .then(function(stream){camStreamRef.current=stream;setCamOn(true);})
         .catch(function(){var el=document.getElementById(fbId);if(el)el.click();});
     }else{var el=document.getElementById(fbId);if(el)el.click();}
+  }
+  // Leaving the ingredient editor with unsaved rows is a real loss, so it
+  // asks in the app's own dialog rather than a browser confirm.
+  function askDiscardIng(){
+    setResetModal({tone:"warn",icon:"alert",
+      title:T2("Discard your changes?"),
+      body:T2("The rows you edited since the last save will be lost."),
+      confirmLabel:T2("Discard changes"),
+      onConfirm:function(){setResetModal(null);setIngModal(null);setIngDirty(false);}});
   }
   function capturePhoto(){
     var v=camRef.current;var c=capRef.current;if(!v||!c)return;
@@ -1358,6 +1389,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           {/* A real heading, not a micro-label. At 10.5px uppercase this was the
               quietest thing on a screen whose whole point is telling the tablet
               which stations it is responsible for. */}
+        subhead={resetModal?.subhead}
           <div style={{display:'flex',alignItems:'center',gap:13,marginBottom:12}}>
             <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
               display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -1367,6 +1399,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               <div style={{...type.pageTitle,fontSize:28,color:K.hdrTitle}}>{T2("Your stations")}</div>
               <div style={{fontSize:14,color:K.hdrMeta,marginTop:3}}>{T2("Showing only your assigned categories")}</div>
             </div>
+        subhead={resetModal?.subhead}
             <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0,
               minWidth:34,height:34,padding:'0 11px',borderRadius:K.rPill,
               background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brand,
