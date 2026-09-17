@@ -569,6 +569,11 @@ const KITCHEN_CSS = `
 .kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
 .kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
 
+/* Closing-tab calendar. Only a clickable cell lights up — a future date has
+   nothing to open, so hovering one must not suggest that it does. */
+.kh-scope .kh-calcell { transition: background .14s ease; }
+.kh-scope .kh-calcell:hover { background: ${K.surfaceAlt} !important; }
+
 /* Selects inside the SOP editors. The native control draws an OS arrow in an
    OS font, which is exactly what made the unit column look foreign among our
    own fields. appearance:none strips it; the caret below is ours. The right

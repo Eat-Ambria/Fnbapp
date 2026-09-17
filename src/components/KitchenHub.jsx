@@ -2545,7 +2545,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // Map section filter to relevant SOP category IDs
         const allowedCats = allowedCatIds;
         const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
-        const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
 
         // One Sort control, two places: beside the search on the category
         // overview, and in the toolbar once a category is open. Its three orders
@@ -2595,32 +2594,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               Back, the controls and the recipe count - and a second title bar
               above it just pushed the list down. */}
           {!sopCat&&(<>
-          {/* ── Section header — badge · serif title · meta, then the controls ──
-              Its own header rather than a bare line of text: SOPs is a library
-              you browse, not a step in the day's work, so it reads like the
-              front page of one. The controls sit on the same row and drop below
-              the title only when the column is too narrow to hold both. */}
+          {/* Controls only — no badge, title or meta line. The tab strip above
+              already says which screen this is, and the counts it carried are
+              visible in the grid itself. */}
           <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",marginBottom:18}}>
-            <div style={{width:72,height:72,borderRadius:20,flexShrink:0,backgroundColor:K.cardWarm,
-              border:`1px solid ${K.hdrLine}`,boxShadow:K.shadowCard,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              // sbGold, not hdrBadgeIcon: the latter is tuned to sit on the deep
-              // green badge and is far too pale against an ivory tile.
-              color:K.sbGold}}>
-              <Icon name="clipboard" size={34} strokeWidth={1.5}/>
-            </div>
-            <div style={{minWidth:0,flex:"1 1 260px"}}>
-              <div style={{...type.pageTitle,color:K.hdrTitle}}>{T2("Recipe SOPs")}</div>
-              <div style={{fontSize:13.5,color:K.hdrMeta,marginTop:5,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                <span>{totalRecipes} {T2("recipes")}</span>
-                <span style={{color:K.textFaint}}>·</span>
-                <span>{filteredCats.length} {T2("categories")}</span>
-                <span style={{color:K.textFaint}}>·</span>
-                <span>{T2("Procedures in Hindi")}</span>
-              </div>
-            </div>
 
-            <div style={{display:"flex",alignItems:"center",gap:12,flex:"1 1 380px",minWidth:0,justifyContent:"flex-end"}}>
+            {/* Left-aligned now that nothing sits to its left — pushed right it
+                would hang off the edge of an empty row. */}
+            <div style={{display:"flex",alignItems:"center",gap:12,flex:"1 1 380px",minWidth:0,justifyContent:"flex-start"}}>
               <div style={{position:"relative",flex:"0 1 340px",minWidth:0}}>
                 <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",color:K.textFaint,display:"flex",pointerEvents:"none"}}>
                   <Icon name="search" size={16} strokeWidth={1.9}/>
@@ -3961,75 +3942,152 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return (
           <div>
-            {/* Header */}
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍲 {T2("Event Closing")}</div>
-              <div style={{fontSize:12,color:C.muted}}>{T2("Record leftover quantities per dish after the event. Toggle ? to keep this event's leftovers out of future order suggestions.")}</div>
+            {/* No header. The tab strip above already names this screen, and the
+                line under it explained a toggle whose label had long since been
+                mangled into a bare "?". */}
+
+            {/* ── Calendar ── */}
+            <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:16}}>
+              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.hdrLine}`,boxShadow:K.shadowCard,color:K.sbGold,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="calendarDays" size={28} strokeWidth={1.6}/>
+              </span>
+              <span style={{minWidth:0,flex:"1 1 220px"}}>
+                <span style={{display:"block",...type.pageTitle,fontSize:27,color:K.hdrTitle}}>{MO_N[closeCalMo]} {closeCalYr}</span>
+                <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Pick a past date to record its closing")}</span>
+              </span>
+              <span style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={prevMo} title={T2("Previous month")}
+                  style={{width:44,height:44,borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                  <Icon name="chevronL" size={18} strokeWidth={2.1}/>
+                </button>
+                <button className="kh-btn kh-rip" onPointerDown={ripple}
+                  onClick={()=>{setCloseCalYr(new Date().getFullYear());setCloseCalMo(new Date().getMonth());setCloseSelDate(TODAY);setCloseEventId(null);}}
+                  style={{padding:"13px 20px",borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>
+                  {T2("Today")}
+                </button>
+                <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={nextMo} title={T2("Next month")}
+                  style={{width:44,height:44,borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                  <Icon name="chevronR" size={18} strokeWidth={2.1}/>
+                </button>
+              </span>
             </div>
 
-            {/* Calendar picker */}
-            <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                  <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[closeCalMo]} {closeCalYr}</div>
-                  <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                </div>
-                <button onClick={()=>{setCloseCalYr(new Date().getFullYear());setCloseCalMo(new Date().getMonth());setCloseSelDate(todayS);setCloseEventId(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+            <div className="kh-cardart-sm" style={{borderRadius:20,backgroundColor:K.cardWarm,
+              border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden",marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:K.brandSoft,
+                borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                {DY.map(d=>(
+                  <div key={d} style={{textAlign:"center",...type.label,fontSize:11,color:K.hdrMeta,padding:"12px 0"}}>{d}</div>
+                ))}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-                {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#FFFFFF"}}>
                 {cells.map((cell,i)=>{
                   const dt = cDate(cell);
                   const evs = dt?eod(dt):[];
                   const isT = dt===todayS;
                   const isS = dt===selDate;
+                  // Closing is a record of what already happened, so a future
+                  // date has nothing to open. It stays visible but inert.
                   const isFuture = dt && dt > todayS;
                   const clickable = dt && !isFuture;
+                  const inMonth = !!cell.c;
                   return(
                     <div key={i} onClick={()=>{if(!clickable)return;setCloseSelDate(dt);setCloseEventId(null);}}
-                      style={{height:52,padding:"5px 6px",cursor:clickable?"pointer":"default",
-                        borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
-                        background:isS?C.goldBg:isT?"#FAEEDA":"transparent",opacity:cell.c&&!isFuture?1:.35}}>
-                      <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":C.text}}>{cell.d}</div>
-                      {evs.length>0 && !isFuture && <div style={{display:"flex",gap:2,marginTop:2}}>{evs.slice(0,4).map((ev,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:anaGp(ev.venue).c||C.muted}}/>)}</div>}
+                      className={clickable?"kh-calcell":undefined}
+                      style={{minHeight:64,padding:"9px 10px",cursor:clickable?"pointer":"default",
+                        borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                        background:isS?K.brandBg:"transparent",
+                        opacity:inMonth?(isFuture?.45:1):.3}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+                        width:26,height:26,borderRadius:"50%",fontSize:13,
+                        fontWeight:isS||isT?700:500,fontVariantNumeric:"tabular-nums",
+                        background:isS?K.brand:"transparent",
+                        color:isS?"#FFFFFF":isT?K.brand:K.text,
+                        boxShadow:!isS&&isT?`inset 0 0 0 1.5px ${K.brandBorder}`:"none"}}>{cell.d}</div>
+                      {evs.length>0 && !isFuture && (
+                        <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                          {evs.slice(0,5).map((ev,ci)=>(
+                            <span key={ci} style={{width:7,height:7,borderRadius:"50%",background:anaGp(ev.venue).c}}/>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+              <div style={{display:"flex",alignItems:"center",gap:14,padding:"13px 16px",borderTop:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:7,...type.label,fontSize:10.5,color:K.hdrMeta}}>
+                  <Icon name="tag" size={13} strokeWidth={1.9}/>{T2("Event types")}
+                </span>
+                {Object.entries(ANA_VP).map(([v,p])=>(
+                  <span key={v} style={{display:"inline-flex",alignItems:"center",gap:6}} title={v}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:p.c}}/>
+                    <span style={{fontSize:12,fontWeight:600,color:K.textMuted}}>{p.code}</span>
+                  </span>
+                ))}
+                <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:7,fontSize:12.5,color:K.textFaint}}>
+                  <Icon name="calendar" size={13} strokeWidth={1.9}/>{T2("Click a past date to see its events")}
+                </span>
               </div>
             </div>
 
             {/* Events on selected date */}
             {selDate && (
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} — {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:11,flexWrap:"wrap"}}>
+                  <span style={{...type.sectionHead,fontSize:19,color:K.hdrTitle}}>{fmtDate(selDate)}</span>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 12px",borderRadius:K.rPill,
+                    background:dateEvs.length?K.brandBg:K.surfaceAlt,border:`1px solid ${dateEvs.length?K.brandBorder:K.line}`,
+                    fontSize:12.5,fontWeight:700,color:dateEvs.length?K.brandText:K.textFaint}}>
+                    {dateEvs.length} {dateEvs.length===1?T2("event"):T2("events")}
+                  </span>
+                </div>
+                <div className="kh-soprows">
                   {dateEvs.map(ev=>{
                     const isSel = closeEventId===ev.id;
                     const mc = menuArr(ev).length;
                     const vc = anaGp(ev.venue);
                     return (
-                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
-                        <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                        <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax — {mc} dishes{ev.venue?" — "+ev.venue:""}</div>
+                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)} className="kh-sopcard kh-cardart-sm kh-rip" onPointerDown={ripple}
+                        style={{display:"block",width:"100%",textAlign:"left",padding:"14px 16px",borderRadius:16,cursor:"pointer",
+                          backgroundColor:isSel?K.brandBg:K.cardWarm,
+                          border:`1px solid ${isSel?K.brand:K.cardWarmLine}`,borderLeft:`4px solid ${vc.c}`,
+                          boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                        <span style={{display:"block",fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</span>
+                        <span style={{display:"flex",alignItems:"center",gap:7,marginTop:5,fontSize:12.5,color:K.hdrMeta,flexWrap:"wrap"}}>
+                          <Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} pax
+                          <span style={{color:K.textFaint}}>·</span>
+                          <Icon name="utensils" size={13} strokeWidth={1.9}/>{mc} {T2("dishes")}
+                          {ev.venue&&<><span style={{color:K.textFaint}}>·</span><span style={{color:vc.c,fontWeight:600}}>{ev.venue}</span></>}
+                        </span>
                       </button>
                     );
                   })}
-                  {dateEvs.length===0 && <div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
+                  {dateEvs.length===0 && (
+                    <div style={{gridColumn:"1 / -1",padding:"26px 18px",textAlign:"center",backgroundColor:K.cardWarm,
+                      border:`1px solid ${K.cardWarmLine}`,borderRadius:16,fontSize:13,color:K.hdrMeta}}>
+                      {T2("No events on this date")}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
             {!selEv && (
-              <Card style={{padding:"24px 20px",textAlign:"center"}}>
-                <div style={{fontSize:28,marginBottom:8}}>🍲</div>
-                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event above to record its closing")}</div>
-              </Card>
+              <div className="kh-cardart-sm" style={{padding:"40px 20px",textAlign:"center",backgroundColor:K.brandSoft,
+                border:`1px solid ${K.brandBorder}`,borderRadius:20,boxShadow:K.shadowCard}}>
+                <div style={{color:K.brand,display:"flex",justifyContent:"center",marginBottom:12,opacity:.75}}>
+                  <Icon name="chefHat" size={38} strokeWidth={1.5}/>
+                </div>
+                <div style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("No event selected")}</div>
+                <div style={{fontSize:13,color:K.hdrMeta,marginTop:4}}>{T2("Pick a date above, then choose the event to record its closing.")}</div>
+              </div>
             )}
 
             {selEv && (<>
