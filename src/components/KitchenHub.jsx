@@ -3240,23 +3240,56 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         <tbody>
                           {ingForm.items.map((item,idx)=>{
                             if (item.isSection) return (
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
-                                <td colSpan={5} style={{padding:"8px 10px"}}>
-                                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section —" style={{width:140,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:C.surface,border:`1.5px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ 300 pax">
-                                      <span style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:.3}}>Yield</span>
-                                      <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:70,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>kg</span>
-                                      <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:60,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>pcs</span>
-                                    </div>
+                              // A section is a heading inside the list, so it
+                              // gets a band rather than a row of fields wearing
+                              // the same white as the ingredients under it.
+                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)}
+                                style={{background:K.brandBg,opacity:ingDragIdx===idx?0.4:1}}>
+                                <td colSpan={5} style={{padding:"10px 10px 10px 13px",borderTop:`1px solid ${K.brandBorder}`,
+                                  borderBottom:`1px solid ${K.brandBorder}`,borderLeft:`3px solid ${K.brand}`}}>
+                                  <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                                    <span style={{...type.label,fontSize:10,color:K.brandText,flexShrink:0}}>{T2("Section")}</span>
+                                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)}
+                                      placeholder={T2("Section name")}
+                                      style={{width:200,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.brandBorder}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        fontFamily:K.fontBody,outline:"none"}}/>
+                                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)}
+                                      placeholder="हिन्दी"
+                                      style={{width:150,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.brandBorder}`,
+                                        fontSize:14,fontWeight:600,color:K.text,background:"#FFFFFF",boxSizing:"border-box",
+                                        fontFamily:K.fontBody,outline:"none"}}/>
+                                    {/* Units sit inside their fields, the same way
+                                        the recipe-level yield editor does it. */}
+                                    <span style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}
+                                      title={`${T2("Section yield at")} ${ingForm.base_pax||300} pax`}>
+                                      <span style={{...type.label,fontSize:10,color:K.brandText}}>{T2("Yield")}</span>
+                                      {[["kg","0.1",item.yield?.kg,"20"],["pcs","1",item.yield?.pcs,"400"]].map(([u,step,val,ph])=>(
+                                        <span key={u} style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                          border:`1px solid ${K.brandBorder}`,overflow:"hidden",width:118}}>
+                                          <input type="number" step={step} value={val??""}
+                                            onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),[u]:v});}}
+                                            placeholder={ph}
+                                            style={{flex:1,minWidth:0,padding:"9px 0 9px 12px",border:"none",outline:"none",background:"transparent",
+                                              fontSize:14,fontWeight:700,color:K.text,fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                          <span style={{padding:"0 12px 0 6px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>{u}</span>
+                                        </span>
+                                      ))}
+                                    </span>
                                   </div>
                                 </td>
-                                <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
-                                  <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove row")} style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}><Icon name="trash" size={15}/></button>
+                                <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",background:K.brandBg,
+                                  borderTop:`1px solid ${K.brandBorder}`,borderBottom:`1px solid ${K.brandBorder}`}}>
+                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")}
+                                    style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,
+                                      borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}>
+                                    <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
+                                  </span>
+                                  <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove section")}
+                                    style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,
+                                      cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}>
+                                    <Icon name="trash" size={15}/>
+                                  </button>
                                 </td>
                               </tr>
                             );
