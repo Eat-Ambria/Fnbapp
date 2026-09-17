@@ -569,6 +569,20 @@ const KITCHEN_CSS = `
 .kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
 .kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
 
+/* Selects inside the SOP editors. The native control draws an OS arrow in an
+   OS font, which is exactly what made the unit column look foreign among our
+   own fields. appearance:none strips it; the caret below is ours. The right
+   padding is what keeps a long unit from running under the caret. */
+.kh-scope .kh-select {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2361708C' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 9.5l6.5 6 6.5-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 15px 15px;
+  padding-right: 32px !important;
+}
+.kh-scope .kh-select::-ms-expand { display: none; }
+
 /* ── Recipe SOPs — category cards ──────────────────────────────────────────
    auto-fill, NOT auto-fit: auto-fit collapses the empty tracks, so a filtered
    search that leaves one match would stretch that card across the whole row. */

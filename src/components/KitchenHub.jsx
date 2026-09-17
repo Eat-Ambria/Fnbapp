@@ -3264,23 +3264,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             const tRow = item.type || 'raw';
                             const isInv = tRow === 'inv';
                             const isBg  = tRow === 'bg';
-                            const rowBg = isInv ? C.blueBg : isBg ? C.amberBg : (idx%2===0?C.surface:C.darkCard);
-                            const rowBrd = isInv ? C.blueBorder : isBg ? C.amberBorder : C.borderLight;
-                            const rowFg  = isInv ? C.blue : isBg ? C.amber : C.text;
-                            const tIcon  = isInv ? "📦" : isBg ? "🥘" : "📝";
+                            // The row itself stays white. Tinting the whole row by
+                            // type meant a recipe whose items are all
+                            // inventory-mapped rendered as a wall of blue — it
+                            // read as "everything is selected" rather than as a
+                            // quiet fact about each item. The type now lives in
+                            // the chip and in a 3px strip down the row's left
+                            // edge, which says the same thing without shouting.
+                            const rowFg  = isInv ? K.accent : isBg ? K.warn : K.text;
+                            const rowTintBg = isInv ? K.accentSoft : isBg ? K.warnBg : K.surfaceAlt;
+                            const rowTintBd = isInv ? K.accentBorder : isBg ? K.warnBorder : K.line;
+                            const tIcon  = isInv ? "box" : isBg ? "utensils" : "note";
                             const nameLocked = isInv || isBg;
                             return (
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:isInv?K.accentSoft:isBg?K.warnBg:"#FFFFFF",opacity:ingDragIdx===idx?0.4:1}}>
-                                <td style={{padding:"8px 10px",textAlign:"center",borderTop:`1px solid ${K.lineSoft}`}}>
+                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:"#FFFFFF",opacity:ingDragIdx===idx?0.4:1}}>
+                                <td style={{padding:"8px 10px",textAlign:"center",borderTop:`1px solid ${K.lineSoft}`,
+                                  borderLeft:`3px solid ${nameLocked?rowFg:"transparent"}`}}>
                                   <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:"50%",background:K.surfaceAlt,border:`1px solid ${K.line}`,fontSize:12.5,fontWeight:700,color:K.textMuted}}>
                                     {ingForm.items.slice(0,idx).filter(i=>!i.isSection).length+1}
                                   </span>
                                 </td>
                                 <td style={{padding:"8px 10px",position:"relative",borderTop:`1px solid ${K.lineSoft}`}}>
                                   <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                    <button onClick={(e)=>{ if(typePickerIdx===idx){setTypePickerIdx(null);setTypePickerPos(null);return;} const r=e.currentTarget.getBoundingClientRect(); setTypePickerPos({top:r.bottom+4,left:r.left}); setTypePickerIdx(idx); }} title={"Type: "+tRow} style={{width:24,height:24,padding:0,border:`1px solid ${rowBrd}`,borderRadius:5,background:C.surface,cursor:"pointer",fontSize:11,lineHeight:"22px",color:rowFg,flexShrink:0}}>{tIcon}</button>
+                                    <button onClick={(e)=>{ if(typePickerIdx===idx){setTypePickerIdx(null);setTypePickerPos(null);return;} const r=e.currentTarget.getBoundingClientRect(); setTypePickerPos({top:r.bottom+4,left:r.left}); setTypePickerIdx(idx); }} title={T2("Change row type")} className="kh-rip" onPointerDown={ripple} style={{width:32,height:32,padding:0,border:`1px solid ${rowTintBd}`,borderRadius:9,background:rowTintBg,cursor:"pointer",color:rowFg,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center"}}><Icon name={tIcon} size={15} strokeWidth={1.9}/></button>
                                     {nameLocked
-                                      ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title="Click to re-pick" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,fontWeight:600,color:rowFg,background:C.surface,cursor:"pointer",minHeight:28,lineHeight:"20px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:C.muted,fontStyle:"italic",fontWeight:400}}>— pick {isInv?"item":"gravy"} —</span>}</div>
+                                      ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title={T2("Click to re-pick")} style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,fontWeight:600,color:K.text,background:"#FFFFFF",cursor:"pointer",boxSizing:"border-box"}}><span style={{minWidth:0,flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:K.textFaint,fontWeight:500}}>{T2("Pick")} {isInv?T2("an item"):T2("a gravy")}…</span>}</span><span style={{color:K.textFaint,display:"flex",flexShrink:0}}><Icon name="link" size={13} strokeWidth={2}/></span></div>
                                       : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                                     }
                                     {(() => {
@@ -3312,21 +3320,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <div style={{padding:"4px 6px",fontSize:11,color:C.muted,fontStyle:"italic"}}>— from recipe —</div>
+                                    ? <div style={{padding:"9px 2px",fontSize:13,color:K.textFaint}}>{T2("from recipe")}</div>
                                     : nameLocked
-                                      ? <div style={{padding:"4px 6px",fontSize:11,color:C.blue,fontStyle:"italic"}}>{item.hi||<span style={{color:C.muted}}>— auto —</span>}</div>
+                                      ? <div style={{padding:"9px 2px",fontSize:13,color:K.textMuted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.hi||<span style={{color:K.textFaint}}>{T2("auto")}</span>}</div>
                                       : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                                   }
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <select value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${K.warnBorder}`,fontSize:13.5,color:K.warn,background:"#FFFFFF",fontWeight:700,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
-                                    : <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:isInv?K.accent:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    ? <select className="kh-select" value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${K.warnBorder}`,fontSize:13.5,color:K.warn,background:"#FFFFFF",fontWeight:700,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    : <select className="kh-select" value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                   }
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
                                 <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",borderTop:`1px solid ${K.lineSoft}`}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",justifyContent:"center",width:26,height:30,color:K.textFaint,userSelect:"none",marginRight:4,verticalAlign:"middle"}}><Icon name="more" size={15} style={{transform:"rotate(90deg)"}}/></span>
+                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
                                   <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove row")} style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}><Icon name="trash" size={15}/></button>
                                 </td>
                               </tr>
