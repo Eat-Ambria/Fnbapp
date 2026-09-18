@@ -638,19 +638,6 @@ const KITCHEN_CSS = `
 }
 .kh-scope .kh-select::-ms-expand { display: none; }
 
-/* ── Function Plan card packing ──────────────────────────────────────────
-   A CSS-columns masonry, not two fixed flex columns: several of these cards
-   collapse to almost nothing when their section is toggled off (Room Info,
-   each equipment item, Drivers Food), and a rigid two-column split left a
-   dead gap under whichever side happened to be shorter. Columns packs
-   whatever height each card actually has, so the layout stays tight no
-   matter which sections are on. */
-.kh-scope .kh-fp-masonry { column-count: 2; column-gap: 16px; }
-.kh-scope .kh-fp-masonry > * { break-inside: avoid; width: 100%; display: inline-block; margin-bottom: 16px; }
-@media (max-width: 860px) {
-  .kh-scope .kh-fp-masonry { column-count: 1; }
-}
-
 /* ── Recipe SOPs — category cards ──────────────────────────────────────────
    auto-fill, NOT auto-fit: auto-fit collapses the empty tracks, so a filtered
    search that leaves one match would stretch that card across the whole row. */

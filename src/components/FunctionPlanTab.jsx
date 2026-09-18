@@ -1,10 +1,10 @@
 // Ambria FnB — Function Plan (FP) form
 // V91: restyled onto the Kitchen Hub design system (K tokens, Icon set) with
 // per-section on/off switches — Room Info, each equipment item and Drivers
-// Food collapse to a bare header until switched on — and a masonry card pack
-// (.kh-fp-masonry) instead of two fixed columns, so the layout stays tight
-// however many sections are toggled off. Autosaves per field on blur, same
-// pattern as production_plans elsewhere in the app.
+// Food collapse to a bare header until switched on. Two fixed columns (Food
+// Preference + Timings on the left; Room Info + Equipment + Drivers Food on
+// the right), matching the approved mockup layout. Autosaves per field on
+// blur, same pattern as production_plans elsewhere in the app.
 // Place in: src/components/FunctionPlanTab.jsx
 
 import React, { useState, useEffect } from "react";
@@ -100,7 +100,7 @@ function Switch({ on, onChange, title }) {
 // KPanel's fixed accent-blue badge does not support.
 function Panel({ icon, badgeBg, badgeColor, title, right, children }) {
   return (
-    <div className="kh-cardart" style={{ backgroundColor: K.surface, border: "1px solid " + K.line, borderRadius: K.rLg, boxShadow: K.shadowCard, overflow: "hidden" }}>
+    <div style={{ backgroundColor: K.surface, border: "1px solid " + K.line, borderRadius: K.rLg, boxShadow: K.shadowCard, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 20px", borderBottom: "1px solid " + K.lineSoft, flexWrap: "wrap" }}>
         <span style={{ width: 30, height: 30, borderRadius: K.rSm, background: badgeBg, color: badgeColor, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Icon name={icon} size={16} strokeWidth={1.9} />
@@ -165,7 +165,8 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
         <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
       </div>
 
-      <div className="kh-fp-masonry">
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: "1 1 420px", display: "flex", flexDirection: "column", gap: 16, minWidth: 320 }}>
 
         {/* ── Food Preference (+ Corkage) ── */}
         <Panel icon="plate" badgeBg={K.okBg} badgeColor={K.ok} title={T2("Food Preference")}>
@@ -243,6 +244,9 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
             })}
           </div>
         </Panel>
+
+      </div>
+      <div style={{ flex: "1 1 420px", display: "flex", flexDirection: "column", gap: 16, minWidth: 320 }}>
 
         {/* ── Room Info ── */}
         <Panel icon="home" badgeBg={K.idleBg} badgeColor={K.idle} title={T2("Room Info")}
@@ -354,6 +358,7 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
           )}
         </Panel>
 
+      </div>
       </div>
 
       {/* ── Notes — full width ── */}
