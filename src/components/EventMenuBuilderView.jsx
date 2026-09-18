@@ -51,9 +51,29 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
   var [fp, setFp]                   = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
+  // V89 — Service/Crockery/Transport configs, fetched fresh right before print
+  // so the "1 doc for kitchen + service" always reflects the latest saves,
+  // rather than being kept in sync with ConfigsPanel's own internal state.
+  var [printConfigs, setPrintConfigs] = useState({});
+  async function openFPPrint() {
+    try {
+      var res = await supabase.from('event_configs').select('*').eq('event_id', event.id);
+      if (res.error) throw res.error;
+      var next = {};
+      (res.data || []).forEach(function(r){
+        if (!next[r.dept_id]) next[r.dept_id] = {};
+        next[r.dept_id][r.config_key] = r.config_value;
+      });
+      setPrintConfigs(next);
+    } catch (e) {
+      console.error('[EventMenuBuilder] load configs for print failed:', e);
+      setPrintConfigs({});
+    }
+    setShowFPPrint(true);
+  }
 
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
-  var hasConfigs = !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
+  var hasConfigs = activeDept !== 'kit' && !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
 
   // ── Template dishes: resolved directly from event.menu_package (a name, not an
   // id — events store the package name straight on the row). No stale-catalogue
@@ -1007,6 +1027,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         itemsByDept={itemsByDept}
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
+        configsByDept={printConfigs}
         onClose={function(){ setShowFPPrint(false); }}
         T2={T2}
       />
@@ -1058,7 +1079,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               <div style={{ fontSize: 13 }}>{T2("Loading…")}</div>
             </div>
           ) : (
-            <FunctionPlanTab T2={T2} fp={fp} onSaveField={saveFPField} onOpenPrint={function(){ setShowFPPrint(true); }} />
+            <FunctionPlanTab T2={T2} fp={fp} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
           )}
         </div>
       )}

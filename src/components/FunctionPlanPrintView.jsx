@@ -5,7 +5,7 @@
 
 import React from "react";
 import { C } from '../data/constants.js';
-import { SALES_DEPTS } from '../data/salesConfig.js';
+import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
 
 var SPICE_LABELS = {
   mild:        '🌶️ Mild',
@@ -20,7 +20,46 @@ var DIFF_KIND_META = {
   swap:      { label: 'Swap',      color: '#1858A5', bg: '#E5F0FA' },
 };
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, onClose, T2 }) {
+// Renders one saved config value as a short human-readable line, using the
+// same DEPT_CONFIGS schema ConfigsPanel edits it with (option ids -> names,
+// ratio ids -> the num:den + live staff count, etc.) instead of dumping the
+// raw { selected_id / items / ... } shape.
+function formatConfigValue(cfg, value, pax) {
+  if (value == null) return null;
+  if (cfg.type === 'options' || cfg.type === 'radio') {
+    var opt = (cfg.options || []).find(function(o){ return o.id === value.selected_id; });
+    return opt ? opt.name : null;
+  }
+  if (cfg.type === 'count') {
+    return value.count != null ? String(value.count) : null;
+  }
+  if (cfg.type === 'ratio') {
+    var r = (cfg.ratios || []).find(function(x){ return x.id === value.ratio_id; });
+    if (!r) return null;
+    var extras = value.extras || 0;
+    var count = pax ? Math.ceil(pax / r.den) * r.num + extras : null;
+    return r.num + ':' + r.den + (extras ? ' +' + extras + ' extra' : '') + (count != null ? ' → ' + count + ' staff' : '');
+  }
+  if (cfg.type === 'multi_count') {
+    var items = (value.items || []).filter(function(it){ return it.count > 0; });
+    if (items.length === 0) return null;
+    return items.map(function(it){
+      var opt = (cfg.options || []).find(function(o){ return o.id === it.id; });
+      return (opt ? opt.name : it.id) + ': ' + it.count;
+    }).join(', ');
+  }
+  if (cfg.type === 'tags') {
+    var ids = value.selected_ids || [];
+    if (ids.length === 0) return null;
+    return ids.map(function(id){
+      var opt = (cfg.options || []).find(function(o){ return o.id === id; });
+      return opt ? opt.name : id;
+    }).join(', ');
+  }
+  return null;
+}
+
+export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
       <style>{"@media print { .fp-no-print { display: none !important; } }"}</style>
@@ -114,6 +153,43 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
               )}
             </div>
           )}
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Department Configurations")}</div>
+          {(function(){
+            var deptRows = SALES_DEPTS.map(function(d){
+              var deptDefs = DEPT_CONFIGS[d.id] || [];
+              var deptValues = (configsByDept && configsByDept[d.id]) || {};
+              var rows = deptDefs.map(function(cfg){
+                var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
+                return val ? { cfg: cfg, val: val } : null;
+              }).filter(Boolean);
+              return { dept: d, rows: rows };
+            }).filter(function(x){ return x.rows.length > 0; });
+
+            if (deptRows.length === 0) {
+              return <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No department configurations set.")}</div>;
+            }
+            return deptRows.map(function(x){
+              return (
+                <div key={x.dept.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                    {x.dept.icon} {x.dept.name}
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    {x.rows.map(function(r){
+                      return (
+                        <div key={r.cfg.key} style={{ padding: "2px 0" }}>
+                          {r.cfg.icon} <b>{r.cfg.label}:</b> {r.val}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     </div>
