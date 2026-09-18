@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -94,6 +94,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [catMenuId, setCatMenuId] = useState(null);
   const [recipeMenu, setRecipeMenu] = useState(null);
   const [stepDragIdx, setStepDragIdx] = useState(null);
+  // The shell renders the header slot; its DOM node only exists after that
+  // commit, so it is read in an effect rather than during render.
+  const [hdrSlot, setHdrSlot] = useState(null);
+  useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [tab, sopRecipe, sopCat]);
   const [moveMenuOpen, setMoveMenuOpen] = useState(false);
 
   // -- Ingredient Matrix Editor --
@@ -879,6 +883,37 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // Copy a step, sub-steps and all, and drop the copy right after it. Recipes
   // routinely repeat a step with one quantity changed, and retyping four
   // sub-steps to change one word is how they end up inconsistent.
+  // Recipe photo. The URL is kept inside the existing `ingredients` JSON rather
+  // than a new column: that column is already there and already written by the
+  // yield editor, so this needs no migration. If an image_url column is ever
+  // added to `recipes`, move it and drop this note.
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const recipePhoto = r => (r && r.ingredients && r.ingredients.photo_url) || null;
+  async function saveRecipePhoto(recipe, catId, file){
+    if(!recipe) return;
+    setPhotoBusy(true);
+    try{
+      const url = file ? await uploadRecipePhoto(supabase, slugRecipeKey(recipe.n), file) : null;
+      if(file && !url){
+        // Most likely cause is a missing storage bucket, and a silent failure
+        // here would look like the upload worked until the next reload.
+        setResetModal({tone:"danger",icon:"alert",title:T2("Could not upload the photo"),
+          body:T2("The image did not reach storage. Check that a public bucket named recipe-photos exists, then try again."),
+          confirmLabel:T2("Close")});
+        return;
+      }
+      const nextIng = {...(recipe.ingredients||{}), photo_url: url};
+      const arr = RECIPE_DB.recipes[catId]||[];
+      const ri = arr.findIndex(x=>x.n===recipe.n);
+      if(ri>=0) arr[ri] = {...arr[ri], ingredients: nextIng};
+      setSopRecipe(prev => prev && prev.n===recipe.n ? {...prev, ingredients: nextIng} : prev);
+      if(supabase){
+        const r = await supabase.from("recipes").update({ingredients:nextIng}).eq("dish_name",recipe.n).eq("category_id",catId);
+        if(r.error) console.error("recipe photo save:", r.error);
+      }
+      logActivity("kitchen", (url?"Recipe photo set: ":"Recipe photo removed: ")+recipe.n, "sop_photo", {dish:recipe.n, catId}, currentUser?.id);
+    } finally { setPhotoBusy(false); }
+  }
   function sopDuplicateStep(si){setSopForm(p=>{
     const s=[...p.steps];
     const copy=JSON.parse(JSON.stringify(s[si]));
@@ -3327,13 +3362,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             })()
           ):(
             <div>
-              <button className="kh-btn kh-rip" onPointerDown={ripple}
-                onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}}
-                style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
-                  background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,marginBottom:16,
-                  color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
-                <Icon name="chevronL" size={16} strokeWidth={2.1}/>{T2("Back to Recipes")}
-              </button>
+              {/* "Back to Recipes" lives in the page header plate, not above the
+                  card, so the screen title row carries the one way out. It is
+                  portalled into the shell's header slot: the slot's DOM node is
+                  looked up after mount, since on the first render the shell has
+                  not committed it yet. */}
+              {hdrSlot&&createPortal((
+                <button className="kh-btn kh-rip" onPointerDown={ripple}
+                  onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}}
+                  style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:K.rPill,
+                    background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard,
+                    color:K.hdrMetaStrong,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                  <Icon name="chevronL" size={16} strokeWidth={2.1}/>{T2("Back to Recipes")}
+                </button>
+              ), hdrSlot)}
               <div>
                 {/* The header sits on its own plate, like the panels below it.
                     Without a photograph to give it weight it read as floating
@@ -3346,28 +3388,71 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   borderRadius:editingSteps?"20px 20px 0 0":20,
                   backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
                   <div style={{flex:"1 1 320px",minWidth:0,display:"flex",gap:18,alignItems:"center"}}>
-                    {/* Monogram, not a photograph — same tile the recipe list
-                        uses, so the two views agree and no dish needs an image
-                        asset to look finished. The category's own emoji rides in
-                        the corner, which is the one badge that carries meaning. */}
+                    {/* The tile: an uploaded photo if there is one, otherwise
+                        the monogram. The monogram stays the default so no dish
+                        needs an image to look finished, and the category emoji
+                        keeps its corner - it is the one badge carrying meaning.
+                        Admins get a second corner control to set or clear it. */}
                     {(()=>{
                       const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
                       const tintSop=SOP_TINTS[Math.max(0,safeArr(RECIPE_DB.recipes[sopCat]).findIndex(r=>r.n===sopRecipe.n))%SOP_TINTS.length];
+                      const photo=recipePhoto(sopRecipe);
+                      const isAdmin=currentUser?.role==='admin';
                       return (
                       <span style={{position:"relative",width:88,height:88,borderRadius:22,flexShrink:0,
                         background:`linear-gradient(145deg, ${tintSop} 0%, rgba(255,255,255,.75) 130%)`,
                         boxShadow:`inset 0 0 0 1px rgba(255,255,255,.75), 0 6px 16px rgba(28,61,43,.10)`,
-                        display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <span style={{fontFamily:K.fontDisplay,fontSize:40,fontWeight:600,color:K.brand,opacity:.9,lineHeight:1}}>
-                          {(recipeNameOf(sopRecipe, lang)||"?").trim().charAt(0).toUpperCase()}
-                        </span>
-                        {catObjSop?.icon&&(
+                        display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                        {photo
+                          ? <img src={photo} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+                              // A dead URL would otherwise leave an empty tile with
+                              // no hint that a photo was ever meant to be here.
+                              onError={e=>{e.currentTarget.style.display="none";}}/>
+                          : <span style={{fontFamily:K.fontDisplay,fontSize:40,fontWeight:600,color:K.brand,opacity:.9,lineHeight:1}}>
+                              {(recipeNameOf(sopRecipe, lang)||"?").trim().charAt(0).toUpperCase()}
+                            </span>}
+                        {photoBusy&&(
+                          <span style={{position:"absolute",inset:0,background:"rgba(251,250,245,.8)",color:K.brand,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="refresh" size={22} strokeWidth={2}/>
+                          </span>
+                        )}
+                        {catObjSop?.icon&&!isAdmin&&(
                           <span style={{position:"absolute",right:-6,bottom:-6,width:30,height:30,borderRadius:"50%",
                             background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
                             display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,lineHeight:1}}>{catObjSop.icon}</span>
                         )}
                       </span>);
                     })()}
+                    {currentUser?.role==='admin'&&(
+                      // Outside the tile, not inside it: the tile has
+                      // overflow:hidden so the photo can be clipped round, and a
+                      // control placed inside would be clipped with it.
+                      <span style={{display:"flex",flexDirection:"column",gap:7,marginLeft:-20,marginTop:38,zIndex:2,flexShrink:0}}>
+                        <label title={recipePhoto(sopRecipe)?T2("Replace photo"):T2("Upload photo")}
+                          className="kh-rip kh-pressrow" onPointerDown={ripple}
+                          style={{width:32,height:32,borderRadius:"50%",background:"#FFFFFF",cursor:photoBusy?"progress":"pointer",
+                            border:`1px solid ${K.brandBorder}`,color:K.brand,boxShadow:K.shadowCard,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="store" size={15} strokeWidth={1.9}/>
+                          <input type="file" accept="image/*" disabled={photoBusy} style={{display:"none"}}
+                            onChange={e=>{const f=e.target.files?.[0]; e.target.value=""; if(f) saveRecipePhoto(sopRecipe,sopCat,f);}}/>
+                        </label>
+                        {recipePhoto(sopRecipe)&&(
+                          <button onClick={()=>setResetModal({tone:"danger",icon:"trash",
+                            title:T2("Remove this photo?"),
+                            body:T2("The recipe goes back to showing its monogram."),
+                            confirmLabel:T2("Remove photo"),
+                            onConfirm:()=>{setResetModal(null);saveRecipePhoto(sopRecipe,sopCat,null);}})}
+                            title={T2("Remove photo")} className="kh-rip" onPointerDown={ripple} disabled={photoBusy}
+                            style={{width:32,height:32,borderRadius:"50%",background:K.dangerBg,cursor:"pointer",padding:0,
+                              border:`1px solid ${K.dangerBorder}`,color:K.danger,boxShadow:K.shadowCard,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="trash" size={14}/>
+                          </button>
+                        )}
+                      </span>
+                    )}
                   <div style={{flex:1,minWidth:0}}>
                     {editingSteps?(
                       // Editing steps shows the recipe's identity as chips, not
