@@ -97,9 +97,14 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
             <span>🟠 {T2("Jain")}: <b>{(fp && fp.jain_count != null) ? fp.jain_count : '—'}</b></span>
             <span>🟡 {T2("Egg")}: <b>{(fp && fp.egg_count != null) ? fp.egg_count : '—'}</b></span>
           </div>
-          <div style={{ fontSize: 13 }}>
+          <div style={{ fontSize: 13, marginBottom: fp && fp.corkage_price != null ? 8 : 0 }}>
             <b>{T2("Spice tolerance")}:</b> {(fp && fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) || '—'}
           </div>
+          {fp && fp.corkage_price != null && (
+            <div style={{ fontSize: 13 }}>
+              <b>🍷 {T2("Corkage")}:</b> ₹{fp.corkage_price}{fp.corkage_details ? ' — ' + fp.corkage_details : ''}
+            </div>
+          )}
         </div>
 
         {fp && TIME_FIELDS.some(function(f){ return fp[f.id]; }) && (
@@ -113,7 +118,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
         )}
 
-        {fp && (fp.room_check_in || fp.room_check_out || fp.room_count != null) && (
+        {fp && fp.room_info_enabled && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Room Info")}</div>
             <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
@@ -124,16 +129,15 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
         )}
 
-        {fp && (EQUIP_FIELDS.some(function(f){ return fp[f.id + '_count'] > 0; }) || fp.corkage_price != null) && (
+        {fp && EQUIP_FIELDS.some(function(f){ return fp[f.id + '_enabled']; }) && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Equipment Add-ons")}</div>
             <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
-              {EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_count'] > 0; }).map(function(f){
+              {EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).map(function(f){
                 var count = fp[f.id + '_count'];
                 var price = fp[f.id + '_price'];
-                return <span key={f.id}>{f.icon} {T2(f.label)}: <b>{count}</b>{price != null ? ' @ ₹' + price : ''}</span>;
+                return <span key={f.id}>{f.icon} {T2(f.label)}: <b>{count != null ? count : '—'}</b>{price != null ? ' @ ₹' + price : ''}</span>;
               })}
-              {fp.corkage_price != null && <span>🍷 {T2("Corkage")}: <b>₹{fp.corkage_price}</b></span>}
             </div>
           </div>
         )}
