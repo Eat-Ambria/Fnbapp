@@ -93,6 +93,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopSortOpen, setSopSortOpen] = useState(false);
   const [catMenuId, setCatMenuId] = useState(null);
   const [recipeMenu, setRecipeMenu] = useState(null);
+  const [stepDragIdx, setStepDragIdx] = useState(null);
   const [moveMenuOpen, setMoveMenuOpen] = useState(false);
 
   // -- Ingredient Matrix Editor --
@@ -875,6 +876,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
   function sopRemoveStep(si){setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)}));}
+  // Copy a step, sub-steps and all, and drop the copy right after it. Recipes
+  // routinely repeat a step with one quantity changed, and retyping four
+  // sub-steps to change one word is how they end up inconsistent.
+  function sopDuplicateStep(si){setSopForm(p=>{
+    const s=[...p.steps];
+    const copy=JSON.parse(JSON.stringify(s[si]));
+    s.splice(si+1,0,copy);
+    return{...p,steps:s};
+  });}
+  // Drag-reorder, same shape as the ingredient list: move the dragged step to
+  // the drop index rather than swapping, or dragging across several rows would
+  // scramble the ones in between.
+  function sopReorderStepTo(to){setSopForm(p=>{
+    if(stepDragIdx==null||stepDragIdx===to) return p;
+    const s=[...p.steps];
+    const [moved]=s.splice(stepDragIdx,1);
+    s.splice(to,0,moved);
+    return{...p,steps:s};
+  });setStepDragIdx(null);}
   function sopMoveStep(si,dir){setSopForm(p=>{const s=[...p.steps];const ni=si+dir;if(ni<0||ni>=s.length)return p;[s[si],s[ni]]=[s[ni],s[si]];return{...p,steps:s};});}
   function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:"",tm:0,ccp:""}]})}));}
   function sopRemoveSub(si,sbi){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));}
@@ -1498,96 +1518,303 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- SOP Add/Edit Modal -- */}
       {sopModal&&!editingSteps&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 12px",overflowY:"auto"}}>
-          <div style={{background:C.surface,borderRadius:18,padding:"22px 20px",maxWidth:540,width:"100%",border:`2px solid ${C.goldBorder}`,boxShadow:"0 24px 60px rgba(0,0,0,.5)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:17,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{sopModal.mode==="edit"?"✏️ Edit Recipe SOP":"➕ Add Recipe SOP"}</div>
-              <button onClick={()=>setSopModal(null)} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer"}}>?</button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div>
-                <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Recipe Name *</label>
-                <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Paneer Tikka" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42}}/>
-              </div>
-              <div>
-                <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Sub-label</label>
-                <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))} placeholder="Hot / Cold / Dry" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42}}/>
-              </div>
-            </div>
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Category *</label>
-              <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,minHeight:42}}>
-                {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-              </select>
-            </div>
-            <label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:sopForm.bg?C.goldBg:C.bg,border:`1.5px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",marginBottom:14}}>
-              <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:18,height:18,accentColor:C.gold,cursor:"pointer"}}/>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700,color:sopForm.bg?C.gold:C.text}}>🥘 Base Gravy</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Mark this recipe as a base gravy — it will be listed first in each section on Event Day and D-1 prep, right after ingredient collection.</div>
-              </div>
-            </label>
-            <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Steps ({sopForm.steps.length})</div>
-            <div style={{maxHeight:340,overflowY:"auto",marginBottom:12,border:`1px solid ${C.border}`,borderRadius:12,padding:8,background:C.bg}}>
-              {sopForm.steps.map((step,si)=>(
-                <div key={si} style={{padding:"10px 8px",borderBottom:si<sopForm.steps.length-1?`1px solid ${C.borderLight}`:"none",position:"relative"}}>
-                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.gold,minWidth:20}}>{si+1}.</span>
-                    <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:36}}/>
-                    <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} style={{padding:"4px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:si===0?C.faint:C.text,fontSize:12,cursor:si===0?"default":"pointer"}}>?</button>
-                    <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} style={{padding:"4px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:si===sopForm.steps.length-1?C.faint:C.text,fontSize:12,cursor:si===sopForm.steps.length-1?"default":"pointer"}}>?</button>
-                    <button onClick={()=>sopRemoveStep(si)} style={{padding:"4px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer"}}>?</button>
-                  </div>
-                  <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",resize:"vertical",minHeight:44}}/>
-                  <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                    {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:11,color:C.muted}}>?</span>
-                      <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:70,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
-                      <span style={{fontSize:10,color:C.faint}}>min</span>
-                    </div>}
-                    <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:11,color:C.muted}}>CCP</span>
-                      <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:130,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
-                    </div>
-                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:11,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
-                      <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
-                      D-1 Prep
-                    </label>
-                  </div>
-                  {(step.subs&&step.subs.length>0)&&(
-                    <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:10,marginTop:8,paddingLeft:12}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
-                      {step.subs.map((sb,sbi)=>(
-                        <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
-                          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                            <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:24}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                            <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,minHeight:32}}/>
-                            <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:24,height:24,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",padding:0,flexShrink:0}}>?</button>
-                          </div>
-                          <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:32,marginBottom:4}}/>
-                          <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"5px 10px",border:`1px solid ${C.borderLight}`,marginBottom:4}}>
-                            <span style={{fontSize:11,color:C.amber,fontWeight:600}}>? Timer</span>
-                            <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:56,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:28}}/>
-                            <span style={{fontSize:11,color:C.faint}}>min</span>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,background:sb.ccp?C.redBg:C.bg,borderRadius:6,padding:"5px 10px",border:`1px solid ${sb.ccp?C.redBorder:C.borderLight}`}}>
-                            <span style={{fontSize:11,color:C.red,fontWeight:700}}>🔴 CCP</span>
-                            <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)} placeholder="Critical control (optional)" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:28}}/>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
-                </div>
-              ))}
-            </div>
-            <button onClick={sopAddStep} style={{width:"100%",padding:"10px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.border}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:14,minHeight:40}}>+ Add Step</button>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={saveSop} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:48}}>
-                {sopModal.mode==="edit"?"💾 Update Recipe":"➕ Save Recipe"}
+        <div onClick={()=>setSopModal(null)} style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,
+          display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"28px 20px",overflowY:"auto"}}>
+          <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+            style={{position:"relative",background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,
+              boxShadow:K.shadowLift,maxWidth:760,width:"100%",overflow:"hidden"}}>
+            <ModalWatermark/>
+
+            <div style={{position:"relative",zIndex:1,padding:"24px 26px 0",display:"flex",alignItems:"center",gap:18}}>
+              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,background:K.brandBg,color:K.brand,
+                border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="chefHat" size={28} strokeWidth={1.7}/>
+              </span>
+              <span style={{minWidth:0,flex:1}}>
+                <span style={{display:"block",...type.sectionHead,fontSize:26,color:K.hdrTitle}}>
+                  {sopModal.mode==="edit"?T2("Edit Recipe SOP"):T2("Add Recipe SOP")}
+                </span>
+                <span style={{display:"block",fontSize:14,color:K.hdrMeta,marginTop:2}}>
+                  {T2("Create a new recipe with step-by-step instructions")}
+                </span>
+              </span>
+              {/* A span, not a button: it carries a tooltip and nothing else, and
+                  a button shape would promise a click that goes nowhere. */}
+              <span title={T2("Steps run in order. Sub-steps sit under a step and take their own timers. A CCP marks a food-safety check.")}
+                style={{width:38,height:38,borderRadius:K.rPill,flexShrink:0,background:K.surface,
+                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"help",
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700}}>?</span>
+              <button onClick={()=>setSopModal(null)} aria-label={T2("Cancel")} className="kh-modal-x kh-rip" onPointerDown={ripple}
+                style={{width:38,height:38,borderRadius:K.rPill,flexShrink:0,background:K.surface,
+                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"pointer",padding:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="close" size={17} strokeWidth={2.1}/>
               </button>
-              <button onClick={()=>setSopModal(null)} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:48}}>Cancel</button>
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"22px 26px"}}>
+              {(()=>{
+                const lbl={display:"block",fontSize:14,fontWeight:700,color:K.hdrTitle,marginBottom:8};
+                // Icon inside the field, so the label above it can be a plain
+                // word instead of carrying a glyph.
+                const field={display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:14,
+                  border:`1px solid ${K.line}`,overflow:"hidden"};
+                const pre={display:"flex",alignItems:"center",padding:"0 12px",color:K.textFaint,
+                  borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"};
+                const inp={flex:1,minWidth:0,padding:"14px 14px",border:"none",outline:"none",background:"transparent",
+                  fontSize:15,color:K.text,fontFamily:K.fontBody};
+                const catSel=safeArr(RECIPE_DB.cats).find(c=>c.id===sopForm.catId);
+                return(<>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,marginBottom:16}}>
+                    <div>
+                      <label style={lbl}>{T2("Recipe Name")} <span style={{color:K.danger}}>*</span></label>
+                      <div style={field}>
+                        <span style={pre}><Icon name="chefHat" size={17} strokeWidth={1.8}/></span>
+                        <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))}
+                          placeholder={T2("e.g. Paneer Tikka")} style={inp}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>{T2("Sub-label")}</label>
+                      <div style={field}>
+                        <span style={pre}><Icon name="tag" size={17} strokeWidth={1.8}/></span>
+                        <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))}
+                          placeholder={T2("Hot / Cold / Dry")} style={inp}/>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom:16}}>
+                    <label style={lbl}>{T2("Category")} <span style={{color:K.danger}}>*</span></label>
+                    <div style={field}>
+                      <span style={{...pre,fontSize:19,lineHeight:1}}>{catSel?.icon||"\u{1F37D}"}</span>
+                      <select className="kh-select" value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))}
+                        style={{...inp,fontWeight:600,cursor:"pointer"}}>
+                        {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* The whole panel is the label, so the description is part of
+                      the hit area rather than text you have to read and then go
+                      hunting for the box. */}
+                  <label style={{display:"flex",alignItems:"center",gap:16,padding:"16px 18px",borderRadius:16,
+                    background:sopForm.bg?K.warnBg:K.surfaceAlt,
+                    border:`1px solid ${sopForm.bg?K.warnBorder:K.line}`,cursor:"pointer",marginBottom:20}}>
+                    <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))}
+                      style={{width:19,height:19,accentColor:K.brand,cursor:"pointer",flexShrink:0,margin:0}}/>
+                    <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:K.warnBg,
+                      border:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:26,lineHeight:1}}>{"\u{1F958}"}</span>
+                    <span style={{minWidth:0}}>
+                      <span style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        <span style={{fontSize:16.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Base Gravy")}</span>
+                        <span style={{fontSize:11.5,fontWeight:700,padding:"3px 10px",borderRadius:K.rPill,
+                          background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brandText}}>{T2("Recommended")}</span>
+                      </span>
+                      <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:4,lineHeight:1.5}}>
+                        {T2("Mark this recipe as a base gravy — it will be listed first in each section on Event Day and D-1 prep, right after ingredient collection.")}
+                      </span>
+                    </span>
+                  </label>
+
+                  <div style={{height:1,background:K.modalLine,margin:"0 0 18px"}}/>
+
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                    <span style={{...type.sectionHead,fontSize:21,color:K.hdrTitle}}>
+                      {T2("Steps")} <span style={{fontSize:15,color:K.textFaint,fontWeight:500}}>({sopForm.steps.length})</span>
+                    </span>
+                    <KButton variant="brand" icon="plus" onClick={sopAddStep}
+                      style={{padding:"12px 20px",borderRadius:K.rPill,fontSize:14}}>{T2("Add step")}</KButton>
+                  </div>
+
+                  <div style={{maxHeight:"46vh",overflowY:"auto"}} className="kh-thinscroll">
+                    {sopForm.steps.map((step,si)=>(
+                      <div key={si} onDragOver={e=>e.preventDefault()} onDrop={()=>sopReorderStepTo(si)}
+                        style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:12,padding:"14px",
+                          borderRadius:16,background:"#FFFFFF",opacity:stepDragIdx===si?.4:1,
+                          border:`1px solid ${step.ccp?K.dangerBorder:K.line}`}}>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,flexShrink:0}}>
+                          <span style={{display:"flex",alignItems:"center",justifyContent:"center",width:34,height:34,
+                            borderRadius:"50%",background:step.ccp?K.danger:K.brand,color:"#FFFFFF",
+                            fontSize:14,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{si+1}</span>
+                          <span style={{width:1,flex:1,minHeight:10,background:K.lineSoft}}/>
+                          <span draggable onDragStart={()=>setStepDragIdx(si)} onDragEnd={()=>setStepDragIdx(null)}
+                            title={T2("Drag to reorder")}
+                            style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,color:K.textFaint,userSelect:"none"}}>
+                            <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
+                          </span>
+                        </div>
+
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",gap:9,alignItems:"center",marginBottom:9,flexWrap:"wrap"}}>
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                              border:`1px solid ${K.line}`,overflow:"hidden",flex:"1 1 240px",minWidth:0}}>
+                              <span style={{display:"flex",alignItems:"center",padding:"0 11px",color:K.textFaint,
+                                borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"}}>
+                                <Icon name="listCheck" size={16} strokeWidth={1.9}/>
+                              </span>
+                              <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)}
+                                placeholder={T2("Step title (e.g. Marinate the paneer)")}
+                                style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:14,fontWeight:600,color:K.hdrTitle,fontFamily:K.fontBody}}/>
+                            </span>
+                            <span title={T2("A step is one instruction a chef can act on. Break long ones into sub-steps.")}
+                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.surfaceAlt,
+                                border:`1px solid ${K.line}`,color:K.textMuted,cursor:"help",
+                                display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700}}>?</span>
+                            <button onClick={()=>sopDuplicateStep(si)} className="kh-rip" onPointerDown={ripple}
+                              title={T2("Duplicate this step")}
+                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.surfaceAlt,
+                                border:`1px solid ${K.line}`,color:K.textMuted,cursor:"pointer",padding:0,
+                                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="note" size={16}/>
+                            </button>
+                            <button onClick={()=>sopRemoveStep(si)} className="kh-rip" onPointerDown={ripple}
+                              title={T2("Remove step")}
+                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.dangerBg,
+                                border:`1px solid ${K.dangerBorder}`,color:K.danger,cursor:"pointer",padding:0,
+                                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="trash" size={16}/>
+                            </button>
+                          </div>
+
+                          <div style={{display:"flex",background:"#FFFFFF",borderRadius:12,border:`1px solid ${K.line}`,
+                            overflow:"hidden",marginBottom:9}}>
+                            <span style={{display:"flex",alignItems:"flex-start",padding:"12px 11px",color:K.textFaint,
+                              borderRight:`1px solid ${K.lineSoft}`}}>
+                              <Icon name="note" size={16} strokeWidth={1.9}/>
+                            </span>
+                            <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} rows={2}
+                              placeholder={`${T2("Instructions (Hindi)")}\n${T2("e.g.")} पनीर को दही, नमक और मसालों के साथ 30 मिनट तक मेरिनेट करें।`}
+                              style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                fontSize:14,color:K.text,fontFamily:K.fontBody,resize:"vertical",minHeight:62,lineHeight:1.5}}/>
+                          </div>
+
+                          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                            {!(step.subs&&step.subs.length>0)&&(
+                              <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                                border:`1px solid ${K.line}`,overflow:"hidden",width:150}}>
+                                <span style={{padding:"0 0 0 12px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={16} strokeWidth={1.9}/></span>
+                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                  placeholder="0"
+                                  style={{flex:1,minWidth:0,padding:"11px 0 11px 10px",border:"none",outline:"none",
+                                    background:"transparent",fontSize:15,fontWeight:700,color:K.text,
+                                    fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                <span style={{padding:"0 12px 0 4px",fontSize:13,fontWeight:600,color:K.textFaint}}>min</span>
+                              </span>
+                            )}
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                              border:`1px solid ${step.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 220px",minWidth:0}}>
+                              <span style={{display:"flex",alignItems:"center",gap:7,padding:"0 11px",
+                                color:step.ccp?K.danger:K.textFaint,borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"}}>
+                                <Icon name="alert" size={15} strokeWidth={2}/>
+                                <span style={{fontSize:12,fontWeight:700,letterSpacing:".4px"}}>CCP</span>
+                              </span>
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)}
+                                list="ccp-opts-modal" placeholder={T2("Critical control")}
+                                style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:14,color:K.text,fontFamily:K.fontBody}}/>
+                            </span>
+                            <label style={{display:"inline-flex",alignItems:"center",gap:9,cursor:"pointer",flexShrink:0,
+                              padding:"10px 15px",borderRadius:12,fontSize:13.5,fontWeight:700,
+                              background:step.d1?K.brandBg:"#FFFFFF",
+                              border:`1px solid ${step.d1?K.brandBorder:K.line}`,
+                              color:step.d1?K.brandText:K.textMuted}}>
+                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)}
+                                style={{width:15,height:15,accentColor:K.brand,cursor:"pointer",margin:0}}/>
+                              {T2("D-1 prep")}
+                            </label>
+                          </div>
+
+                          <button onClick={()=>sopAddSub(si)} className="kh-rip kh-sopadd" onPointerDown={ripple}
+                            style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:11,padding:"10px 16px",
+                              borderRadius:12,background:K.brandSoft,border:`1.5px dashed ${K.brandBorder}`,
+                              color:K.brandText,fontSize:13.5,fontWeight:700,cursor:"pointer",fontFamily:K.fontBody,
+                              transition:"background .16s, border-color .16s"}}>
+                            <Icon name="plus" size={15} strokeWidth={2.1}/>{T2("Add sub-step")}
+                          </button>
+
+                          {(step.subs&&step.subs.length>0)&&(
+                            <div style={{marginTop:12,paddingLeft:14,borderLeft:`2px solid ${K.brandBorder}`}}>
+                              {step.subs.map((sb,sbi)=>(
+                                <div key={sbi} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8,
+                                  padding:"11px",borderRadius:12,background:K.surfaceAlt,
+                                  border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`}}>
+                                  <span style={{display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                                    width:34,height:34,borderRadius:10,background:K.brandBg,border:`1px solid ${K.brandBorder}`,
+                                    fontSize:12.5,fontWeight:700,color:K.brandText}}>{si+1}{String.fromCharCode(97+sbi)}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)}
+                                      placeholder={T2("Sub-step title")}
+                                      style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        marginBottom:7,fontFamily:K.fontBody,outline:"none"}}/>
+                                    <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} rows={2}
+                                      placeholder={T2("Instructions (Hindi)")}
+                                      style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",resize:"vertical",
+                                        minHeight:52,marginBottom:7,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${K.line}`,overflow:"hidden",width:132}}>
+                                        <span style={{padding:"0 0 0 10px",color:K.warn,display:"flex"}}><Icon name="clock" size={13} strokeWidth={2}/></span>
+                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                          placeholder="0"
+                                          style={{flex:1,minWidth:0,padding:"8px 0 8px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13.5,fontWeight:700,color:K.text,
+                                            fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                        <span style={{padding:"0 10px 0 4px",fontSize:12,fontWeight:600,color:K.textFaint}}>min</span>
+                                      </span>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 180px",minWidth:0}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:5,padding:"0 10px",
+                                          fontSize:11,fontWeight:700,letterSpacing:".4px",color:sb.ccp?K.danger:K.textFaint}}>
+                                          <span style={{width:7,height:7,borderRadius:"50%",background:sb.ccp?K.danger:K.lineStrong}}/>CCP
+                                        </span>
+                                        <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)}
+                                          list="ccp-opts-modal" placeholder={T2("Critical control")}
+                                          style={{flex:1,minWidth:0,padding:"8px 10px 8px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13,color:K.text,fontFamily:K.fontBody}}/>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button onClick={()=>sopRemoveSub(si,sbi)} className="kh-rip" onPointerDown={ripple}
+                                    title={T2("Remove sub-step")}
+                                    style={{width:32,height:32,borderRadius:10,flexShrink:0,border:`1px solid ${K.dangerBorder}`,
+                                      background:K.dangerBg,color:K.danger,cursor:"pointer",padding:0,
+                                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    <Icon name="trash" size={14}/>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Offers the CCP wordings already used in this recipe and
+                        still accepts a new one. */}
+                    <datalist id="ccp-opts-modal">
+                      {[...new Set(safeArr(sopForm.steps).flatMap(s=>[s.ccp,...safeArr(s.subs).map(x=>x.ccp)]).filter(Boolean))]
+                        .map(v=><option key={v} value={v}/>)}
+                    </datalist>
+                  </div>
+                </>);
+              })()}
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"18px 26px 24px",borderTop:`1px solid ${K.modalLine}`,
+              display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}}>
+              <KButton onClick={()=>setSopModal(null)}
+                style={{padding:"14px 26px",borderRadius:K.rPill,fontSize:14.5,background:K.surface,borderColor:K.modalLine}}>{T2("Cancel")}</KButton>
+              <KButton variant="brand" icon={sopModal.mode==="edit"?"check":"plus"} onClick={saveSop}
+                disabled={!sopForm.name.trim()}
+                style={{padding:"14px 28px",borderRadius:K.rPill,fontSize:14.5}}>
+                {sopModal.mode==="edit"?T2("Update recipe"):T2("Save recipe")}
+              </KButton>
             </div>
           </div>
         </div>
