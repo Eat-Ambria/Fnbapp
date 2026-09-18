@@ -1638,10 +1638,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
               {/* Step one, and the whole row is the button — a single small link
                   inside a panel invites a miss. */}
-              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip" onPointerDown={ripple}
+              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip kh-pressrow" onPointerDown={ripple}
                 style={{display:"flex",alignItems:"center",gap:16,width:"100%",textAlign:"left",marginTop:18,
                   padding:"16px 18px",borderRadius:16,background:K.brandSoft,border:`1px solid ${K.brandBorder}`,
-                  cursor:"pointer",fontFamily:K.fontBody}}>
+                  cursor:"pointer",fontFamily:K.fontBody,color:K.brand}}>
                 <span style={{width:48,height:48,borderRadius:14,flexShrink:0,background:"#FFFFFF",color:K.brand,
                   border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <Icon name="note" size={22} strokeWidth={1.8}/>
@@ -1676,7 +1676,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   <span style={{display:"block",fontSize:12.5,color:K.textFaint,marginTop:3}}>{T2("Only .csv files are supported.")}</span>
                 </span>
                 <span style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flexShrink:0}}>
-                  <label className="kh-btn kh-rip" onPointerDown={ripple}
+                  <label className="kh-btn kh-rip kh-pressrow" onPointerDown={ripple}
                     style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 20px",borderRadius:K.rPill,
                       background:"#FFFFFF",border:`1px solid ${K.line}`,boxShadow:K.shadowCard,
                       color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>

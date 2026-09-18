@@ -569,6 +569,19 @@ const KITCHEN_CSS = `
 .kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
 .kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
 
+/* Big clickable panels — the CSV dialog's download row, its file picker.
+   They carry .kh-btn but no .kh-btn-<variant>, so none of the variant hover
+   rules above ever matched them and a click produced no visible change at all.
+   Unscoped: these live in dialogs, which are sometimes portalled out of
+   .kh-scope. The ripple ink is currentColor at .17 opacity, so a panel that
+   wants visible ink has to set a real colour of its own — a pale inherited grey
+   on a pale panel is invisible, which is what made the row feel dead.
+   NOTE: no backticks in this block — the stylesheet is a JS template literal
+   and a stray backtick ends it. */
+.kh-pressrow { transition: background .14s ease, border-color .14s ease, transform .08s ease; }
+.kh-pressrow:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
+.kh-pressrow:active { transform: scale(.995); background: ${K.brandBgHover} !important; }
+
 /* Closing-tab dish cards — three up. Fixed tracks rather than auto-fill: the
    card holds two number fields side by side and a notes field under them, and
    below about 300px those stop fitting, so the column count steps down at
