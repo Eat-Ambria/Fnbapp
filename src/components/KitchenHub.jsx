@@ -3261,35 +3261,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>
-                {/* Ingredient count + Edit button */}
-                {!editingSteps&&(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
-                  <span style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:K.rPill,
-                    background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
-                    fontSize:13.5,fontWeight:600,color:K.textBody}}>
-                    <Icon name="utensils" size={15} strokeWidth={1.9}/>
-                    {sopRecipe.ingredients?.items?.length>0
-                      ?`${sopRecipe.ingredients.items.filter(i=>!i.isSection).length} ${T2("ingredients")}`
-                      :fallbackIng?`${fallbackIng.length} ${T2("ingredients")} (${T2("legacy")})`
-                      :T2("No ingredients added")}
+                {/* Ingredient count + actions. Defined once here and rendered
+                    inside whichever panel is showing, rather than as a strip
+                    floating above them: three pills on the page background had
+                    nothing to belong to. */}
+                {!editingSteps&&(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;
+                const nIngNow=sopRecipe.ingredients?.items?.length>0
+                  ? sopRecipe.ingredients.items.filter(i=>!i.isSection).length
+                  : (fallbackIng?fallbackIng.length:0);
+                const ingActions=(
+                  <span style={{display:"inline-flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px",borderRadius:K.rPill,
+                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                      fontSize:12.5,fontWeight:700,color:K.hdrMeta,whiteSpace:"nowrap"}}>
+                      <Icon name="utensils" size={13} strokeWidth={2}/>
+                      {nIngNow>0?`${nIngNow} ${T2("ingredients")}`:T2("No ingredients")}
+                      {!!fallbackIng&&` (${T2("legacy")})`}
+                    </span>
+                    {currentUser?.role==='admin'&&!ingModal&&(<>
+                      <KButton size="sm" icon="note" onClick={()=>{openIngEditor(sopRecipe,sopCat);}}
+                        style={{padding:"8px 14px",borderRadius:K.rPill,fontSize:13,background:"#FFFFFF",borderColor:K.cardWarmLine}}>
+                        {sopRecipe.ingredients?.items?.length>0?T2("Edit"):T2("Add")}
+                      </KButton>
+                      <KButton size="sm" icon="box" onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})}
+                        style={{padding:"8px 14px",borderRadius:K.rPill,fontSize:13,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Import CSV")}</KButton>
+                    </>)}
                   </span>
-                  {currentUser?.role==='admin'&&!ingModal&&(<>
-                    <KButton icon="note" onClick={()=>{openIngEditor(sopRecipe,sopCat);}}
-                      style={{padding:"10px 16px",borderRadius:K.rPill,fontSize:13.5,background:K.cardWarm,borderColor:K.cardWarmLine}}>
-                      {sopRecipe.ingredients?.items?.length>0?T2("Edit"):T2("Add Ingredients")}
-                    </KButton>
-                    <KButton icon="box" onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})}
-                      style={{padding:"10px 16px",borderRadius:K.rPill,fontSize:13.5,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Import CSV")}</KButton>
-                  </>)}
-                  {currentUser?.role==='admin'&&ingModal?.recipeName===sopRecipe.n&&(
-                    <div style={{display:"flex",gap:10}}>
-                      {ingDirty&&<KButton variant="brand" icon="check" onClick={saveIngredients}
-                        style={{padding:"10px 18px",borderRadius:K.rPill,fontSize:13.5}}>{T2("Save")}</KButton>}
-                      <KButton icon="close" onClick={()=>{if(ingDirty){askDiscardIng();return;}setIngModal(null);setIngDirty(false);}}
-                        style={{padding:"10px 16px",borderRadius:K.rPill,fontSize:13.5,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
-                    </div>
-                  )}
-                </div>
+                );
+                return(<>
                 {/* Inline ingredient table (read-only) */}
                 {(ingModal?.recipeName===sopRecipe.n)?(
                   <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:22,backgroundColor:K.cardWarm,
@@ -3569,12 +3568,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   return (
                   <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:18,backgroundColor:K.cardWarm,
                     border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
-                    <div style={{padding:"16px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-                      <span style={{display:"flex",alignItems:"center",gap:11,minWidth:0}}>
+                    <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                      <span style={{display:"flex",alignItems:"center",gap:11,minWidth:0,flexWrap:"wrap"}}>
                         <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="listCheck" size={21} strokeWidth={1.8}/></span>
-                        <span style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>
+                        <span style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,whiteSpace:"nowrap"}}>
                           {T2("Ingredients")} <span style={{color:K.textFaint,fontWeight:500}}>·</span> {isNewSchema?`${basePax} ${T2("pax anchor")}`:(ing2.pax_sizes?.map(p=>p+" pax").join(" / ")||T2("legacy"))}
                         </span>
+                        {ingActions}
                       </span>
                       <span style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
                         {isNewSchema&&(yieldLabel
@@ -3669,9 +3669,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                   );})()
                 :fallbackIng?(
-                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.amberBg,fontSize:11,fontWeight:700,color:C.amber,borderBottom:`1px solid ${C.amberBorder}`}}>
-                      Ingredients (legacy per-serving @ 500 pax)
+                  <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:18,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    <div style={{padding:"14px 18px",background:K.warnBg,borderBottom:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:14.5,fontWeight:700,color:K.warn}}>{T2("Ingredients")} <span style={{fontWeight:500,opacity:.8}}>· {T2("legacy per-serving at 500 pax")}</span></span>
+                      {ingActions}
                     </div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
@@ -3698,7 +3699,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       </table>
                     </div>
                   </div>
-                ):<div style={{marginBottom:16}}/>}
+                ):(
+                  <div className="kh-cardart-sm" style={{marginBottom:16,padding:"18px",borderRadius:18,backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,display:"flex",alignItems:"center",
+                    justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                    <span style={{display:"flex",alignItems:"center",gap:11,minWidth:0}}>
+                      <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="listCheck" size={21} strokeWidth={1.8}/></span>
+                      <span style={{minWidth:0}}>
+                        <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Ingredients")}</span>
+                        <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Nothing recorded yet for this recipe.")}</span>
+                      </span>
+                    </span>
+                    {ingActions}
+                  </div>
+                )}
                 </>);})()}
                 {/* —— Yield anchor (base_yield @ base_pax) — moved below ingredient table —— */}
                 {!editingSteps&&(()=>{
