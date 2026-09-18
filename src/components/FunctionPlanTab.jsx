@@ -14,6 +14,21 @@ var SPICE_LEVELS = [
   { id: 'extra_spicy',  label: 'Extra Spicy', icon: '🔥' },
 ];
 
+var TIME_FIELDS = [
+  { id: 'snacks_time',   label: '🍟 Snacks' },
+  { id: 'baarat_time',   label: '🎺 Baarat' },
+  { id: 'assembly_time', label: '👥 Assembly' },
+  { id: 'phera_time',    label: '🔥 Phera' },
+  { id: 'chaat_time',    label: '🌮 Chaat' },
+  { id: 'windup_time',   label: '🧹 Wind-up' },
+];
+
+var EQUIP_FIELDS = [
+  { id: 'fan',    label: 'Fan',    icon: '🌀' },
+  { id: 'cooler', label: 'Cooler', icon: '❄️' },
+  { id: 'heater', label: 'Heater', icon: '🔥' },
+];
+
 export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
@@ -34,6 +49,12 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
     if (drafts[field] === undefined) return;
     var raw = drafts[field];
     var n = raw === '' ? null : parseInt(raw, 10);
+    onSaveField(field, (n == null || isNaN(n)) ? null : n);
+  }
+  function commitDecimal(field) {
+    if (drafts[field] === undefined) return;
+    var raw = drafts[field];
+    var n = raw === '' ? null : parseFloat(raw);
     onSaveField(field, (n == null || isNaN(n)) ? null : n);
   }
 
@@ -90,6 +111,88 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
         </div>
       </div>
 
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>{T2("Timings")}</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {TIME_FIELDS.map(function(f){
+            return (
+              <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11, color: C.muted }}>{T2(f.label)}</span>
+                <input type="time"
+                  value={val(f.id)}
+                  onChange={function(e){ onChangeField(f.id, e.target.value); }}
+                  onBlur={function(){ commitText(f.id); }}
+                  style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>{T2("Room info")}</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 11, color: C.muted }}>{T2("Check-in")}</span>
+            <input type="time" value={val('room_check_in')}
+              onChange={function(e){ onChangeField('room_check_in', e.target.value); }}
+              onBlur={function(){ commitText('room_check_in'); }}
+              style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 11, color: C.muted }}>{T2("Check-out")}</span>
+            <input type="time" value={val('room_check_out')}
+              onChange={function(e){ onChangeField('room_check_out', e.target.value); }}
+              onBlur={function(){ commitText('room_check_out'); }}
+              style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 11, color: C.muted }}>{T2("Room count")}</span>
+            <input type="number" min="0" inputMode="numeric" value={val('room_count')}
+              onChange={function(e){ onChangeField('room_count', e.target.value); }}
+              onBlur={function(){ commitNumber('room_count'); }}
+              style={{ width: 90, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+          </label>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>{T2("Equipment add-ons")}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {EQUIP_FIELDS.map(function(f){
+            return (
+              <div key={f.id} style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+                <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: C.text }}>{f.icon} {T2(f.label)}</span>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 10, color: C.muted }}>{T2("Count")}</span>
+                  <input type="number" min="0" inputMode="numeric" value={val(f.id + '_count')}
+                    onChange={function(e){ onChangeField(f.id + '_count', e.target.value); }}
+                    onBlur={function(){ commitNumber(f.id + '_count'); }}
+                    style={{ width: 70, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 10, color: C.muted }}>{T2("Price")}</span>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={val(f.id + '_price')}
+                    onChange={function(e){ onChangeField(f.id + '_price', e.target.value); }}
+                    onBlur={function(){ commitDecimal(f.id + '_price'); }}
+                    style={{ width: 100, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+                </label>
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 4, paddingTop: 8, borderTop: "1px solid " + C.border }}>
+            <span style={{ width: 80, fontSize: 12, fontWeight: 600, color: C.text }}>🍷 {T2("Corkage")}</span>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 10, color: C.muted }}>{T2("Cost agreed")}</span>
+              <input type="number" min="0" step="0.01" inputMode="decimal" value={val('corkage_price')}
+                onChange={function(e){ onChangeField('corkage_price', e.target.value); }}
+                onBlur={function(){ commitDecimal('corkage_price'); }}
+                style={{ width: 100, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+            </label>
+          </div>
+        </div>
+      </div>
+
       <FPTextArea label={T2("Allergies / dietary restrictions")}
         placeholder={T2("e.g. nut allergy for 2 guests, no onion-garlic for the bride's family, gluten-free option needed…")}
         value={val('allergies')} onChange={function(v){ onChangeField('allergies', v); }} onBlur={function(){ commitText('allergies'); }} />
@@ -118,4 +221,5 @@ function FPTextArea({ label, placeholder, value, onChange, onBlur }) {
   );
 }
 
+export { TIME_FIELDS, EQUIP_FIELDS };
 export default FunctionPlanTab;

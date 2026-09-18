@@ -6,6 +6,7 @@
 import React from "react";
 import { C } from '../data/constants.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
+import { TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.jsx';
 
 var SPICE_LABELS = {
   mild:        '🌶️ Mild',
@@ -100,6 +101,42 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
             <b>{T2("Spice tolerance")}:</b> {(fp && fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) || '—'}
           </div>
         </div>
+
+        {fp && TIME_FIELDS.some(function(f){ return fp[f.id]; }) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Timings")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {TIME_FIELDS.filter(function(f){ return fp[f.id]; }).map(function(f){
+                return <span key={f.id}>{T2(f.label)}: <b>{fp[f.id]}</b></span>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {fp && (fp.room_check_in || fp.room_check_out || fp.room_count != null) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Room Info")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {fp.room_check_in && <span>{T2("Check-in")}: <b>{fp.room_check_in}</b></span>}
+              {fp.room_check_out && <span>{T2("Check-out")}: <b>{fp.room_check_out}</b></span>}
+              {fp.room_count != null && <span>{T2("Room count")}: <b>{fp.room_count}</b></span>}
+            </div>
+          </div>
+        )}
+
+        {fp && (EQUIP_FIELDS.some(function(f){ return fp[f.id + '_count'] > 0; }) || fp.corkage_price != null) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Equipment Add-ons")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_count'] > 0; }).map(function(f){
+                var count = fp[f.id + '_count'];
+                var price = fp[f.id + '_price'];
+                return <span key={f.id}>{f.icon} {T2(f.label)}: <b>{count}</b>{price != null ? ' @ ₹' + price : ''}</span>;
+              })}
+              {fp.corkage_price != null && <span>🍷 {T2("Corkage")}: <b>₹{fp.corkage_price}</b></span>}
+            </div>
+          </div>
+        )}
 
         {fp && fp.allergies && <FPNoteBlock title={T2("Allergies / Dietary Restrictions")} text={fp.allergies} />}
         {fp && fp.service_notes && <FPNoteBlock title={T2("Service Style Notes")} text={fp.service_notes} />}
