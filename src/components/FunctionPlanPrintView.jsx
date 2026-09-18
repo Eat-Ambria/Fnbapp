@@ -138,6 +138,17 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
         )}
 
+        {fp && fp.drivers_food_required && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>🚗 {T2("Drivers Food")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              <span>{T2("Required")}: <b>{T2("Yes")}</b></span>
+              {fp.drivers_food_count != null && <span>{T2("Count of people")}: <b>{fp.drivers_food_count}</b></span>}
+              {fp.drivers_food_coupon != null && <span>{T2("Coupon")}: <b>{fp.drivers_food_coupon ? T2("Yes") : T2("No")}</b></span>}
+            </div>
+          </div>
+        )}
+
         {fp && fp.allergies && <FPNoteBlock title={T2("Allergies / Dietary Restrictions")} text={fp.allergies} />}
         {fp && fp.service_notes && <FPNoteBlock title={T2("Service Style Notes")} text={fp.service_notes} />}
         {fp && fp.general_notes && <FPNoteBlock title={T2("General Notes")} text={fp.general_notes} />}

@@ -29,6 +29,63 @@ var EQUIP_FIELDS = [
   { id: 'heater', label: 'Heater', icon: '🔥' },
 ];
 
+// Native <input type="time"> renders per browser/OS locale (often 24h, with
+// no HTML attribute to force 12h) — a custom hour/minute/AM-PM picker is the
+// only way to guarantee 12h display, and it stores the value as a plain
+// "07:30 PM" string, same convention Dashboard's event Time field already
+// uses.
+function parseTime12(v) {
+  var m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((v || '').trim());
+  if (!m) return { hour: '', min: '', ampm: '' };
+  return { hour: m[1].padStart(2, '0'), min: m[2], ampm: m[3].toUpperCase() };
+}
+var TIME12_HOURS = Array.from({ length: 12 }, function(_, i){ return String(i + 1).padStart(2, '0'); });
+var TIME12_MINS = Array.from({ length: 12 }, function(_, i){ return String(i * 5).padStart(2, '0'); });
+function YesNoToggle({ value, onChange, T2 }) {
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      {[{ v: true, l: 'Yes' }, { v: false, l: 'No' }].map(function(o){
+        var isActive = value === o.v;
+        return (
+          <button key={o.l} type="button" onClick={function(){ onChange(o.v); }}
+            style={{ padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: isActive ? 700 : 500,
+              background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
+              border: "1px solid " + (isActive ? C.wine : C.border), cursor: "pointer" }}>
+            {T2(o.l)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TimeInput12({ value, onCommit }) {
+  var t = parseTime12(value);
+  function update(part, v) {
+    var next = { hour: t.hour, min: t.min, ampm: t.ampm };
+    next[part] = v;
+    onCommit(next.hour && next.min && next.ampm ? (next.hour + ':' + next.min + ' ' + next.ampm) : null);
+  }
+  var selStyle = { padding: "7px 6px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text };
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      <select value={t.hour} onChange={function(e){ update('hour', e.target.value); }} style={selStyle}>
+        <option value="">--</option>
+        {TIME12_HOURS.map(function(h){ return <option key={h} value={h}>{h}</option>; })}
+      </select>
+      <select value={t.min} onChange={function(e){ update('min', e.target.value); }} style={selStyle}>
+        <option value="">--</option>
+        {TIME12_MINS.map(function(m){ return <option key={m} value={m}>{m}</option>; })}
+      </select>
+      <select value={t.ampm} onChange={function(e){ update('ampm', e.target.value); }} style={selStyle}>
+        <option value="">--</option>
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
+}
+
 export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
@@ -118,11 +175,7 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
             return (
               <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 11, color: C.muted }}>{T2(f.label)}</span>
-                <input type="time"
-                  value={val(f.id)}
-                  onChange={function(e){ onChangeField(f.id, e.target.value); }}
-                  onBlur={function(){ commitText(f.id); }}
-                  style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+                <TimeInput12 value={val(f.id)} onCommit={function(v){ onSaveField(f.id, v); }} />
               </label>
             );
           })}
@@ -134,17 +187,11 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 11, color: C.muted }}>{T2("Check-in")}</span>
-            <input type="time" value={val('room_check_in')}
-              onChange={function(e){ onChangeField('room_check_in', e.target.value); }}
-              onBlur={function(){ commitText('room_check_in'); }}
-              style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+            <TimeInput12 value={val('room_check_in')} onCommit={function(v){ onSaveField('room_check_in', v); }} />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 11, color: C.muted }}>{T2("Check-out")}</span>
-            <input type="time" value={val('room_check_out')}
-              onChange={function(e){ onChangeField('room_check_out', e.target.value); }}
-              onBlur={function(){ commitText('room_check_out'); }}
-              style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+            <TimeInput12 value={val('room_check_out')} onCommit={function(v){ onSaveField('room_check_out', v); }} />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={{ fontSize: 11, color: C.muted }}>{T2("Room count")}</span>
@@ -190,6 +237,33 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
                 style={{ width: 100, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
             </label>
           </div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>🚗 {T2("Drivers food")}</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, color: C.muted }}>{T2("Required")}</span>
+            <YesNoToggle T2={T2} value={fp && fp.drivers_food_required != null ? fp.drivers_food_required : false}
+              onChange={function(v){ onSaveField('drivers_food_required', v); }} />
+          </label>
+          {fp && fp.drivers_food_required && (
+            <>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 10, color: C.muted }}>{T2("Count of people")}</span>
+                <input type="number" min="0" inputMode="numeric" value={val('drivers_food_count')}
+                  onChange={function(e){ onChangeField('drivers_food_count', e.target.value); }}
+                  onBlur={function(){ commitNumber('drivers_food_count'); }}
+                  style={{ width: 90, padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 10, color: C.muted }}>{T2("Coupon")}</span>
+                <YesNoToggle T2={T2} value={fp && fp.drivers_food_coupon != null ? fp.drivers_food_coupon : null}
+                  onChange={function(v){ onSaveField('drivers_food_coupon', v); }} />
+              </label>
+            </>
+          )}
         </div>
       </div>
 
