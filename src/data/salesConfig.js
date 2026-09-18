@@ -4,14 +4,18 @@
 // Place in: src/data/salesConfig.js
 
 // ── 7 F&B sub-departments (order = sidebar order) ──
+// `icon` stays for anywhere still rendering an emoji; `glyph` names an entry in
+// the app icon set, which is what the chrome uses. One line of SVG beats an
+// emoji here: emoji render differently on every OS, sit on their own baseline,
+// and cannot take the department colour.
 export const SALES_DEPTS = [
-  { id: 'kit', name: 'Kitchen',    icon: '👨‍🍳', color: '#D4A843', bg: '#F5EBD7' },
-  { id: 'bev', name: 'Beverage',   icon: '🥤',   color: '#50B0A0', bg: '#DEF0EC' },
-  { id: 'bak', name: 'Bakery',     icon: '🧁',   color: '#C87A97', bg: '#F5E1EA' },
-  { id: 'frt', name: 'Fruits',     icon: '🍎',   color: '#4CAF50', bg: '#DFF0DE' },
-  { id: 'svc', name: 'Service',    icon: '🍽️',   color: '#5B8FD0', bg: '#DEEAF6' },
-  { id: 'crk', name: 'Crockery',   icon: '🍶',   color: '#8A70C8', bg: '#EADFF5' },
-  { id: 'trn', name: 'Transport',  icon: '🚛',   color: '#8B5E28', bg: '#EFE3D3' },
+  { id: 'kit', name: 'Kitchen',    icon: '👨‍🍳', glyph: 'chefHat',  color: '#D4A843', bg: '#F5EBD7' },
+  { id: 'bev', name: 'Beverage',   icon: '🥤',   glyph: 'cup',      color: '#50B0A0', bg: '#DEF0EC' },
+  { id: 'bak', name: 'Bakery',     icon: '🧁',   glyph: 'cake',     color: '#C87A97', bg: '#F5E1EA' },
+  { id: 'frt', name: 'Fruits',     icon: '🍎',   glyph: 'apple',    color: '#4CAF50', bg: '#DFF0DE' },
+  { id: 'svc', name: 'Service',    icon: '🍽️',   glyph: 'bell',     color: '#5B8FD0', bg: '#DEEAF6' },
+  { id: 'crk', name: 'Crockery',   icon: '🍶',   glyph: 'plate',    color: '#8A70C8', bg: '#EADFF5' },
+  { id: 'trn', name: 'Transport',  icon: '🚛',   glyph: 'truck',    color: '#8B5E28', bg: '#EFE3D3' },
 ];
 
 export const SALES_DEPT_MAP = SALES_DEPTS.reduce(function(m, d){ m[d.id] = d; return m; }, {});
