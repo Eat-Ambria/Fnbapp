@@ -62,6 +62,13 @@ const K = {
   // the blue data accent — modals, brand chips, selection states in dialogs.
   brand:     "#1C3D2B",  brandBg:   "#E7F1EA",  brandBorder:   "#C9DFD1",
   brandSoft: "#F1F7F3",  brandText: "#24503A",
+  // Sage — a muted, greyed green beside the brand's deep forest one. For a
+  // panel that should read as calm and secondary: it belongs to the same family
+  // without competing with a brand-green primary button in the same dialog.
+  // sageText, not sage, for anything carrying words: sage alone is about 3:1 on
+  // sageBg, which is fine for an icon and not for a sentence.
+  sage:      "#5E7355",  sageBg:    "#EDF2E8",  sageBorder:    "#D3DFC8",
+  sageText:  "#44543D",  sageBgHover: "#E3EBDB",
   // Hover shades. Tokens rather than literals buried in the stylesheet, so a
   // palette change cannot leave the hover states behind on the old colour.
   brandHover:   "#14301F",   // solid brand button, pressed-darker
@@ -581,6 +588,10 @@ const KITCHEN_CSS = `
 .kh-pressrow { transition: background .14s ease, border-color .14s ease, transform .08s ease; }
 .kh-pressrow:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
 .kh-pressrow:active { transform: scale(.995); background: ${K.brandBgHover} !important; }
+/* Sage variant for the secondary panel, so hovering it does not borrow the
+   brand green that the dialog's primary button already owns. */
+.kh-pressrow.is-sage:hover { background: ${K.sageBgHover} !important; border-color: ${K.sage} !important; }
+.kh-pressrow.is-sage:active { background: ${K.sageBorder} !important; }
 
 /* Closing-tab dish cards — three up. Fixed tracks rather than auto-fill: the
    card holds two number fields side by side and a notes field under them, and

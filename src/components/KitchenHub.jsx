@@ -1638,17 +1638,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
               {/* Step one, and the whole row is the button — a single small link
                   inside a panel invites a miss. */}
-              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip kh-pressrow" onPointerDown={ripple}
+              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip kh-pressrow is-sage" onPointerDown={ripple}
                 style={{display:"flex",alignItems:"center",gap:16,width:"100%",textAlign:"left",marginTop:18,
-                  padding:"16px 18px",borderRadius:16,background:K.brandSoft,border:`1px solid ${K.brandBorder}`,
-                  cursor:"pointer",fontFamily:K.fontBody,color:K.brand}}>
-                <span style={{width:48,height:48,borderRadius:14,flexShrink:0,background:"#FFFFFF",color:K.brand,
-                  border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  padding:"16px 18px",borderRadius:16,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
+                  cursor:"pointer",fontFamily:K.fontBody,color:K.sage}}>
+                <span style={{width:48,height:48,borderRadius:14,flexShrink:0,background:"#FFFFFF",color:K.sage,
+                  border:`1px solid ${K.sageBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <Icon name="note" size={22} strokeWidth={1.8}/>
                 </span>
                 <span style={{flex:1,minWidth:0}}>
-                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Download current CSV")}</span>
-                  <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Get the latest ingredients for this recipe")}</span>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.sageText}}>{T2("Download current CSV")}</span>
+                  <span style={{display:"block",fontSize:13.5,color:K.sage,marginTop:2}}>{T2("Get the latest ingredients for this recipe")}</span>
                 </span>
                 {/* No trailing glyph here. The icon set has no download mark,
                     and a chevron in that position reads as a dropdown - it
