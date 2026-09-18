@@ -144,9 +144,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>({...f,items:[...f.items,{isSection:true,name:"",hi:"",yield:{kg:null,pcs:null}}]}));
     setIngDirty(true);
   }
+  // Same rule as the step list: a blank row goes without a word, a filled one
+  // asks first. A section row asks even when unnamed, since removing it merges
+  // its ingredients into whatever section sits above.
   function ingRemoveItem(idx) {
-    setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)}));
-    setIngDirty(true);
+    const rm = () => { setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)})); setIngDirty(true); };
+    const it = safeArr(ingForm.items)[idx] || {};
+    const hasWork = !!(String(it.name||"").trim() || String(it.hi||"").trim() || it.qty || it.isSection);
+    if(!hasWork){ rm(); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title: it.isSection ? T2("Remove this section?") : T2("Remove this ingredient?"),
+      subhead:(<div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+        {String(it.name||"").trim()||T2("Untitled")}</div>),
+      body: it.isSection
+        ? T2("Its ingredients stay, but they fold into the section above it.")
+        : T2("It is removed from this recipe when you save."),
+      confirmLabel: it.isSection ? T2("Remove section") : T2("Remove ingredient"),
+      onConfirm:()=>{ setResetModal(null); rm(); }});
   }
   function ingUpdateItem(idx, field, val) {
     setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],[field]:val};return{...f,items};});
@@ -879,7 +893,28 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
-  function sopRemoveStep(si){setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)}));}
+  // Confirm only when there is something to lose. An empty row is removed on
+  // the spot - asking there is friction for nothing - but a step somebody has
+  // typed instructions and sub-steps into has no undo behind it.
+  function sopRemoveStep(si){
+    const st = safeArr(sopForm.steps)[si] || {};
+    const nSubs = safeArr(st.subs).length;
+    const hasWork = !!(String(st.t||"").trim() || String(st.i||"").trim() || String(st.ccp||"").trim() || st.tm || nSubs);
+    if(!hasWork){ setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)})); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this step?"),
+      subhead:(
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+            {String(st.t||"").trim()||`${T2("Step")} ${si+1}`}
+          </div>
+          {nSubs>0&&<div style={{fontSize:13,color:K.hdrMeta,marginTop:2}}>{nSubs} {nSubs===1?T2("sub-step"):T2("sub-steps")}</div>}
+        </div>
+      ),
+      body:T2("Its instructions and sub-steps go with it."),
+      confirmLabel:T2("Delete step"),
+      onConfirm:()=>{ setResetModal(null); setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)})); }});
+  }
   // Copy a step, sub-steps and all, and drop the copy right after it. Recipes
   // routinely repeat a step with one quantity changed, and retyping four
   // sub-steps to change one word is how they end up inconsistent.
@@ -946,7 +981,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   });setStepDragIdx(null);}
   function sopMoveStep(si,dir){setSopForm(p=>{const s=[...p.steps];const ni=si+dir;if(ni<0||ni>=s.length)return p;[s[si],s[ni]]=[s[ni],s[si]];return{...p,steps:s};});}
   function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:"",tm:0,ccp:""}]})}));}
-  function sopRemoveSub(si,sbi){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));}
+  function sopRemoveSub(si,sbi){
+    const rm = () => setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));
+    const sb = safeArr(safeArr(sopForm.steps)[si]?.subs)[sbi] || {};
+    const hasWork = !!(String(sb.t||"").trim() || String(sb.i||"").trim() || String(sb.ccp||"").trim() || sb.tm);
+    if(!hasWork){ rm(); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this sub-step?"),
+      subhead:(<div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+        {String(sb.t||"").trim()||`${si+1}${String.fromCharCode(97+sbi)}`}</div>),
+      body:T2("This cannot be undone from here."),
+      confirmLabel:T2("Delete sub-step"),
+      onConfirm:()=>{ setResetModal(null); rm(); }});
+  }
   function sopEditSub(si,sbi,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).map((sb,j)=>j!==sbi?sb:{...sb,[field]:val})})}));}
   function saveSop(){
     const f=sopForm;
