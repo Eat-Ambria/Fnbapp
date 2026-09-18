@@ -1074,6 +1074,11 @@ export default function App() {
                     </span>
                   </div>
                 )}
+              {/* Screen-level header actions. A screen that needs one control up
+                 here - Kitchen Hub puts "Back to Recipes" in it - portals into
+                 this slot, which keeps that screen's state where it lives instead
+                 of lifting it into the shell. Empty and invisible otherwise. */}
+              <div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:"auto"}}/>
               </div>
           </div>
 
@@ -1529,6 +1534,11 @@ export default function App() {
                 </span>
               </div>
             )}
+            {/* Screen-level header actions. A screen that needs one control up
+               here - Kitchen Hub puts "Back to Recipes" in it - portals into
+               this slot, which keeps that screen's state where it lives instead
+               of lifting it into the shell. Empty and invisible otherwise. */}
+            <div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:"auto"}}/>
           </div>
         </div>
 

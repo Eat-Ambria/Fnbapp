@@ -143,6 +143,35 @@ async function uploadStaffPhoto(supabase, staffId, file) {
   }
 }
 
+// Recipe photo upload. Same shape as uploadStaffPhoto - compress first, upsert
+// under a deterministic path, return a cache-busted public URL - so there is
+// one way photos get into storage in this app rather than two.
+// `key` must be filesystem-safe: a dish name goes through slugRecipeKey first.
+async function uploadRecipePhoto(supabase, key, file) {
+  if (!supabase || !file || !key) return null;
+  try {
+    var blob = await compressImage(file, 600, 0.82);
+    if (!blob) return null;
+    var path = String(key) + ".jpg";
+    var { error: upErr } = await supabase.storage
+      .from("recipe-photos")
+      .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    if (upErr) { console.error("recipe photo upload:", upErr); return null; }
+    var { data } = supabase.storage.from("recipe-photos").getPublicUrl(path);
+    return data && data.publicUrl ? data.publicUrl + "?v=" + Date.now() : null;
+  } catch (e) {
+    console.error("recipe photo upload:", e);
+    return null;
+  }
+}
+
+// A dish name is not a safe storage path: it can carry spaces, slashes and
+// Devanagari. Lower-cased alphanumerics joined by dashes keeps the path stable
+// for the same dish so a re-upload overwrites rather than piling up files.
+function slugRecipeKey(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "recipe";
+}
+
 // ── Roman → Devanagari transliteration for Indian names ──
 // Uses ITRANS scheme, best fit for common English spellings ("Gopal" → गोपाल).
 let _sanscript = null;
@@ -292,4 +321,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey };

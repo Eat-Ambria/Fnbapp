@@ -250,13 +250,16 @@ function ModalWatermark() {
     <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden",
       pointerEvents: "none", zIndex: 0 }}>
       {/* Toque, bottom-left. Reuses the shared chefHat glyph rather than a
-          bespoke path so it stays consistent if the icon set is redrawn. */}
-      <span style={{ position: "absolute", left: -14, bottom: -26, color: K.sbGold, opacity: .12 }}>
-        <Icon name="chefHat" size={168} strokeWidth={0.85} />
+          bespoke path so it stays consistent if the icon set is redrawn.
+          Small and faint on purpose: at 168px and .12 it crossed the body text
+          of a short dialog and the copy became hard to read. A watermark that
+          competes with the sentence it sits behind is not decoration. */}
+      <span style={{ position: "absolute", left: -10, bottom: -18, color: K.sbGold, opacity: .07 }}>
+        <Icon name="chefHat" size={104} strokeWidth={0.9} />
       </span>
       {/* Two leaf blades, top-right. */}
-      <svg viewBox="0 0 120 120" width="190" height="190" fill={K.brand}
-        style={{ position: "absolute", right: -34, top: -46, opacity: .06 }}>
+      <svg viewBox="0 0 120 120" width="140" height="140" fill={K.brand}
+        style={{ position: "absolute", right: -26, top: -34, opacity: .045 }}>
         <path d="M118 4C78 8 48 30 38 60c-5 14-2 27 7 33 12 8 30 1 42-16C99 60 110 34 118 4z" />
         <path d="M62 74c-27 2-47 17-54 37-3 9 0 17 6 20 9 4 21-2 29-15 8-12 15-26 19-42z" />
       </svg>
@@ -419,4 +422,4 @@ function KColHead({ children, align = "left", className }) {
 
 // Components only — keeps React Fast Refresh working for this file.
 // Import tokens straight from '../utils/theme.js' (K, tone).
-export { Icon, KTabs, KButton, KPanel, KStat, KPill, KProgress, KBanner, KContextBar, KColHead, KModal, KToast };
+export { Icon, KTabs, KButton, KPanel, KStat, KPill, KProgress, KBanner, KContextBar, KColHead, KModal, KToast, ModalWatermark };

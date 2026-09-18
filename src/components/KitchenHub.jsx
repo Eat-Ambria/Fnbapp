@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -18,11 +18,16 @@ import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
-import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast } from './KitchenUI.jsx';
+import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast, ModalWatermark } from './KitchenUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
 
+// Tints for the SOP library's tiles — category circles and recipe monograms.
+// Rotated by position, because neither a category nor a recipe carries a colour
+// of its own in RECIPE_DB. Pitched a shade deeper than they would be on white:
+// the card face is warm ivory and anything paler disappears into it.
+const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","#EBE6D5"];
 
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
@@ -82,6 +87,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopBulkTarget, setSopBulkTarget] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatBuf, setNewCatBuf] = useState("");
+  // SOP overview controls. catMenuId is the card whose "..." menu is open —
+  // one id, not a per-card flag, so opening one closes any other.
+  const [sopCatSort, setSopCatSort] = useState("name");
+  const [sopSortOpen, setSopSortOpen] = useState(false);
+  const [catMenuId, setCatMenuId] = useState(null);
+  const [recipeMenu, setRecipeMenu] = useState(null);
+  const [stepDragIdx, setStepDragIdx] = useState(null);
+  // The shell renders the header slot; its DOM node only exists after that
+  // commit, so it is read in an effect rather than during render.
+  const [hdrSlot, setHdrSlot] = useState(null);
+  useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [tab, sopRecipe, sopCat]);
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false);
 
   // -- Ingredient Matrix Editor --
   // New schema: {base_pax:300, base_yield:{kg,pcs}, items:[{name, hi, unit, qty:number, qty_nv?:number}]}
@@ -127,9 +144,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngForm(f=>({...f,items:[...f.items,{isSection:true,name:"",hi:"",yield:{kg:null,pcs:null}}]}));
     setIngDirty(true);
   }
+  // Same rule as the step list: a blank row goes without a word, a filled one
+  // asks first. A section row asks even when unnamed, since removing it merges
+  // its ingredients into whatever section sits above.
   function ingRemoveItem(idx) {
-    setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)}));
-    setIngDirty(true);
+    const rm = () => { setIngForm(f=>({...f,items:f.items.filter((_,i)=>i!==idx)})); setIngDirty(true); };
+    const it = safeArr(ingForm.items)[idx] || {};
+    const hasWork = !!(String(it.name||"").trim() || String(it.hi||"").trim() || it.qty || it.isSection);
+    if(!hasWork){ rm(); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title: it.isSection ? T2("Remove this section?") : T2("Remove this ingredient?"),
+      subhead:(<div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+        {String(it.name||"").trim()||T2("Untitled")}</div>),
+      body: it.isSection
+        ? T2("Its ingredients stay, but they fold into the section above it.")
+        : T2("It is removed from this recipe when you save."),
+      confirmLabel: it.isSection ? T2("Remove section") : T2("Remove ingredient"),
+      onConfirm:()=>{ setResetModal(null); rm(); }});
   }
   function ingUpdateItem(idx, field, val) {
     setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],[field]:val};return{...f,items};});
@@ -862,10 +893,107 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
-  function sopRemoveStep(si){setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)}));}
+  // Confirm only when there is something to lose. An empty row is removed on
+  // the spot - asking there is friction for nothing - but a step somebody has
+  // typed instructions and sub-steps into has no undo behind it.
+  function sopRemoveStep(si){
+    const st = safeArr(sopForm.steps)[si] || {};
+    const nSubs = safeArr(st.subs).length;
+    const hasWork = !!(String(st.t||"").trim() || String(st.i||"").trim() || String(st.ccp||"").trim() || st.tm || nSubs);
+    if(!hasWork){ setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)})); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this step?"),
+      subhead:(
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+            {String(st.t||"").trim()||`${T2("Step")} ${si+1}`}
+          </div>
+          {nSubs>0&&<div style={{fontSize:13,color:K.hdrMeta,marginTop:2}}>{nSubs} {nSubs===1?T2("sub-step"):T2("sub-steps")}</div>}
+        </div>
+      ),
+      body:T2("Its instructions and sub-steps go with it."),
+      confirmLabel:T2("Delete step"),
+      onConfirm:()=>{ setResetModal(null); setSopForm(p=>({...p,steps:p.steps.filter((_,i)=>i!==si)})); }});
+  }
+  // Copy a step, sub-steps and all, and drop the copy right after it. Recipes
+  // routinely repeat a step with one quantity changed, and retyping four
+  // sub-steps to change one word is how they end up inconsistent.
+  // Recipe photo. The URL is kept inside the existing `ingredients` JSON rather
+  // than a new column: that column is already there and already written by the
+  // yield editor, so this needs no migration. If an image_url column is ever
+  // added to `recipes`, move it and drop this note.
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const recipePhoto = r => (r && r.ingredients && r.ingredients.photo_url) || null;
+  async function saveRecipePhoto(recipe, catId, file){
+    if(!recipe) return;
+    setPhotoBusy(true);
+    try{
+      const url = file ? await uploadRecipePhoto(supabase, slugRecipeKey(recipe.n), file) : null;
+      if(file && !url){
+        // Most likely cause is a missing storage bucket, and a silent failure
+        // here would look like the upload worked until the next reload.
+        setResetModal({tone:"danger",icon:"alert",title:T2("Could not upload the photo"),
+          body:T2("The image did not reach storage. Check that a public bucket named recipe-photos exists, then try again."),
+          confirmLabel:T2("Close")});
+        return;
+      }
+      const nextIng = {...(recipe.ingredients||{}), photo_url: url};
+      const arr = RECIPE_DB.recipes[catId]||[];
+      const ri = arr.findIndex(x=>x.n===recipe.n);
+      if(ri>=0) arr[ri] = {...arr[ri], ingredients: nextIng};
+      setSopRecipe(prev => prev && prev.n===recipe.n ? {...prev, ingredients: nextIng} : prev);
+      if(supabase){
+        const r = await supabase.from("recipes").update({ingredients:nextIng}).eq("dish_name",recipe.n).eq("category_id",catId);
+        if(r.error) console.error("recipe photo save:", r.error);
+      }
+      logActivity("kitchen", (url?"Recipe photo set: ":"Recipe photo removed: ")+recipe.n, "sop_photo", {dish:recipe.n, catId}, currentUser?.id);
+    } finally { setPhotoBusy(false); }
+  }
+  // Drag feedback. `draggable` has to sit on the grip - putting it on the whole
+  // row would hijack text selection in the inputs inside it - but that makes the
+  // browser's drag ghost the grip itself, which is why dragging looked like a
+  // few dots floating around. setDragImage hands it the row instead, so the
+  // whole row travels with the cursor, grabbed at the point actually clicked.
+  function armRowDrag(e, setIdx, idx){
+    const row = e.currentTarget.closest("[data-dragrow]");
+    if(row && e.dataTransfer){
+      const r = row.getBoundingClientRect();
+      try { e.dataTransfer.setDragImage(row, e.clientX - r.left, e.clientY - r.top); } catch(_) {}
+      e.dataTransfer.effectAllowed = "move";
+    }
+    setIdx(idx);
+  }
+  function sopDuplicateStep(si){setSopForm(p=>{
+    const s=[...p.steps];
+    const copy=JSON.parse(JSON.stringify(s[si]));
+    s.splice(si+1,0,copy);
+    return{...p,steps:s};
+  });}
+  // Drag-reorder, same shape as the ingredient list: move the dragged step to
+  // the drop index rather than swapping, or dragging across several rows would
+  // scramble the ones in between.
+  function sopReorderStepTo(to){setSopForm(p=>{
+    if(stepDragIdx==null||stepDragIdx===to) return p;
+    const s=[...p.steps];
+    const [moved]=s.splice(stepDragIdx,1);
+    s.splice(to,0,moved);
+    return{...p,steps:s};
+  });setStepDragIdx(null);}
   function sopMoveStep(si,dir){setSopForm(p=>{const s=[...p.steps];const ni=si+dir;if(ni<0||ni>=s.length)return p;[s[si],s[ni]]=[s[ni],s[si]];return{...p,steps:s};});}
   function sopAddSub(si){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:[...(s.subs||[]),{t:"",i:"",tm:0,ccp:""}]})}));}
-  function sopRemoveSub(si,sbi){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));}
+  function sopRemoveSub(si,sbi){
+    const rm = () => setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).filter((_,j)=>j!==sbi)})}));
+    const sb = safeArr(safeArr(sopForm.steps)[si]?.subs)[sbi] || {};
+    const hasWork = !!(String(sb.t||"").trim() || String(sb.i||"").trim() || String(sb.ccp||"").trim() || sb.tm);
+    if(!hasWork){ rm(); return; }
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this sub-step?"),
+      subhead:(<div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+        {String(sb.t||"").trim()||`${si+1}${String.fromCharCode(97+sbi)}`}</div>),
+      body:T2("This cannot be undone from here."),
+      confirmLabel:T2("Delete sub-step"),
+      onConfirm:()=>{ setResetModal(null); rm(); }});
+  }
   function sopEditSub(si,sbi,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).map((sb,j)=>j!==sbi?sb:{...sb,[field]:val})})}));}
   function saveSop(){
     const f=sopForm;
@@ -939,16 +1067,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(existing[id]) id=slug+'_'+Date.now().toString(36);
     var row={id:id,name:trimmed,icon:'📋',sort_order:RECIPE_DB.cats.length};
     var res=await supabase.from('recipe_categories').insert(row);
-    if(res.error){window.alert('Failed to add category: '+res.error.message);return;}
+    if(res.error){setResetModal({tone:"danger",icon:"alert",title:T2("Could not add the category"),body:String(res.error.message||res.error),confirmLabel:T2("Close")});return;}
     RECIPE_DB.cats.push({id:id,name:trimmed,icon:'📋',color:'#8E8678',count:0});
     RECIPE_DB.recipes[id]=[];
     logActivity('kitchen','SOP category added: '+trimmed,'sop_category_add',{catId:id,name:trimmed},currentUser?.id);
     setAddingCategory(false);setNewCatBuf("");setSopCat(id);
   }
+  // Destructive confirms go through the in-app dialog, not window.confirm: the
+  // browser one is unstyled OS chrome, it cannot say WHAT is being deleted in
+  // the app's own voice, and on a kiosk tablet it can be suppressed entirely —
+  // which would make a delete silent.
   function deleteCategory(catId){
-    if(!window.confirm('Delete this SOP section? This cannot be undone.')) return;
+    var cat=safeArr(RECIPE_DB.cats).find(c=>c.id===catId);
+    var n=safeArr(RECIPE_DB.recipes[catId]).length;
+    if(n>0){
+      setResetModal({tone:"warn",icon:"alert",
+        title:T2("This category still has recipes"),
+        body:`${T2("It holds")} ${n} ${n===1?T2("recipe"):T2("recipes")}. ${T2("Move or delete them first, then the category can go.")}`});
+      return;
+    }
+    setResetModal({tone:"danger",icon:"trash",
+      title:`${T2("Delete")} "${cat?cat.name:catId}"?`,
+      body:T2("The category is removed for everyone. This cannot be undone."),
+      confirmLabel:T2("Delete category"),
+      onConfirm:function(){setResetModal(null);doDeleteCategory(catId);}});
+  }
+  function doDeleteCategory(catId){
     var arr=safeArr(RECIPE_DB.recipes[catId]);
-    if(arr.length>0){window.alert('Cannot delete — section still has '+arr.length+' recipes. Move or delete them first.');return;}
+    if(arr.length>0)return; // re-checked at commit time, not just at click time
     RECIPE_DB.cats=RECIPE_DB.cats.filter(c=>c.id!==catId);
     delete RECIPE_DB.recipes[catId];
     supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{if(r.error)console.error('Cat delete err:',r.error);else console.log('? Category deleted:',catId);});
@@ -979,8 +1125,35 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     logActivity('kitchen','SOP bulk moved: '+names.length+' recipes → '+toCatId,'sop_bulk_move',{dishes:names,from:fromCatId,to:toCatId},currentUser?.id);
     setSopSelected(new Set());setSopBulkMode(false);setSopBulkTarget("");
   }
+  // Leaving the ingredient editor with unsaved rows is a real loss, so it
+  // asks in the app's own dialog rather than a browser confirm.
+  function askDiscardIng(){
+    setResetModal({tone:"warn",icon:"alert",
+      title:T2("Discard your changes?"),
+      body:T2("The rows you edited since the last save will be lost."),
+      confirmLabel:T2("Discard changes"),
+      onConfirm:function(){setResetModal(null);setIngModal(null);setIngDirty(false);}});
+  }
   function deleteSop(recipe,catId){
-    if(!window.confirm('Delete "'+recipe.n+'"? This cannot be undone.'))return;
+    const nSteps=safeArr(recipe.steps).length;
+    const nIng=safeArr(recipe.ingredients?.items).filter(i=>!i.isSection).length;
+    const detail=[nSteps?`${nSteps} ${nSteps===1?T2("step"):T2("steps")}`:null,
+                  nIng?`${nIng} ${T2("ingredients")}`:null].filter(Boolean).join(" · ");
+    // The recipe name goes in the subhead, not the title. Titles that quote a
+    // long dish name wrap to two lines and bury the question being asked.
+    setResetModal({tone:"danger",icon:"trash",
+      title:T2("Delete this recipe?"),
+      subhead:(
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle,overflowWrap:"anywhere"}}>{recipe.n}</div>
+          {detail&&<div style={{fontSize:13,color:K.hdrMeta,marginTop:2}}>{detail}</div>}
+        </div>
+      ),
+      body:T2("It is removed for everyone. This cannot be undone."),
+      confirmLabel:T2("Delete recipe"),
+      onConfirm:function(){setResetModal(null);doDeleteSop(recipe,catId);}});
+  }
+  function doDeleteSop(recipe,catId){
     const cid=catId||sopCat||"";
     const arr=RECIPE_DB.recipes[cid]||[];
     const idx=arr.findIndex(r=>r.n===recipe.n);
@@ -1332,6 +1505,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         toneName={resetModal?.tone}
         icon={resetModal?.icon}
         title={resetModal?.title}
+        subhead={resetModal?.subhead}
         body={resetModal?.body}
         onClose={()=>setResetModal(null)}
       />
@@ -1341,6 +1515,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         toneName={resetModal?.tone}
         icon={resetModal?.icon}
         title={resetModal?.title}
+        subhead={resetModal?.subhead}
         body={resetModal?.body}
         confirmLabel={resetModal?.confirmLabel}
         cancelLabel={T2("Cancel")}
@@ -1439,96 +1614,293 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- SOP Add/Edit Modal -- */}
       {sopModal&&!editingSteps&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"40px 12px",overflowY:"auto"}}>
-          <div style={{background:C.surface,borderRadius:18,padding:"22px 20px",maxWidth:540,width:"100%",border:`2px solid ${C.goldBorder}`,boxShadow:"0 24px 60px rgba(0,0,0,.5)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:17,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{sopModal.mode==="edit"?"✏️ Edit Recipe SOP":"➕ Add Recipe SOP"}</div>
-              <button onClick={()=>setSopModal(null)} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer"}}>?</button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div>
-                <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Recipe Name *</label>
-                <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Paneer Tikka" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42}}/>
-              </div>
-              <div>
-                <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Sub-label</label>
-                <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))} placeholder="Hot / Cold / Dry" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box",minHeight:42}}/>
-              </div>
-            </div>
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:11,fontWeight:700,color:C.muted,display:"block",marginBottom:4}}>Category *</label>
-              <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,minHeight:42}}>
-                {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-              </select>
-            </div>
-            <label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:10,background:sopForm.bg?C.goldBg:C.bg,border:`1.5px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",marginBottom:14}}>
-              <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:18,height:18,accentColor:C.gold,cursor:"pointer"}}/>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700,color:sopForm.bg?C.gold:C.text}}>🥘 Base Gravy</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:2}}>Mark this recipe as a base gravy — it will be listed first in each section on Event Day and D-1 prep, right after ingredient collection.</div>
-              </div>
-            </label>
-            <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:8}}>Steps ({sopForm.steps.length})</div>
-            <div style={{maxHeight:340,overflowY:"auto",marginBottom:12,border:`1px solid ${C.border}`,borderRadius:12,padding:8,background:C.bg}}>
-              {sopForm.steps.map((step,si)=>(
-                <div key={si} style={{padding:"10px 8px",borderBottom:si<sopForm.steps.length-1?`1px solid ${C.borderLight}`:"none",position:"relative"}}>
-                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.gold,minWidth:20}}>{si+1}.</span>
-                    <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:36}}/>
-                    <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} style={{padding:"4px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:si===0?C.faint:C.text,fontSize:12,cursor:si===0?"default":"pointer"}}>?</button>
-                    <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} style={{padding:"4px 8px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:si===sopForm.steps.length-1?C.faint:C.text,fontSize:12,cursor:si===sopForm.steps.length-1?"default":"pointer"}}>?</button>
-                    <button onClick={()=>sopRemoveStep(si)} style={{padding:"4px 8px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,cursor:"pointer"}}>?</button>
-                  </div>
-                  <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",resize:"vertical",minHeight:44}}/>
-                  <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
-                    {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:11,color:C.muted}}>?</span>
-                      <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:70,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
-                      <span style={{fontSize:10,color:C.faint}}>min</span>
-                    </div>}
-                    <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:11,color:C.muted}}>CCP</span>
-                      <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:130,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,minHeight:32}}/>
-                    </div>
-                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontSize:11,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
-                      <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
-                      D-1 Prep
-                    </label>
-                  </div>
-                  {(step.subs&&step.subs.length>0)&&(
-                    <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:10,marginTop:8,paddingLeft:12}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
-                      {step.subs.map((sb,sbi)=>(
-                        <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
-                          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                            <span style={{fontSize:11,fontWeight:700,color:C.gold,minWidth:24}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                            <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,minHeight:32}}/>
-                            <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:24,height:24,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",padding:0,flexShrink:0}}>?</button>
-                          </div>
-                          <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.bg,boxSizing:"border-box",resize:"vertical",minHeight:32,marginBottom:4}}/>
-                          <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"5px 10px",border:`1px solid ${C.borderLight}`,marginBottom:4}}>
-                            <span style={{fontSize:11,color:C.amber,fontWeight:600}}>? Timer</span>
-                            <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:56,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:13,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:28}}/>
-                            <span style={{fontSize:11,color:C.faint}}>min</span>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,background:sb.ccp?C.redBg:C.bg,borderRadius:6,padding:"5px 10px",border:`1px solid ${sb.ccp?C.redBorder:C.borderLight}`}}>
-                            <span style={{fontSize:11,color:C.red,fontWeight:700}}>🔴 CCP</span>
-                            <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)} placeholder="Critical control (optional)" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:28}}/>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
-                </div>
-              ))}
-            </div>
-            <button onClick={sopAddStep} style={{width:"100%",padding:"10px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.border}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:14,minHeight:40}}>+ Add Step</button>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={saveSop} style={{flex:1,padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.gold},${C.wine})`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",minHeight:48}}>
-                {sopModal.mode==="edit"?"💾 Update Recipe":"➕ Save Recipe"}
+        <div onClick={()=>setSopModal(null)} style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,
+          display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"28px 20px",overflowY:"auto"}}>
+          <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+            style={{position:"relative",background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,
+              boxShadow:K.shadowLift,maxWidth:760,width:"100%",overflow:"hidden"}}>
+            <ModalWatermark/>
+
+            <div style={{position:"relative",zIndex:1,padding:"24px 26px 0",display:"flex",alignItems:"center",gap:18}}>
+              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,background:K.brandBg,color:K.brand,
+                border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="chefHat" size={28} strokeWidth={1.7}/>
+              </span>
+              <span style={{minWidth:0,flex:1}}>
+                <span style={{display:"block",...type.sectionHead,fontSize:26,color:K.hdrTitle}}>
+                  {sopModal.mode==="edit"?T2("Edit Recipe SOP"):T2("Add Recipe SOP")}
+                </span>
+                <span style={{display:"block",fontSize:14,color:K.hdrMeta,marginTop:2}}>
+                  {T2("Create a new recipe with step-by-step instructions")}
+                </span>
+              </span>
+              <button onClick={()=>setSopModal(null)} aria-label={T2("Cancel")} className="kh-modal-x kh-rip" onPointerDown={ripple}
+                style={{width:38,height:38,borderRadius:K.rPill,flexShrink:0,background:K.surface,
+                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"pointer",padding:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="close" size={17} strokeWidth={2.1}/>
               </button>
-              <button onClick={()=>setSopModal(null)} style={{padding:"14px 20px",borderRadius:12,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",minHeight:48}}>Cancel</button>
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"22px 26px"}}>
+              {(()=>{
+                const lbl={display:"block",fontSize:14,fontWeight:700,color:K.hdrTitle,marginBottom:8};
+                // Icon inside the field, so the label above it can be a plain
+                // word instead of carrying a glyph.
+                const field={display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:14,
+                  border:`1px solid ${K.line}`,overflow:"hidden"};
+                const pre={display:"flex",alignItems:"center",padding:"0 12px",color:K.textFaint,
+                  borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"};
+                const inp={flex:1,minWidth:0,padding:"14px 14px",border:"none",outline:"none",background:"transparent",
+                  fontSize:15,color:K.text,fontFamily:K.fontBody};
+                const catSel=safeArr(RECIPE_DB.cats).find(c=>c.id===sopForm.catId);
+                return(<>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,marginBottom:16}}>
+                    <div>
+                      <label style={lbl}>{T2("Recipe Name")} <span style={{color:K.danger}}>*</span></label>
+                      <div style={field}>
+                        <span style={pre}><Icon name="chefHat" size={17} strokeWidth={1.8}/></span>
+                        <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))}
+                          placeholder={T2("e.g. Paneer Tikka")} style={inp}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>{T2("Sub-label")}</label>
+                      <div style={field}>
+                        <span style={pre}><Icon name="tag" size={17} strokeWidth={1.8}/></span>
+                        <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))}
+                          placeholder={T2("Hot / Cold / Dry")} style={inp}/>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{marginBottom:16}}>
+                    <label style={lbl}>{T2("Category")} <span style={{color:K.danger}}>*</span></label>
+                    <div style={field}>
+                      <span style={{...pre,fontSize:19,lineHeight:1}}>{catSel?.icon||"\u{1F37D}"}</span>
+                      <select className="kh-select" value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))}
+                        style={{...inp,fontWeight:600,cursor:"pointer"}}>
+                        {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* The whole panel is the label, so the description is part of
+                      the hit area rather than text you have to read and then go
+                      hunting for the box. */}
+                  <label style={{display:"flex",alignItems:"center",gap:16,padding:"16px 18px",borderRadius:16,
+                    background:sopForm.bg?K.warnBg:K.surfaceAlt,
+                    border:`1px solid ${sopForm.bg?K.warnBorder:K.line}`,cursor:"pointer",marginBottom:20}}>
+                    <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))}
+                      style={{width:19,height:19,accentColor:K.brand,cursor:"pointer",flexShrink:0,margin:0}}/>
+                    <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:K.warnBg,
+                      border:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:26,lineHeight:1}}>{"\u{1F958}"}</span>
+                    <span style={{minWidth:0}}>
+                      <span style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        <span style={{fontSize:16.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Base Gravy")}</span>
+                        <span style={{fontSize:11.5,fontWeight:700,padding:"3px 10px",borderRadius:K.rPill,
+                          background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brandText}}>{T2("Recommended")}</span>
+                      </span>
+                      <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:4,lineHeight:1.5}}>
+                        {T2("Mark this recipe as a base gravy — it will be listed first in each section on Event Day and D-1 prep, right after ingredient collection.")}
+                      </span>
+                    </span>
+                  </label>
+
+                  <div style={{height:1,background:K.modalLine,margin:"0 0 18px"}}/>
+
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+                    <span style={{...type.sectionHead,fontSize:21,color:K.hdrTitle}}>
+                      {T2("Steps")} <span style={{fontSize:15,color:K.textFaint,fontWeight:500}}>({sopForm.steps.length})</span>
+                    </span>
+                    <KButton variant="brand" icon="plus" onClick={sopAddStep}
+                      style={{padding:"12px 20px",borderRadius:K.rPill,fontSize:14}}>{T2("Add step")}</KButton>
+                  </div>
+
+                  <div style={{maxHeight:"46vh",overflowY:"auto"}} className="kh-thinscroll">
+                    {sopForm.steps.map((step,si)=>(
+                      <div key={si} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>sopReorderStepTo(si)}
+                        style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:12,padding:"14px",
+                          borderRadius:16,background:"#FFFFFF",opacity:stepDragIdx===si?.4:1,transition:"opacity .12s ease",
+                          border:`1px solid ${step.ccp?K.dangerBorder:K.line}`}}>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,flexShrink:0}}>
+                          <span style={{display:"flex",alignItems:"center",justifyContent:"center",width:34,height:34,
+                            borderRadius:"50%",background:step.ccp?K.danger:K.brand,color:"#FFFFFF",
+                            fontSize:14,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{si+1}</span>
+                          <span style={{width:1,flex:1,minHeight:10,background:K.lineSoft}}/>
+                          <span draggable onDragStart={e=>armRowDrag(e,setStepDragIdx,si)} onDragEnd={()=>setStepDragIdx(null)}
+                            title={T2("Drag to reorder")}
+                            style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,color:K.textFaint,userSelect:"none"}}>
+                            <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
+                          </span>
+                        </div>
+
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",gap:9,alignItems:"center",marginBottom:9,flexWrap:"wrap"}}>
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                              border:`1px solid ${K.line}`,overflow:"hidden",flex:"1 1 240px",minWidth:0}}>
+                              <span style={{display:"flex",alignItems:"center",padding:"0 11px",color:K.textFaint,
+                                borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"}}>
+                                <Icon name="listCheck" size={16} strokeWidth={1.9}/>
+                              </span>
+                              <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)}
+                                placeholder={T2("Step title (e.g. Marinate the paneer)")}
+                                style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:14,fontWeight:600,color:K.hdrTitle,fontFamily:K.fontBody}}/>
+                            </span>
+                            <button onClick={()=>sopDuplicateStep(si)} className="kh-rip" onPointerDown={ripple}
+                              title={T2("Duplicate this step")}
+                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.surfaceAlt,
+                                border:`1px solid ${K.line}`,color:K.textMuted,cursor:"pointer",padding:0,
+                                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="note" size={16}/>
+                            </button>
+                            <button onClick={()=>sopRemoveStep(si)} className="kh-rip" onPointerDown={ripple}
+                              title={T2("Remove step")}
+                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.dangerBg,
+                                border:`1px solid ${K.dangerBorder}`,color:K.danger,cursor:"pointer",padding:0,
+                                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="trash" size={16}/>
+                            </button>
+                          </div>
+
+                          <div style={{display:"flex",background:"#FFFFFF",borderRadius:12,border:`1px solid ${K.line}`,
+                            overflow:"hidden",marginBottom:9}}>
+                            <span style={{display:"flex",alignItems:"flex-start",padding:"12px 11px",color:K.textFaint,
+                              borderRight:`1px solid ${K.lineSoft}`}}>
+                              <Icon name="note" size={16} strokeWidth={1.9}/>
+                            </span>
+                            <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} rows={2}
+                              placeholder={`${T2("Instructions (Hindi)")}\n${T2("e.g.")} पनीर को दही, नमक और मसालों के साथ 30 मिनट तक मेरिनेट करें।`}
+                              style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                fontSize:14,color:K.text,fontFamily:K.fontBody,resize:"vertical",minHeight:62,lineHeight:1.5}}/>
+                          </div>
+
+                          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                            {!(step.subs&&step.subs.length>0)&&(
+                              <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                                border:`1px solid ${K.line}`,overflow:"hidden",width:150}}>
+                                <span style={{padding:"0 0 0 12px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={16} strokeWidth={1.9}/></span>
+                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                  placeholder="0"
+                                  style={{flex:1,minWidth:0,padding:"11px 0 11px 10px",border:"none",outline:"none",
+                                    background:"transparent",fontSize:15,fontWeight:700,color:K.text,
+                                    fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                <span style={{padding:"0 12px 0 4px",fontSize:13,fontWeight:600,color:K.textFaint}}>min</span>
+                              </span>
+                            )}
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                              border:`1px solid ${step.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 220px",minWidth:0}}>
+                              <span style={{display:"flex",alignItems:"center",gap:7,padding:"0 11px",
+                                color:step.ccp?K.danger:K.textFaint,borderRight:`1px solid ${K.lineSoft}`,alignSelf:"stretch"}}>
+                                <Icon name="alert" size={15} strokeWidth={2}/>
+                                <span style={{fontSize:12,fontWeight:700,letterSpacing:".4px"}}>CCP</span>
+                              </span>
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)}
+                                list="ccp-opts-modal" placeholder={T2("Critical control")}
+                                style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:14,color:K.text,fontFamily:K.fontBody}}/>
+                            </span>
+                            <label style={{display:"inline-flex",alignItems:"center",gap:9,cursor:"pointer",flexShrink:0,
+                              padding:"10px 15px",borderRadius:12,fontSize:13.5,fontWeight:700,
+                              background:step.d1?K.brandBg:"#FFFFFF",
+                              border:`1px solid ${step.d1?K.brandBorder:K.line}`,
+                              color:step.d1?K.brandText:K.textMuted}}>
+                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)}
+                                style={{width:15,height:15,accentColor:K.brand,cursor:"pointer",margin:0}}/>
+                              {T2("D-1 prep")}
+                            </label>
+                          </div>
+
+                          <button onClick={()=>sopAddSub(si)} className="kh-rip kh-sopadd" onPointerDown={ripple}
+                            style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:11,padding:"10px 16px",
+                              borderRadius:12,background:K.brandSoft,border:`1.5px dashed ${K.brandBorder}`,
+                              color:K.brandText,fontSize:13.5,fontWeight:700,cursor:"pointer",fontFamily:K.fontBody,
+                              transition:"background .16s, border-color .16s"}}>
+                            <Icon name="plus" size={15} strokeWidth={2.1}/>{T2("Add sub-step")}
+                          </button>
+
+                          {(step.subs&&step.subs.length>0)&&(
+                            <div style={{marginTop:12,paddingLeft:14,borderLeft:`2px solid ${K.brandBorder}`}}>
+                              {step.subs.map((sb,sbi)=>(
+                                <div key={sbi} style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8,
+                                  padding:"11px",borderRadius:12,background:K.surfaceAlt,
+                                  border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`}}>
+                                  <span style={{display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                                    width:34,height:34,borderRadius:10,background:K.brandBg,border:`1px solid ${K.brandBorder}`,
+                                    fontSize:12.5,fontWeight:700,color:K.brandText}}>{si+1}{String.fromCharCode(97+sbi)}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)}
+                                      placeholder={T2("Sub-step title")}
+                                      style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        marginBottom:7,fontFamily:K.fontBody,outline:"none"}}/>
+                                    <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} rows={2}
+                                      placeholder={T2("Instructions (Hindi)")}
+                                      style={{width:"100%",padding:"9px 11px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",resize:"vertical",
+                                        minHeight:52,marginBottom:7,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${K.line}`,overflow:"hidden",width:132}}>
+                                        <span style={{padding:"0 0 0 10px",color:K.warn,display:"flex"}}><Icon name="clock" size={13} strokeWidth={2}/></span>
+                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                          placeholder="0"
+                                          style={{flex:1,minWidth:0,padding:"8px 0 8px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13.5,fontWeight:700,color:K.text,
+                                            fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                        <span style={{padding:"0 10px 0 4px",fontSize:12,fontWeight:600,color:K.textFaint}}>min</span>
+                                      </span>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 180px",minWidth:0}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:5,padding:"0 10px",
+                                          fontSize:11,fontWeight:700,letterSpacing:".4px",color:sb.ccp?K.danger:K.textFaint}}>
+                                          <span style={{width:7,height:7,borderRadius:"50%",background:sb.ccp?K.danger:K.lineStrong}}/>CCP
+                                        </span>
+                                        <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)}
+                                          list="ccp-opts-modal" placeholder={T2("Critical control")}
+                                          style={{flex:1,minWidth:0,padding:"8px 10px 8px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13,color:K.text,fontFamily:K.fontBody}}/>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button onClick={()=>sopRemoveSub(si,sbi)} className="kh-rip" onPointerDown={ripple}
+                                    title={T2("Remove sub-step")}
+                                    style={{width:32,height:32,borderRadius:10,flexShrink:0,border:`1px solid ${K.dangerBorder}`,
+                                      background:K.dangerBg,color:K.danger,cursor:"pointer",padding:0,
+                                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    <Icon name="trash" size={14}/>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Offers the CCP wordings already used in this recipe and
+                        still accepts a new one. */}
+                    <datalist id="ccp-opts-modal">
+                      {[...new Set(safeArr(sopForm.steps).flatMap(s=>[s.ccp,...safeArr(s.subs).map(x=>x.ccp)]).filter(Boolean))]
+                        .map(v=><option key={v} value={v}/>)}
+                    </datalist>
+                  </div>
+                </>);
+              })()}
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"18px 26px 24px",borderTop:`1px solid ${K.modalLine}`,
+              display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}}>
+              <KButton onClick={()=>setSopModal(null)}
+                style={{padding:"14px 26px",borderRadius:K.rPill,fontSize:14.5,background:K.surface,borderColor:K.modalLine}}>{T2("Cancel")}</KButton>
+              <KButton variant="brand" icon={sopModal.mode==="edit"?"check":"plus"} onClick={saveSop}
+                disabled={!sopForm.name.trim()}
+                style={{padding:"14px 28px",borderRadius:K.rPill,fontSize:14.5}}>
+                {sopModal.mode==="edit"?T2("Update recipe"):T2("Save recipe")}
+              </KButton>
             </div>
           </div>
         </div>
@@ -1536,52 +1908,152 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- CSV IMPORT MODAL -- */}
       {csvImport&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
-          <div style={{background:C.surface,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`,boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
-            <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📥 Import Ingredients CSV</div>
-              <button onClick={()=>setCsvImport(null)} style={{padding:"4px 10px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>?</button>
+        // Not KModal: that one takes a title, a body and one confirm. This has
+        // two alternative actions, a file picker and a parse result, so it keeps
+        // its own shell - built from the same tokens so it reads as the same
+        // family of dialog.
+        <div onClick={()=>setCsvImport(null)} style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+            style={{position:"relative",background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,
+              boxShadow:K.shadowLift,maxWidth:620,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <ModalWatermark/>
+
+            <div style={{position:"relative",zIndex:1,padding:"22px 24px",borderBottom:`1px solid ${K.brandBorder}`,
+              background:K.brandSoft,display:"flex",alignItems:"center",gap:16}}>
+              <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.brand,color:"#FFFFFF",
+                border:"1px solid transparent",boxShadow:"0 4px 14px rgba(28,61,43,.26)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="note" size={24} strokeWidth={1.8}/>
+              </span>
+              <span style={{minWidth:0,flex:1,paddingRight:34}}>
+                <span style={{display:"block",...type.sectionHead,fontSize:23,color:K.hdrTitle}}>{T2("Import Ingredients CSV")}</span>
+                <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Update ingredients for this recipe")}</span>
+              </span>
+              <button onClick={()=>setCsvImport(null)} aria-label={T2("Cancel")} className="kh-modal-x kh-rip" onPointerDown={ripple}
+                style={{position:"absolute",top:18,right:18,width:34,height:34,borderRadius:K.rPill,background:K.surface,
+                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"pointer",padding:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="close" size={16} strokeWidth={2.1}/>
+              </button>
             </div>
-            <div style={{padding:16}}>
-              <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.5}}>
-                <b style={{color:C.text}}>{csvImport.recipeName}</b> — currently {csvImport.currentCount} items<br/>
-                Download the current ingredients, edit in Excel or Sheets, then upload to <b>replace all ingredients</b> for this recipe.
-                <br/><span style={{color:C.faint,fontSize:11}}>Quantities are at {csvImport.basePax} pax anchor.</span>
+
+            <div style={{position:"relative",zIndex:1,padding:"20px 24px",overflowY:"auto",flex:1,minHeight:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:17,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.2px"}}>{csvImport.recipeName}</span>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 11px",borderRadius:K.rPill,
+                  background:K.brandBg,border:`1px solid ${K.brandBorder}`,fontSize:12.5,fontWeight:700,color:K.brandText}}>
+                  <Icon name="listCheck" size={13} strokeWidth={2}/>{csvImport.currentCount} {T2("items")}
+                </span>
               </div>
-              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} style={{width:"100%",padding:"10px",borderRadius:10,border:`1.5px solid ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12,minHeight:40}}>? Download current CSV</button>
-              <div style={{padding:"10px 12px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.border}`,marginBottom:10}}>
-                <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>Upload edited CSV:</div>
-                <input type="file" accept=".csv,text/csv" onChange={e=>{
-                  const f=e.target.files?.[0]; if(!f) return;
-                  const rd=new FileReader();
-                  rd.onload=()=>{ const {items,warnings}=csvImportParse(rd.result); setCsvImport(p=>({...p,parsedItems:items,warnings})); };
-                  rd.readAsText(f,'utf-8');
-                }} style={{fontSize:12,color:C.text,width:"100%"}}/>
+              <div style={{fontSize:14.5,color:K.textBody,lineHeight:1.55}}>
+                {T2("Download the current ingredients, edit in Excel or Sheets, then upload to replace all ingredients for this recipe.")}
               </div>
+              <div style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:10,padding:"5px 12px",borderRadius:K.rPill,
+                background:K.warnBg,border:`1px solid ${K.warnBorder}`,fontSize:12.5,fontWeight:600,color:K.warn}}>
+                <Icon name="users" size={13} strokeWidth={2}/>{T2("Quantities are at")} {csvImport.basePax} {T2("pax anchor")}
+              </div>
+
+              {/* Step one, and the whole row is the button — a single small link
+                  inside a panel invites a miss. */}
+              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip kh-pressrow is-sage" onPointerDown={ripple}
+                style={{display:"flex",alignItems:"center",gap:16,width:"100%",textAlign:"left",marginTop:18,
+                  padding:"16px 18px",borderRadius:16,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
+                  cursor:"pointer",fontFamily:K.fontBody,color:K.sage}}>
+                <span style={{width:48,height:48,borderRadius:14,flexShrink:0,background:"#FFFFFF",color:K.sage,
+                  border:`1px solid ${K.sageBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="note" size={22} strokeWidth={1.8}/>
+                </span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.sageText}}>{T2("Download current CSV")}</span>
+                  <span style={{display:"block",fontSize:13.5,color:K.sage,marginTop:2}}>{T2("Get the latest ingredients for this recipe")}</span>
+                </span>
+                {/* No trailing glyph here. The icon set has no download mark,
+                    and a chevron in that position reads as a dropdown - it
+                    suggested the row opens a menu rather than saving a file. */}
+              </button>
+
+              <div style={{display:"flex",alignItems:"center",gap:14,margin:"18px 0"}}>
+                <span style={{flex:1,height:1,background:K.sageBorder}}/>
+                <span style={{...type.label,fontSize:10.5,color:K.sageText,padding:"4px 12px",borderRadius:K.rPill,
+                  background:K.sageBg,border:`1px solid ${K.sageBorder}`}}>{T2("or")}</span>
+                <span style={{flex:1,height:1,background:K.sageBorder}}/>
+              </div>
+
+              {/* Dashed, because nothing has been picked yet. The native file
+                  input is hidden behind its own label so the control can be
+                  styled - the browser's default button cannot be. */}
+              <div style={{display:"flex",alignItems:"center",gap:16,padding:"16px 18px",borderRadius:16,
+                background:K.warnBg,border:`1.5px dashed ${K.warnBorder}`,flexWrap:"wrap"}}>
+                <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",color:K.warn,
+                  border:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="box" size={24} strokeWidth={1.8}/>
+                </span>
+                <span style={{flex:"1 1 200px",minWidth:0}}>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.warn}}>{T2("Upload edited CSV")}</span>
+                  <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Choose a CSV file from your device to replace all ingredients.")}</span>
+                  <span style={{display:"block",fontSize:12.5,color:K.warn,opacity:.85,marginTop:3}}>{T2("Only .csv files are supported.")}</span>
+                </span>
+                <span style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flexShrink:0}}>
+                  <label className="kh-btn kh-rip kh-pressrow is-warn" onPointerDown={ripple}
+                    style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 20px",borderRadius:K.rPill,
+                      background:"#FFFFFF",border:`1px solid ${K.warnBorder}`,boxShadow:K.shadowCard,
+                      color:K.warn,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:K.fontBody}}>
+                    <Icon name="store" size={16} strokeWidth={1.9}/>{T2("Choose file")}
+                    <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{
+                      const f=e.target.files?.[0]; if(!f) return;
+                      const rd=new FileReader();
+                      rd.onload=()=>{ const {items,warnings}=csvImportParse(rd.result); setCsvImport(p=>({...p,fileName:f.name,parsedItems:items,warnings})); };
+                      rd.readAsText(f,'utf-8');
+                    }}/>
+                  </label>
+                  <span style={{fontSize:12.5,color:csvImport.fileName?K.hdrMeta:K.textFaint,maxWidth:180,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {csvImport.fileName||T2("No file chosen")}
+                  </span>
+                </span>
+              </div>
+
               {csvImport.parsedItems&&(
-                <div style={{padding:"10px 12px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,marginBottom:10}}>
-                  <div style={{fontSize:12,color:C.text,fontWeight:700,marginBottom:6}}>
-                    Found {csvImport.parsedItems.length} rows: {csvImport.parsedItems.filter(i=>!i.isSection).length} ingredients + {csvImport.parsedItems.filter(i=>i.isSection).length} sections
+                <div style={{marginTop:16,padding:"14px 16px",borderRadius:14,background:"#FFFFFF",
+                  border:`1px solid ${K.line}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:K.hdrTitle}}>
+                    <Icon name="check" size={15} strokeWidth={2.2} style={{color:K.ok}}/>
+                    {T2("Found")} {csvImport.parsedItems.length} {T2("rows")}
+                    <span style={{fontWeight:500,color:K.hdrMeta}}>
+                      · {csvImport.parsedItems.filter(i=>!i.isSection).length} {T2("ingredients")}
+                      {" + "}{csvImport.parsedItems.filter(i=>i.isSection).length} {T2("sections")}
+                    </span>
                   </div>
                   {csvImport.warnings?.length>0&&(
-                    <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,maxHeight:120,overflowY:"auto"}}>
-                      <div style={{fontWeight:700,marginBottom:4}}>? Warnings ({csvImport.warnings.length}):</div>
-                      {csvImport.warnings.map((w,i)=>(<div key={i}>— {w}</div>))}
+                    <div style={{marginTop:11,padding:"11px 13px",borderRadius:11,background:K.warnBg,
+                      border:`1px solid ${K.warnBorder}`,fontSize:13,color:K.warn,lineHeight:1.5}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,fontWeight:700,marginBottom:5}}>
+                        <Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Warnings")} ({csvImport.warnings.length})
+                      </div>
+                      {csvImport.warnings.map((w,i)=>(<div key={i}>· {w}</div>))}
                     </div>
                   )}
-                  <div style={{fontSize:11,color:C.muted,marginTop:8}}>
-                    Replace current <b>{csvImport.currentCount}</b> items with these <b>{csvImport.parsedItems.length}</b>?
+                  {/* Said plainly, because the import is destructive: the rows in
+                      the file become the whole list. */}
+                  <div style={{marginTop:11,fontSize:13,color:K.hdrMeta,lineHeight:1.5}}>
+                    {T2("Replacing")} <b style={{color:K.hdrTitle}}>{csvImport.currentCount}</b> {T2("items with these")}
+                    {" "}<b style={{color:K.hdrTitle}}>{csvImport.parsedItems.length}</b>. {T2("The current list is overwritten.")}
                   </div>
                 </div>
               )}
-              <div style={{display:"flex",gap:8,marginTop:14}}>
-                {csvImport.parsedItems&&csvImport.parsedItems.length>0&&(
-                  <button onClick={csvImportSave} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-                    ? Replace with {csvImport.parsedItems.length} items
-                  </button>
-                )}
-                <button onClick={()=>setCsvImport(null)} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
-              </div>
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"18px 24px",borderTop:`1px solid ${K.modalLine}`,
+              display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}}>
+              <KButton icon="close" onClick={()=>setCsvImport(null)}
+                style={{padding:"13px 24px",borderRadius:K.rPill,fontSize:14,background:K.surface,borderColor:K.modalLine}}>{T2("Cancel")}</KButton>
+              <KButton variant="brand" icon="check" onClick={csvImportSave}
+                disabled={!csvImport.parsedItems||csvImport.parsedItems.length===0}
+                style={{padding:"13px 26px",borderRadius:K.rPill,fontSize:14}}>
+                {csvImport.parsedItems&&csvImport.parsedItems.length>0
+                  ? `${T2("Replace with")} ${csvImport.parsedItems.length} ${T2("items")}`
+                  : T2("Upload & replace")}
+              </KButton>
             </div>
           </div>
         </div>
@@ -2486,69 +2958,257 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // Map section filter to relevant SOP category IDs
         const allowedCats = allowedCatIds;
         const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
-        const totalRecipes = filteredCats.reduce((s,c)=>s+safeArr(RECIPE_DB.recipes[c.id]).length,0);
 
-        return(
-        <div>
-          <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:6}}>📋 {T2("Recipe SOPs")}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:12}}>{totalRecipes} {T2("recipes")} · {filteredCats.length} {T2("categories")} · {T2("Procedures in Hindi")}</div>
-          <div style={{display:"flex",gap:8,marginBottom:16}}>
-            <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)} placeholder={T2("Search recipes…")} style={{flex:1,padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:48}}/>
-            {/* "+ Add Recipe" only makes sense once a category is chosen — at the
-                all-categories overview it's replaced by a "+ Add Category" tile
-                in the grid below, since there's nothing to add a recipe INTO yet. */}
-            {currentUser?.role==='admin'&&!!sopCat&&<button onClick={()=>openSopAdd(sopCat)} style={{padding:"10px 16px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",minHeight:48}}>+ {T2("Add Recipe")}</button>}
-          </div>
-          {!sopRecipe?(
-            !sopCat?(
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10}}>
-                {filteredCats.map(cat=>{const recipes=safeArr(RECIPE_DB.recipes[cat.id]);const f2=sopSearch?recipes.filter(r=>r.n.toLowerCase().includes(sopSearch.toLowerCase())):recipes;if(sopSearch&&f2.length===0)return null;
-                  const isRenaming=renamingCatId===cat.id;
-                  return(
-                  <div key={cat.id} style={{position:"relative"}}>
-                    {isRenaming?(
-                      <div style={{width:"100%",background:C.darkCard,border:`1px solid ${C.gold}`,borderRadius:14,padding:"20px 14px",textAlign:"center",minHeight:100,boxSizing:"border-box"}}>
-                        <input value={renameCatIconBuf} onChange={e=>setRenameCatIconBuf(e.target.value)}
-                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
-                          onClick={e=>e.stopPropagation()} title={T2("Icon (emoji)")}
-                          style={{width:44,padding:"3px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:22,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box",marginBottom:6}}/>
-                        <input value={renameCatBuf} onChange={e=>setRenameCatBuf(e.target.value)}
-                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
-                          autoFocus onClick={e=>e.stopPropagation()}
-                          style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box"}}/>
-                        <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
-                          <button onClick={()=>{saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
-                          <button onClick={()=>setRenamingCatId(null)} style={{padding:"4px 10px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✕</button>
-                        </div>
-                      </div>
-                    ):(<>
-                    <button onClick={()=>setSopCat(cat.id)} style={{width:"100%",background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100}}>
-                      <div style={{fontSize:28,marginBottom:6}}>{cat.icon}</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{T2(cat.name)}</div><div style={{fontSize:11,color:C.muted,marginTop:4}}>{sopSearch?f2.length:recipes.length} {T2("recipes")}</div>
-                    </button>
-                    {currentUser?.role==='admin'&&<button onClick={e=>{e.stopPropagation();setRenamingCatId(cat.id);setRenameCatBuf(cat.name);setRenameCatIconBuf(cat.icon);}} title={T2("Rename section")} style={{position:"absolute",top:4,left:4,width:24,height:24,borderRadius:12,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✏</button>}
-                    {currentUser?.role==='admin'&&recipes.length===0&&<button onClick={e=>{e.stopPropagation();deleteCategory(cat.id);}} style={{position:"absolute",top:4,right:4,width:24,height:24,borderRadius:12,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>}
-                    </>)}
-                  </div>);})}
-                {currentUser?.role==='admin'&&(addingCategory?(
-                  <div style={{width:"100%",background:C.darkCard,border:`1px solid ${C.gold}`,borderRadius:14,padding:"20px 14px",textAlign:"center",minHeight:100,boxSizing:"border-box"}}>
-                    <div style={{fontSize:28,marginBottom:6}}>📋</div>
-                    <input value={newCatBuf} onChange={e=>setNewCatBuf(e.target.value)}
-                      onKeyDown={e=>{if(e.key==='Enter')addCategory(newCatBuf);else if(e.key==='Escape'){setAddingCategory(false);setNewCatBuf("");}}}
-                      autoFocus placeholder={T2("Category name…")}
-                      style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.text,background:C.surface,textAlign:"center",boxSizing:"border-box"}}/>
-                    <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
-                      <button onClick={()=>addCategory(newCatBuf)} style={{padding:"4px 10px",borderRadius:6,background:C.green,border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
-                      <button onClick={()=>{setAddingCategory(false);setNewCatBuf("");}} style={{padding:"4px 10px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer"}}>✕</button>
-                    </div>
-                  </div>
-                ):(
-                  <button onClick={()=>setAddingCategory(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:14,padding:"20px 14px",cursor:"pointer",textAlign:"center",minHeight:100,color:C.muted}}>
-                    <div style={{fontSize:28,marginBottom:6}}>+</div><div style={{fontSize:13,fontWeight:700}}>{T2("Add Category")}</div>
+        // One Sort control, two places: beside the search on the category
+        // overview, and in the toolbar once a category is open. Its three orders
+        // mean different things in each, so the labels follow the view.
+        // A plain function, not a component — a component declared inside render
+        // is a new type every pass and would remount on every keystroke.
+        const SORT_OPTS = sopCat
+          ? [["name",T2("Name (A → Z)")],["most",T2("Most steps")],["least",T2("Fewest steps")]]
+          : [["name",T2("Name (A → Z)")],["most",T2("Most recipes")],["least",T2("Fewest recipes")]];
+        const sortMenu = () => (
+          <div style={{position:"relative",flexShrink:0}}>
+            <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={()=>setSopSortOpen(o=>!o)}
+              style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
+                background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+                color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+              <Icon name="sliders" size={17} strokeWidth={1.9}/>{T2("Sort")}
+              <Icon name="chevronD" size={15} strokeWidth={2} style={{transform:sopSortOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
+            </button>
+            {sopSortOpen&&(<>
+              {/* Full-screen catcher so a click anywhere closes the menu without
+                  wiring a document listener for one small menu. */}
+              <div onClick={()=>setSopSortOpen(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
+              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:21,minWidth:210,
+                background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,padding:5}}>
+                {SORT_OPTS.map(([v,l])=>(
+                  <button key={v} className="ash-menu-item kh-rip" onPointerDown={ripple}
+                    onClick={()=>{setSopCatSort(v);setSopSortOpen(false);}}
+                    style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"10px 12px",borderRadius:9,
+                      border:"none",background:sopCatSort===v?K.brandBg:"transparent",
+                      color:sopCatSort===v?K.brandText:K.textBody,fontSize:13,fontWeight:sopCatSort===v?700:500,
+                      cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                    <span style={{width:15,display:"flex",flexShrink:0,color:K.brand}}>
+                      {sopCatSort===v&&<Icon name="check" size={15} strokeWidth={2.2}/>}
+                    </span>
+                    {l}
                   </button>
                 ))}
               </div>
+            </>)}
+          </div>
+        );
+
+        return(
+        <div>
+          {/* The header band belongs to the category overview only. Inside a
+              category the page already announces itself - the toolbar carries
+              Back, the controls and the recipe count - and a second title bar
+              above it just pushed the list down. */}
+          {!sopCat&&(<>
+          {/* Controls only — no badge, title or meta line. The tab strip above
+              already says which screen this is, and the counts it carried are
+              visible in the grid itself. */}
+          <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",marginBottom:18}}>
+
+            {/* Left-aligned now that nothing sits to its left — pushed right it
+                would hang off the edge of an empty row. */}
+            <div style={{display:"flex",alignItems:"center",gap:12,flex:"1 1 380px",minWidth:0,justifyContent:"flex-start"}}>
+              <div style={{position:"relative",flex:"0 1 340px",minWidth:0}}>
+                <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",color:K.textFaint,display:"flex",pointerEvents:"none"}}>
+                  <Icon name="search" size={16} strokeWidth={1.9}/>
+                </span>
+                <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)}
+                  placeholder={T2("Search recipes, categories…")}
+                  // White, not the warm ivory the pills use. This field sits
+                  // directly on the page artwork with no card behind it, and in
+                  // ivory-on-ivory it read as background rather than as an input.
+                  style={{width:"100%",padding:"11px 16px 11px 42px",borderRadius:K.rPill,border:`1px solid ${K.cardWarmLine}`,
+                    fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",minWidth:190,
+                    boxShadow:K.shadowCard,fontFamily:K.fontBody,outline:"none"}}/>
+              </div>
+
+              {sortMenu()}
+
+            </div>
+          </div>
+          </>)}
+          {!sopRecipe?(
+            !sopCat?(
+              (()=>{
+                // Count once, then sort on it. The card shows the filtered count
+                // while a search is running, so "most recipes" has to order by
+                // what is actually on screen or the order contradicts the labels.
+                // The box searches categories as well as recipes, as its
+                // placeholder says. A category kept only because its NAME
+                // matched still shows its full count, and opening it clears the
+                // query — the detail view filters by recipe name, so the query
+                // that found the category would otherwise land you on an empty
+                // list of its own recipes.
+                const q = sopSearch.trim().toLowerCase();
+                const cards = filteredCats.map(cat=>{
+                  const recipes = safeArr(RECIPE_DB.recipes[cat.id]);
+                  const hits = q ? recipes.filter(r=>(r.n||"").toLowerCase().includes(q)) : recipes;
+                  const nameHit = !!q && (cat.name||"").toLowerCase().includes(q);
+                  const nameOnly = nameHit && hits.length===0;
+                  return { cat, total: recipes.length, count: nameOnly?recipes.length:hits.length, nameOnly, keep: !q||nameHit||hits.length>0 };
+                }).filter(c=>c.keep);
+                cards.sort((a,b)=>
+                  sopCatSort==="most"  ? b.count-a.count || (a.cat.name||"").localeCompare(b.cat.name||"") :
+                  sopCatSort==="least" ? a.count-b.count || (a.cat.name||"").localeCompare(b.cat.name||"") :
+                  (a.cat.name||"").localeCompare(b.cat.name||""));
+                // Tints rotate by position so neighbouring circles differ.
+                // Categories carry no colour of their own in RECIPE_DB. Pitched
+                // a shade deeper than they would be on white — the card face is
+                // warm ivory, and paler tints than this disappear into it.
+                const TINTS = SOP_TINTS;
+                return (
+                <div className="kh-sopgrid">
+                  {cards.map(({cat,total,count,nameOnly},ci)=>{
+                    const isRenaming = renamingCatId===cat.id;
+                    if (isRenaming) return (
+                      <div key={cat.id} style={{backgroundColor:K.cardWarm,border:`1.5px solid ${K.brand}`,borderRadius:18,
+                        padding:16,boxShadow:K.shadowCard,boxSizing:"border-box",display:"flex",flexDirection:"column",gap:9}}>
+                        <input value={renameCatIconBuf} onChange={e=>setRenameCatIconBuf(e.target.value)}
+                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
+                          title={T2("Icon (emoji)")}
+                          style={{width:56,height:56,borderRadius:"50%",border:`1px solid ${K.line}`,fontSize:26,color:K.text,
+                            background:K.surfaceAlt,textAlign:"center",boxSizing:"border-box",outline:"none"}}/>
+                        <input value={renameCatBuf} onChange={e=>setRenameCatBuf(e.target.value)}
+                          onKeyDown={e=>{if(e.key==='Enter'){saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}else if(e.key==='Escape'){setRenamingCatId(null);}}}
+                          autoFocus
+                          style={{width:"100%",padding:"9px 11px",borderRadius:K.rSm,border:`1px solid ${K.line}`,fontSize:14,
+                            fontWeight:700,color:K.text,background:K.surfaceAlt,boxSizing:"border-box",outline:"none",fontFamily:K.fontBody}}/>
+                        <div style={{display:"flex",gap:8,marginTop:"auto"}}>
+                          <KButton variant="brand" size="sm" icon="check" style={{flex:1,justifyContent:"center"}}
+                            onClick={()=>{saveCategoryEdit(cat.id,renameCatBuf,renameCatIconBuf);setRenamingCatId(null);}}>{T2("Save")}</KButton>
+                          <KButton variant="ghost" size="sm" onClick={()=>setRenamingCatId(null)}>{T2("Cancel")}</KButton>
+                        </div>
+                      </div>
+                    );
+                    const menuOpen = catMenuId===cat.id;
+                    // cardart-SM, not the full motif: the full pair drops a
+                    // 150px chef hat and a 165px leaf onto a card barely wider
+                    // than that, and they collide with the title.
+                    return (
+                    <div key={cat.id} className="kh-sopcard kh-cardart-sm" style={{position:"relative",backgroundColor:K.cardWarm,
+                      border:`1px solid ${K.cardWarmLine}`,borderRadius:18,boxShadow:K.shadowCard,boxSizing:"border-box"}}>
+                      {/* The whole card is the button. The "..." menu sits above
+                          it rather than inside, so its clicks never open the
+                          category as well. */}
+                      <button onClick={()=>{if(nameOnly)setSopSearch("");setSopCat(cat.id);}} className="kh-rip" onPointerDown={ripple}
+                        style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:0,width:"100%",height:"100%",
+                          padding:"18px 16px 15px",background:"transparent",border:"none",borderRadius:18,
+                          cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                        <span style={{width:86,height:86,borderRadius:"50%",flexShrink:0,marginBottom:14,
+                          background:TINTS[ci%TINTS.length],boxShadow:"inset 0 0 0 1px rgba(255,255,255,.65)",
+                          display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,lineHeight:1}}>{cat.icon}</span>
+                        <span style={{fontFamily:K.fontBody,fontSize:15.5,fontWeight:700,letterSpacing:"-0.25px",
+                          lineHeight:1.28,color:K.hdrTitle,overflowWrap:"anywhere"}}>{T2(cat.name)}</span>
+                        {/* Hairline separates the name from the count, which is
+                            what keeps the card from reading as one grey blur. */}
+                        <span style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,width:"100%",
+                          marginTop:"auto",paddingTop:13,borderTop:`1px solid ${K.cardWarmLine}`}}>
+                          <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.6px",textTransform:"uppercase",color:K.hdrMeta}}>
+                            {count} {T2("recipes")}
+                          </span>
+                          <span className="kh-sopgo" style={{width:32,height:32,borderRadius:"50%",flexShrink:0,
+                            background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.brand,
+                            display:"flex",alignItems:"center",justifyContent:"center",transition:"background .16s, color .16s"}}>
+                            <Icon name="chevronR" size={15} strokeWidth={2.3}/>
+                          </span>
+                        </span>
+                      </button>
+
+                      {currentUser?.role==='admin'&&(
+                        <div style={{position:"absolute",top:10,right:10,zIndex:menuOpen?22:2}}>
+                          <button className={"kh-sopmenu"+(menuOpen?" is-open":"")} title={T2("Options")}
+                            onClick={e=>{e.stopPropagation();setCatMenuId(menuOpen?null:cat.id);}}
+                            style={{width:28,height:28,borderRadius:"50%",background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                              color:K.textMuted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                            <Icon name="more" size={15}/>
+                          </button>
+                          {menuOpen&&(<>
+                            <div onClick={e=>{e.stopPropagation();setCatMenuId(null);}} style={{position:"fixed",inset:0,zIndex:-1}}/>
+                            <div style={{position:"absolute",top:34,right:0,minWidth:184,background:K.surface,
+                              border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5}}>
+                              <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                onClick={e=>{e.stopPropagation();setCatMenuId(null);setRenamingCatId(cat.id);setRenameCatBuf(cat.name);setRenameCatIconBuf(cat.icon);}}
+                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                  border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                <Icon name="note" size={15}/>{T2("Rename")}
+                              </button>
+                              {/* Deleting a category with recipes in it would
+                                  orphan every one of them, so it is only offered
+                                  once the category is empty — and says why. */}
+                              <button disabled={total>0} className={total>0?undefined:"ash-menu-item is-danger kh-rip"}
+                                onPointerDown={total>0?undefined:ripple}
+                                onClick={e=>{e.stopPropagation();if(total>0)return;setCatMenuId(null);deleteCategory(cat.id);}}
+                                title={total>0?T2("Move or delete its recipes first"):undefined}
+                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                  border:"none",background:"transparent",color:total>0?K.textFaint:K.textBody,fontSize:13,
+                                  cursor:total>0?"not-allowed":"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                <Icon name="trash" size={15}/>{T2("Delete")}
+                              </button>
+                            </div>
+                          </>)}
+                        </div>
+                      )}
+                    </div>);
+                  })}
+
+                  {currentUser?.role==='admin'&&(addingCategory?(
+                    <div style={{backgroundColor:K.cardWarm,border:`1.5px solid ${K.brand}`,borderRadius:18,padding:16,
+                      boxShadow:K.shadowCard,boxSizing:"border-box",display:"flex",flexDirection:"column",gap:10}}>
+                      <span style={{width:56,height:56,borderRadius:"50%",background:K.brandBg,color:K.brand,
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="clipboard" size={25} strokeWidth={1.8}/>
+                      </span>
+                      <input value={newCatBuf} onChange={e=>setNewCatBuf(e.target.value)}
+                        onKeyDown={e=>{if(e.key==='Enter')addCategory(newCatBuf);else if(e.key==='Escape'){setAddingCategory(false);setNewCatBuf("");}}}
+                        autoFocus placeholder={T2("Category name…")}
+                        style={{width:"100%",padding:"9px 11px",borderRadius:K.rSm,border:`1px solid ${K.line}`,fontSize:14,
+                          fontWeight:700,color:K.text,background:K.surfaceAlt,boxSizing:"border-box",outline:"none",fontFamily:K.fontBody}}/>
+                      <div style={{display:"flex",gap:8,marginTop:"auto"}}>
+                        <KButton variant="brand" size="sm" icon="check" style={{flex:1,justifyContent:"center"}}
+                          onClick={()=>addCategory(newCatBuf)}>{T2("Create")}</KButton>
+                        <KButton variant="ghost" size="sm" onClick={()=>{setAddingCategory(false);setNewCatBuf("");}}>{T2("Cancel")}</KButton>
+                      </div>
+                    </div>
+                  ):(
+                    <button onClick={()=>setAddingCategory(true)} className="kh-sopadd kh-rip" onPointerDown={ripple}
+                      style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,
+                        width:"100%",height:"100%",minHeight:212,padding:"18px 16px",background:K.brandSoft,
+                        border:`1.5px dashed ${K.brandBorder}`,borderRadius:18,cursor:"pointer",
+                        textAlign:"center",fontFamily:K.fontBody,transition:"background .16s, border-color .16s"}}>
+                      <span style={{width:56,height:56,borderRadius:"50%",border:`1.5px solid ${K.brandBorder}`,color:K.brand,
+                        background:"rgba(255,255,255,.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="plus" size={25} strokeWidth={2}/>
+                      </span>
+                      <span style={{fontFamily:K.fontBody,fontSize:15.5,fontWeight:700,letterSpacing:"-0.25px",color:K.brandText}}>{T2("Add Category")}</span>
+                      <span style={{fontSize:12.5,color:K.hdrMeta,marginTop:-5}}>{T2("Create new category")}</span>
+                    </button>
+                  ))}
+
+                  {cards.length===0&&!!sopSearch&&(
+                    <div className="kh-cardart-sm" style={{gridColumn:"1 / -1",padding:"34px 18px",textAlign:"center",backgroundColor:K.cardWarm,
+                      border:`1px solid ${K.cardWarmLine}`,borderRadius:18,boxShadow:K.shadowCard}}>
+                      <div style={{color:K.textFaint,display:"flex",justifyContent:"center",marginBottom:10}}><Icon name="search" size={26} strokeWidth={1.6}/></div>
+                      <div style={{...type.cardTitle,color:K.hdrTitle}}>{T2("No matches")}</div>
+                      <div style={{fontSize:13,color:K.hdrMeta,marginTop:4}}>{T2("No recipe or category matches")} “{sopSearch}”</div>
+                    </div>
+                  )}
+                </div>
+                );
+              })()
             ):(()=>{
-              const allR=safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase())).sort((a,b)=>(a.n||"").localeCompare(b.n||""));
+              const stepsOf=(r)=>safeArr(r.steps).length;
+              const allR=safeArr(RECIPE_DB.recipes[sopCat]).filter(r=>!sopSearch||r.n.toLowerCase().includes(sopSearch.toLowerCase()))
+                .sort((a,b)=>
+                  sopCatSort==="most"  ? stepsOf(b)-stepsOf(a) || (a.n||"").localeCompare(b.n||"") :
+                  sopCatSort==="least" ? stepsOf(a)-stepsOf(b) || (a.n||"").localeCompare(b.n||"") :
+                  (a.n||"").localeCompare(b.n||""));
               const bgR=allR.filter(r=>!!r.bg);
               const nrmR=allR.filter(r=>!r.bg);
               const yieldStatus=(recipe)=>{
@@ -2569,161 +3229,530 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   else if(ys.secMissing>0) pills.push({tone:"warnSoft",icon:"⚠",text:ys.secTotal===1?"section yield missing":`${ys.secMissing} of ${ys.secTotal} sections missing yield`});
                 }
                 const sel=sopBulkMode&&isSelected(recipe);
+                const label=recipeNameOf(recipe, lang);
+                // No photographs, by request. The tile carries the recipe's
+                // initial in the display serif on a rotating tint — distinct per
+                // row, and it needs no image asset per dish to exist.
+                const mono=(label||"?").trim().charAt(0).toUpperCase();
+                const tint=isBg?K.warnBg:SOP_TINTS[ri%SOP_TINTS.length];
+                const steps=safeArr(recipe.steps).length;
                 return(
-                <button key={ri} onClick={()=>sopBulkMode?toggleSelected(recipe):setSopRecipe(recipe)} style={{position:"relative",background:sel?C.goldBg:(isBg?C.goldBg:C.surface),border:`1px solid ${sel?C.gold:(isBg?C.goldBorder:C.border)}`,borderRadius:12,padding:sopBulkMode?"14px 16px 14px 44px":"14px 16px",cursor:"pointer",textAlign:"left",minHeight:60}}>
-                  {sopBulkMode&&<div style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",width:18,height:18,borderRadius:5,border:`2px solid ${sel?C.gold:C.border}`,background:sel?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",fontWeight:700}}>{sel?"✓":""}</div>}
-                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{recipeNameOf(recipe, lang)}</div>
-                  <div style={{fontSize:12,color:C.muted,marginTop:3}}>{recipe.sub} · {safeArr(recipe.steps).length} {T2("steps")}</div>
-                  {pills.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>{pills.map((p,pi)=>(
-                    <span key={pi} style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:999,background:p.tone==="warn"?C.redBg:C.amberBg,color:p.tone==="warn"?C.red:C.amber}}>{p.icon} {p.text}</span>
-                  ))}</div>}
-                </button>);
+                <div key={ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
+                  backgroundColor:sel?K.brandBg:K.cardWarm,
+                  border:`1px solid ${sel?K.brand:(isBg?K.warnBorder:K.cardWarmLine)}`,
+                  borderRadius:16,boxShadow:K.shadowCard,boxSizing:"border-box"}}>
+                  <button onClick={()=>sopBulkMode?toggleSelected(recipe):setSopRecipe(recipe)}
+                    className="kh-rip" onPointerDown={ripple}
+                    style={{display:"flex",alignItems:"center",gap:14,width:"100%",
+                      // Room for the two stacked controls at the right edge —
+                      // not needed in bulk mode, where they are not rendered.
+                      padding:sopBulkMode?"12px 14px 12px 12px":"12px 58px 12px 12px",
+                      background:"transparent",border:"none",borderRadius:16,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                    <span style={{width:74,height:74,borderRadius:15,flexShrink:0,background:tint,
+                      boxShadow:"inset 0 0 0 1px rgba(255,255,255,.7)",position:"relative",
+                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {sopBulkMode?(
+                        <span style={{width:24,height:24,borderRadius:7,border:`2px solid ${sel?K.brand:K.cardWarmLine}`,
+                          background:sel?K.brand:"rgba(255,255,255,.75)",color:"#FFFFFF",
+                          display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {sel&&<Icon name="check" size={15} strokeWidth={2.6}/>}
+                        </span>
+                      ):(
+                        <span style={{fontFamily:K.fontDisplay,fontSize:30,fontWeight:600,color:K.brand,opacity:.85,lineHeight:1}}>{mono}</span>
+                      )}
+                    </span>
+                    <span style={{minWidth:0,flex:1}}>
+                      <span style={{display:"block",fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+                      <span style={{display:"flex",alignItems:"center",gap:7,marginTop:4,fontSize:12.5,color:K.hdrMeta,flexWrap:"wrap"}}>
+                        {recipe.sub&&<span>{recipe.sub}</span>}
+                        {recipe.sub&&<span style={{color:K.textFaint}}>·</span>}
+                        <span>{steps} {steps===1?T2("step"):T2("steps")}</span>
+                        {isBg&&<span style={{fontSize:10.5,fontWeight:700,letterSpacing:".4px",textTransform:"uppercase",
+                          padding:"2px 8px",borderRadius:K.rPill,background:K.warnBg,color:K.warn,border:`1px solid ${K.warnBorder}`}}>{T2("Base gravy")}</span>}
+                      </span>
+                      {pills.length>0&&<span style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:7}}>{pills.map((p,pi)=>(
+                        <span key={pi} style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,
+                          padding:"3px 9px",borderRadius:K.rPill,
+                          background:p.tone==="warn"?K.dangerBg:K.warnBg,color:p.tone==="warn"?K.danger:K.warn,
+                          border:`1px solid ${p.tone==="warn"?K.dangerBorder:K.warnBorder}`}}>
+                          <Icon name="alert" size={11} strokeWidth={2.2}/>{T2(p.text)}
+                        </span>
+                      ))}</span>}
+                    </span>
+                  </button>
+
+                  {/* Stacked at the right edge, outside the button, so neither
+                      one can also open the recipe. The row reserves 58px of
+                      padding for them. */}
+                  {!sopBulkMode&&(
+                    <div style={{position:"absolute",top:10,right:10,bottom:10,display:"flex",flexDirection:"column",
+                      alignItems:"flex-end",justifyContent:"space-between",gap:6,zIndex:recipeMenu===recipe.n?22:2}}>
+                      {currentUser?.role==='admin'?(
+                        <div style={{position:"relative"}}>
+                          <button className={"kh-sopmenu"+(recipeMenu===recipe.n?" is-open":"")} title={T2("Options")}
+                            onClick={e=>{e.stopPropagation();setRecipeMenu(recipeMenu===recipe.n?null:recipe.n);}}
+                            style={{width:28,height:28,borderRadius:"50%",background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                              color:K.textMuted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                            <Icon name="more" size={15}/>
+                          </button>
+                          {recipeMenu===recipe.n&&(<>
+                            <div onClick={e=>{e.stopPropagation();setRecipeMenu(null);}} style={{position:"fixed",inset:0,zIndex:-1}}/>
+                            <div style={{position:"absolute",top:34,right:0,minWidth:176,background:K.surface,
+                              border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5}}>
+                              <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                onClick={e=>{e.stopPropagation();setRecipeMenu(null);openSopEdit(recipe,sopCat);}}
+                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                  border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                <Icon name="note" size={15}/>{T2("Edit")}
+                              </button>
+                              <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple}
+                                onClick={e=>{e.stopPropagation();setRecipeMenu(null);deleteSop(recipe,sopCat);}}
+                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                  border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                <Icon name="trash" size={15}/>{T2("Delete")}
+                              </button>
+                            </div>
+                          </>)}
+                        </div>
+                      ):<span/>}
+                      {/* A real button, not decoration: it looks like the way in,
+                          so it has to be one. */}
+                      <button className="kh-sopgo kh-rip" onPointerDown={ripple} title={T2("Open")}
+                        onClick={e=>{e.stopPropagation();setSopRecipe(recipe);}}
+                        style={{width:32,height:32,borderRadius:"50%",flexShrink:0,padding:0,cursor:"pointer",
+                          background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.brand,
+                          display:"flex",alignItems:"center",justifyContent:"center",
+                          transition:"background .16s, color .16s"}}>
+                        <Icon name="chevronR" size={15} strokeWidth={2.3}/>
+                      </button>
+                    </div>
+                  )}
+                </div>);
               };
               return(
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-                  <button onClick={()=>{setSopCat(null);setSopSearch("");setSopBulkMode(false);setSopSelected(new Set());}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:40}}>← {T2("All Categories")}</button>
+                {/* Toolbar — Back and Select on the left, Sort on the right. */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                  <button className="kh-btn kh-rip" onPointerDown={ripple}
+                    onClick={()=>{setSopCat(null);setSopSearch("");setSopBulkMode(false);setSopSelected(new Set());}}
+                    style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
+                      background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+                      color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                    <Icon name="chevronL" size={16} strokeWidth={2.1}/>{T2("All Categories")}
+                  </button>
                   {currentUser?.role==='admin'&&allR.length>0&&(
-                    <button onClick={()=>{setSopBulkMode(p=>!p);setSopSelected(new Set());}} style={{padding:"8px 16px",borderRadius:10,background:sopBulkMode?C.gold:C.darkCard,border:`1px solid ${sopBulkMode?C.gold:C.border}`,color:sopBulkMode?"#fff":C.muted,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:40}}>
-                      {sopBulkMode?"✕ "+T2("Cancel"):"☑ "+T2("Select")}
+                    <button className="kh-btn kh-rip" onPointerDown={ripple}
+                      onClick={()=>{setSopBulkMode(p=>!p);setSopSelected(new Set());}}
+                      style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
+                        background:sopBulkMode?K.brand:K.cardWarm,border:`1px solid ${sopBulkMode?K.brand:K.cardWarmLine}`,
+                        boxShadow:K.shadowCard,color:sopBulkMode?"#FFFFFF":K.textBody,fontSize:14,fontWeight:600,
+                        cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                      <Icon name={sopBulkMode?"close":"listCheck"} size={16} strokeWidth={2}/>
+                      {sopBulkMode?T2("Cancel"):T2("Select")}
                     </button>
                   )}
                   {sopBulkMode&&(
-                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,minHeight:40,boxSizing:"border-box"}}>
-                      <span style={{fontSize:12,color:C.muted,fontWeight:600}}>{sopSelected.size} {T2("selected")}</span>
-                      <select value={sopBulkTarget} onChange={e=>setSopBulkTarget(e.target.value)} disabled={sopSelected.size===0} style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,cursor:sopSelected.size===0?"default":"pointer",minHeight:30}}>
-                        <option value="">📋 {T2("Move to…")}</option>
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px 7px 16px",borderRadius:K.rPill,
+                      background:K.brandBg,border:`1px solid ${K.brandBorder}`,boxSizing:"border-box",flexWrap:"wrap"}}>
+                      <span style={{fontSize:13,color:K.brandText,fontWeight:700}}>{sopSelected.size} {T2("selected")}</span>
+                      <select value={sopBulkTarget} onChange={e=>setSopBulkTarget(e.target.value)} disabled={sopSelected.size===0}
+                        style={{padding:"7px 10px",borderRadius:K.rSm,border:`1px solid ${K.brandBorder}`,fontSize:12.5,
+                          color:K.text,background:K.surface,cursor:sopSelected.size===0?"default":"pointer",fontFamily:K.fontBody}}>
+                        <option value="">{T2("Move to…")}</option>
                         {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                       </select>
-                      <button onClick={()=>{const chosen=allR.filter(r=>sopSelected.has(r.n));moveRecipesBulk(chosen,sopCat,sopBulkTarget);}} disabled={sopSelected.size===0||!sopBulkTarget} style={{padding:"6px 14px",borderRadius:8,background:(sopSelected.size===0||!sopBulkTarget)?C.border:C.green,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:(sopSelected.size===0||!sopBulkTarget)?"default":"pointer",minHeight:30}}>{T2("Move")}</button>
+                      <KButton variant="brand" size="sm" icon="check" disabled={sopSelected.size===0||!sopBulkTarget}
+                        onClick={()=>{const chosen=allR.filter(r=>sopSelected.has(r.n));moveRecipesBulk(chosen,sopCat,sopBulkTarget);}}
+                        style={{borderRadius:K.rPill,padding:"9px 16px"}}>{T2("Move")}</KButton>
                     </div>
                   )}
+                  {/* Search and Add Recipe moved down here with the header band
+                      gone. Losing them entirely would have cost a 40-recipe
+                      category its only filter and admins their only way to add
+                      one. */}
+                  <div style={{position:"relative",flex:"1 1 240px",minWidth:200,maxWidth:460}}>
+                    <span style={{position:"absolute",left:18,top:"50%",transform:"translateY(-50%)",color:K.textFaint,display:"flex",pointerEvents:"none"}}>
+                      <Icon name="search" size={17} strokeWidth={1.9}/>
+                    </span>
+                    <input value={sopSearch} onChange={e=>setSopSearch(e.target.value)}
+                      placeholder={`${T2("Search in")} ${T2(safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat)?.name||T2("this category"))}…`}
+                      style={{width:"100%",padding:"12px 16px 12px 46px",borderRadius:K.rPill,border:`1px solid ${K.cardWarmLine}`,
+                        fontSize:14,color:K.text,background:"#FFFFFF",boxSizing:"border-box",
+                        boxShadow:K.shadowCard,fontFamily:K.fontBody,outline:"none"}}/>
+                  </div>
+                  <div style={{marginLeft:"auto",display:"flex",gap:10,flexShrink:0}}>
+                    {sortMenu()}
+                    {currentUser?.role==='admin'&&(
+                      <KButton variant="brand" icon="plus" onClick={()=>openSopAdd(sopCat)}
+                        style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14}}>{T2("Add Recipe")}</KButton>
+                    )}
+                  </div>
                 </div>
                 {bgR.length>0&&<>
-                  <div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 2px 8px"}}>
-                    <span style={{fontSize:14}}>🥘</span>
-                    <span style={{fontSize:13,fontWeight:700,color:C.gold}}>Base gravies</span>
-                    <span style={{fontSize:11,color:C.muted}}>· {bgR.length}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:9,margin:"2px 2px 10px"}}>
+                    <span style={{...type.label,fontSize:11,color:K.warn}}>{T2("Base gravies")}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:K.textFaint}}>{bgR.length}</span>
+                    <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:18}}>
+                  <div className="kh-soprows" style={{marginBottom:20}}>
                     {bgR.map((r,ri)=><RecipeCard key={"bg"+ri} recipe={r} ri={ri} isBg={true}/>)}
                   </div>
                 </>}
                 {nrmR.length>0&&<>
-                  {bgR.length>0&&<div style={{display:"flex",alignItems:"center",gap:8,margin:"6px 2px 8px"}}>
-                    <span style={{fontSize:14}}>🍽️</span>
-                    <span style={{fontSize:13,fontWeight:700,color:C.text}}>Recipes</span>
-                    <span style={{fontSize:11,color:C.muted}}>· {nrmR.length}</span>
+                  {bgR.length>0&&<div style={{display:"flex",alignItems:"center",gap:9,margin:"2px 2px 10px"}}>
+                    <span style={{...type.label,fontSize:11,color:K.hdrMeta}}>{T2("Recipes")}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:K.textFaint}}>{nrmR.length}</span>
+                    <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div className="kh-soprows">
                     {nrmR.map((r,ri)=><RecipeCard key={"n"+ri} recipe={r} ri={ri} isBg={false}/>)}
                   </div>
                 </>}
+                {allR.length===0&&(
+                  <div className="kh-cardart-sm" style={{padding:"38px 18px",textAlign:"center",backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,borderRadius:18,boxShadow:K.shadowCard}}>
+                    <div style={{color:K.textFaint,display:"flex",justifyContent:"center",marginBottom:10}}><Icon name="book" size={26} strokeWidth={1.6}/></div>
+                    <div style={{fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{sopSearch?T2("No matches"):T2("No recipes yet")}</div>
+                    <div style={{fontSize:13,color:K.hdrMeta,marginTop:4}}>
+                      {sopSearch?T2("Nothing in this category matches your search"):T2("Add the first recipe to this category")}
+                    </div>
+                  </div>
+                )}
               </div>);
             })()
           ):(
             <div>
-              <button onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}} style={{padding:"8px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",marginBottom:14,minHeight:40}}>← {T2("Back")}</button>
-              <Card style={{padding:"20px 24px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+              {/* "Back to Recipes" lives in the page header plate, not above the
+                  card, so the screen title row carries the one way out. It is
+                  portalled into the shell's header slot: the slot's DOM node is
+                  looked up after mount, since on the first render the shell has
+                  not committed it yet. */}
+              {hdrSlot&&createPortal((
+                <button className="kh-btn kh-rip" onPointerDown={ripple}
+                  onClick={()=>{setSopRecipe(null);setEditingSteps(false);setSopModal(null);setIngModal(null);}}
+                  style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:K.rPill,
+                    background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard,
+                    color:K.hdrMetaStrong,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                  <Icon name="chevronL" size={16} strokeWidth={2.1}/>{T2("Back to Recipes")}
+                </button>
+              ), hdrSlot)}
+              <div>
+                {/* The header sits on its own plate, like the panels below it.
+                    Without a photograph to give it weight it read as floating
+                    text on the page artwork. */}
+                <div className="kh-cardart-sm" style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  gap:18,marginBottom:editingSteps?0:16,flexWrap:"wrap",padding:"20px 22px",
+                  // While editing, this plate and the step list below it are one
+                  // sheet: the bottom corners square off and the card under it
+                  // drops its top border so the seam disappears.
+                  borderRadius:editingSteps?"20px 20px 0 0":20,
+                  backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                  <div style={{flex:"1 1 320px",minWidth:0,display:"flex",gap:18,alignItems:"center"}}>
+                    {/* The tile: an uploaded photo if there is one, otherwise
+                        the monogram. The monogram stays the default so no dish
+                        needs an image to look finished, and the category emoji
+                        keeps its corner - it is the one badge carrying meaning.
+                        Admins get a second corner control to set or clear it. */}
+                    {(()=>{
+                      const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
+                      const tintSop=SOP_TINTS[Math.max(0,safeArr(RECIPE_DB.recipes[sopCat]).findIndex(r=>r.n===sopRecipe.n))%SOP_TINTS.length];
+                      const photo=recipePhoto(sopRecipe);
+                      const isAdmin=currentUser?.role==='admin';
+                      return (
+                      <span style={{position:"relative",width:88,height:88,borderRadius:22,flexShrink:0,
+                        background:`linear-gradient(145deg, ${tintSop} 0%, rgba(255,255,255,.75) 130%)`,
+                        boxShadow:`inset 0 0 0 1px rgba(255,255,255,.75), 0 6px 16px rgba(28,61,43,.10)`,
+                        display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                        {photo
+                          ? <img src={photo} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}
+                              // A dead URL would otherwise leave an empty tile with
+                              // no hint that a photo was ever meant to be here.
+                              onError={e=>{e.currentTarget.style.display="none";}}/>
+                          : <span style={{fontFamily:K.fontDisplay,fontSize:40,fontWeight:600,color:K.brand,opacity:.9,lineHeight:1}}>
+                              {(recipeNameOf(sopRecipe, lang)||"?").trim().charAt(0).toUpperCase()}
+                            </span>}
+                        {photoBusy&&(
+                          <span style={{position:"absolute",inset:0,background:"rgba(251,250,245,.8)",color:K.brand,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="refresh" size={22} strokeWidth={2}/>
+                          </span>
+                        )}
+                        {catObjSop?.icon&&!isAdmin&&(
+                          <span style={{position:"absolute",right:-6,bottom:-6,width:30,height:30,borderRadius:"50%",
+                            background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+                            display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,lineHeight:1}}>{catObjSop.icon}</span>
+                        )}
+                      </span>);
+                    })()}
+                    {currentUser?.role==='admin'&&(
+                      // Outside the tile, not inside it: the tile has
+                      // overflow:hidden so the photo can be clipped round, and a
+                      // control placed inside would be clipped with it.
+                      <span style={{display:"flex",flexDirection:"column",gap:7,marginLeft:-20,marginTop:38,zIndex:2,flexShrink:0}}>
+                        <label title={recipePhoto(sopRecipe)?T2("Replace photo"):T2("Upload photo")}
+                          className="kh-rip kh-pressrow" onPointerDown={ripple}
+                          style={{width:32,height:32,borderRadius:"50%",background:"#FFFFFF",cursor:photoBusy?"progress":"pointer",
+                            border:`1px solid ${K.brandBorder}`,color:K.brand,boxShadow:K.shadowCard,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="store" size={15} strokeWidth={1.9}/>
+                          <input type="file" accept="image/*" disabled={photoBusy} style={{display:"none"}}
+                            onChange={e=>{const f=e.target.files?.[0]; e.target.value=""; if(f) saveRecipePhoto(sopRecipe,sopCat,f);}}/>
+                        </label>
+                        {recipePhoto(sopRecipe)&&(
+                          <button onClick={()=>setResetModal({tone:"danger",icon:"trash",
+                            title:T2("Remove this photo?"),
+                            body:T2("The recipe goes back to showing its monogram."),
+                            confirmLabel:T2("Remove photo"),
+                            onConfirm:()=>{setResetModal(null);saveRecipePhoto(sopRecipe,sopCat,null);}})}
+                            title={T2("Remove photo")} className="kh-rip" onPointerDown={ripple} disabled={photoBusy}
+                            style={{width:32,height:32,borderRadius:"50%",background:K.dangerBg,cursor:"pointer",padding:0,
+                              border:`1px solid ${K.dangerBorder}`,color:K.danger,boxShadow:K.shadowCard,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="trash" size={14}/>
+                          </button>
+                        )}
+                      </span>
+                    )}
                   <div style={{flex:1,minWidth:0}}>
                     {editingSteps?(
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                        <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))} placeholder="Recipe name" style={{flex:1,minWidth:140,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.gold}`,fontSize:15,fontWeight:700,color:C.text,background:"transparent",fontFamily:"var(--font-display)"}}/>
-                        <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))} placeholder="Sub (Hot/Cold)" style={{width:100,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
-                        <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:30}}>
-                          {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-                        </select>
-                        <label style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,background:sopForm.bg?C.goldBg:C.surface,border:`1px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",minHeight:30}}>
-                          <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:14,height:14,accentColor:C.gold,cursor:"pointer"}}/>
-                          <span style={{fontSize:11,fontWeight:700,color:sopForm.bg?C.gold:C.muted}}>🥘 Base Gravy</span>
-                        </label>
-                      </div>
+                      // Editing steps shows the recipe's identity as chips, not
+                      // as four form fields. Name, sub-label, category and the
+                      // base-gravy flag are edited in the recipe dialog; putting
+                      // them here too meant two places to change one thing.
+                      (()=>{
+                        const catObjEd=safeArr(RECIPE_DB.cats).find(c=>c.id===(sopForm.catId||sopCat));
+                        const nStepsEd=safeArr(sopForm.steps).length;
+                        const chip={display:"inline-flex",alignItems:"center",gap:6,fontSize:13,fontWeight:600,
+                          lineHeight:1.2,color:K.hdrMeta};
+                        const dot=<span style={{color:K.textFaint}}>·</span>;
+                        return(<>
+                          <div style={{...type.pageTitle,fontSize:27,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+                            {sopForm.name||T2("Untitled recipe")}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:7,flexWrap:"wrap"}}>
+                            {catObjEd&&<span style={chip}><Icon name="utensils" size={14} strokeWidth={1.9}/>{T2(catObjEd.name)}</span>}
+                            {catObjEd&&dot}
+                            <span style={chip}><Icon name="listCheck" size={14} strokeWidth={1.9}/>{nStepsEd} {nStepsEd===1?T2("step"):T2("steps")}</span>
+                            {!!sopForm.bg&&<>{dot}<span style={{...chip,color:K.warn}}><Icon name="layers" size={14} strokeWidth={1.9}/>{T2("Base gravy")}</span></>}
+                            {sopForm.sub&&<>{dot}<span style={{...chip,color:K.danger}}><Icon name="flame" size={14} strokeWidth={1.9}/>{sopForm.sub}</span></>}
+                          </div>
+                        </>);
+                      })()
                     ):(
-                      <>
-                        <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{recipeNameOf(sopRecipe, lang)}</div>
-                        <div style={{fontSize:12,color:C.gold,marginTop:4}}>{sopRecipe.sub} · {safeArr(sopRecipe.steps).length} {T2("steps")}</div>
-                      </>
+                      (()=>{
+                        const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
+                        const nSteps=safeArr(sopRecipe.steps).length;
+                        // Every fact gets the same chip treatment. The old line
+                        // mixed plain dot-separated text with one loud pill, and
+                        // the pill's larger box threw the baseline out.
+                        const chip={display:"inline-flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:K.rPill,
+                          fontSize:12.5,fontWeight:600,lineHeight:1.2,background:"#FFFFFF",
+                          border:`1px solid ${K.cardWarmLine}`,color:K.hdrMeta};
+                        return(<>
+                          {catObjSop&&<div style={{...type.label,fontSize:10.5,color:K.sbGold,marginBottom:3}}>{T2(catObjSop.name)}</div>}
+                          <div style={{...type.pageTitle,fontSize:29,color:K.hdrTitle,overflowWrap:"anywhere"}}>{recipeNameOf(sopRecipe, lang)}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,flexWrap:"wrap"}}>
+                            <span style={chip}><Icon name="listCheck" size={13} strokeWidth={2}/>{nSteps} {nSteps===1?T2("step"):T2("steps")}</span>
+                            {sopRecipe.sub&&<span style={chip}>{sopRecipe.sub}</span>}
+                            {!!sopRecipe.bg&&<span style={{...chip,background:K.warnBg,color:K.warn,border:`1px solid ${K.warnBorder}`,
+                              fontSize:11,fontWeight:700,letterSpacing:".4px",textTransform:"uppercase"}}>
+                              <Icon name="utensils" size={12} strokeWidth={2}/>{T2("Base gravy")}</span>}
+                          </div>
+                        </>);
+                      })()
                     )}
                   </div>
+                  </div>
                   {currentUser?.role==='admin'&&(
-                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
                       {!editingSteps?(
                         <>
-                          <button onClick={()=>{setSopForm({name:sopRecipe.n,sub:sopRecipe.sub||"",catId:sopCat||"",bg:!!sopRecipe.bg,steps:safeArr(sopRecipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0,ccp:sb.ccp||""})):[]}))});setSopModal({mode:"edit",catId:sopCat||"",origName:sopRecipe.n});setEditingSteps(true);}} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✏️ Edit</button>
-                          <button onClick={()=>deleteSop(sopRecipe,sopCat)} style={{padding:"6px 12px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>🗑 Delete</button>
-                          <select defaultValue="" onChange={e=>{if(e.target.value)moveRecipe(sopRecipe,sopCat,e.target.value);e.target.value="";}} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:C.surface,cursor:"pointer",minHeight:32}}>
-                            <option value="" disabled>📋 Move to…</option>
-                            {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-                          </select>
+                          <KButton icon="note" onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);}}
+                            style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Edit")}</KButton>
+                          <KButton variant="danger" icon="trash" onClick={()=>deleteSop(sopRecipe,sopCat)}
+                            style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.dangerBg}}>{T2("Delete")}</KButton>
+                          {/* A themed menu, not a native select: the browser one
+                              renders as OS chrome — system blue highlight, system
+                              font — in the middle of the app's own palette. It is
+                              height-capped and scrolls, so a growing category
+                              list cannot run off the screen. */}
+                          <div style={{position:"relative",flexShrink:0}}>
+                            <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={()=>setMoveMenuOpen(o=>!o)}
+                              style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 16px",borderRadius:K.rPill,
+                                background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+                                color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                              <Icon name="layers" size={16} strokeWidth={1.9}/>{T2("Move to…")}
+                              <Icon name="chevronD" size={15} strokeWidth={2} style={{transform:moveMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
+                            </button>
+                            {moveMenuOpen&&(<>
+                              <div onClick={()=>setMoveMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
+                              <div className="kh-thinscroll" style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:21,minWidth:250,maxHeight:330,
+                                overflowY:"auto",background:K.surface,border:`1px solid ${K.line}`,borderRadius:16,
+                                boxShadow:K.shadowLift,padding:6}}>
+                                <div style={{...type.label,fontSize:10,color:K.textFaint,padding:"7px 12px 8px"}}>{T2("Move to…")}</div>
+                                {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=>(
+                                  <button key={c.id} className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                    onClick={()=>{setMoveMenuOpen(false);moveRecipe(sopRecipe,sopCat,c.id);}}
+                                    style={{display:"flex",alignItems:"center",gap:11,width:"100%",padding:"9px 12px",borderRadius:9,
+                                      border:"none",background:"transparent",color:K.textBody,fontSize:13.5,fontWeight:500,
+                                      cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                    <span style={{width:30,height:30,borderRadius:9,flexShrink:0,background:K.surfaceAlt,
+                                      border:`1px solid ${K.line}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>{c.icon}</span>
+                                    <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{T2(c.name)}</span>
+                                    <span style={{marginLeft:"auto",fontSize:11.5,fontWeight:700,color:K.textFaint,flexShrink:0}}>
+                                      {safeArr(RECIPE_DB.recipes[c.id]).length}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </>)}
+                          </div>
                         </>
                       ):(
                         <>
-                          <button onClick={()=>{saveSop();setEditingSteps(false);}} style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:32}}>💾 Save</button>
-                          <button onClick={()=>{setEditingSteps(false);setSopModal(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:32}}>✕ Cancel</button>
+                          {/* No "Preview": leaving the editor without saving
+                              discards the edits, so a button that looked like a
+                              harmless look-ahead would lose work. Cancel says
+                              what it does. */}
+                          <KButton icon="close" onClick={()=>{setEditingSteps(false);setSopModal(null);}}
+                            style={{padding:"13px 20px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                          <KButton variant="brand" icon="check" onClick={()=>{saveSop();setEditingSteps(false);}}
+                            style={{padding:"13px 24px",borderRadius:K.rPill,fontSize:14}}>{T2("Save changes")}</KButton>
                         </>
                       )}
                     </div>
                   )}
                 </div>
-                {/* Ingredient count + Edit button */}
-                {(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <span style={{fontSize:11,color:C.muted}}>
-                    {sopRecipe.ingredients?.items?.length>0
-                      ?"🥄 "+sopRecipe.ingredients.items.filter(i=>!i.isSection).length+" ingredients"
-                      :fallbackIng?"🥄 "+fallbackIng.length+" ingredients (legacy)"
-                      :"🥄 No ingredients added"}
+                {/* Ingredient count + actions. Defined once here and rendered
+                    inside whichever panel is showing, rather than as a strip
+                    floating above them: three pills on the page background had
+                    nothing to belong to. */}
+                {!editingSteps&&(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;
+                const nIngNow=sopRecipe.ingredients?.items?.length>0
+                  ? sopRecipe.ingredients.items.filter(i=>!i.isSection).length
+                  : (fallbackIng?fallbackIng.length:0);
+                const ingActions=(
+                  <span style={{display:"inline-flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px",borderRadius:K.rPill,
+                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                      fontSize:12.5,fontWeight:700,color:K.hdrMeta,whiteSpace:"nowrap"}}>
+                      <Icon name="utensils" size={13} strokeWidth={2}/>
+                      {nIngNow>0?`${nIngNow} ${T2("ingredients")}`:T2("No ingredients")}
+                      {!!fallbackIng&&` (${T2("legacy")})`}
+                    </span>
+                    {currentUser?.role==='admin'&&!ingModal&&(<>
+                      <KButton size="sm" icon="note" onClick={()=>{openIngEditor(sopRecipe,sopCat);}}
+                        style={{padding:"8px 14px",borderRadius:K.rPill,fontSize:13,background:"#FFFFFF",borderColor:K.cardWarmLine}}>
+                        {sopRecipe.ingredients?.items?.length>0?T2("Edit"):T2("Add")}
+                      </KButton>
+                      <KButton size="sm" icon="box" onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})}
+                        style={{padding:"8px 14px",borderRadius:K.rPill,fontSize:13,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Import CSV")}</KButton>
+                    </>)}
                   </span>
-                  {currentUser?.role==='admin'&&!ingModal&&(<>
-                    <button onClick={()=>{openIngEditor(sopRecipe,sopCat);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:ingModal?.recipeName===sopRecipe.n?C.green:C.goldBg,border:`1px solid ${ingModal?.recipeName===sopRecipe.n?C.greenBorder:C.goldBorder}`,color:ingModal?.recipeName===sopRecipe.n?"#fff":C.gold,cursor:"pointer",minHeight:28}}>
-                      {sopRecipe.ingredients?.items?.length>0?"✏️ Edit":"+ Add Ingredients"}
-                    </button>
-                    <button onClick={()=>setCsvImport({recipe:sopRecipe,catId:sopCat,recipeName:sopRecipe.n,basePax:sopRecipe.ingredients?.base_pax||300,currentCount:sopRecipe.ingredients?.items?.length||0,parsedItems:null,warnings:[]})} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>📥 Import CSV</button>
-                  </>)}
-                  {currentUser?.role==='admin'&&ingModal?.recipeName===sopRecipe.n&&(
-                    <div style={{display:"flex",gap:6}}>
-                      {ingDirty&&<button onClick={saveIngredients} style={{padding:"4px 12px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:28}}>💾 Save</button>}
-                      <button onClick={()=>{if(ingDirty&&!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"4px 10px",borderRadius:8,fontSize:11,fontWeight:600,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:28}}>✕ Cancel</button>
-                    </div>
-                  )}
-                </div>
+                );
+                return(<>
                 {/* Inline ingredient table (read-only) */}
                 {(ingModal?.recipeName===sopRecipe.n)?(
-                  <div style={{marginBottom:16,borderRadius:10,border:`2px solid ${C.gold}`,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <span>✏️ Editing · {ingForm.base_pax||300} pax anchor</span>
-                      <span style={{fontSize:10,color:ingDirty?C.amber:C.faint}}>{ingForm.items.length} items{ingDirty?" · unsaved":""}</span>
+                  <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:22,backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    <div style={{padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                      <span style={{display:"flex",alignItems:"center",gap:14,minWidth:0}}>
+                        {/* Leaves the editor. Discarding is guarded below, so this
+                            is only a way back when nothing has changed. */}
+                        <button className="kh-btn kh-rip" onPointerDown={ripple} title={T2("Close editor")}
+                          onClick={()=>{ if(ingDirty){askDiscardIng();return;} setIngModal(null); }}
+                          style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",
+                            border:`1px solid ${K.cardWarmLine}`,color:K.textBody,cursor:"pointer",
+                            display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                          <Icon name="chevronL" size={18} strokeWidth={2.1}/>
+                        </button>
+                        <span style={{width:46,height:46,borderRadius:14,flexShrink:0,background:K.brandBg,color:K.brand,
+                          border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="box" size={23} strokeWidth={1.8}/>
+                        </span>
+                        <span style={{minWidth:0}}>
+                          <span style={{display:"block",...type.pageTitle,fontSize:24,color:K.hdrTitle}}>
+                            {T2("Editing")} <span style={{color:K.textFaint,fontWeight:400}}>·</span> {ingForm.base_pax||300} {T2("pax anchor")}
+                          </span>
+                          <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Add, edit or update ingredients for this recipe")}</span>
+                        </span>
+                      </span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:K.rPill,flexShrink:0,
+                        background:ingDirty?K.warnBg:"#FFFFFF",border:`1px solid ${ingDirty?K.warnBorder:K.cardWarmLine}`,
+                        fontSize:13,fontWeight:700,color:ingDirty?K.warn:K.hdrMeta}}>
+                        {ingDirty&&<Icon name="alert" size={13} strokeWidth={2.2}/>}
+                        {ingForm.items.length} {T2("items")}{ingDirty?" · "+T2("unsaved"):""}
+                      </span>
                     </div>
                     <div style={{overflowX:"auto"}}>
-                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
-                        <thead><tr style={{background:C.surface}}>
-                          <th style={{padding:"6px 8px",textAlign:"left",color:C.muted,minWidth:110}}>Name</th>
-                          <th style={{padding:"6px 4px",textAlign:"left",color:C.muted,minWidth:60}}>Hindi</th>
-                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:42}}>Unit</th>
-                          <th style={{padding:"6px 6px",textAlign:"center",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>Qty @ {ingForm.base_pax||300}</th>
-                          <th style={{padding:"6px 4px",textAlign:"center",color:C.muted,minWidth:30}}></th>
+                      <table style={{borderCollapse:"collapse",fontSize:13,width:"100%",background:"#FFFFFF"}}>
+                        <thead><tr>
+                          {(()=>{const th={padding:"12px 10px",fontSize:11.5,fontWeight:700,letterSpacing:".5px",
+                            textTransform:"uppercase",color:K.hdrMeta,background:K.surfaceAlt,
+                            borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,whiteSpace:"nowrap"};
+                          return(<>
+                            <th style={{...th,textAlign:"center",width:52}}>#</th>
+                            <th style={{...th,textAlign:"left",minWidth:190}}>{T2("Ingredient")}</th>
+                            <th style={{...th,textAlign:"left",minWidth:130}}>{T2("Hindi")}</th>
+                            <th style={{...th,textAlign:"left",minWidth:96}}>{T2("Unit")}</th>
+                            <th style={{...th,textAlign:"center",minWidth:110}}>{T2("Qty")} @ {ingForm.base_pax||300}</th>
+                            <th style={{...th,textAlign:"center",width:96}}>{T2("Actions")}</th>
+                          </>);})()}
                         </tr></thead>
                         <tbody>
                           {ingForm.items.map((item,idx)=>{
                             if (item.isSection) return (
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`,opacity:ingDragIdx===idx?0.4:1}}>
-                                <td colSpan={4} style={{padding:"4px 6px"}}>
-                                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="— Section —" style={{width:140,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी" style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.goldBorder}`,fontSize:12,fontWeight:700,color:C.gold,background:"transparent",boxSizing:"border-box",minHeight:30,textAlign:"center"}}/>
-                                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:6,background:C.surface,border:`1.5px dashed ${C.goldBorder}`,flexShrink:0}} title="Section yield @ 300 pax">
-                                      <span style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:.3}}>Yield</span>
-                                      <input type="number" step="0.1" value={item.yield?.kg??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),kg:v});}} placeholder="kg" style={{width:70,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,fontWeight:700,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>kg</span>
-                                      <input type="number" step="1" value={item.yield?.pcs??""} onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),pcs:v});}} placeholder="pcs" style={{width:60,padding:"5px 6px",borderRadius:5,border:`1px solid ${C.goldBorder}`,fontSize:13,color:C.gold,background:"transparent",textAlign:"center",minHeight:30}}/>
-                                      <span style={{fontSize:10,color:C.gold,fontWeight:600}}>pcs</span>
-                                    </div>
+                              // A section is a heading inside the list, so it
+                              // gets a band rather than a row of fields wearing
+                              // the same white as the ingredients under it.
+                              <tr key={idx} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)}
+                                style={{background:K.brandBg,opacity:ingDragIdx===idx?0.4:1,transition:"opacity .12s ease"}}>
+                                <td colSpan={5} style={{padding:"10px 10px 10px 13px",borderTop:`1px solid ${K.brandBorder}`,
+                                  borderBottom:`1px solid ${K.brandBorder}`,borderLeft:`3px solid ${K.brand}`}}>
+                                  <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                                    <span style={{...type.label,fontSize:10,color:K.brandText,flexShrink:0}}>{T2("Section")}</span>
+                                    <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)}
+                                      placeholder={T2("Section name")}
+                                      style={{width:200,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.brandBorder}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        fontFamily:K.fontBody,outline:"none"}}/>
+                                    <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)}
+                                      placeholder="हिन्दी"
+                                      style={{width:150,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.brandBorder}`,
+                                        fontSize:14,fontWeight:600,color:K.text,background:"#FFFFFF",boxSizing:"border-box",
+                                        fontFamily:K.fontBody,outline:"none"}}/>
+                                    {/* Units sit inside their fields, the same way
+                                        the recipe-level yield editor does it. */}
+                                    <span style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}
+                                      title={`${T2("Section yield at")} ${ingForm.base_pax||300} pax`}>
+                                      <span style={{...type.label,fontSize:10,color:K.brandText}}>{T2("Yield")}</span>
+                                      {[["kg","0.1",item.yield?.kg,"20"],["pcs","1",item.yield?.pcs,"400"]].map(([u,step,val,ph])=>(
+                                        <span key={u} style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                          border:`1px solid ${K.brandBorder}`,overflow:"hidden",width:118}}>
+                                          <input type="number" step={step} value={val??""}
+                                            onChange={e=>{const v=e.target.value===""?null:Number(e.target.value);ingUpdateItem(idx,"yield",{...(item.yield||{}),[u]:v});}}
+                                            placeholder={ph}
+                                            style={{flex:1,minWidth:0,padding:"9px 0 9px 12px",border:"none",outline:"none",background:"transparent",
+                                              fontSize:14,fontWeight:700,color:K.text,fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                          <span style={{padding:"0 12px 0 6px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>{u}</span>
+                                        </span>
+                                      ))}
+                                    </span>
                                   </div>
                                 </td>
-                                <td style={{padding:"3px 2px",textAlign:"center",background:C.goldBg,whiteSpace:"nowrap"}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.gold,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
-                                  <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
+                                <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",background:K.brandBg,
+                                  borderTop:`1px solid ${K.brandBorder}`,borderBottom:`1px solid ${K.brandBorder}`}}>
+                                  <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")}
+                                    style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,
+                                      borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}>
+                                    <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
+                                  </span>
+                                  <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove section")}
+                                    style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,
+                                      cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}>
+                                    <Icon name="trash" size={15}/>
+                                  </button>
                                 </td>
                               </tr>
                             );
@@ -2731,19 +3760,32 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             const tRow = item.type || 'raw';
                             const isInv = tRow === 'inv';
                             const isBg  = tRow === 'bg';
-                            const rowBg = isInv ? C.blueBg : isBg ? C.amberBg : (idx%2===0?C.surface:C.darkCard);
-                            const rowBrd = isInv ? C.blueBorder : isBg ? C.amberBorder : C.borderLight;
-                            const rowFg  = isInv ? C.blue : isBg ? C.amber : C.text;
-                            const tIcon  = isInv ? "📦" : isBg ? "🥘" : "📝";
+                            // The row itself stays white. Tinting the whole row by
+                            // type meant a recipe whose items are all
+                            // inventory-mapped rendered as a wall of blue — it
+                            // read as "everything is selected" rather than as a
+                            // quiet fact about each item. The type now lives in
+                            // the chip and in a 3px strip down the row's left
+                            // edge, which says the same thing without shouting.
+                            const rowFg  = isInv ? K.accent : isBg ? K.warn : K.text;
+                            const rowTintBg = isInv ? K.accentSoft : isBg ? K.warnBg : K.surfaceAlt;
+                            const rowTintBd = isInv ? K.accentBorder : isBg ? K.warnBorder : K.line;
+                            const tIcon  = isInv ? "box" : isBg ? "utensils" : "note";
                             const nameLocked = isInv || isBg;
                             return (
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{borderTop:`1px solid ${rowBrd}`,background:rowBg,opacity:ingDragIdx===idx?0.4:1}}>
-                                <td style={{padding:"3px 4px",position:"relative"}}>
+                              <tr key={idx} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:"#FFFFFF",opacity:ingDragIdx===idx?0.4:1,transition:"opacity .12s ease"}}>
+                                <td style={{padding:"8px 10px",textAlign:"center",borderTop:`1px solid ${K.lineSoft}`,
+                                  borderLeft:`3px solid ${nameLocked?rowFg:"transparent"}`}}>
+                                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:"50%",background:K.surfaceAlt,border:`1px solid ${K.line}`,fontSize:12.5,fontWeight:700,color:K.textMuted}}>
+                                    {ingForm.items.slice(0,idx).filter(i=>!i.isSection).length+1}
+                                  </span>
+                                </td>
+                                <td style={{padding:"8px 10px",position:"relative",borderTop:`1px solid ${K.lineSoft}`}}>
                                   <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                    <button onClick={(e)=>{ if(typePickerIdx===idx){setTypePickerIdx(null);setTypePickerPos(null);return;} const r=e.currentTarget.getBoundingClientRect(); setTypePickerPos({top:r.bottom+4,left:r.left}); setTypePickerIdx(idx); }} title={"Type: "+tRow} style={{width:24,height:24,padding:0,border:`1px solid ${rowBrd}`,borderRadius:5,background:C.surface,cursor:"pointer",fontSize:11,lineHeight:"22px",color:rowFg,flexShrink:0}}>{tIcon}</button>
+                                    <button onClick={(e)=>{ if(typePickerIdx===idx){setTypePickerIdx(null);setTypePickerPos(null);return;} const r=e.currentTarget.getBoundingClientRect(); setTypePickerPos({top:r.bottom+4,left:r.left}); setTypePickerIdx(idx); }} title={T2("Change row type")} className="kh-rip" onPointerDown={ripple} style={{width:32,height:32,padding:0,border:`1px solid ${rowTintBd}`,borderRadius:9,background:rowTintBg,cursor:"pointer",color:rowFg,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center"}}><Icon name={tIcon} size={15} strokeWidth={1.9}/></button>
                                     {nameLocked
-                                      ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title="Click to re-pick" style={{flex:1,padding:"4px 8px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,fontWeight:600,color:rowFg,background:C.surface,cursor:"pointer",minHeight:28,lineHeight:"20px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:C.muted,fontStyle:"italic",fontWeight:400}}>— pick {isInv?"item":"gravy"} —</span>}</div>
-                                      : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
+                                      ? <div onClick={()=>{ if(isInv){setOpsPickerIdx(idx);setOpsPickerSearch("");loadOpsPickerItems();} else {setBgPickerIdx(idx);setBgPickerSearch("");} }} title={T2("Click to re-pick")} style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,fontWeight:600,color:K.text,background:"#FFFFFF",cursor:"pointer",boxSizing:"border-box"}}><span style={{minWidth:0,flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name||<span style={{color:K.textFaint,fontWeight:500}}>{T2("Pick")} {isInv?T2("an item"):T2("a gravy")}…</span>}</span><span style={{color:K.textFaint,display:"flex",flexShrink:0}}><Icon name="link" size={13} strokeWidth={2}/></span></div>
+                                      : <input value={item.name} onChange={e=>ingUpdateItem(idx,"name",e.target.value)} placeholder="Name" style={{flex:1,minWidth:0,padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                                     }
                                     {(() => {
                                       // 9E — migration nudge: raw rows with a matching ingredient_item_map entry get a one-click upgrade chip
@@ -2763,33 +3805,50 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   </div>
                                   {typePickerIdx===idx && typePickerPos && createPortal((
                                     <>
-                                      <div onClick={()=>{setTypePickerIdx(null);setTypePickerPos(null);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:998,background:"transparent"}}/>
-                                      <div style={{position:"fixed",top:typePickerPos.top,left:typePickerPos.left,zIndex:999,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
-                                        {[{k:'raw',label:'📝 Raw'},{k:'inv',label:'📦 Inv'},{k:'bg',label:'🥘 BG'}].map(o=>(
-                                          <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} style={{display:"block",width:"100%",padding:"6px 10px",textAlign:"left",background:tRow===o.k?C.goldBg:"transparent",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,color:C.text,fontWeight:tRow===o.k?700:500}}>{o.label}{tRow===o.k?" ✓":""}</button>
+                                      <div onClick={()=>{setTypePickerIdx(null);setTypePickerPos(null);}} style={{position:"fixed",inset:0,zIndex:998,background:"transparent"}}/>
+                                      {/* Same icons and tints as the row's type
+                                          chip, so the menu names the thing you
+                                          just clicked rather than showing a
+                                          different emoji for the same state. */}
+                                      <div className="kh-thinscroll" style={{position:"fixed",top:typePickerPos.top,left:typePickerPos.left,zIndex:999,
+                                        background:K.surface,border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5,minWidth:172}}>
+                                        {[{k:'raw',icon:'note',label:T2("Raw ingredient"),fg:K.textMuted,bg:K.surfaceAlt,bd:K.line},
+                                          {k:'inv',icon:'box',label:T2("Inventory item"),fg:K.accent,bg:K.accentSoft,bd:K.accentBorder},
+                                          {k:'bg',icon:'utensils',label:T2("Base gravy"),fg:K.warn,bg:K.warnBg,bd:K.warnBorder}].map(o=>(
+                                          <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 11px",borderRadius:9,
+                                              border:"none",background:tRow===o.k?K.brandBg:"transparent",cursor:"pointer",textAlign:"left",
+                                              color:tRow===o.k?K.brandText:K.textBody,fontSize:13.5,fontWeight:tRow===o.k?700:500,fontFamily:K.fontBody}}>
+                                            <span style={{width:28,height:28,borderRadius:9,flexShrink:0,background:o.bg,border:`1px solid ${o.bd}`,
+                                              color:o.fg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                              <Icon name={o.icon} size={14} strokeWidth={1.9}/>
+                                            </span>
+                                            <span style={{flex:1,minWidth:0}}>{o.label}</span>
+                                            {tRow===o.k&&<Icon name="check" size={15} strokeWidth={2.2}/>}
+                                          </button>
                                         ))}
                                       </div>
                                     </>
                                   ), document.body)}
                                 </td>
-                                <td style={{padding:"3px 4px"}}>
+                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <div style={{padding:"4px 6px",fontSize:11,color:C.muted,fontStyle:"italic"}}>— from recipe —</div>
+                                    ? <div style={{padding:"9px 2px",fontSize:13.5,color:K.textMuted}}>{T2("from recipe")}</div>
                                     : nameLocked
-                                      ? <div style={{padding:"4px 6px",fontSize:11,color:C.blue,fontStyle:"italic"}}>{item.hi||<span style={{color:C.muted}}>— auto —</span>}</div>
-                                      : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"4px 6px",borderRadius:6,border:`1px solid ${C.borderLight}`,fontSize:11,color:C.text,background:"transparent",boxSizing:"border-box",minHeight:28}}/>
+                                      ? <div style={{padding:"9px 2px",fontSize:13.5,fontWeight:600,color:K.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.hi||<span style={{color:K.textFaint,fontWeight:500}}>{T2("auto")}</span>}</div>
+                                      : <input value={item.hi||""} onChange={e=>ingUpdateItem(idx,"hi",e.target.value)} placeholder="हिन्दी नाम" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,fontWeight:600,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                                   }
                                 </td>
-                                <td style={{padding:"3px 2px"}}>
+                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <select value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,background:C.surface,minHeight:28,fontWeight:700}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
-                                    : <select value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"3px 2px",borderRadius:6,border:`1px solid ${isInv?C.blueBorder:C.borderLight}`,fontSize:10,color:isInv?C.blue:C.text,background:C.surface,minHeight:28,fontWeight:isInv?600:400}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    ? <select className="kh-select" value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${K.warnBorder}`,fontSize:13.5,color:K.warn,background:"#FFFFFF",fontWeight:700,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    : <select className="kh-select" value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                   }
                                 </td>
-                                <td style={{padding:"3px 3px",borderLeft:`1px solid ${rowBrd}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"4px 4px",borderRadius:6,border:`1px solid ${rowBrd}`,fontSize:11,textAlign:"right",color:rowFg,background:"transparent",boxSizing:"border-box",minHeight:28,fontWeight:nameLocked?600:400}}/></td>
-                                <td style={{padding:"3px 2px",textAlign:"center",whiteSpace:"nowrap"}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title="Drag to reorder" style={{cursor:"grab",display:"inline-block",padding:"0 4px",fontSize:13,color:C.muted,userSelect:"none",marginRight:4,lineHeight:"22px"}}>⋮⋮</span>
-                                  <button onClick={()=>ingRemoveItem(idx)} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:10,color:C.red,lineHeight:"20px",padding:0}}>×</button>
+                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
+                                <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",borderTop:`1px solid ${K.lineSoft}`}}>
+                                  <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
+                                  <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove row")} style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}><Icon name="trash" size={15}/></button>
                                 </td>
                               </tr>
                             );
@@ -2797,13 +3856,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </tbody>
                       </table>
                     </div>
-                    <div style={{display:"flex",borderTop:`1px dashed ${C.goldBorder}`}}>
-                      <button onClick={ingAddItem} style={{flex:1,padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRight:`1px dashed ${C.goldBorder}`,borderRadius:"0 0 0 8px",minHeight:34}}>+ Add Ingredient</button>
-                      <button onClick={ingAddSection} style={{flex:"0 0 40%",padding:"8px",background:C.goldBg,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",borderRadius:"0 0 8px 0",minHeight:34}}>+ Section</button>
+                    <div style={{display:"flex",gap:12,justifyContent:"space-between",alignItems:"center",padding:"16px 18px",borderTop:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                      <KButton icon="plus" onClick={ingAddItem} style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Add Ingredient")}</KButton>
+                      <KButton icon="plus" onClick={ingAddSection} style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Add Section")}</KButton>
                     </div>
-                    {ingDirty&&<div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
-                      <button onClick={()=>{if(!confirm("Discard changes?"))return;setIngModal(null);setIngDirty(false);}} style={{padding:"6px 14px",borderRadius:8,fontSize:11,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",minHeight:30}}>Cancel</button>
-                      <button onClick={saveIngredients} style={{padding:"6px 16px",borderRadius:8,fontSize:11,fontWeight:700,background:C.green,color:"#fff",border:"none",cursor:"pointer",minHeight:30}}>💾 Save</button>
+                    {ingDirty&&<div style={{padding:"14px 18px",borderTop:`1px solid ${K.cardWarmLine}`,background:K.warnBg,
+                      display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600,color:K.warn}}>
+                        <Icon name="alert" size={15} strokeWidth={2.1}/>{T2("Unsaved changes")}
+                      </span>
+                      <span style={{display:"flex",gap:10}}>
+                        <KButton icon="close" onClick={askDiscardIng}
+                          style={{padding:"11px 18px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Discard")}</KButton>
+                        <KButton variant="brand" icon="check" onClick={saveIngredients}
+                          style={{padding:"11px 20px",borderRadius:K.rPill,fontSize:14}}>{T2("Save")}</KButton>
+                      </span>
                     </div>}
                     {/* 9A — Ops picker modal (type='inv') — portal to body to escape ancestor containing block */}
                     {opsPickerIdx!==null&&createPortal((
@@ -2875,59 +3942,105 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const yKg=ing2.base_yield?.kg;
                   const yPcs=ing2.base_yield?.pcs;
                   const yieldLabel=yKg?`${yKg} kg${yPcs?` (~${yPcs} pcs)`:''}`:null;
+                  const th={padding:"12px 14px",fontSize:11.5,fontWeight:700,letterSpacing:".5px",textTransform:"uppercase",
+                    color:K.hdrMeta,borderBottom:`1px solid ${K.cardWarmLine}`,whiteSpace:"nowrap"};
+                  let rowNo=0;
                   return (
-                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.goldBg,fontSize:11,fontWeight:700,color:C.gold,borderBottom:`1px solid ${C.goldBorder}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-                      <span>Ingredients · {isNewSchema?`${basePax} pax anchor`:(ing2.pax_sizes?.map(p=>p+" pax").join(" / ")||"legacy")}</span>
-                      {isNewSchema&&(yieldLabel
-                        ?<span style={{fontSize:10,color:C.green}}>Yield: {yieldLabel}</span>
-                        :<span style={{fontSize:10,color:C.amber}}>⚠ Yield not set</span>)}
+                  <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:18,backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                      <span style={{display:"flex",alignItems:"center",gap:11,minWidth:0,flexWrap:"wrap"}}>
+                        <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="listCheck" size={21} strokeWidth={1.8}/></span>
+                        <span style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,whiteSpace:"nowrap"}}>
+                          {T2("Ingredients")} <span style={{color:K.textFaint,fontWeight:500}}>·</span> {isNewSchema?`${basePax} ${T2("pax anchor")}`:(ing2.pax_sizes?.map(p=>p+" pax").join(" / ")||T2("legacy"))}
+                        </span>
+                        {ingActions}
+                      </span>
+                      <span style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                        {isNewSchema&&(yieldLabel
+                          ?<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,fontWeight:600,color:K.ok}}><Icon name="check" size={14} strokeWidth={2.2}/>{T2("Yield")}: {yieldLabel}</span>
+                          :<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,fontWeight:600,color:K.warn}}><Icon name="alert" size={14} strokeWidth={2.2}/>{T2("Yield not set")}</span>)}
+                        <span style={{width:1,height:18,background:K.cardWarmLine}}/>
+                        <span style={{fontSize:13,fontWeight:700,color:K.hdrMeta}}>{basePax} pax</span>
+                      </span>
                     </div>
                     <div style={{overflowX:"auto"}}>
-                      <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
-                        <thead><tr style={{background:C.surface}}>
-                          <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,borderRight:`1px solid ${C.borderLight}`,minWidth:120}}>Item</th>
-                          <th style={{padding:"6px 6px",textAlign:"center",color:C.muted,minWidth:36}}>Unit</th>
+                      <table style={{borderCollapse:"collapse",fontSize:13,width:"100%",background:"#FFFFFF"}}>
+                        <thead><tr>
+                          <th style={{...th,textAlign:"center",width:52}}>#</th>
+                          <th style={{...th,textAlign:"left",minWidth:180}}>{T2("Item")}</th>
+                          <th style={{...th,textAlign:"center",minWidth:70}}>{T2("Unit")}</th>
                           {isNewSchema
-                            ?<th style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:70}}>{basePax} pax</th>
+                            ?<th style={{...th,textAlign:"center",minWidth:150}}>{T2("Quantity")} ({T2("for")} {basePax} pax)</th>
                             :ing2.pax_sizes?.map((p,pi)=>(
-                              <th key={pi} style={{padding:"6px 8px",textAlign:"right",color:C.gold,borderLeft:`1px solid ${C.borderLight}`,minWidth:55}}>{p}</th>
+                              <th key={pi} style={{...th,textAlign:"center",minWidth:70}}>{p}</th>
                             ))}
+                          <th style={{...th,textAlign:"left",minWidth:110}}>{T2("Notes")}</th>
+                          {currentUser?.role==='admin'&&<th style={{...th,textAlign:"center",width:96}}>{T2("Actions")}</th>}
                         </tr></thead>
                         <tbody>
                           {ing2.items.map((ing,ii)=>{
+                            const nCols=(isNewSchema?4:3+(ing2.pax_sizes?.length||0))+1+(currentUser?.role==='admin'?1:0);
                             if(ing.isSection){
-                              const colCount=isNewSchema?3:(2+(ing2.pax_sizes?.length||0));
                               const secYk=ing.yield?.kg,secYp=ing.yield?.pcs;
                               const secYldLbl=secYk?`${secYk} kg${secYp?` (~${secYp} pcs)`:''}`:(secYp?`${secYp} pcs`:null);
                               return(
-                              <tr key={ii} style={{background:C.goldBg,borderTop:`2px solid ${C.goldBorder}`}}>
-                                <td colSpan={colCount} style={{padding:"6px 10px",textAlign:"center",fontWeight:700,color:C.gold,fontSize:11}}>
-                                  · {ing.name}{ing.hi?` / ${ing.hi}`:""} ·{secYldLbl&&<span style={{marginLeft:8,fontSize:10,fontWeight:600,color:C.green}}>Yield: {secYldLbl}</span>}
+                              <tr key={ii} style={{background:K.brandBg}}>
+                                <td colSpan={nCols} style={{padding:"9px 14px",fontWeight:700,color:K.brandText,fontSize:11.5,
+                                  letterSpacing:".5px",textTransform:"uppercase",borderTop:`1px solid ${K.brandBorder}`,borderBottom:`1px solid ${K.brandBorder}`}}>
+                                  {ing.name}{ing.hi?` / ${ing.hi}`:""}
+                                  {secYldLbl&&<span style={{marginLeft:10,fontSize:11,fontWeight:600,color:K.ok,textTransform:"none",letterSpacing:0}}>{T2("Yield")}: {secYldLbl}</span>}
                                 </td>
                               </tr>);
                             }
+                            rowNo++;
                             const hi=ing.hi??ing.hindi;
                             const rowType=ing.type==='inv'?'inv':ing.type==='bg'?'bg':'raw';
-                            const typeIcon=rowType==='inv'?'📦':rowType==='bg'?'🥘':'📝';
-                            const typeTitle=rowType==='inv'?'Inventory-mapped item':rowType==='bg'?'Base gravy':'Raw ingredient';
-                            const typeColor=rowType==='inv'?C.blue:rowType==='bg'?C.amber:C.faint;
-                            const rowBg=rowType==='inv'?C.blueBg:rowType==='bg'?C.amberBg:(ii%2===0?C.surface:C.darkCard);
+                            const typeIcon=rowType==='inv'?'box':rowType==='bg'?'utensils':'note';
+                            const typeTitle=rowType==='inv'?T2("Inventory-mapped item"):rowType==='bg'?T2("Base gravy"):T2("Raw ingredient");
+                            const typeColor=rowType==='inv'?K.accent:rowType==='bg'?K.warn:K.textFaint;
+                            const td={padding:"11px 14px",borderTop:`1px solid ${K.lineSoft}`,color:K.text};
                             return(
-                            <tr key={ii} style={{borderTop:`1px solid ${C.borderLight}`,background:rowBg}}>
-                              <td style={{padding:"5px 10px",borderRight:`1px solid ${C.borderLight}`}}>
-                                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                  <span title={typeTitle} style={{fontSize:11,color:typeColor,flexShrink:0,cursor:"help"}}>{typeIcon}</span>
-                                  <div style={{fontWeight:600,color:C.text}}>{ing.name}</div>
-                                </div>
-                                {hi&&<div style={{fontSize:9,color:C.faint,marginLeft:19}}>{hi}</div>}
+                            <tr key={ii}>
+                              <td style={{...td,textAlign:"center"}}>
+                                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:26,height:26,
+                                  borderRadius:"50%",background:K.surfaceAlt,border:`1px solid ${K.line}`,
+                                  fontSize:12,fontWeight:700,color:K.textMuted}}>{rowNo}</span>
                               </td>
-                              <td style={{padding:"5px 6px",textAlign:"center",color:C.faint,fontSize:10}}>{ing.unit}</td>
+                              <td style={td}>
+                                <span style={{display:"flex",alignItems:"flex-start",gap:9}}>
+                                  <span title={typeTitle} style={{color:typeColor,flexShrink:0,paddingTop:1}}><Icon name={typeIcon} size={15} strokeWidth={1.9}/></span>
+                                  <span style={{minWidth:0}}>
+                                    <span style={{display:"block",fontWeight:600,color:K.text}}>{ing.name}</span>
+                                    {/* Devanagari at the same size and weight as
+                                        Latin reads noticeably lighter, so the
+                                        Hindi line gets a darker tone than a
+                                        secondary line would normally take. */}
+                                    {hi&&<span style={{display:"block",fontSize:12.5,fontWeight:500,color:K.textMuted,marginTop:2}}>{hi}</span>}
+                                  </span>
+                                </span>
+                              </td>
+                              <td style={{...td,textAlign:"center",color:K.textMuted}}>{ing.unit}</td>
                               {isNewSchema
-                                ?<td style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{ing.qty??"—"}</td>
+                                ?<td style={{...td,textAlign:"center",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{ing.qty??"—"}</td>
                                 :Array.isArray(ing.qty)?ing.qty.map((q,qi)=>(
-                                  <td key={qi} style={{padding:"5px 8px",textAlign:"right",color:C.text,fontWeight:600,borderLeft:`1px solid ${C.borderLight}`}}>{q||"—"}</td>
+                                  <td key={qi} style={{...td,textAlign:"center",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{q||"—"}</td>
                                 )):null}
+                              <td style={{...td,color:K.textFaint}}>{ing.note||"—"}</td>
+                              {/* Both actions open the ingredient editor, which is
+                                  the one place that writes this table back to
+                                  Supabase. A row-level delete here would need a
+                                  second save path — deliberately not duplicated. */}
+                              {currentUser?.role==='admin'&&(
+                                <td style={{...td,textAlign:"center",whiteSpace:"nowrap"}}>
+                                  <button className="kh-iconbtn kh-rip" onPointerDown={ripple} title={T2("Edit in ingredient editor")}
+                                    onClick={()=>openIngEditor(sopRecipe,sopCat)}
+                                    style={{width:30,height:30,borderRadius:8,background:"transparent",border:"none",
+                                      color:K.textMuted,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                                    <Icon name="note" size={15}/>
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );})}
                         </tbody>
@@ -2936,9 +4049,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                   );})()
                 :fallbackIng?(
-                  <div style={{marginBottom:16,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.amberBg,fontSize:11,fontWeight:700,color:C.amber,borderBottom:`1px solid ${C.amberBorder}`}}>
-                      Ingredients (legacy per-serving @ 500 pax)
+                  <div className="kh-cardart-sm" style={{marginBottom:16,borderRadius:18,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    <div style={{padding:"14px 18px",background:K.warnBg,borderBottom:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:14.5,fontWeight:700,color:K.warn}}>{T2("Ingredients")} <span style={{fontWeight:500,opacity:.8}}>· {T2("legacy per-serving at 500 pax")}</span></span>
+                      {ingActions}
                     </div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
@@ -2965,10 +4079,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       </table>
                     </div>
                   </div>
-                ):<div style={{marginBottom:16}}/>}
+                ):(
+                  <div className="kh-cardart-sm" style={{marginBottom:16,padding:"18px",borderRadius:18,backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,display:"flex",alignItems:"center",
+                    justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                    <span style={{display:"flex",alignItems:"center",gap:11,minWidth:0}}>
+                      <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="listCheck" size={21} strokeWidth={1.8}/></span>
+                      <span style={{minWidth:0}}>
+                        <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Ingredients")}</span>
+                        <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Nothing recorded yet for this recipe.")}</span>
+                      </span>
+                    </span>
+                    {ingActions}
+                  </div>
+                )}
                 </>);})()}
                 {/* —— Yield anchor (base_yield @ base_pax) — moved below ingredient table —— */}
-                {(()=>{
+                {!editingSteps&&(()=>{
                   const basePax = sopRecipe.ingredients?.base_pax || 300;
                   const by = sopRecipe.ingredients?.base_yield || {};
                   const kg = by.kg;
@@ -2976,12 +4103,28 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const hasYield = kg != null && kg !== "" && +kg > 0;
                   if (editingYield) {
                     return (
-                      <div style={{margin:"14px 0 20px",padding:"14px 18px",borderRadius:12,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-                          <span style={{fontSize:14,fontWeight:800,color:C.amber}}>⚖️ Base yield at {basePax} pax</span>
-                          <div style={{display:"flex",gap:6}}>
-                            <button onClick={()=>setEditingYield(false)} style={{fontSize:12,padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer",minHeight:34}}>Cancel</button>
-                            <button onClick={()=>{
+                      <div className="kh-cardart-sm" style={{margin:"0 0 20px",padding:"18px 20px",borderRadius:18,
+                        background:K.brandSoft,border:`1px solid ${K.brandBorder}`,boxShadow:K.shadowCard}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
+                          <span style={{display:"flex",alignItems:"center",gap:14,minWidth:0}}>
+                            <span style={{width:44,height:44,borderRadius:14,flexShrink:0,background:"#FFFFFF",
+                              border:`1px solid ${K.brandBorder}`,color:K.brand,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              <Icon name="utensils" size={22} strokeWidth={1.8}/>
+                            </span>
+                            <span style={{minWidth:0}}>
+                              <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>
+                                {T2("Base yield at")} {basePax} pax
+                              </span>
+                              <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>
+                                {T2("Finished output in kg is what scales the ingredients. Pieces are informational.")}
+                              </span>
+                            </span>
+                          </span>
+                          <div style={{display:"flex",gap:10,flexShrink:0}}>
+                            <KButton icon="close" onClick={()=>setEditingYield(false)}
+                              style={{padding:"11px 18px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                            <KButton variant="brand" icon="check" style={{padding:"11px 20px",borderRadius:K.rPill,fontSize:14}} onClick={()=>{
                               const newKg = yieldForm.kg==="" || yieldForm.kg==null ? null : parseFloat(yieldForm.kg) || null;
                               const newPcs = yieldForm.pcs==="" || yieldForm.pcs==null ? null : parseFloat(yieldForm.pcs) || null;
                               const newIng = {...(sopRecipe.ingredients||{}), base_pax: basePax, base_yield: {kg: newKg, pcs: newPcs}};
@@ -2998,133 +4141,319 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 });
                               }
                               setEditingYield(false);
-                            }} style={{fontSize:12,padding:"6px 14px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontWeight:700,minHeight:34}}>Save</button>
+                            }}>{T2("Save")}</KButton>
                           </div>
                         </div>
-                        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>Finished output in kg is used to scale ingredients when planning. Pieces are informational.</div>
-                        <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
-                          <div>
-                            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Kg (finished) *</div>
-                            <input type="number" step="0.1" inputMode="decimal" autoFocus
-                              value={yieldForm.kg ?? ""}
-                              onChange={e=>setYieldForm(p=>({...p, kg: e.target.value}))}
-                              placeholder="e.g. 20"
-                              style={{width:120,padding:"10px 12px",borderRadius:8,border:`2px solid ${C.amberBorder}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-                          </div>
-                          <div>
-                            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Pieces (optional)</div>
-                            <input type="number" step="1" inputMode="decimal"
-                              value={yieldForm.pcs ?? ""}
-                              onChange={e=>setYieldForm(p=>({...p, pcs: e.target.value}))}
-                              placeholder="e.g. 400"
-                              style={{width:120,padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:16,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-                          </div>
-                          <div style={{fontSize:12,color:C.muted,paddingBottom:12}}>@ {basePax} pax</div>
-                        </div>
+                        {/* Unit lives inside the field, not as a floating note
+                            beside it — the old "@ 300 pax" text sat between the
+                            two inputs and read as if it belonged to neither. */}
+                        {(()=>{
+                          const field={display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
+                            border:`1px solid ${K.line}`,overflow:"hidden",width:172};
+                          const inp={flex:1,minWidth:0,padding:"12px 0 12px 14px",border:"none",outline:"none",
+                            background:"transparent",fontSize:17,fontWeight:700,color:K.text,
+                            fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"};
+                          const unit={padding:"0 14px 0 8px",fontSize:13,fontWeight:700,color:K.textFaint,flexShrink:0};
+                          return(
+                          <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+                            <div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>
+                                {T2("Finished weight")} <span style={{color:K.danger}}>*</span>
+                              </div>
+                              <div style={{...field,borderColor:K.brandBorder,boxShadow:`0 0 0 3px ${K.brandBg}`}}>
+                                <input type="number" step="0.1" inputMode="decimal" autoFocus
+                                  value={yieldForm.kg ?? ""}
+                                  onChange={e=>setYieldForm(p=>({...p, kg: e.target.value}))}
+                                  placeholder="20" style={inp}/>
+                                <span style={unit}>kg</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>
+                                {T2("Pieces")} <span style={{fontWeight:500,letterSpacing:0,textTransform:"none",color:K.textFaint}}>({T2("optional")})</span>
+                              </div>
+                              <div style={field}>
+                                <input type="number" step="1" inputMode="decimal"
+                                  value={yieldForm.pcs ?? ""}
+                                  onChange={e=>setYieldForm(p=>({...p, pcs: e.target.value}))}
+                                  placeholder="400" style={inp}/>
+                                <span style={unit}>pcs</span>
+                              </div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:7,paddingBottom:13,fontSize:13,color:K.hdrMeta}}>
+                              <Icon name="users" size={14} strokeWidth={1.9}/>{T2("at")} {basePax} pax
+                            </div>
+                          </div>);
+                        })()}
                       </div>
                     );
                   }
                   return (
-                    <div style={{margin:"14px 0 20px",padding:"14px 18px",borderRadius:12,background:hasYield?C.goldBg:C.amberBg,border:`1.5px solid ${hasYield?C.goldBorder:C.amberBorder}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div style={{fontSize:32,lineHeight:1}}>🍽</div>
-                        <div>
+                    <div className="kh-cardart-sm" style={{margin:"0 0 20px",padding:"18px 20px",borderRadius:18,
+                      background:hasYield?K.brandSoft:K.warnBg,border:`1px solid ${hasYield?K.brandBorder:K.warnBorder}`,
+                      display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:16,minWidth:0}}>
+                        <span style={{color:hasYield?K.brand:K.warn,display:"flex",flexShrink:0}}><Icon name="utensils" size={30} strokeWidth={1.6}/></span>
+                        <div style={{minWidth:0}}>
                           {hasYield ? (
                             <>
-                              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.6,marginBottom:2}}>Base yield @ {basePax} pax</div>
-                              <div style={{fontSize:20,fontWeight:800,color:C.text}}>{kg} kg{pcs?<span style={{fontSize:14,fontWeight:600,color:C.muted,marginLeft:8}}>-+ ~{pcs} pcs</span>:null}</div>
+                              <div style={{...type.label,fontSize:11,color:K.hdrMeta,marginBottom:3}}>{T2("Base yield")} @ {basePax} pax</div>
+                              <div style={{fontSize:21,fontWeight:800,letterSpacing:"-0.4px",color:K.hdrTitle}}>{kg} kg{pcs?<span style={{fontSize:14,fontWeight:600,color:K.hdrMeta,marginLeft:9}}>~{pcs} pcs</span>:null}</div>
                             </>
                           ) : (
                             <>
-                              <div style={{fontSize:15,fontWeight:800,color:C.amber,marginBottom:3}}>— Yield not set</div>
-                              <div style={{fontSize:12,color:C.muted}}>Required for kg-based scaling. Set the finished output at {basePax} pax.</div>
+                              <div style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.warn,marginBottom:3}}>{T2("Yield not set")}</div>
+                              <div style={{fontSize:13,color:K.hdrMeta}}>{T2("Required for kg-based scaling. Set the finished output at")} {basePax} pax.</div>
                             </>
                           )}
                         </div>
                       </div>
                       {currentUser?.role==='admin' && !editingSteps && (
-                        <button onClick={()=>{
-                          setYieldForm({kg: kg ?? "", pcs: pcs ?? ""});
-                          setEditingYield(true);
-                        }} style={{padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:700,background:hasYield?C.gold:C.amber,color:"#fff",border:"none",cursor:"pointer",minHeight:40,boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>{hasYield?"✏️ Edit yield":"+ Add yield"}</button>
+                        <KButton variant={hasYield?"brand":"accent"} icon={hasYield?"note":"plus"}
+                          onClick={()=>{ setYieldForm({kg: kg ?? "", pcs: pcs ?? ""}); setEditingYield(true); }}
+                          style={{padding:"13px 22px",borderRadius:K.rPill,fontSize:14,
+                            ...(hasYield?{}:{background:K.warn,boxShadow:"0 4px 14px rgba(196,121,12,.28)"})}}>
+                          {hasYield?T2("Edit yield"):T2("Add yield")}
+                        </KButton>
                       )}
                     </div>
                   );
                 })()}
+
+                {/* ── Procedure panel ── */}
+                <div className="kh-cardart-sm" style={{borderRadius:editingSteps?"0 0 18px 18px":18,backgroundColor:K.cardWarm,
+                  border:`1px solid ${K.cardWarmLine}`,borderTop:editingSteps?"none":`1px solid ${K.cardWarmLine}`,
+                  boxShadow:K.shadowCard,padding:"18px 20px 20px",marginTop:editingSteps?-16:0}}>
+                {!editingSteps&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                  <span style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+                    <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="chefHat" size={26} strokeWidth={1.7}/></span>
+                    <span style={{minWidth:0}}>
+                      <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Procedure")}</span>
+                      <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Step-by-step process to prepare this recipe")}</span>
+                    </span>
+                  </span>
+                  {currentUser?.role==='admin'&&!editingSteps&&(
+                    // Enters the step editor with one blank step already added.
+                    // sopAddStep is a functional update, so it lands on the form
+                    // openSopEdit just queued rather than on a stale one.
+                    <KButton icon="plus" onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);sopAddStep();}}
+                      style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Add step")}</KButton>
+                  )}
+                </div>}
                 {editingSteps?(
                   <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>Steps ({sopForm.steps.length})</div>
+                    <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:10}}>
+                      {T2("Steps")} ({sopForm.steps.length})
+                    </div>
                     {sopForm.steps.map((step,si)=>(
-                      <div key={si} style={{display:"flex",gap:8,padding:"10px 0",borderBottom:si<sopForm.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
-                        <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center",flexShrink:0,paddingTop:6}}>
-                          <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{si+1}</span>
-                          <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si>0?C.muted:C.faint,cursor:si>0?"pointer":"default",padding:0}}>—</button>
-                          <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si<sopForm.steps.length-1?C.muted:C.faint,cursor:si<sopForm.steps.length-1?"pointer":"default",padding:0}}>—</button>
+                      // Each step is its own card. Rows separated only by a
+                      // hairline ran together once a step had sub-steps, and
+                      // there was no way to see where one ended.
+                      <div key={si} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10,
+                        padding:"14px",borderRadius:14,backgroundColor:"#FFFFFF",
+                        border:`1px solid ${step.ccp?K.dangerBorder:K.cardWarmLine}`,
+                        borderLeft:`3px solid ${step.ccp?K.danger:K.brand}`,boxShadow:K.shadowCard}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"center",flexShrink:0}}>
+                          <span style={{display:"flex",alignItems:"center",justifyContent:"center",width:30,height:30,
+                            borderRadius:"50%",background:step.ccp?K.danger:K.brand,color:"#FFFFFF",
+                            fontSize:13,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{si+1}</span>
+                          {/* Both reorder buttons rendered as a literal "?" - a
+                              mojibake glyph where an arrow used to be. */}
+                          <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} title={T2("Move up")}
+                            style={{width:28,height:24,borderRadius:8,border:`1px solid ${K.line}`,background:K.surfaceAlt,
+                              color:si>0?K.textMuted:K.lineStrong,cursor:si>0?"pointer":"default",padding:0,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="chevronD" size={13} strokeWidth={2.3} style={{transform:"rotate(180deg)"}}/>
+                          </button>
+                          <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} title={T2("Move down")}
+                            style={{width:28,height:24,borderRadius:8,border:`1px solid ${K.line}`,background:K.surfaceAlt,
+                              color:si<sopForm.steps.length-1?K.textMuted:K.lineStrong,
+                              cursor:si<sopForm.steps.length-1?"pointer":"default",padding:0,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="chevronD" size={13} strokeWidth={2.3}/>
+                          </button>
                         </div>
                         <div style={{flex:1,minWidth:0}}>
-                          <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,color:C.text,background:"transparent",boxSizing:"border-box",marginBottom:4,minHeight:32}}/>
-                          <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:40,marginBottom:4}}/>
-                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                            {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:3}}>
-                              <span style={{fontSize:10,color:C.muted}}>⏱</span>
-                              <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                              <span style={{fontSize:9,color:C.faint}}>min</span>
-                            </div>}
-                            <div style={{display:"flex",alignItems:"center",gap:3}}>
-                              <span style={{fontSize:10,color:C.muted}}>CCP</span>
-                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:110,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                            </div>
-                            <label style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",fontSize:10,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
-                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
-                              D-1   
+                          <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder={T2("Step title")}
+                            style={{width:"100%",padding:"10px 13px",borderRadius:10,border:`1px solid ${K.line}`,
+                              fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,background:"#FFFFFF",
+                              boxSizing:"border-box",marginBottom:8,fontFamily:K.fontBody,outline:"none"}}/>
+                          <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder={T2("Instructions (Hindi)")} rows={2}
+                            style={{width:"100%",padding:"10px 13px",borderRadius:10,border:`1px solid ${K.line}`,
+                              fontSize:14,fontWeight:500,color:K.text,background:"#FFFFFF",boxSizing:"border-box",
+                              resize:"vertical",minHeight:64,marginBottom:10,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                            {/* A step with sub-steps takes its time from them, so
+                                the timer is hidden rather than left to contradict. */}
+                            {!(step.subs&&step.subs.length>0)&&(
+                              <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                border:`1px solid ${K.line}`,overflow:"hidden",width:126}}>
+                                <span style={{padding:"0 0 0 11px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={14} strokeWidth={2}/></span>
+                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                  placeholder="0"
+                                  style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",background:"transparent",
+                                    fontSize:14,fontWeight:700,color:K.text,fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                <span style={{padding:"0 11px 0 4px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>min</span>
+                              </span>
+                            )}
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                              border:`1px solid ${step.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 200px",minWidth:0}}>
+                              <span style={{padding:"0 0 0 11px",fontSize:11,fontWeight:700,letterSpacing:".5px",
+                                color:step.ccp?K.danger:K.textFaint}}>CCP</span>
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} list={"ccp-opts-"+si}
+                                placeholder={T2("Critical control (optional)")}
+                                style={{flex:1,minWidth:0,padding:"9px 11px 9px 9px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:13.5,color:K.text,fontFamily:K.fontBody}}/>
+                            </span>
+                            {/* D-1 is a state, so it reads as a chip that fills
+                                when on, not a bare checkbox with a loose label. */}
+                            <label style={{display:"inline-flex",alignItems:"center",gap:8,cursor:"pointer",flexShrink:0,
+                              padding:"9px 14px",borderRadius:10,fontSize:13,fontWeight:700,
+                              background:step.d1?K.brandBg:"#FFFFFF",
+                              border:`1px solid ${step.d1?K.brandBorder:K.line}`,
+                              color:step.d1?K.brandText:K.textMuted}}>
+                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)}
+                                style={{width:15,height:15,accentColor:K.brand,cursor:"pointer",margin:0}}/>
+                              {T2("Prep a day ahead")}
                             </label>
                           </div>
                           {(step.subs&&step.subs.length>0)&&(
-                            <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:2,marginTop:8,paddingLeft:12}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
+                            <div style={{marginTop:14}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                                <span style={{...type.label,fontSize:10.5,color:K.hdrMeta}}>
+                                  {T2("Sub-steps")} ({step.subs.length})
+                                </span>
+                                {step.d1&&<span style={{fontSize:11,fontWeight:700,color:K.brandText,background:K.brandBg,
+                                  padding:"3px 9px",borderRadius:K.rPill,border:`1px solid ${K.brandBorder}`}}>{T2("Prepped a day ahead")}</span>}
+                                <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
+                              </div>
                               {step.subs.map((sb,sbi)=>(
-                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
-                                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                                    <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
-                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent",minHeight:28}}/>
-                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:22,height:22,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",padding:0,flexShrink:0}}>—</button>
+                                <div key={sbi} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10,
+                                  padding:"12px",borderRadius:13,background:K.surfaceAlt,
+                                  border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`}}>
+                                  {/* 1a, 1b … rather than a bare letter: a chef
+                                      reading the printed SOP calls it out that way. */}
+                                  <span style={{display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                                    width:38,height:38,borderRadius:11,background:K.brandBg,border:`1px solid ${K.brandBorder}`,
+                                    fontSize:13,fontWeight:700,color:K.brandText}}>{si+1}{String.fromCharCode(97+sbi)}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)}
+                                      placeholder={T2("Sub-step title")}
+                                      style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        marginBottom:8,fontFamily:K.fontBody,outline:"none"}}/>
+                                    <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)}
+                                      placeholder={T2("Instructions (Hindi)")} rows={2}
+                                      style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:14,color:K.text,background:"#FFFFFF",boxSizing:"border-box",resize:"vertical",
+                                        minHeight:56,marginBottom:8,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${K.line}`,overflow:"hidden",width:150}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:6,padding:"0 0 0 11px",
+                                          fontSize:12,fontWeight:700,color:K.warn}}>
+                                          <Icon name="clock" size={14} strokeWidth={2}/>{T2("Timer")}
+                                        </span>
+                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                          placeholder="0"
+                                          style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:14,fontWeight:700,color:K.text,
+                                            fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                        <span style={{padding:"0 11px 0 4px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>min</span>
+                                      </span>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 220px",minWidth:0}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:6,padding:"0 0 0 11px",
+                                          fontSize:11,fontWeight:700,letterSpacing:".5px",color:sb.ccp?K.danger:K.textFaint}}>
+                                          <span style={{width:7,height:7,borderRadius:"50%",background:sb.ccp?K.danger:K.lineStrong}}/>CCP
+                                        </span>
+                                        {/* A datalist, so one control both offers
+                                            the wordings already used elsewhere in
+                                            this recipe and accepts a new one. */}
+                                        <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)}
+                                          list={"ccp-opts-"+si} placeholder={T2("Critical control (optional)")}
+                                          style={{flex:1,minWidth:0,padding:"9px 11px 9px 9px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13.5,color:K.text,fontFamily:K.fontBody}}/>
+                                      </span>
+                                    </div>
                                   </div>
-                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:28,marginBottom:4}}/>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${C.borderLight}`,marginBottom:4}}>
-                                    <span style={{fontSize:10,color:C.amber,fontWeight:600}}>⏱ Timer</span>
-                                    <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:50,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.amberBorder}`,fontSize:12,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:26}}/>
-                                    <span style={{fontSize:10,color:C.faint}}>min</span>
-                                  </div>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,background:sb.ccp?C.redBg:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${sb.ccp?C.redBorder:C.borderLight}`}}>
-                                    <span style={{fontSize:10,color:C.red,fontWeight:700}}>🔴 CCP</span>
-                                    <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)} placeholder="Critical control (optional)" style={{flex:1,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                                  </div>
+                                  <button onClick={()=>sopRemoveSub(si,sbi)} className="kh-rip" onPointerDown={ripple}
+                                    title={T2("Remove sub-step")}
+                                    style={{width:34,height:34,borderRadius:10,flexShrink:0,border:`1px solid ${K.dangerBorder}`,
+                                      background:K.dangerBg,color:K.danger,cursor:"pointer",padding:0,
+                                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    <Icon name="trash" size={15}/>
+                                  </button>
                                 </div>
                               ))}
+                              {/* One datalist per step, feeding every sub-step's
+                                  CCP field with the values already in use. */}
+                              <datalist id={"ccp-opts-"+si}>
+                                {[...new Set(safeArr(sopForm.steps).flatMap(s=>[s.ccp,...safeArr(s.subs).map(x=>x.ccp)]).filter(Boolean))]
+                                  .map(v=><option key={v} value={v}/>)}
+                              </datalist>
                             </div>
                           )}
-                          <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
+                          <button onClick={()=>sopAddSub(si)} className="kh-rip" onPointerDown={ripple} style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:10,padding:"8px 14px",borderRadius:K.rPill,background:"#FFFFFF",border:`1px solid ${K.line}`,color:K.textBody,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}><Icon name="plus" size={14} strokeWidth={2.1}/>{T2("Add sub-step")}</button>
                         </div>
-                        <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>—</button>
+                        {/* Was a 24px square whose label was a literal em dash —
+                            another mangled glyph — floating clear of the fields
+                            it belongs to. Now a trash button sized and aligned
+                            to the title input beside it. */}
+                        <button onClick={()=>sopRemoveStep(si)} className="kh-rip" onPointerDown={ripple} title={T2("Remove step")}
+                          style={{width:38,height:38,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,
+                            cursor:"pointer",color:K.danger,flexShrink:0,padding:0,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="trash" size={16}/>
+                        </button>
                       </div>
                     ))}
-                    <button onClick={sopAddStep} style={{width:"100%",padding:"10px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:8,minHeight:36}}>+ Add Step</button>
-                    <div style={{display:"flex",gap:8,marginTop:12}}>
-                      <button onClick={()=>{saveSop();setEditingSteps(false);}} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>💾 Save Recipe</button>
-                      <button onClick={()=>{setEditingSteps(false);setSopModal(null);}} style={{padding:"12px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:42}}>Cancel</button>
+                    {/* Dashed, because it adds a row that does not exist yet —
+                        the same signal the Add Category tile uses. */}
+                    <button onClick={sopAddStep} className="kh-sopadd kh-rip" onPointerDown={ripple}
+                      style={{display:"flex",alignItems:"center",justifyContent:"center",gap:9,width:"100%",
+                        padding:"14px",borderRadius:14,background:K.brandSoft,border:`1.5px dashed ${K.brandBorder}`,
+                        color:K.brandText,fontSize:14,fontWeight:700,cursor:"pointer",marginTop:4,
+                        fontFamily:K.fontBody,transition:"background .16s, border-color .16s"}}>
+                      <Icon name="plus" size={16} strokeWidth={2.1}/>{T2("Add step")}
+                    </button>
+                    <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                      <KButton icon="close" onClick={()=>{setEditingSteps(false);setSopModal(null);}}
+                        style={{padding:"13px 20px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                      <KButton variant="brand" icon="check" onClick={()=>{saveSop();setEditingSteps(false);}}
+                        style={{padding:"13px 26px",borderRadius:K.rPill,fontSize:14}}>{T2("Save recipe")}</KButton>
                     </div>
                   </div>
                 ):(
                   safeArr(sopRecipe.steps).map((step,si)=>(
-                    <div key={si} style={{padding:"14px 0",borderBottom:si<sopRecipe.steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-12,paddingLeft:12,borderRadius:6}:{})}}>
+                    <div key={si} className="kh-sopcard" style={{marginBottom:10,padding:"14px 16px",borderRadius:14,
+                      background:step.ccp?K.dangerBg:"#FFFFFF",
+                      border:`1px solid ${step.ccp?K.dangerBorder:K.cardWarmLine}`,
+                      ...(step.ccp?{borderLeft:`3px solid ${K.danger}`}:{})}}>
                       <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
-                        <div style={{width:32,height:32,borderRadius:8,background:step.ccp?C.red:C.gold+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:step.ccp?"#fff":C.gold,flexShrink:0}}>{si+1}</div>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3}}>{cleanStepText(step.t)}{Array.isArray(step.subs)&&step.subs.length>0&&<span style={{fontSize:11,color:C.muted,fontWeight:400,marginLeft:8}}>({step.subs.length} sub-steps)</span>}</div>
-                          <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cleanStepText(step.i||step.desc||"")}</div>
-                          {step.tm&&<span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6}}>⏱ {fmtT(step.tm)}</span>}
-                          {step.ccp&&<span style={{fontSize:12,color:C.red,background:C.redBg,padding:"5px 10px",borderRadius:8,display:"inline-block",marginTop:6,marginLeft:6}}>🔴 CCP: {step.ccp}</span>}
+                        <div style={{width:34,height:34,borderRadius:"50%",background:step.ccp?K.danger:K.brand,
+                          display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,
+                          color:"#FFFFFF",flexShrink:0,fontVariantNumeric:"tabular-nums"}}>{si+1}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,marginBottom:3}}>
+                            {cleanStepText(step.t)}
+                            {Array.isArray(step.subs)&&step.subs.length>0&&<span style={{fontSize:12,color:K.textFaint,fontWeight:500,marginLeft:9}}>({step.subs.length} {T2("sub-steps")})</span>}
+                          </div>
+                          <div style={{fontSize:13,color:K.hdrMeta,lineHeight:1.55}}>{cleanStepText(step.i||step.desc||"")}</div>
+                          {step.tm&&<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:K.warn,background:K.warnBg,border:`1px solid ${K.warnBorder}`,padding:"4px 10px",borderRadius:K.rPill,marginTop:8}}><Icon name="clock" size={12} strokeWidth={2.1}/>{fmtT(step.tm)}</span>}
+                          {step.ccp&&<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:K.danger,background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,padding:"4px 10px",borderRadius:K.rPill,marginTop:8,marginLeft:7}}><Icon name="alert" size={12} strokeWidth={2.1}/>CCP: {step.ccp}</span>}
                         </div>
+                        {currentUser?.role==='admin'&&(
+                          <button className="kh-sopmenu is-open kh-rip" onPointerDown={ripple} title={T2("Edit steps")}
+                            onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);}}
+                            style={{width:30,height:30,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",
+                              border:`1px solid ${K.cardWarmLine}`,color:K.textMuted,cursor:"pointer",
+                              display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                            <Icon name="more" size={15}/>
+                          </button>
+                        )}
                       </div>
                       {Array.isArray(step.subs)&&step.subs.length>0&&(
                         <div style={{borderLeft:`2px solid ${C.gold}`,marginLeft:16,marginTop:8,paddingLeft:12}}>
@@ -3181,7 +4510,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </table>
                   </div>
                 );})()}
-              </Card>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -3250,75 +4580,152 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return (
           <div>
-            {/* Header */}
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍲 {T2("Event Closing")}</div>
-              <div style={{fontSize:12,color:C.muted}}>{T2("Record leftover quantities per dish after the event. Toggle ? to keep this event's leftovers out of future order suggestions.")}</div>
+            {/* No header. The tab strip above already names this screen, and the
+                line under it explained a toggle whose label had long since been
+                mangled into a bare "?". */}
+
+            {/* ── Calendar ── */}
+            <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:16}}>
+              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.hdrLine}`,boxShadow:K.shadowCard,color:K.sbGold,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="calendarDays" size={28} strokeWidth={1.6}/>
+              </span>
+              <span style={{minWidth:0,flex:"1 1 220px"}}>
+                <span style={{display:"block",...type.pageTitle,fontSize:27,color:K.hdrTitle}}>{MO_N[closeCalMo]} {closeCalYr}</span>
+                <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Pick a past date to record its closing")}</span>
+              </span>
+              <span style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+                <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={prevMo} title={T2("Previous month")}
+                  style={{width:44,height:44,borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                  <Icon name="chevronL" size={18} strokeWidth={2.1}/>
+                </button>
+                <button className="kh-btn kh-rip" onPointerDown={ripple}
+                  onClick={()=>{setCloseCalYr(new Date().getFullYear());setCloseCalMo(new Date().getMonth());setCloseSelDate(TODAY);setCloseEventId(null);}}
+                  style={{padding:"13px 20px",borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>
+                  {T2("Today")}
+                </button>
+                <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={nextMo} title={T2("Next month")}
+                  style={{width:44,height:44,borderRadius:14,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    boxShadow:K.shadowCard,color:K.textBody,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                  <Icon name="chevronR" size={18} strokeWidth={2.1}/>
+                </button>
+              </span>
             </div>
 
-            {/* Calendar picker */}
-            <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                  <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[closeCalMo]} {closeCalYr}</div>
-                  <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                </div>
-                <button onClick={()=>{setCloseCalYr(new Date().getFullYear());setCloseCalMo(new Date().getMonth());setCloseSelDate(todayS);setCloseEventId(null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+            <div className="kh-cardart-sm" style={{borderRadius:20,backgroundColor:K.cardWarm,
+              border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden",marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:K.brandSoft,
+                borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                {DY.map(d=>(
+                  <div key={d} style={{textAlign:"center",...type.label,fontSize:11,color:K.hdrMeta,padding:"12px 0"}}>{d}</div>
+                ))}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-                {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#FFFFFF"}}>
                 {cells.map((cell,i)=>{
                   const dt = cDate(cell);
                   const evs = dt?eod(dt):[];
                   const isT = dt===todayS;
                   const isS = dt===selDate;
+                  // Closing is a record of what already happened, so a future
+                  // date has nothing to open. It stays visible but inert.
                   const isFuture = dt && dt > todayS;
                   const clickable = dt && !isFuture;
+                  const inMonth = !!cell.c;
                   return(
                     <div key={i} onClick={()=>{if(!clickable)return;setCloseSelDate(dt);setCloseEventId(null);}}
-                      style={{height:52,padding:"5px 6px",cursor:clickable?"pointer":"default",
-                        borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
-                        background:isS?C.goldBg:isT?"#FAEEDA":"transparent",opacity:cell.c&&!isFuture?1:.35}}>
-                      <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":C.text}}>{cell.d}</div>
-                      {evs.length>0 && !isFuture && <div style={{display:"flex",gap:2,marginTop:2}}>{evs.slice(0,4).map((ev,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:anaGp(ev.venue).c||C.muted}}/>)}</div>}
+                      className={clickable?"kh-calcell":undefined}
+                      style={{minHeight:64,padding:"9px 10px",cursor:clickable?"pointer":"default",
+                        borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                        background:isS?K.brandBg:"transparent",
+                        opacity:inMonth?(isFuture?.45:1):.3}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+                        width:26,height:26,borderRadius:"50%",fontSize:13,
+                        fontWeight:isS||isT?700:500,fontVariantNumeric:"tabular-nums",
+                        background:isS?K.brand:"transparent",
+                        color:isS?"#FFFFFF":isT?K.brand:K.text,
+                        boxShadow:!isS&&isT?`inset 0 0 0 1.5px ${K.brandBorder}`:"none"}}>{cell.d}</div>
+                      {evs.length>0 && !isFuture && (
+                        <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                          {evs.slice(0,5).map((ev,ci)=>(
+                            <span key={ci} style={{width:7,height:7,borderRadius:"50%",background:anaGp(ev.venue).c}}/>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
+              <div style={{display:"flex",alignItems:"center",gap:14,padding:"13px 16px",borderTop:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:7,...type.label,fontSize:10.5,color:K.hdrMeta}}>
+                  <Icon name="tag" size={13} strokeWidth={1.9}/>{T2("Event types")}
+                </span>
+                {Object.entries(ANA_VP).map(([v,p])=>(
+                  <span key={v} style={{display:"inline-flex",alignItems:"center",gap:6}} title={v}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:p.c}}/>
+                    <span style={{fontSize:12,fontWeight:600,color:K.textMuted}}>{p.code}</span>
+                  </span>
+                ))}
+                <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:7,fontSize:12.5,color:K.textFaint}}>
+                  <Icon name="calendar" size={13} strokeWidth={1.9}/>{T2("Click a past date to see its events")}
+                </span>
               </div>
             </div>
 
             {/* Events on selected date */}
             {selDate && (
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} — {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:11,flexWrap:"wrap"}}>
+                  <span style={{...type.sectionHead,fontSize:19,color:K.hdrTitle}}>{fmtDate(selDate)}</span>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:7,padding:"5px 12px",borderRadius:K.rPill,
+                    background:dateEvs.length?K.brandBg:K.surfaceAlt,border:`1px solid ${dateEvs.length?K.brandBorder:K.line}`,
+                    fontSize:12.5,fontWeight:700,color:dateEvs.length?K.brandText:K.textFaint}}>
+                    {dateEvs.length} {dateEvs.length===1?T2("event"):T2("events")}
+                  </span>
+                </div>
+                <div className="kh-soprows">
                   {dateEvs.map(ev=>{
                     const isSel = closeEventId===ev.id;
                     const mc = menuArr(ev).length;
                     const vc = anaGp(ev.venue);
                     return (
-                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
-                        <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                        <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax — {mc} dishes{ev.venue?" — "+ev.venue:""}</div>
+                      <button key={ev.id} onClick={()=>setCloseEventId(ev.id)} className="kh-sopcard kh-cardart-sm kh-rip" onPointerDown={ripple}
+                        style={{display:"block",width:"100%",textAlign:"left",padding:"14px 16px",borderRadius:16,cursor:"pointer",
+                          backgroundColor:isSel?K.brandBg:K.cardWarm,
+                          border:`1px solid ${isSel?K.brand:K.cardWarmLine}`,borderLeft:`4px solid ${vc.c}`,
+                          boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                        <span style={{display:"block",fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</span>
+                        <span style={{display:"flex",alignItems:"center",gap:7,marginTop:5,fontSize:12.5,color:K.hdrMeta,flexWrap:"wrap"}}>
+                          <Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} pax
+                          <span style={{color:K.textFaint}}>·</span>
+                          <Icon name="utensils" size={13} strokeWidth={1.9}/>{mc} {T2("dishes")}
+                          {ev.venue&&<><span style={{color:K.textFaint}}>·</span><span style={{color:vc.c,fontWeight:600}}>{ev.venue}</span></>}
+                        </span>
                       </button>
                     );
                   })}
-                  {dateEvs.length===0 && <div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
+                  {dateEvs.length===0 && (
+                    <div style={{gridColumn:"1 / -1",padding:"26px 18px",textAlign:"center",backgroundColor:K.cardWarm,
+                      border:`1px solid ${K.cardWarmLine}`,borderRadius:16,fontSize:13,color:K.hdrMeta}}>
+                      {T2("No events on this date")}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
             {!selEv && (
-              <Card style={{padding:"24px 20px",textAlign:"center"}}>
-                <div style={{fontSize:28,marginBottom:8}}>🍲</div>
-                <div style={{fontSize:12,color:C.muted}}>{T2("Select an event above to record its closing")}</div>
-              </Card>
+              <div className="kh-cardart-sm" style={{padding:"40px 20px",textAlign:"center",backgroundColor:K.brandSoft,
+                border:`1px solid ${K.brandBorder}`,borderRadius:20,boxShadow:K.shadowCard}}>
+                <div style={{color:K.brand,display:"flex",justifyContent:"center",marginBottom:12,opacity:.75}}>
+                  <Icon name="chefHat" size={38} strokeWidth={1.5}/>
+                </div>
+                <div style={{fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("No event selected")}</div>
+                <div style={{fontSize:13,color:K.hdrMeta,marginTop:4}}>{T2("Pick a date above, then choose the event to record its closing.")}</div>
+              </div>
             )}
 
             {selEv && (<>
@@ -3337,7 +4744,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:closeExcludeUI?C.amberBg:C.bg,border:`1.5px solid ${closeExcludeUI?C.amberBorder:C.border}`,cursor:"pointer"}}>
                   <input type="checkbox" checked={closeExcludeUI} onChange={e=>toggleEventExclude(e.target.checked, ctx)} style={{width:18,height:18,accentColor:C.amber,cursor:"pointer"}}/>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:700,color:closeExcludeUI?C.amber:C.text}}>? {T2("Don't affect future ordering")}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:7,fontSize:13.5,fontWeight:700,color:closeExcludeUI?K.warn:K.hdrTitle}}><Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Don't affect future ordering")}</div>
                     <div style={{fontSize:10,color:C.muted,marginTop:1}}>{T2("Use for daily / repeat functions where a slight over-order is fine. Applies to every dish in this event.")}</div>
                   </div>
                 </label>
@@ -3355,16 +4762,43 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const secClosed = group.items.filter(d=>closeRows[d]).length;
                 return(
                   <div key={group.cat.id} style={{marginBottom:10}}>
+                    {/* Opaque, not a 8%-alpha wash of the station colour: over
+                        the page artwork that wash let the photograph through and
+                        the whole row read as broken. The station's colour stays,
+                        but only where colour means something — the left edge and
+                        the icon tile. The name is text, so it is text-coloured. */}
                     <button onClick={()=>setCloseSectionOpen(p=>({...p,[group.cat.id]:!p[group.cat.id]}))}
-                      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,background:(group.cat.color||C.muted)+"14",borderLeft:`3px solid ${group.cat.color||C.muted}`,borderTop:"none",borderRight:"none",borderBottom:"none",cursor:"pointer",textAlign:"left"}}>
-                      <span style={{fontSize:12,color:group.cat.color||C.muted,transition:"transform 0.15s",transform:isOpen?"rotate(90deg)":"rotate(0)",display:"inline-block"}}>?</span>
-                      <span style={{fontSize:18}}>{group.cat.icon||"??"}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:700,color:group.cat.color||C.text}}>{group.cat.name||group.cat.id}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{group.items.length} {T2("dishes")}{secClosed>0?` — ${secClosed} ${T2("closed")}`:""}</div>
-                      </div>
+                      className="kh-btn kh-rip" onPointerDown={ripple}
+                      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 16px",
+                        borderRadius:14,backgroundColor:K.cardWarm,
+                        border:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.cat.color||K.brand}`,
+                        boxShadow:K.shadowCard,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                      <span style={{display:"flex",flexShrink:0,color:K.textFaint,transition:"transform .15s",
+                        transform:isOpen?"rotate(90deg)":"rotate(0)"}}>
+                        <Icon name="chevronR" size={16} strokeWidth={2.2}/>
+                      </span>
+                      <span style={{width:36,height:36,borderRadius:11,flexShrink:0,fontSize:18,lineHeight:1,
+                        background:(group.cat.color||K.brand)+"18",
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>{group.cat.icon||"\u{1F37D}"}</span>
+                      <span style={{flex:1,minWidth:0}}>
+                        <span style={{display:"block",fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{group.cat.name||group.cat.id}</span>
+                        <span style={{display:"block",fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
+                          {group.items.length} {T2("dishes")}
+                        </span>
+                      </span>
+                      {/* Progress belongs on the right as a chip, not tacked onto
+                          the dish count with a dash. */}
+                      <span style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0,padding:"5px 12px",
+                        borderRadius:K.rPill,fontSize:12,fontWeight:700,
+                        background:secClosed===group.items.length?K.okBg:secClosed>0?K.warnBg:K.surfaceAlt,
+                        border:`1px solid ${secClosed===group.items.length?K.okBorder:secClosed>0?K.warnBorder:K.line}`,
+                        color:secClosed===group.items.length?K.ok:secClosed>0?K.warn:K.textFaint}}>
+                        {secClosed===group.items.length&&<Icon name="check" size={13} strokeWidth={2.3}/>}
+                        {secClosed}/{group.items.length}
+                      </span>
                     </button>
-                    {isOpen && group.items.map(dish=>{
+                    {isOpen && (<div className="kh-closegrid">{group.items.map(dish=>{
                       const row = closeRows[dish];
                       const planKg = evPlanRows[closeEventId]?.[dish]?.target_yield_kg || null;
                       const lkg = row?.leftover_kg;
@@ -3373,52 +4807,59 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const isSaving = closeSaving.has(dish);
                       const isClosed = !!row;
                       return(
-                        <div key={dish} style={{marginTop:6,marginLeft:8,borderRadius:10,border:`1px solid ${isClosed?C.greenBorder:C.border}`,background:isClosed?C.greenBg:C.surface,overflow:"hidden"}}>
-                          <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <div key={dish} style={{borderRadius:14,border:`1px solid ${isClosed?K.okBorder:K.cardWarmLine}`,backgroundColor:isClosed?K.okBg:"#FFFFFF",boxShadow:K.shadowCard,overflow:"hidden"}}>
+                          <div style={{padding:"13px 14px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                             <div style={{flex:1,minWidth:180}}>
-                              <div style={{fontSize:13,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{dishLabel(dish, lang)}</div>
-                              {planKg && <div style={{fontSize:10,color:C.purple,marginTop:2,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
+                              <div style={{fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{dishLabel(dish, lang)}</div>
+                              {planKg && <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,borderRadius:K.rPill,padding:"3px 10px",marginTop:5,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
                             </div>
-                            <div style={{fontSize:10,color:isSaving?C.amber:isClosed?C.green:C.faint,fontWeight:600}}>{isSaving?"💾 "+T2("Saving..."):isClosed?"✅ "+T2("Closed"):""}</div>
+                            <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:isSaving?K.warn:isClosed?K.ok:K.textFaint}}>{isSaving?<><Icon name="refresh" size={13} strokeWidth={2.1}/>{T2("Saving")}…</>:isClosed?<><Icon name="check" size={13} strokeWidth={2.3}/>{T2("Closed")}</>:null}</div>
                           </div>
-                          <div style={{padding:"0 14px 12px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div style={{padding:"10px 14px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"end"}}>
                             <div>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Leftover kg")}</div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Leftover kg")}</div>
                               <input type="number" step="0.1" inputMode="decimal"
                                 defaultValue={lkg??""}
                                 key={"lkg-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_kg:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:C.surface,boxSizing:"border-box",minHeight:38}}/>
                             </div>
                             <div>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Pcs (opt.)")}</div>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Pcs (opt.)")}</div>
                               <input type="number" step="1" inputMode="numeric"
                                 defaultValue={lpcs??""}
                                 key={"lpcs-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {leftover_pcs:e.target.value}, ctx)}
                                 placeholder="0"
-                                style={{width:80,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:15,fontWeight:700,color:K.text,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none",background:"#FFFFFF",boxSizing:"border-box",minHeight:38}}/>
                             </div>
-                            <div style={{flex:1,minWidth:180}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{T2("Notes")}</div>
+                            <div style={{gridColumn:"1 / -1"}}>
+                              <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:6}}>{T2("Notes")}</div>
                               <input type="text"
                                 defaultValue={notes}
                                 key={"nts-"+dish+"-"+(row?.id||"new")}
                                 onBlur={e=>saveClosing(dish, {notes:e.target.value}, ctx)}
                                 placeholder={T2("optional")}
-                                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:38}}/>
+                                style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
                             </div>
                           </div>
                         </div>
                       );
-                    })}
+                    })}</div>)}
                   </div>
                 );
               })}
 
-              <div style={{marginTop:20,padding:"10px 14px",borderRadius:8,background:C.bg,fontSize:10,color:C.faint,textAlign:"center"}}>
-                {T2("Auto-saves on blur. The ? flag will be honored once order-suggestion is wired to this data.")}
+              {/* The old copy promised that "the ? flag will be honored once
+                  order-suggestion is wired to this data" — a sentence about an
+                  unbuilt feature, referring to a toggle whose label had been
+                  mangled to a bare "?". Left is the one fact a user needs. */}
+              <div style={{marginTop:20,padding:"12px 16px",borderRadius:12,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.cardWarmLine}`,display:"flex",alignItems:"center",justifyContent:"center",
+                gap:8,fontSize:12.5,color:K.hdrMeta}}>
+                <Icon name="check" size={14} strokeWidth={2}/>
+                {T2("Each field saves on its own as soon as you leave it")}
               </div>
             </>)}
           </div>

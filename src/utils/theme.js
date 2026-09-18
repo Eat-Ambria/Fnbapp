@@ -62,6 +62,13 @@ const K = {
   // the blue data accent — modals, brand chips, selection states in dialogs.
   brand:     "#1C3D2B",  brandBg:   "#E7F1EA",  brandBorder:   "#C9DFD1",
   brandSoft: "#F1F7F3",  brandText: "#24503A",
+  // Sage — a muted, greyed green beside the brand's deep forest one. For a
+  // panel that should read as calm and secondary: it belongs to the same family
+  // without competing with a brand-green primary button in the same dialog.
+  // sageText, not sage, for anything carrying words: sage alone is about 3:1 on
+  // sageBg, which is fine for an icon and not for a sentence.
+  sage:      "#5E7355",  sageBg:    "#EDF2E8",  sageBorder:    "#D3DFC8",
+  sageText:  "#44543D",  sageBgHover: "#E3EBDB",
   // Hover shades. Tokens rather than literals buried in the stylesheet, so a
   // palette change cannot leave the hover states behind on the old colour.
   brandHover:   "#14301F",   // solid brand button, pressed-darker
@@ -123,6 +130,11 @@ const K = {
   // accent: it is the brand plate at the top of every screen. Retint here.
   hdrBg:       "linear-gradient(135deg, #FCFBF8 0%, #F8F7F2 58%, #F4F2EA 100%)",
   hdrLine:     "#EBE8DE",
+  // Warm ivory card face, for grids that are mostly card. The app's default
+  // card is a cool white, and a wall of a dozen of them reads as blank paper;
+  // this is the same ivory family as the header plate they sit under.
+  cardWarm:    "#FBFAF5",
+  cardWarmLine:"#E8E3D6",
   hdrBadge:    "#1C3D2B",
   hdrBadgeIcon:"#D9C08A",
   hdrEyebrow:  "#8C8C83",
@@ -546,6 +558,123 @@ const KITCHEN_CSS = `
    touch, keyboard and scrollIntoView all still work. */
 .kh-scope .kh-hubscroll { scrollbar-width: none; -ms-overflow-style: none; }
 .kh-scope .kh-hubscroll::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Any small panel that scrolls inside a rounded box - dropdown menus, picker
+   lists. The default rail is a hard grey line that runs the full height and
+   meets the rounded corner as a straight edge. This one is a floating pill
+   with nothing behind it, inset by a transparent border so it never touches
+   the corner. UNSCOPED: some of these panels are portalled out of .kh-scope. */
+.kh-thinscroll { scrollbar-width: thin; scrollbar-color: ${K.lineStrong} transparent; }
+.kh-thinscroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.kh-thinscroll::-webkit-scrollbar-track { background: transparent; }
+.kh-thinscroll::-webkit-scrollbar-thumb {
+  background: ${K.lineStrong};
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
+.kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
+
+/* Big clickable panels — the CSV dialog's download row, its file picker.
+   They carry .kh-btn but no .kh-btn-<variant>, so none of the variant hover
+   rules above ever matched them and a click produced no visible change at all.
+   Unscoped: these live in dialogs, which are sometimes portalled out of
+   .kh-scope. The ripple ink is currentColor at .17 opacity, so a panel that
+   wants visible ink has to set a real colour of its own — a pale inherited grey
+   on a pale panel is invisible, which is what made the row feel dead.
+   NOTE: no backticks in this block — the stylesheet is a JS template literal
+   and a stray backtick ends it. */
+.kh-pressrow { transition: background .14s ease, border-color .14s ease, transform .08s ease; }
+.kh-pressrow:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
+.kh-pressrow:active { transform: scale(.995); background: ${K.brandBgHover} !important; }
+/* Amber variant for the upload panel, which is the destructive path. */
+.kh-pressrow.is-warn:hover { background: ${K.warnBorder} !important; border-color: ${K.warn} !important; }
+.kh-pressrow.is-warn:active { background: ${K.warnBg} !important; }
+/* Proposal rows. Unscoped: this screen is not inside .kh-scope. */
+.kh-proprow { transition: background .14s ease; }
+.kh-proprow:hover { background: ${K.surfaceAlt} !important; }
+
+/* Bare icon buttons inside table rows. They had no rule at all, so like the
+   panels above they looked clickable and produced nothing on hover or click. */
+.kh-scope .kh-iconbtn { transition: background .14s ease, color .14s ease; }
+.kh-scope .kh-iconbtn:hover { background: ${K.brandBg} !important; color: ${K.brandText} !important; }
+
+/* Sage variant for the secondary panel, so hovering it does not borrow the
+   brand green that the dialog's primary button already owns. */
+.kh-pressrow.is-sage:hover { background: ${K.sageBgHover} !important; border-color: ${K.sage} !important; }
+.kh-pressrow.is-sage:active { background: ${K.sageBorder} !important; }
+
+/* Closing-tab dish cards — three up. Fixed tracks rather than auto-fill: the
+   card holds two number fields side by side and a notes field under them, and
+   below about 300px those stop fitting, so the column count steps down at
+   widths we choose instead of wherever auto-fill happens to break. */
+.kh-scope .kh-closegrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
+}
+@media (max-width: 1240px) { .kh-scope .kh-closegrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .kh-scope .kh-closegrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Closing-tab calendar. Only a clickable cell lights up — a future date has
+   nothing to open, so hovering one must not suggest that it does. */
+.kh-scope .kh-calcell { transition: background .14s ease; }
+.kh-scope .kh-calcell:hover { background: ${K.surfaceAlt} !important; }
+
+/* Selects inside the SOP editors. The native control draws an OS arrow in an
+   OS font, which is exactly what made the unit column look foreign among our
+   own fields. appearance:none strips it; the caret below is ours. The right
+   padding is what keeps a long unit from running under the caret. */
+.kh-scope .kh-select {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2361708C' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 9.5l6.5 6 6.5-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 15px 15px;
+  padding-right: 32px !important;
+}
+.kh-scope .kh-select::-ms-expand { display: none; }
+
+/* ── Recipe SOPs — category cards ──────────────────────────────────────────
+   auto-fill, NOT auto-fit: auto-fit collapses the empty tracks, so a filtered
+   search that leaves one match would stretch that card across the whole row. */
+.kh-scope .kh-sopgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 700px) {
+  .kh-scope .kh-sopgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+}
+/* Recipe rows inside a category. Two up on a desktop, one up once a column can
+   no longer hold a 74px tile plus a name plus the two right-hand controls. */
+.kh-scope .kh-soprows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+/* The card's own colours are inline, so every hover rule that repaints one
+   needs !important to win. Not on transform - nothing sets that inline. */
+.kh-scope .kh-sopcard { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.kh-scope .kh-sopcard:hover { transform: translateY(-3px); border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
+.kh-scope .kh-sopcard:hover .kh-sopgo { background: ${K.brand} !important; border-color: ${K.brand} !important; color: #FFFFFF !important; }
+/* The "..." button only appears on hover or focus, so 13 cards do not read as
+   13 menus. Focus-within keeps it reachable from the keyboard. */
+.kh-scope .kh-sopmenu { opacity: 0; transition: opacity .15s ease; }
+.kh-scope .kh-sopcard:hover .kh-sopmenu,
+.kh-scope .kh-sopcard:focus-within .kh-sopmenu,
+.kh-scope .kh-sopmenu.is-open { opacity: 1; }
+.kh-scope .kh-sopmenu:hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; color: ${K.brandText} !important; }
+.kh-scope .kh-sopadd:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
+/* Coarse pointers never hover, so the menu would be unreachable on a tablet. */
+@media (hover: none) {
+  .kh-scope .kh-sopmenu { opacity: 1; }
+}
 
 /* One ingredient row: emoji · name · qty · unit · collect toggle.
    The row is inert; only .kh-ingcheck at the end is interactive.

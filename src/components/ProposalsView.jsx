@@ -10,6 +10,10 @@ import { AMBRIA_VENUES } from '../data/constants.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { supabase } from '../lib/supabase.js';
+import { K, type } from '../utils/theme.js';
+import { ripple } from '../utils/ripple.js';
+import { Icon } from './Icons.jsx';
+import { KButton } from './KitchenUI.jsx';
 import { fetchAllRows } from '../lib/db.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
@@ -25,11 +29,13 @@ const DIET_OPTIONS = [
 // Sales venue codes = 4 catering venues (ODC excluded — proposals convert to on-property events)
 const SALES_VENUES = AMBRIA_VENUES.filter(function(v){ return v.code !== 'ODC'; });
 
+// Status colours come from the shared tokens rather than one-off hex, so a
+// proposal status reads the same as every other status in the app.
 const STATUS_META = {
-  draft: { label: "Draft", bg: "#F0F0F0", fg: "#666",     border: "#D0D0D0" },
-  sent:  { label: "Sent",  bg: "#E5F0FA", fg: "#1858A5", border: "#B8D4F0" },
-  won:   { label: "Won",   bg: "#E5F5EA", fg: "#2A7A48", border: "#B8E0C6" },
-  lost:  { label: "Lost",  bg: "#FAE5E5", fg: "#A52828", border: "#F0B8B8" },
+  draft: { label: "Draft", bg: K.warnBg,   fg: K.warn,   border: K.warnBorder },
+  sent:  { label: "Sent",  bg: K.accentSoft, fg: K.accent, border: K.accentBorder },
+  won:   { label: "Won",   bg: K.okBg,     fg: K.ok,     border: K.okBorder },
+  lost:  { label: "Lost",  bg: K.dangerBg, fg: K.danger, border: K.dangerBorder },
 };
 
 function emptyForm() {
@@ -159,6 +165,43 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       return true;
     });
   }, [proposals, statusFilter, repFilter, searchQ, canViewAll]);
+
+  // Sorting and paging live here rather than in the table, so a filter change
+  // can reset the page - otherwise filtering down to two rows while on page 3
+  // shows an empty table with no explanation.
+  var [sortKey, setSortKey] = useState('guest_name');
+  var [sortDir, setSortDir] = useState('asc');
+  var [page, setPage]       = useState(1);
+  var PAGE_SIZE = 12;
+  useEffect(function(){ setPage(1); }, [searchQ, statusFilter, repFilter, sortKey, sortDir]);
+
+  var sortedList = useMemo(function(){
+    var dir = sortDir === 'desc' ? -1 : 1;
+    var val = function(p){
+      if (sortKey === 'pax') return p.pax == null ? -1 : Number(p.pax);
+      if (sortKey === 'rep') return (repNameLookup[p.rep_emp_id] || p.rep_emp_id || '').toLowerCase();
+      if (sortKey === 'menu_diet') return (p.menu_diet || '');
+      return String(p[sortKey] || '').toLowerCase();
+    };
+    return filteredList.slice().sort(function(a,b){
+      var av = val(a), bv = val(b);
+      // Blanks sort last in both directions: a row with no date is missing
+      // information, not the earliest date.
+      var aEmpty = av === '' || av === -1, bEmpty = bv === '' || bv === -1;
+      if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+  }, [filteredList, sortKey, sortDir, repNameLookup]);
+
+  var pageCount = Math.max(1, Math.ceil(sortedList.length / PAGE_SIZE));
+  var pageSafe  = Math.min(page, pageCount);
+  var pagedList = sortedList.slice((pageSafe-1)*PAGE_SIZE, pageSafe*PAGE_SIZE);
+  function toggleSort(key){
+    if (sortKey === key) { setSortDir(function(d){ return d === 'asc' ? 'desc' : 'asc'; }); }
+    else { setSortKey(key); setSortDir('asc'); }
+  }
 
   var uniqueReps = useMemo(function(){
     var s = {}; proposals.forEach(function(p){ if (p.rep_emp_id) s[p.rep_emp_id] = true; });
@@ -406,29 +449,18 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", letterSpacing: 0.3 }}>
-            📝 {T2("Proposals")}
-          </div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
-            {canViewAll
-              ? T2("All reps' proposals — filter, edit, track status.")
-              : T2("Your proposals — create new, edit drafts, track status.")}
-          </div>
-        </div>
+      {/* No badge, title or subtitle: the sidebar already names this screen and
+          the toolbar under this row says what the list is filtered to. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 18, justifyContent: "flex-end", marginBottom: 18, flexWrap: "wrap" }}>
         {mode === 'list' && canCreate && (
-          <button onClick={openNew}
-            style={{ padding: "10px 18px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 1px 3px " + C.shadow }}>
-            + {T2("New Proposal")}
-          </button>
+          <KButton variant="brand" icon="plus" onClick={openNew}
+            style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 15 }}>{T2("New Proposal")}</KButton>
         )}
         {mode !== 'list' && (
-          <button onClick={cancelForm}
-            style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            ← {T2("Back to list")}
-          </button>
+          <KButton icon="chevronL" onClick={cancelForm}
+            style={{ padding: "12px 20px", borderRadius: K.rPill, fontSize: 14, background: K.cardWarm, borderColor: K.cardWarmLine }}>
+            {T2("Back to list")}
+          </KButton>
         )}
       </div>
 
@@ -560,45 +592,71 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       {/* ── LIST ── */}
       {mode === 'list' && (
         <>
-          {/* Filter bar */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
-              placeholder={T2("Search guest name or phone…")}
-              style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
-            <select value={statusFilter} onChange={function(e){ setStatusFilter(e.target.value); }}
-              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text, cursor: "pointer", fontWeight: 600 }}>
-              <option value="all">{T2("All statuses")}</option>
-              <option value="draft">{T2("Draft")}</option>
-              <option value="sent">{T2("Sent")}</option>
-              <option value="won">{T2("Won")}</option>
-              <option value="lost">{T2("Lost")}</option>
-            </select>
-            {canViewAll && (
-              <select value={repFilter} onChange={function(e){ setRepFilter(e.target.value); }}
-                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text, cursor: "pointer", fontWeight: 600 }}>
-                <option value="all">{T2("All reps")}</option>
-                {uniqueReps.map(function(rid){ return <option key={rid} value={rid}>{repNameLookup[rid] || rid}</option>; })}
-              </select>
-            )}
-            <span style={{ fontSize: 12, color: C.muted, marginLeft: 4 }}>
-              {filteredList.length} {filteredList.length === 1 ? T2("proposal") : T2("proposals")}
-            </span>
-          </div>
+          {(function(){
+            var pill = { display: "inline-flex", alignItems: "center", gap: 9, padding: "0 4px 0 16px",
+              borderRadius: K.rPill, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
+              boxShadow: K.shadowCard, color: K.textBody, fontSize: 14, fontWeight: 600, flexShrink: 0 };
+            var pillSel = { padding: "14px 10px 14px 0", border: "none", outline: "none", background: "transparent",
+              fontSize: 14, fontWeight: 600, color: K.textBody, cursor: "pointer", fontFamily: K.fontBody };
+            return (
+              <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ position: "relative", flex: "1 1 320px", minWidth: 220 }}>
+                  <span style={{ position: "absolute", left: 18, top: "50%", transform: "translateY(-50%)",
+                    color: K.textFaint, display: "flex", pointerEvents: "none" }}>
+                    <Icon name="search" size={18} strokeWidth={1.9} />
+                  </span>
+                  <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
+                    placeholder={T2("Search guest name or phone…")}
+                    style={{ width: "100%", padding: "15px 18px 15px 50px", borderRadius: K.rPill,
+                      border: "1px solid " + K.cardWarmLine, fontSize: 14.5, color: K.text, background: "#FFFFFF",
+                      boxSizing: "border-box", boxShadow: K.shadowCard, fontFamily: K.fontBody, outline: "none" }} />
+                </div>
+                <span style={pill}>
+                  <Icon name="listCheck" size={17} strokeWidth={1.9} />
+                  <select className="kh-select" value={statusFilter} onChange={function(e){ setStatusFilter(e.target.value); }} style={pillSel}>
+                    <option value="all">{T2("All statuses")}</option>
+                    <option value="draft">{T2("Draft")}</option>
+                    <option value="sent">{T2("Sent")}</option>
+                    <option value="won">{T2("Won")}</option>
+                    <option value="lost">{T2("Lost")}</option>
+                  </select>
+                </span>
+                {canViewAll && (
+                  <span style={pill}>
+                    <Icon name="users" size={17} strokeWidth={1.9} />
+                    <select className="kh-select" value={repFilter} onChange={function(e){ setRepFilter(e.target.value); }} style={pillSel}>
+                      <option value="all">{T2("All reps")}</option>
+                      {uniqueReps.map(function(rid){ return <option key={rid} value={rid}>{repNameLookup[rid] || rid}</option>; })}
+                    </select>
+                  </span>
+                )}
+                <span style={{ fontSize: 14, color: K.hdrMeta, marginLeft: 2 }}>
+                  {filteredList.length} {filteredList.length === 1 ? T2("proposal") : T2("proposals")}
+                </span>
+              </div>
+            );
+          })()}
 
           {loading && (
-            <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
-              <div style={{ fontSize: 13 }}>{T2("Loading proposals…")}</div>
+            <div className="kh-cardart-sm" style={{ padding: "60px 20px", textAlign: "center", backgroundColor: K.cardWarm,
+              border: "1px solid " + K.cardWarmLine, borderRadius: 20, boxShadow: K.shadowCard }}>
+              <div style={{ color: K.textFaint, display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <Icon name="refresh" size={28} strokeWidth={1.7} />
+              </div>
+              <div style={{ fontSize: 14, color: K.hdrMeta }}>{T2("Loading proposals…")}</div>
             </div>
           )}
 
           {!loading && filteredList.length === 0 && (
-            <div style={{ background: C.surface, borderRadius: 14, border: "1px dashed " + C.border, padding: "60px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 48, marginBottom: 14 }}>🗂️</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", marginBottom: 6 }}>
+            <div className="kh-cardart-sm" style={{ backgroundColor: K.cardWarm, borderRadius: 20,
+              border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "60px 24px", textAlign: "center" }}>
+              <div style={{ color: K.textFaint, display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                <Icon name="note" size={38} strokeWidth={1.5} />
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.2px", color: K.hdrTitle, marginBottom: 6 }}>
                 {proposals.length === 0 ? T2("No proposals yet") : T2("No matches")}
               </div>
-              <div style={{ fontSize: 13, color: C.muted, maxWidth: 420, margin: "0 auto", lineHeight: 1.5 }}>
+              <div style={{ fontSize: 14, color: K.hdrMeta, maxWidth: 420, margin: "0 auto", lineHeight: 1.55 }}>
                 {proposals.length === 0
                   ? T2("Click New Proposal to capture your first prospect.")
                   : T2("Try clearing filters or search.")}
@@ -606,97 +664,206 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
             </div>
           )}
 
-          {!loading && filteredList.length > 0 && (
-            <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: canViewAll ? "1.4fr 0.7fr 1fr 0.5fr 0.7fr 0.7fr 0.8fr 1fr" : "1.6fr 0.8fr 1.1fr 0.5fr 0.8fr 0.8fr 1fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
-                <div>{T2("Guest / Event")}</div>
-                <div>{T2("Venue")}</div>
-                <div>{T2("Date")}</div>
-                <div style={{ textAlign: "right" }}>{T2("Pax")}</div>
-                <div>{T2("Diet")}</div>
-                {canViewAll && <div>{T2("Rep")}</div>}
-                <div>{T2("Status")}</div>
-                <div style={{ textAlign: "right" }}>{T2("Actions")}</div>
+          {!loading && filteredList.length > 0 && (function(){
+            var cols = canViewAll
+              ? "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.8fr 0.9fr minmax(250px,1.1fr)"
+              : "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.9fr minmax(250px,1.1fr)";
+            // One header cell: a button, because it sorts. The arrows show which
+            // column is active and which way, rather than sitting inert on all.
+            var SortHead = function(props){
+              var active = sortKey === props.k;
+              return (
+                <button onClick={function(){ toggleSort(props.k); }} className="kh-rip" onPointerDown={ripple}
+                  title={T2("Sort by") + " " + props.label}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none",
+                    padding: 0, cursor: "pointer", textAlign: props.right ? "right" : "left",
+                    justifyContent: props.right ? "flex-end" : "flex-start",
+                    ...type.label, fontSize: 11, color: active ? K.brandText : K.hdrMeta, fontFamily: K.fontBody }}>
+                  {props.icon && <Icon name={props.icon} size={13} strokeWidth={2} />}
+                  {props.label}
+                  <span style={{ display: "flex", color: active ? K.brand : K.lineStrong }}>
+                    <Icon name="chevronD" size={12} strokeWidth={2.4}
+                      style={{ transform: active && sortDir === 'asc' ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  </span>
+                </button>
+              );
+            };
+            return (
+            <div className="kh-cardart-sm" style={{ backgroundColor: K.cardWarm, borderRadius: 20,
+              border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, overflow: "hidden" }}>
+              <div style={{ overflowX: "auto" }}>
+                <div style={{ minWidth: 980 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: cols, gap: 14, alignItems: "center",
+                    padding: "14px 18px", background: K.brandSoft, borderBottom: "1px solid " + K.cardWarmLine }}>
+                    <SortHead k="guest_name" label={T2("Guest / Event")} />
+                    <SortHead k="venue"      label={T2("Venue")} />
+                    <SortHead k="event_date" label={T2("Date")} />
+                    <SortHead k="pax"        label={T2("Pax")} />
+                    <SortHead k="menu_diet"  label={T2("Diet")} />
+                    {canViewAll && <SortHead k="rep" label={T2("Rep")} />}
+                    <SortHead k="status"     label={T2("Status")} />
+                    <span style={{ ...type.label, fontSize: 11, color: K.hdrMeta }}>{T2("Actions")}</span>
+                  </div>
+
+                  {pagedList.map(function(p){
+                    var meta = STATUS_META[p.status] || STATUS_META.draft;
+                    var pDiet = p.menu_diet || null;
+                    var dietFg = pDiet === 'nonveg' ? K.danger : pDiet === 'veg' ? K.ok : K.textFaint;
+                    var dietLabel = pDiet === 'nonveg' ? T2("Non-Veg") : pDiet === 'veg' ? T2("Veg") : T2("Not specified");
+                    // Muted placeholder cells rather than a bare dash: "Not set"
+                    // says the field is empty on purpose-unknown, a dash alone
+                    // reads as a value.
+                    var blank = function(label){ return (
+                      <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
+                        <span style={{ color: K.lineStrong, fontSize: 15 }}>—</span>
+                        <span style={{ color: K.textFaint, fontSize: 12 }}>{label}</span>
+                      </span>
+                    ); };
+                    return (
+                      <div key={p.id} className="kh-proprow" style={{ display: "grid", gridTemplateColumns: cols, gap: 14,
+                        alignItems: "center", padding: "14px 18px", background: "#FFFFFF",
+                        borderBottom: "1px solid " + K.lineSoft }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
+                          <span style={{ width: 46, height: 46, borderRadius: 13, flexShrink: 0,
+                            background: K.warnBg, border: "1px solid " + K.warnBorder,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontFamily: K.fontDisplay, fontSize: 20, fontWeight: 600, color: K.warn }}>
+                            {String(p.guest_name || "?").trim().charAt(0).toUpperCase()}
+                          </span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 15, fontWeight: 700, letterSpacing: "-0.2px",
+                              color: K.hdrTitle, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.guest_name}</span>
+                            <span style={{ display: "block", fontSize: 13, color: K.hdrMeta, marginTop: 2,
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {p.event_type || T2("Event")}{p.phone ? ' · ' + p.phone : ''}
+                            </span>
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14, color: K.text, minWidth: 0 }}>
+                          {p.venue ? (<><Icon name="building" size={15} strokeWidth={1.9} style={{ color: K.textFaint }} />{p.venue}</>) : blank(T2("Not set"))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14, color: K.text, minWidth: 0 }}>
+                          {p.event_date ? (<><Icon name="calendar" size={15} strokeWidth={1.9} style={{ color: K.textFaint }} />{p.event_date}</>) : blank(T2("Not set"))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14, fontWeight: 700,
+                          color: K.text, fontVariantNumeric: "tabular-nums" }}>
+                          {p.pax != null ? (<><Icon name="users" size={15} strokeWidth={1.9} style={{ color: K.textFaint }} />{p.pax}</>) : blank(T2("Not set"))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14, color: dietFg, minWidth: 0 }}>
+                          {pDiet ? (<><Icon name="apple" size={15} strokeWidth={1.9} />{dietLabel}</>) : blank(T2("Not specified"))}
+                        </div>
+                        {canViewAll && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14, color: K.text, minWidth: 0 }}>
+                            <Icon name="contact" size={15} strokeWidth={1.9} style={{ color: K.textFaint }} />
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {repNameLookup[p.rep_emp_id] || p.rep_emp_id}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          {/* The status pill IS the control. A separate select
+                              beside a coloured chip made people read the chip and
+                              miss that it could be changed. */}
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "0 4px 0 12px",
+                            borderRadius: K.rPill, background: meta.bg, border: "1px solid " + meta.border }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: meta.fg, flexShrink: 0 }} />
+                            <select className="kh-select" value={p.status} onChange={function(e){ updateStatus(p, e.target.value); }}
+                              style={{ padding: "8px 6px 8px 0", border: "none", outline: "none", background: "transparent",
+                                fontSize: 13.5, fontWeight: 700, color: meta.fg, cursor: "pointer", fontFamily: K.fontBody }}>
+                              <option value="draft">{T2("Draft")}</option>
+                              <option value="sent">{T2("Sent")}</option>
+                              <option value="won">{T2("Won")}</option>
+                              <option value="lost">{T2("Lost")}</option>
+                            </select>
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                          <KButton size="sm" icon="note" onClick={function(){ openEdit(p); }} title={T2("View / Edit")}
+                            style={{ padding: "10px 14px", borderRadius: 11, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+                            {T2("Edit")}
+                          </KButton>
+                          <KButton size="sm" variant="brand" icon="utensils" onClick={function(){ openMenuBuilder(p); }} title={T2("Open Menu Builder")}
+                            style={{ padding: "10px 14px", borderRadius: 11, fontSize: 13.5 }}>
+                            {T2("Menu")}
+                          </KButton>
+                          {canConvert && p.status === 'won' && (
+                            p.converted_event_id ? (
+                              <span title={T2("Already converted to a booking")}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 11,
+                                  background: K.okBg, border: "1px solid " + K.okBorder, color: K.ok, fontSize: 13, fontWeight: 700 }}>
+                                <Icon name="check" size={14} strokeWidth={2.2} />{T2("Booked")}
+                              </span>
+                            ) : (
+                              <KButton size="sm" icon="calendar" onClick={function(){ convertToBooking(p); }} title={T2("Convert to a booked function")}
+                                style={{ padding: "10px 14px", borderRadius: 11, fontSize: 13.5, background: K.okBg, borderColor: K.okBorder, color: K.ok }}>
+                                {T2("Convert")}
+                              </KButton>
+                            )
+                          )}
+                          <button onClick={function(){ duplicateProposal(p); }} title={T2("Duplicate")}
+                            className="kh-rip kh-iconbtn" onPointerDown={ripple}
+                            style={{ width: 38, height: 38, borderRadius: 11, background: "#FFFFFF", cursor: "pointer", padding: 0,
+                              border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                              display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Icon name="layers" size={16} />
+                          </button>
+                          <button onClick={function(){ deleteProposal(p); }} title={T2("Delete")}
+                            className="kh-rip" onPointerDown={ripple}
+                            style={{ width: 38, height: 38, borderRadius: 11, background: K.dangerBg, cursor: "pointer", padding: 0,
+                              border: "1px solid " + K.dangerBorder, color: K.danger,
+                              display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Icon name="trash" size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
-              {filteredList.map(function(p){
-                var meta = STATUS_META[p.status] || STATUS_META.draft;
-                var pDiet = p.menu_diet || null;
-                var dietBg = pDiet === 'nonveg' ? '#FAE5E5' : pDiet === 'veg' ? '#E5F5EA' : '#F0F0F0';
-                var dietFg = pDiet === 'nonveg' ? '#A52828' : pDiet === 'veg' ? '#2A7A48' : C.muted;
-                var dietLabel = pDiet === 'nonveg' ? '🍗 Non-Veg' : pDiet === 'veg' ? '🥬 Veg' : '—';
-                return (
-                  <div key={p.id}
-                    style={{ display: "grid", gridTemplateColumns: canViewAll ? "1.4fr 0.7fr 1fr 0.5fr 0.7fr 0.7fr 0.8fr 1fr" : "1.6fr 0.8fr 1.1fr 0.5fr 0.8fr 0.8fr 1fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{p.guest_name}</div>
-                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                        {p.event_type || '—'}{p.phone ? ' · ' + p.phone : ''}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 12 }}>{p.venue || '—'}</div>
-                    <div style={{ fontSize: 12 }}>{p.event_date || <span style={{color:C.muted}}>—</span>}</div>
-                    <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.pax != null ? p.pax : '—'}</div>
-                    <div style={{ fontSize: 11 }}>
-                      {pDiet
-                        ? <span style={{ padding: "2px 6px", borderRadius: 4, background: dietBg, color: dietFg, fontWeight: 700, whiteSpace: "nowrap" }}>{dietLabel}</span>
-                        : <span style={{ color: C.muted }}>—</span>}
-                    </div>
-                    {canViewAll && (
-                      <div style={{ fontSize: 11, color: C.muted }}>{repNameLookup[p.rep_emp_id] || p.rep_emp_id}</div>
-                    )}
-                    <div>
-                      <select value={p.status} onChange={function(e){ updateStatus(p, e.target.value); }}
-                        style={{ padding: "3px 6px", borderRadius: 5, border: "1px solid " + meta.border, background: meta.bg, color: meta.fg, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                        <option value="draft">Draft</option>
-                        <option value="sent">Sent</option>
-                        <option value="won">Won</option>
-                        <option value="lost">Lost</option>
-                      </select>
-                    </div>
-                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                      <button onClick={function(){ openEdit(p); }} title={T2("View / Edit")}
-                        style={{ padding: "5px 10px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                        ✎ {T2("Edit")}
-                      </button>
-                      <button onClick={function(){ openMenuBuilder(p); }} title={T2("Open Menu Builder")}
-                        style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                        🍽 {T2("Menu")}
-                      </button>
-                      {canConvert && p.status === 'won' && (
-                        p.converted_event_id ? (
-                          <span title={T2("Already converted to a booking")}
-                            style={{ padding: "5px 10px", borderRadius: 6, background: "#E5F5EA", border: "1px solid #B8E0C6", color: "#2A7A48", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
-                            ✓ {T2("Booked")}
-                          </span>
-                        ) : (
-                          <button onClick={function(){ convertToBooking(p); }} title={T2("Convert to a booked function")}
-                            style={{ padding: "5px 10px", borderRadius: 6, background: "#2A7A48", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                            📅 {T2("Convert")}
-                          </button>
-                        )
-                      )}
-                      <button onClick={function(){ duplicateProposal(p); }} title={T2("Duplicate")}
-                        style={{ padding: "5px 8px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                        ⧉
-                      </button>
-
-                      <button onClick={function(){ deleteProposal(p); }} title={T2("Delete")}
-                        style={{ padding: "5px 8px", borderRadius: 6, background: C.surface, border: "1px solid " + (C.redBorder||'#F0B8B8'), color: C.red||'#A52828', fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                        🗑
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                padding: "14px 18px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13.5, color: K.hdrMeta }}>
+                  {T2("Showing")} {pagedList.length} {T2("of")} {sortedList.length} {sortedList.length === 1 ? T2("proposal") : T2("proposals")}
+                </span>
+                {pageCount > 1 && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={function(){ setPage(Math.max(1, pageSafe - 1)); }} disabled={pageSafe === 1}
+                      title={T2("Previous")} className="kh-rip" onPointerDown={ripple}
+                      style={{ width: 38, height: 38, borderRadius: 11, background: "#FFFFFF", padding: 0,
+                        border: "1px solid " + K.cardWarmLine, color: pageSafe === 1 ? K.lineStrong : K.textBody,
+                        cursor: pageSafe === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="chevronL" size={16} strokeWidth={2.1} />
+                    </button>
+                    {Array.from({ length: pageCount }).map(function(_, i){
+                      var n = i + 1, on = n === pageSafe;
+                      return (
+                        <button key={n} onClick={function(){ setPage(n); }} className="kh-rip" onPointerDown={ripple}
+                          style={{ minWidth: 38, height: 38, borderRadius: 11, padding: "0 10px", cursor: "pointer",
+                            background: on ? K.brand : "#FFFFFF", color: on ? "#FFFFFF" : K.textBody,
+                            border: "1px solid " + (on ? K.brand : K.cardWarmLine), fontSize: 14, fontWeight: 700,
+                            fontFamily: K.fontBody, fontVariantNumeric: "tabular-nums" }}>{n}</button>
+                      );
+                    })}
+                    <button onClick={function(){ setPage(Math.min(pageCount, pageSafe + 1)); }} disabled={pageSafe === pageCount}
+                      title={T2("Next")} className="kh-rip" onPointerDown={ripple}
+                      style={{ width: 38, height: 38, borderRadius: 11, background: "#FFFFFF", padding: 0,
+                        border: "1px solid " + K.cardWarmLine, color: pageSafe === pageCount ? K.lineStrong : K.textBody,
+                        cursor: pageSafe === pageCount ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="chevronR" size={16} strokeWidth={2.1} />
+                    </button>
+                  </span>
+                )}
+              </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
 
       {/* Footer */}
-      <div style={{ marginTop: 18, textAlign: "center", fontSize: 11, color: C.muted }}>
-        {T2("Signed in as")} <b style={{ color: C.text }}>{(currentUser && currentUser.name) || repId}</b> · {T2("role")}: <b style={{ color: C.text }}>{(currentUser && currentUser.role) || '—'}</b>
+      <div style={{ marginTop: 18, textAlign: "center", fontSize: 13, color: K.hdrMeta }}>
+        {T2("Signed in as")} <b style={{ color: K.hdrTitle }}>{(currentUser && currentUser.name) || repId}</b> · {T2("role")}: <b style={{ color: C.text }}>{(currentUser && currentUser.role) || '—'}</b>
       </div>
     </div>
   );
