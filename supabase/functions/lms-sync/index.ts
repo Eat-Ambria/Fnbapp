@@ -201,7 +201,15 @@ function transformVenueContract(row: any, masters: any): any[] {
   const time = row.fiscd_function_timings || "";
   const session = row.fiscd_session || "";
 
-  // Build unique event ID: V-{contract}-{date} to handle multi-date contracts
+  // Base event ID: V-{contract}-{date}. A contract with more than one function
+  // on the SAME date (e.g. Haldi + Wedding both 19-Sep) used to collide here —
+  // this id has no function identity, so the second transformed row silently
+  // overwrote the first in the dedup Map below, and only one of the two ever
+  // reached the events table. The main handler disambiguates any id shared by
+  // more than one row (using each row's own LMS detail id, see _lmsDetailId)
+  // AFTER all rows are transformed, since a single row has no visibility into
+  // its siblings — so this stays the base id every single-function contract
+  // (the overwhelming majority) keeps using, unchanged.
   const eventId = `LMS-V-${contractNo}-${funcDate}`;
 
   // Determine veg/nonveg split from menu name
@@ -226,6 +234,7 @@ function transformVenueContract(row: any, masters: any): any[] {
     lms_status: status,
     lms_synced_at: new Date().toISOString(),
     lms_raw: stripFinancials(row),
+    _lmsDetailId: row.id != null ? String(row.id) : null,
   });
 
   return events;
@@ -292,6 +301,7 @@ function transformCateringContract(row: any, masters: any): any[] {
       site_recce: "Not done",
       odc_menu_confirmed: false,
     } : {}),
+    _lmsDetailId: row.id != null ? String(row.id) : null,
   });
 
   return events;
@@ -398,9 +408,36 @@ Deno.serve(async (req) => {
       allEvents.push(...evs);
     }
 
+    // ── Disambiguate multi-function-same-date contracts ──
+    // A contract with two functions on the same date (Haldi 08:30 + Wedding
+    // 18:00, both 19-Sep) produces the same base id (LMS-V-{contract}-{date})
+    // for both, since that id carries no function identity — so the dedup Map
+    // right below used to keep only whichever one was transformed last,
+    // silently dropping the other from the app entirely. Group by base id
+    // FIRST: a group of one (the vast majority of contracts) keeps its plain
+    // id exactly as before; a group of more than one gets each member's id
+    // suffixed with that row's own LMS detail id (a real per-function primary
+    // key from the source system, so it's guaranteed stable and unique) —
+    // falling back to a slugified function name only if LMS ever omits it.
+    const byBaseId = new Map<string, any[]>();
+    for (const ev of allEvents) {
+      const list = byBaseId.get(ev.id);
+      if (list) list.push(ev); else byBaseId.set(ev.id, [ev]);
+    }
+    const disambiguated: any[] = [];
+    for (const [baseId, group] of byBaseId) {
+      if (group.length === 1) { disambiguated.push(group[0]); continue; }
+      for (const ev of group) {
+        const suffix = ev._lmsDetailId || String(ev.type || "fn").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+        ev.id = `${baseId}-${suffix}`;
+        disambiguated.push(ev);
+      }
+    }
+    disambiguated.forEach((ev) => { delete ev._lmsDetailId; });
+
     // Dedup by event ID (same contract+date could appear on multiple pages)
     const deduped = new Map<string, any>();
-    allEvents.forEach((ev) => { deduped.set(ev.id, ev); });
+    disambiguated.forEach((ev) => { deduped.set(ev.id, ev); });
 
     // V72 soft-delete: fetch tombstones and exclude them from the upsert so
     // user-deleted events don't resurrect on the next LMS sync.

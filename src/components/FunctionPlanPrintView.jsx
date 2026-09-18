@@ -5,7 +5,8 @@
 
 import React from "react";
 import { C } from '../data/constants.js';
-import { SALES_DEPTS } from '../data/salesConfig.js';
+import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
+import { TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.jsx';
 
 var SPICE_LABELS = {
   mild:        '🌶️ Mild',
@@ -14,7 +15,52 @@ var SPICE_LABELS = {
   extra_spicy: '🔥 Extra Spicy',
 };
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, onClose, T2 }) {
+var DIFF_KIND_META = {
+  addon:     { label: 'Add-on',    color: '#2A7A48', bg: '#E5F5EA' },
+  deduction: { label: 'Deduction', color: '#A52828', bg: '#FAE5E5' },
+  swap:      { label: 'Swap',      color: '#1858A5', bg: '#E5F0FA' },
+};
+
+// Renders one saved config value as a short human-readable line, using the
+// same DEPT_CONFIGS schema ConfigsPanel edits it with (option ids -> names,
+// ratio ids -> the num:den + live staff count, etc.) instead of dumping the
+// raw { selected_id / items / ... } shape.
+function formatConfigValue(cfg, value, pax) {
+  if (value == null) return null;
+  if (cfg.type === 'options' || cfg.type === 'radio') {
+    var opt = (cfg.options || []).find(function(o){ return o.id === value.selected_id; });
+    return opt ? opt.name : null;
+  }
+  if (cfg.type === 'count') {
+    return value.count != null ? String(value.count) : null;
+  }
+  if (cfg.type === 'ratio') {
+    var r = (cfg.ratios || []).find(function(x){ return x.id === value.ratio_id; });
+    if (!r) return null;
+    var extras = value.extras || 0;
+    var count = pax ? Math.ceil(pax / r.den) * r.num + extras : null;
+    return r.num + ':' + r.den + (extras ? ' +' + extras + ' extra' : '') + (count != null ? ' → ' + count + ' staff' : '');
+  }
+  if (cfg.type === 'multi_count') {
+    var items = (value.items || []).filter(function(it){ return it.count > 0; });
+    if (items.length === 0) return null;
+    return items.map(function(it){
+      var opt = (cfg.options || []).find(function(o){ return o.id === it.id; });
+      return (opt ? opt.name : it.id) + ': ' + it.count;
+    }).join(', ');
+  }
+  if (cfg.type === 'tags') {
+    var ids = value.selected_ids || [];
+    if (ids.length === 0) return null;
+    return ids.map(function(id){
+      var opt = (cfg.options || []).find(function(o){ return o.id === id; });
+      return opt ? opt.name : id;
+    }).join(', ');
+  }
+  return null;
+}
+
+export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
       <style>{"@media print { .fp-no-print { display: none !important; } }"}</style>
@@ -51,10 +97,61 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, onClose, T2 }) {
             <span>🟠 {T2("Jain")}: <b>{(fp && fp.jain_count != null) ? fp.jain_count : '—'}</b></span>
             <span>🟡 {T2("Egg")}: <b>{(fp && fp.egg_count != null) ? fp.egg_count : '—'}</b></span>
           </div>
-          <div style={{ fontSize: 13 }}>
+          <div style={{ fontSize: 13, marginBottom: fp && fp.corkage_price != null ? 8 : 0 }}>
             <b>{T2("Spice tolerance")}:</b> {(fp && fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) || '—'}
           </div>
+          {fp && fp.corkage_price != null && (
+            <div style={{ fontSize: 13 }}>
+              <b>🍷 {T2("Corkage")}:</b> ₹{fp.corkage_price}{fp.corkage_details ? ' — ' + fp.corkage_details : ''}
+            </div>
+          )}
         </div>
+
+        {fp && TIME_FIELDS.some(function(f){ return fp[f.id]; }) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Timings")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {TIME_FIELDS.filter(function(f){ return fp[f.id]; }).map(function(f){
+                return <span key={f.id}>{T2(f.label)}: <b>{fp[f.id]}</b></span>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {fp && fp.room_info_enabled && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Room Info")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {fp.room_check_in && <span>{T2("Check-in")}: <b>{fp.room_check_in}</b></span>}
+              {fp.room_check_out && <span>{T2("Check-out")}: <b>{fp.room_check_out}</b></span>}
+              {fp.room_count != null && <span>{T2("Room count")}: <b>{fp.room_count}</b></span>}
+            </div>
+          </div>
+        )}
+
+        {fp && EQUIP_FIELDS.some(function(f){ return fp[f.id + '_enabled']; }) && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Equipment Add-ons")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              {EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).map(function(f){
+                var count = fp[f.id + '_count'];
+                var price = fp[f.id + '_price'];
+                return <span key={f.id}>{f.icon} {T2(f.label)}: <b>{count != null ? count : '—'}</b>{price != null ? ' @ ₹' + price : ''}</span>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {fp && fp.drivers_food_required && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>🚗 {T2("Drivers Food")}</div>
+            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+              <span>{T2("Required")}: <b>{T2("Yes")}</b></span>
+              {fp.drivers_food_count != null && <span>{T2("Count of people")}: <b>{fp.drivers_food_count}</b></span>}
+              {fp.drivers_food_coupon != null && <span>{T2("Coupon")}: <b>{fp.drivers_food_coupon ? T2("Yes") : T2("No")}</b></span>}
+            </div>
+          </div>
+        )}
 
         {fp && fp.allergies && <FPNoteBlock title={T2("Allergies / Dietary Restrictions")} text={fp.allergies} />}
         {fp && fp.service_notes && <FPNoteBlock title={T2("Service Style Notes")} text={fp.service_notes} />}
@@ -62,23 +159,89 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, onClose, T2 }) {
 
         <div style={{ marginTop: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Selected Menu")}</div>
-          {SALES_DEPTS.map(function(d){
-            var names = (itemsByDept && itemsByDept[d.id]) || [];
-            if (names.length === 0) return null;
-            return (
-              <div key={d.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
-                  {d.icon} {d.name} <span style={{ fontWeight: 400 }}>· {names.length}</span>
-                </div>
-                <div style={{ fontSize: 13, columns: 2, columnGap: 24 }}>
-                  {names.map(function(n){ return <div key={n} style={{ breakInside: "avoid", padding: "2px 0" }}>• {n}</div>; })}
-                </div>
-              </div>
-            );
-          })}
-          {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
-            <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No items selected yet.")}</div>
+          {packageName ? (
+            <div>
+              <div style={{ fontSize: 13, marginBottom: 10 }}><b>{T2("Package")}:</b> {packageName}</div>
+              {Object.keys(menuDiffByDept || {}).length === 0 ? (
+                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
+              ) : (
+                SALES_DEPTS.map(function(d){
+                  var diff = menuDiffByDept && menuDiffByDept[d.id];
+                  if (!diff) return null;
+                  var meta = DIFF_KIND_META[diff.kind];
+                  return (
+                    <div key={d.id} style={{ marginBottom: 10, breakInside: "avoid" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                        {d.icon} {d.name}
+                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: meta.color, background: meta.bg, padding: "1px 6px", borderRadius: 4 }}>{T2(meta.label)}</span>
+                      </div>
+                      <div style={{ fontSize: 13 }}>
+                        {diff.added.map(function(n){ return <div key={'a' + n} style={{ color: meta.color, padding: "1px 0" }}>+ {n}</div>; })}
+                        {diff.removed.map(function(n){ return <div key={'r' + n} style={{ color: meta.color, padding: "1px 0" }}>− {n}</div>; })}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div>
+              {SALES_DEPTS.map(function(d){
+                var names = (itemsByDept && itemsByDept[d.id]) || [];
+                if (names.length === 0) return null;
+                return (
+                  <div key={d.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                      {d.icon} {d.name} <span style={{ fontWeight: 400 }}>· {names.length}</span>
+                    </div>
+                    <div style={{ fontSize: 13, columns: 2, columnGap: 24 }}>
+                      {names.map(function(n){ return <div key={n} style={{ breakInside: "avoid", padding: "2px 0" }}>• {n}</div>; })}
+                    </div>
+                  </div>
+                );
+              })}
+              {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
+                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No items selected yet.")}</div>
+              )}
+            </div>
           )}
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Department Configurations")}</div>
+          {(function(){
+            var deptRows = SALES_DEPTS.map(function(d){
+              var deptDefs = DEPT_CONFIGS[d.id] || [];
+              var deptValues = (configsByDept && configsByDept[d.id]) || {};
+              var rows = deptDefs.map(function(cfg){
+                var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
+                return val ? { cfg: cfg, val: val } : null;
+              }).filter(Boolean);
+              return { dept: d, rows: rows };
+            }).filter(function(x){ return x.rows.length > 0; });
+
+            if (deptRows.length === 0) {
+              return <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No department configurations set.")}</div>;
+            }
+            return deptRows.map(function(x){
+              return (
+                <div key={x.dept.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                    {x.dept.icon} {x.dept.name}
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    {x.rows.map(function(r){
+                      return (
+                        <div key={r.cfg.key} style={{ padding: "2px 0" }}>
+                          {r.cfg.icon} <b>{r.cfg.label}:</b> {r.val}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     </div>

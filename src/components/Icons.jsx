@@ -56,6 +56,9 @@ const PATHS = {
   apple:     <><path d="M12 8.5c-3.3 0-5.5 2.6-5.5 6.2 0 3.9 2.5 7.3 4.8 7.3.8 0 1.2-.4 1.9-.4.7 0 1.1.4 1.9.4 2.3 0 4.8-3.4 4.8-7.3 0-3.6-2.2-6.2-5.5-6.2z"/><path d="M12 8.5V6c0-1.2.7-2.3 2.2-2.6"/></>,
   cake:      <><path d="M6 10.5h12l-1.3 8.2a2 2 0 0 1-2 1.8H9.3a2 2 0 0 1-2-1.8z"/><path d="M10 10.5l-.6 9.9M14 10.5l.6 9.9"/><path d="M6.6 10.5a2.6 2.6 0 0 1 1.9-3.6a3.6 3.6 0 0 1 7 0a2.6 2.6 0 0 1 1.9 3.6"/><path d="M12 3.2v1.3"/></>,
   eye:       <><path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3.2"/></>,
+  // ── Function Plan equipment add-ons ──
+  fan:       <><circle cx="12" cy="12" r="2.6"/><path d="M12 9.4C10 6 6 6.4 5 8.6c-1 2.2 1 4.8 5 4.8M14.6 12c3.4-2 3-6-.4-6.4-2.4-.3-3.9 2.6-2.6 6.4M12 14.6c-2 3.4 1.5 5.9 3.7 4.3 2-1.4 1-5-1.7-6.7"/></>,
+  snowflake: <><path d="M12 2.5v19M4 7l16 10M20 7 4 17M2.5 12h19"/></>,
   // Dots are filled discs, so they need their own fill — the wrapper paints
   // stroke only and a stroked 0-length path renders as nothing.
   more:      <><circle cx="5.5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none"/></>,
