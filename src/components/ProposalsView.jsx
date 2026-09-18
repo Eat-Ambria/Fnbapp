@@ -307,6 +307,16 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
         if (insRes.error) throw insRes.error;
       }
 
+      // V88 — carry over Service/Crockery/Transport configs (waiters ratio,
+      // uniforms, vehicles...) the same way items are carried over, so they
+      // don't have to be re-entered once the proposal becomes a real function.
+      var configsRes = await supabase.from('proposal_configs').select('dept_id,config_key,config_value').eq('proposal_id', p.id);
+      if (!configsRes.error && configsRes.data && configsRes.data.length > 0) {
+        var configRows = configsRes.data.map(function(c){ return { event_id: eventId, dept_id: c.dept_id, config_key: c.config_key, config_value: c.config_value }; });
+        var configInsRes = await supabase.from('event_configs').insert(configRows);
+        if (configInsRes.error) console.error('[Proposals] copying configs to event failed:', configInsRes.error);
+      }
+
       if (p.notes) {
         await supabase.from('event_function_plans').upsert({ event_id: eventId, general_notes: p.notes }, { onConflict: 'event_id' });
       }

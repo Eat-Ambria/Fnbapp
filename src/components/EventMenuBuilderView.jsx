@@ -14,7 +14,8 @@ import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCusto
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
-import { ItemsTab, DietChip, ComingSoonPlaceholder } from './MenuBuilderView.jsx';
+import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip } from './MenuBuilderView.jsx';
+import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 
@@ -31,6 +32,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   var [activeDept, setActiveDept]   = useState('kit');
   var [activeSubTab, setActiveSubTab] = useState(initialTab); // 'items' | 'fp'
+  // V88 — dept-scoped choice between the item-picker and the Configs panel
+  // (Service/Crockery/Transport), same pattern as MenuBuilderView.jsx's proposal
+  // builder. Independent of activeSubTab, which switches the whole page between
+  // the item builder and the Function Plan.
+  var [activeDeptTab, setActiveDeptTab] = useState('items'); // 'items' | 'configs'
   var [dishItems, setDishItems]     = useState([]);        // event_items rows
   var [salesMeta, setSalesMeta]     = useState({});
   var [loading, setLoading]         = useState(true);
@@ -46,7 +52,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var [fp, setFp]                   = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
 
-  var hasItems = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
+  var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
+  var hasConfigs = !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
 
   // ── Template dishes: resolved directly from event.menu_package (a name, not an
   // id — events store the package name straight on the row). No stale-catalogue
@@ -407,6 +414,41 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   // eslint-disable-next-line
   }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
+
+  // ── Package vs. actual-selection diff, per dept, for the printable FP ──
+  // Replaces a full dish-by-dish listing with just the package name plus
+  // whatever changed against it: a dept with only additions is an "Add-on"
+  // (green), only removals is a "Deduction" (red), and both together is a
+  // "Swap" (blue) — kitchen/service only need to see what differs from the
+  // base package, not re-read the whole menu every time.
+  var menuDiffByDept = useMemo(function(){
+    if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
+    var pkgSet = new Set(templateInfo.dishes);
+    var selSet = new Set(dishItems.map(function(x){ return x.dish_name; }));
+    var addedByDept = {}, removedByDept = {};
+    dishItems.forEach(function(x){
+      if (!pkgSet.has(x.dish_name)) {
+        var dept = effectiveDeptForDish(x.dish_name);
+        (addedByDept[dept] = addedByDept[dept] || []).push(x.dish_name);
+      }
+    });
+    templateInfo.dishes.forEach(function(name){
+      if (!selSet.has(name)) {
+        var dept = dishNameToPkgDept[name] || DEFAULT_DEPT;
+        (removedByDept[dept] = removedByDept[dept] || []).push(name);
+      }
+    });
+    var out = {};
+    SALES_DEPTS.forEach(function(d){
+      var added = addedByDept[d.id] || [];
+      var removed = removedByDept[d.id] || [];
+      if (added.length === 0 && removed.length === 0) return;
+      var kind = (added.length > 0 && removed.length > 0) ? 'swap' : (added.length > 0 ? 'addon' : 'deduction');
+      out[d.id] = { added: added, removed: removed, kind: kind };
+    });
+    return out;
+  // eslint-disable-next-line
+  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
@@ -963,6 +1005,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         event={event}
         fp={fp}
         itemsByDept={itemsByDept}
+        packageName={templateInfo.name}
+        menuDiffByDept={menuDiffByDept}
         onClose={function(){ setShowFPPrint(false); }}
         T2={T2}
       />
@@ -1030,10 +1074,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           {SALES_DEPTS.map(function(d){
             var isActive = activeDept === d.id;
             var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-            var deptHasItems = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
-            var isFunctional = deptHasItems;
+            var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+            var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+            var isFunctional   = deptHasItems || deptHasConfigs;
             return (
-              <button key={d.id} onClick={function(){ setActiveDept(d.id); }}
+              <button key={d.id} onClick={function(){
+                  setActiveDept(d.id);
+                  setActiveDeptTab(deptHasItems ? 'items' : 'configs');
+                }}
                 style={{
                   display: "flex", alignItems: "center", gap: 8, width: "100%",
                   padding: "10px 12px", marginBottom: 3, borderRadius: 8,
@@ -1067,32 +1115,53 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
             </div>
           )}
 
-          {!loading && hasItems && (
-            <ItemsTab
-              T2={T2}
-              activeDept={activeDept}
-              searchQ={searchQ} setSearchQ={setSearchQ}
-              dietFilter={dietFilter} setDietFilter={setDietFilter}
-              showAddons={showAddons} setShowAddons={setShowAddons}
-              deptDishes={deptDishes}
-              groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
-              templateSet={templateSet}
-              selectedSet={selectedSet}
-              salesMeta={salesMeta}
-              onToggle={toggleDish}
-              templateInfo={templateInfo}
-              templateDishesInDept={templateDishesInDept}
-              deptCounts={deptCounts[activeDept]}
-              onLoadDefaults={loadPackageDefaults}
-              seeding={seeding}
-              onAddCustomDish={addCustomDish}
-              catalogueSectionOptions={catalogueSectionOptions}
-              onAddSectionFromLibrary={addSectionFromLibrary}
-              onRemoveSection={removeAdHocSection}
-            />
+          {!loading && (hasItems || hasConfigs) && (
+            <div>
+              <SubTabStrip
+                T2={T2}
+                activeSubTab={activeDeptTab} setActiveSubTab={setActiveDeptTab}
+                hasItems={hasItems} hasConfigs={hasConfigs}
+                totalSel={(deptCounts[activeDept] || {}).sel || 0}
+              />
+
+              {hasItems && activeDeptTab === 'items' && (
+                <ItemsTab
+                  T2={T2}
+                  activeDept={activeDept}
+                  searchQ={searchQ} setSearchQ={setSearchQ}
+                  dietFilter={dietFilter} setDietFilter={setDietFilter}
+                  showAddons={showAddons} setShowAddons={setShowAddons}
+                  deptDishes={deptDishes}
+                  groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
+                  templateSet={templateSet}
+                  selectedSet={selectedSet}
+                  salesMeta={salesMeta}
+                  onToggle={toggleDish}
+                  templateInfo={templateInfo}
+                  templateDishesInDept={templateDishesInDept}
+                  deptCounts={deptCounts[activeDept]}
+                  onLoadDefaults={loadPackageDefaults}
+                  seeding={seeding}
+                  onAddCustomDish={addCustomDish}
+                  catalogueSectionOptions={catalogueSectionOptions}
+                  onAddSectionFromLibrary={addSectionFromLibrary}
+                  onRemoveSection={removeAdHocSection}
+                />
+              )}
+
+              {hasConfigs && activeDeptTab === 'configs' && (
+                <ConfigsPanel
+                  proposal={event}
+                  activeDept={activeDept}
+                  lang={lang}
+                  configTable="event_configs"
+                  idField="event_id"
+                />
+              )}
+            </div>
           )}
 
-          {!loading && !hasItems && (
+          {!loading && !hasItems && !hasConfigs && (
             <ComingSoonPlaceholder T2={T2} dept={SALES_DEPT_MAP[activeDept]} />
           )}
         </div>

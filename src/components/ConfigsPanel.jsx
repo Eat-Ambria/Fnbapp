@@ -8,7 +8,12 @@ import { T } from '../data/translations.js';
 import { DEPT_CONFIGS, SALES_DEPT_MAP } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 
-export function ConfigsPanel({ proposal, activeDept, lang = "en" }) {
+// V88 — configTable/idField default to the proposal shape so existing callers
+// (MenuBuilderView.jsx) are untouched; EventMenuBuilderView.jsx passes the
+// event_configs table + event_id instead, reusing this same panel (and the
+// same DEPT_CONFIGS schema catalogue) for Booked Functions' Service/Crockery/
+// Transport tabs, which previously just dead-ended on a "Phase 5" placeholder.
+export function ConfigsPanel({ proposal, activeDept, lang = "en", configTable = 'proposal_configs', idField = 'proposal_id' }) {
   var T2 = function(s) { return T(s, lang); };
   var configs = DEPT_CONFIGS[activeDept] || [];
   var deptMeta = SALES_DEPT_MAP[activeDept];
@@ -16,12 +21,12 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en" }) {
   var [values, setValues]   = useState({}); // { [dept_id]: { [config_key]: config_value } }
   var [loading, setLoading] = useState(true);
 
-  // ── Load all proposal_configs on mount ──
+  // ── Load all configs on mount ──
   async function loadConfigs() {
     if (!proposal || !proposal.id) return;
     setLoading(true);
     try {
-      var res = await supabase.from('proposal_configs').select('*').eq('proposal_id', proposal.id);
+      var res = await supabase.from(configTable).select('*').eq(idField, proposal.id);
       if (res.error) throw res.error;
       var next = {};
       (res.data || []).forEach(function(r){
@@ -37,14 +42,14 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en" }) {
     }
   }
 
-  useEffect(function(){ loadConfigs(); /* eslint-disable-next-line */ }, [proposal && proposal.id]);
+  useEffect(function(){ loadConfigs(); /* eslint-disable-next-line */ }, [proposal && proposal.id, configTable]);
 
-  // ── Realtime for proposal_configs on this proposal ──
+  // ── Realtime for this entity's configs ──
   useEffect(function(){
     if (!proposal || !proposal.id) return;
-    var chan = supabase.channel('pconfigs_rt_' + proposal.id)
+    var chan = supabase.channel('configs_rt_' + configTable + '_' + proposal.id)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'proposal_configs', filter: 'proposal_id=eq.' + proposal.id },
+        { event: '*', schema: 'public', table: configTable, filter: idField + '=eq.' + proposal.id },
         function(payload){
           var row = payload.new || payload.old;
           if (!row) return;
@@ -61,7 +66,7 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en" }) {
         })
       .subscribe();
     return function(){ supabase.removeChannel(chan); };
-  }, [proposal && proposal.id]);
+  }, [proposal && proposal.id, configTable]);
 
   // ── Save one config (optimistic + upsert) ──
   async function saveConfig(configKey, newValue) {
@@ -73,9 +78,11 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en" }) {
       return next;
     });
     try {
-      var res = await supabase.from('proposal_configs').upsert(
-        { proposal_id: proposal.id, dept_id: activeDept, config_key: configKey, config_value: newValue },
-        { onConflict: 'proposal_id,dept_id,config_key' }
+      var row = { dept_id: activeDept, config_key: configKey, config_value: newValue };
+      row[idField] = proposal.id;
+      var res = await supabase.from(configTable).upsert(
+        row,
+        { onConflict: idField + ',dept_id,config_key' }
       );
       if (res.error) throw res.error;
     } catch (e) {

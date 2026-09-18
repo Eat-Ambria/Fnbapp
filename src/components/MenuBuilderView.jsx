@@ -1636,8 +1636,8 @@ function DietChip({ active, onClick, color, label }) {
   );
 }
 
-// V78 — ItemsTab/DietChip/ComingSoonPlaceholder are pure, prop-driven (no
-// proposal-specific coupling) and shared with EventMenuBuilderView.jsx (Booked
+// V78 — ItemsTab/DietChip/ComingSoonPlaceholder/SubTabStrip are pure, prop-driven
+// (no proposal-specific coupling) and shared with EventMenuBuilderView.jsx (Booked
 // Functions editor) so the item-picking UI stays a single source of truth.
-export { ItemsTab, DietChip, ComingSoonPlaceholder };
+export { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip };
 export default MenuBuilderView;

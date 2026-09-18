@@ -14,7 +14,13 @@ var SPICE_LABELS = {
   extra_spicy: '🔥 Extra Spicy',
 };
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, onClose, T2 }) {
+var DIFF_KIND_META = {
+  addon:     { label: 'Add-on',    color: '#2A7A48', bg: '#E5F5EA' },
+  deduction: { label: 'Deduction', color: '#A52828', bg: '#FAE5E5' },
+  swap:      { label: 'Swap',      color: '#1858A5', bg: '#E5F0FA' },
+};
+
+export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, onClose, T2 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
       <style>{"@media print { .fp-no-print { display: none !important; } }"}</style>
@@ -62,22 +68,51 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, onClose, T2 }) {
 
         <div style={{ marginTop: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Selected Menu")}</div>
-          {SALES_DEPTS.map(function(d){
-            var names = (itemsByDept && itemsByDept[d.id]) || [];
-            if (names.length === 0) return null;
-            return (
-              <div key={d.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
-                  {d.icon} {d.name} <span style={{ fontWeight: 400 }}>· {names.length}</span>
-                </div>
-                <div style={{ fontSize: 13, columns: 2, columnGap: 24 }}>
-                  {names.map(function(n){ return <div key={n} style={{ breakInside: "avoid", padding: "2px 0" }}>• {n}</div>; })}
-                </div>
-              </div>
-            );
-          })}
-          {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
-            <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No items selected yet.")}</div>
+          {packageName ? (
+            <div>
+              <div style={{ fontSize: 13, marginBottom: 10 }}><b>{T2("Package")}:</b> {packageName}</div>
+              {Object.keys(menuDiffByDept || {}).length === 0 ? (
+                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
+              ) : (
+                SALES_DEPTS.map(function(d){
+                  var diff = menuDiffByDept && menuDiffByDept[d.id];
+                  if (!diff) return null;
+                  var meta = DIFF_KIND_META[diff.kind];
+                  return (
+                    <div key={d.id} style={{ marginBottom: 10, breakInside: "avoid" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                        {d.icon} {d.name}
+                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: meta.color, background: meta.bg, padding: "1px 6px", borderRadius: 4 }}>{T2(meta.label)}</span>
+                      </div>
+                      <div style={{ fontSize: 13 }}>
+                        {diff.added.map(function(n){ return <div key={'a' + n} style={{ color: meta.color, padding: "1px 0" }}>+ {n}</div>; })}
+                        {diff.removed.map(function(n){ return <div key={'r' + n} style={{ color: meta.color, padding: "1px 0" }}>− {n}</div>; })}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div>
+              {SALES_DEPTS.map(function(d){
+                var names = (itemsByDept && itemsByDept[d.id]) || [];
+                if (names.length === 0) return null;
+                return (
+                  <div key={d.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
+                      {d.icon} {d.name} <span style={{ fontWeight: 400 }}>· {names.length}</span>
+                    </div>
+                    <div style={{ fontSize: 13, columns: 2, columnGap: 24 }}>
+                      {names.map(function(n){ return <div key={n} style={{ breakInside: "avoid", padding: "2px 0" }}>• {n}</div>; })}
+                    </div>
+                  </div>
+                );
+              })}
+              {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
+                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No items selected yet.")}</div>
+              )}
+            </div>
           )}
         </div>
       </div>
