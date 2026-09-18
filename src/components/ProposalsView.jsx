@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabase.js';
 import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
-import { KButton, ModalWatermark } from './KitchenUI.jsx';
+import { KButton, ModalWatermark, KModal } from './KitchenUI.jsx';
 import { fetchAllRows } from '../lib/db.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
@@ -177,6 +177,13 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   // only exists after that commit, so it is read in an effect rather than
   // during render. Screen-level actions go there instead of sitting in a row
   // of their own above the content.
+  // One dialog for every confirm and every failure on this screen. The browser
+  // ones are unstyled OS chrome, cannot name what is being acted on in the
+  // app's voice, and on a kiosk tablet can be suppressed entirely - which would
+  // make a delete silent.
+  var [dlg, setDlg] = useState(null);
+  function ask(opts){ setDlg(opts); }
+  function fail(title, err){ setDlg({ tone: 'danger', icon: 'alert', title: title, body: String((err && err.message) || err || ''), confirmLabel: T2('Close') }); }
   var [hdrSlot, setHdrSlot] = useState(null);
   useEffect(function(){ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [mode]);
   var PAGE_SIZE = 12;
@@ -261,9 +268,16 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   // dept subset (same dept resolution EventMenuBuilderView uses: package
   // section's own sales_dept first, then sales_items_meta, else Kitchen default)
   // so Kitchen Hub's production planning sees the right menu immediately.
-  async function convertToBooking(p) {
+  function convertToBooking(p) {
     if (!canConvert || p.converted_event_id || p.status !== 'won') return;
-    if (!window.confirm(T2('Convert') + ' "' + p.guest_name + '" ' + T2('to a booked function? This creates a real event from this proposal.'))) return;
+    ask({ tone: 'brand', icon: 'calendar',
+      title: T2('Convert this proposal to a booking?'),
+      subhead: <div style={{ fontSize: 15, fontWeight: 700, color: K.hdrTitle, overflowWrap: 'anywhere' }}>{p.guest_name}</div>,
+      body: T2('This creates a real event from the proposal. It will show up under Booked Functions.'),
+      confirmLabel: T2('Convert'),
+      onConfirm: function(){ setDlg(null); doConvertToBooking(p); } });
+  }
+  async function doConvertToBooking(p) {
 
     var eventId = 'PROP-' + p.id;
     try {
@@ -321,10 +335,10 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       var updRes = await supabase.from('proposals').update({ converted_event_id: eventId }).eq('id', p.id).select().single();
       if (updRes.error) throw updRes.error;
       setProposals(function(prev){ return prev.map(function(x){ return x.id === p.id ? updRes.data : x; }); });
-      alert(T2('Converted — find it under Booked Functions.'));
+      setDlg({ tone: 'ok', icon: 'check', title: T2('Converted to a booking'), body: T2('Find it under Booked Functions.'), confirmLabel: T2('Done') });
     } catch (e) {
       console.error('[Proposals] convertToBooking failed:', e);
-      alert(T2('Failed to convert:') + ' ' + (e.message || e));
+      fail(T2('Could not convert this proposal'), e);
     }
   }
 
@@ -333,8 +347,8 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   }
 
   async function saveProposal(newStatus) {
-    if (!form.guest_name.trim()) { alert(T2('Guest name is required.')); return; }
-    if (!form.venue) { alert(T2('Pick a venue.')); return; }
+    if (!form.guest_name.trim()) { setDlg({ tone: 'warn', icon: 'alert', title: T2('Guest name is required'), body: T2('A proposal without a name cannot be found again.'), confirmLabel: T2('Close') }); return; }
+    if (!form.venue) { setDlg({ tone: 'warn', icon: 'alert', title: T2('Pick a venue'), body: T2('The venue decides which kitchen and menu the proposal belongs to.'), confirmLabel: T2('Close') }); return; }
     if (saving) return;
     setSaving(true);
     // Snapshot the pre-edit row so we can tell, after saving, whether the
@@ -384,7 +398,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
           saved = reinitRes.data;
         } catch (e) {
           console.error('[Proposals] template-switch reset failed:', e);
-          alert(T2('Package changed, but resetting the old menu selections failed:') + ' ' + (e.message || e));
+          fail(T2('Package changed, but the old menu selections were not cleared'), e);
         }
       }
 
@@ -396,14 +410,21 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       cancelForm();
     } catch (e) {
       console.error('[Proposals] save failed:', e);
-      alert(T2('Save failed:') + ' ' + (e.message || e));
+      fail(T2('Could not save this proposal'), e);
     } finally {
       setSaving(false);
     }
   }
 
-  async function duplicateProposal(p) {
-    if (!window.confirm(T2('Duplicate this proposal as a new draft?'))) return;
+  function duplicateProposal(p) {
+    ask({ tone: 'brand', icon: 'layers',
+      title: T2('Duplicate this proposal?'),
+      subhead: <div style={{ fontSize: 15, fontWeight: 700, color: K.hdrTitle, overflowWrap: 'anywhere' }}>{p.guest_name}</div>,
+      body: T2('A copy is created as a new draft, without the event date. The original is untouched.'),
+      confirmLabel: T2('Duplicate'),
+      onConfirm: function(){ setDlg(null); doDuplicateProposal(p); } });
+  }
+  async function doDuplicateProposal(p) {
     var payload = {
       rep_emp_id: repId,
       guest_name: p.guest_name + ' (copy)',
@@ -420,18 +441,25 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       if (res.error) throw res.error;
       setProposals(function(prev){ return [res.data].concat(prev); });
     } catch (e) {
-      alert(T2('Duplicate failed:') + ' ' + (e.message || e));
+      fail(T2('Could not duplicate this proposal'), e);
     }
   }
 
-  async function deleteProposal(p) {
-    if (!window.confirm(T2('Delete proposal for') + ' "' + p.guest_name + '"?')) return;
+  function deleteProposal(p) {
+    ask({ tone: 'danger', icon: 'trash',
+      title: T2('Delete this proposal?'),
+      subhead: <div style={{ fontSize: 15, fontWeight: 700, color: K.hdrTitle, overflowWrap: 'anywhere' }}>{p.guest_name}</div>,
+      body: T2('It is removed for everyone. This cannot be undone.'),
+      confirmLabel: T2('Delete proposal'),
+      onConfirm: function(){ setDlg(null); doDeleteProposal(p); } });
+  }
+  async function doDeleteProposal(p) {
     try {
       var res = await supabase.from('proposals').delete().eq('id', p.id);
       if (res.error) throw res.error;
       setProposals(function(prev){ return prev.filter(function(x){ return x.id !== p.id; }); });
     } catch (e) {
-      alert(T2('Delete failed:') + ' ' + (e.message || e));
+      fail(T2('Could not delete this proposal'), e);
     }
   }
 
@@ -441,14 +469,14 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       if (res.error) throw res.error;
       setProposals(function(prev){ return prev.map(function(x){ return x.id===p.id ? res.data : x; }); });
     } catch (e) {
-      alert(T2('Status change failed:') + ' ' + (e.message || e));
+      fail(T2('Could not change the status'), e);
     }
   }
 
   // ── RENDER: menu builder takes over the full viewport ──
   if (mode === 'menu_builder' && menuBuilderProposal) {
     return (
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, background: C.bg }}>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, background: K.shellBg }}>
         <MenuBuilderView proposal={menuBuilderProposal} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} />
       </div>
     );
@@ -481,23 +509,23 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       {mode !== 'list' && (
         <div onClick={saving ? undefined : cancelForm}
           style={{ position: "fixed", inset: 0, zIndex: 9999, background: K.modalScrim,
-            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "28px 20px", overflowY: "auto" }}>
+            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "16px 20px", overflowY: "auto" }}>
           <div onClick={function(e){ e.stopPropagation(); }} role="dialog" aria-modal="true"
             style={{ position: "relative", background: K.modalBg, border: "1px solid " + K.modalLine,
               borderRadius: K.modalRadius, boxShadow: K.shadowLift, maxWidth: 1180, width: "100%", overflow: "hidden" }}>
             <ModalWatermark />
 
-            <div style={{ position: "relative", zIndex: 1, padding: "24px 28px", display: "flex", alignItems: "center", gap: 18 }}>
-              <span style={{ width: 62, height: 62, borderRadius: 18, flexShrink: 0, backgroundColor: K.cardWarm,
+            <div style={{ position: "relative", zIndex: 1, padding: "16px 24px 12px", display: "flex", alignItems: "center", gap: 14 }}>
+              <span style={{ width: 46, height: 46, borderRadius: 14, flexShrink: 0, backgroundColor: K.cardWarm,
                 border: "1px solid " + K.hdrLine, color: K.sbGold,
                 display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name="note" size={28} strokeWidth={1.6} />
+                <Icon name="note" size={22} strokeWidth={1.6} />
               </span>
               <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: "block", ...type.sectionHead, fontSize: 28, color: K.hdrTitle }}>
+                <span style={{ display: "block", ...type.sectionHead, fontSize: 23, color: K.hdrTitle }}>
                   {mode === 'edit' ? T2("Edit Proposal") : T2("New Proposal")}
                 </span>
-                <span style={{ display: "block", fontSize: 14, color: K.hdrMeta, marginTop: 2 }}>
+                <span style={{ display: "block", fontSize: 13, color: K.hdrMeta, marginTop: 1 }}>
                   {T2("Update guest details, event information and menu preferences.")}
                 </span>
               </span>
@@ -510,9 +538,9 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
               </button>
             </div>
 
-            <div style={{ position: "relative", zIndex: 1, padding: "0 28px 24px" }}>
-              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "20px 22px", marginBottom: 18 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 18 }}>
+            <div style={{ position: "relative", zIndex: 1, padding: "0 24px 18px" }}>
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "15px 18px", marginBottom: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(225px, 1fr))", gap: 12 }}>
                   <Field label={T2("Guest name")} required icon="contact" value={form.guest_name}
                     onChange={function(v){ updateForm('guest_name', v); }} placeholder={T2("Full name")} />
                   <Field label={T2("Phone")} icon="contact" value={form.phone}
@@ -536,16 +564,16 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                 </div>
               </div>
 
-              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "18px 22px 22px", marginBottom: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "14px 18px 16px", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
-                    <span style={{ width: 40, height: 40, borderRadius: 12, flexShrink: 0, background: K.brandBg,
+                    <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: K.brandBg,
                       border: "1px solid " + K.brandBorder, color: K.brand,
                       display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Icon name="utensils" size={19} strokeWidth={1.8} />
+                      <Icon name="utensils" size={17} strokeWidth={1.8} />
                     </span>
                     <span style={{ minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: 17, fontWeight: 700, letterSpacing: "-0.2px", color: K.hdrTitle }}>{T2("Menu Template")}</span>
+                      <span style={{ display: "block", fontSize: 15.5, fontWeight: 700, letterSpacing: "-0.2px", color: K.hdrTitle }}>{T2("Menu Template")}</span>
                       <span style={{ display: "block", fontSize: 13.5, color: K.hdrMeta, marginTop: 2 }}>
                         {T2("Choose a menu template or start from scratch. You can customise it later.")}
                       </span>
@@ -559,8 +587,8 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                       return (
                         <button key={opt.value || 'both'} type="button" onClick={function(){ updateForm('menu_diet', opt.value); }}
                           className="kh-rip" onPointerDown={ripple}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px", borderRadius: K.rPill,
-                            fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: K.fontBody,
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", borderRadius: K.rPill,
+                            fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: K.fontBody,
                             background: isSel ? (opt.value ? fg : K.brand) : "#FFFFFF",
                             color: isSel ? "#FFFFFF" : K.textBody,
                             border: "1px solid " + (isSel ? (opt.value ? fg : K.brand) : K.line) }}>
@@ -580,20 +608,20 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                 )}
 
                 {allPackages.length > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(203px, 1fr))", gap: 10 }}>
                     <button type="button" onClick={function(){ updateForm('tier_package_id', null); }}
                       className="kh-rip kh-pressrow is-sage" onPointerDown={ripple}
-                      style={{ display: "flex", alignItems: "center", gap: 13, padding: "14px", borderRadius: 14,
+                      style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px", borderRadius: 14,
                         background: !form.tier_package_id ? K.sageBg : "#FFFFFF",
                         border: "1.5px solid " + (!form.tier_package_id ? K.sage : K.line),
                         textAlign: "left", cursor: "pointer", fontFamily: K.fontBody, color: K.sage }}>
-                      <span style={{ width: 42, height: 42, borderRadius: "50%", flexShrink: 0, background: K.brand, color: "#FFFFFF",
+                      <span style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, background: K.brand, color: "#FFFFFF",
                         display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Icon name="plus" size={20} strokeWidth={2.1} />
+                        <Icon name="plus" size={18} strokeWidth={2.1} />
                       </span>
                       <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: K.hdrTitle }}>{T2("Start from scratch")}</span>
-                        <span style={{ display: "block", fontSize: 12.5, color: K.hdrMeta, marginTop: 2 }}>{T2("Build menu without a template")}</span>
+                        <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: K.hdrTitle, lineHeight: 1.25 }}>{T2("Start from scratch")}</span>
+                        <span style={{ display: "block", fontSize: 12, color: K.hdrMeta, marginTop: 3 }}>{T2("Build menu without a template")}</span>
                       </span>
                     </button>
                     {filteredPackages.map(function(pkg){
@@ -607,7 +635,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                         <button key={pkg.id || pkg.name} type="button" onClick={function(){ pickTemplate(pkg); }}
                           disabled={!pkg.id} className="kh-rip" onPointerDown={ripple}
                           title={!pkg.id ? T2('Package id not loaded yet — refresh?') : ''}
-                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", borderRadius: 14,
+                          style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px", borderRadius: 14,
                             background: isSel ? K.brandBg : "#FFFFFF",
                             border: "1.5px solid " + (isSel ? K.brand : K.line),
                             textAlign: "left", cursor: pkg.id ? "pointer" : "not-allowed",
@@ -615,19 +643,17 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                           {/* A tinted tile, not a photograph: menu packages carry
                               no image of their own, and a stock picture would
                               claim to show a menu it has never seen. */}
-                          <span style={{ width: 52, height: 52, borderRadius: 13, flexShrink: 0,
+                          <span style={{ width: 40, height: 40, borderRadius: 11, flexShrink: 0,
                             background: dietBg, border: "1px solid " + dietBd, color: dietFg,
                             display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <Icon name="utensils" size={22} strokeWidth={1.8} />
+                            <Icon name="utensils" size={18} strokeWidth={1.8} />
                           </span>
                           <span style={{ minWidth: 0, flex: 1 }}>
-                            <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 14, fontWeight: 700, color: K.hdrTitle, lineHeight: 1.25 }}>{pkg.name}</span>
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: K.rPill,
+                            <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: K.hdrTitle, lineHeight: 1.25 }}>{pkg.name}</span>
+                            <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 4, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: K.rPill,
                                 background: dietBg, color: dietFg, border: "1px solid " + dietBd, whiteSpace: "nowrap" }}>{dietLabel}</span>
-                            </span>
-                            <span style={{ display: "block", fontSize: 12.5, color: K.hdrMeta, marginTop: 3 }}>
-                              {pkg.dishCount} {T2("dishes")}
+                              <span style={{ fontSize: 12, color: K.hdrMeta }}>{pkg.dishCount} {T2("dishes")}</span>
                             </span>
                           </span>
                         </button>
@@ -755,9 +781,21 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
           )}
 
           {!loading && filteredList.length > 0 && (function(){
-            var cols = canViewAll
-              ? "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.8fr 0.9fr minmax(250px,1.1fr)"
-              : "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.9fr minmax(250px,1.1fr)";
+            // The actions column is a fixed width, and this is load-bearing.
+            // The header and every row are separate grids, so a content-sized
+            // track resolves differently in each of them: the header holds one
+            // short word, the rows hold four controls, and the fr columns either
+            // side then land in different places - which is how Draft ended up
+            // under REP and Edit under STATUS. A fixed track is identical
+            // everywhere, so the columns line up by construction.
+            // Two widths, because a won proposal grows a Convert button (or a
+            // Booked pill) and reserving room for it on every page would leave a
+            // hole on the ones that have none.
+            var wideActions = canConvert && pagedList.some(function(p){ return p.status === 'won'; });
+            var actionsCol = wideActions ? "392px" : "284px";
+            var cols = (canViewAll
+              ? "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.8fr 0.9fr "
+              : "minmax(210px,1.5fr) 0.8fr 1fr 0.6fr 0.9fr 0.9fr ") + actionsCol;
             // One header cell: a button, because it sorts. The arrows show which
             // column is active and which way, rather than sitting inert on all.
             var SortHead = function(props){
@@ -792,7 +830,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                     <SortHead k="menu_diet"  label={T2("Diet")} />
                     {canViewAll && <SortHead k="rep" label={T2("Rep")} />}
                     <SortHead k="status"     label={T2("Status")} />
-                    <span style={{ ...type.label, fontSize: 11, color: K.hdrMeta }}>{T2("Actions")}</span>
+                    <span style={{ ...type.label, fontSize: 11, color: K.hdrMeta, justifySelf: "end" }}>{T2("Actions")}</span>
                   </div>
 
                   {pagedList.map(function(p){
@@ -867,7 +905,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                             </select>
                           </span>
                         </div>
-                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "nowrap" }}>
                           <KButton size="sm" icon="note" onClick={function(){ openEdit(p); }} title={T2("View / Edit")}
                             style={{ padding: "10px 14px", borderRadius: 11, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
                             {T2("Edit")}
@@ -955,6 +993,21 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       <div style={{ marginTop: 18, textAlign: "center", fontSize: 13, color: K.hdrMeta }}>
         {T2("Signed in as")} <b style={{ color: K.hdrTitle }}>{(currentUser && currentUser.name) || repId}</b> · {T2("role")}: <b style={{ color: C.text }}>{(currentUser && currentUser.role) || '—'}</b>
       </div>
+
+      {/* One dialog for the whole screen: confirms carry an onConfirm, plain
+          reports do not and their button just closes. */}
+      <KModal
+        open={!!dlg}
+        toneName={dlg && dlg.tone}
+        icon={dlg && dlg.icon}
+        title={dlg && dlg.title}
+        subhead={dlg && dlg.subhead}
+        body={dlg && dlg.body}
+        confirmLabel={dlg && dlg.confirmLabel}
+        cancelLabel={T2("Cancel")}
+        onConfirm={dlg && dlg.onConfirm}
+        onClose={function(){ setDlg(null); }}
+      />
     </div>
   );
 }
@@ -971,12 +1024,12 @@ const FIELD_PRE = {
   color: K.textFaint, borderRight: "1px solid " + K.lineSoft,
 };
 const FIELD_INPUT = {
-  flex: 1, minWidth: 0, padding: "12px 13px", border: "none", outline: "none",
-  background: "transparent", fontSize: 14.5, color: K.text, fontFamily: K.fontBody,
+  flex: 1, minWidth: 0, padding: "10px 12px", border: "none", outline: "none",
+  background: "transparent", fontSize: 14, color: K.text, fontFamily: K.fontBody,
 };
 function FieldLabel({ label, required }) {
   return (
-    <div style={{ fontSize: 13.5, fontWeight: 700, color: K.hdrTitle, marginBottom: 7 }}>
+    <div style={{ fontSize: 13, fontWeight: 700, color: K.hdrTitle, marginBottom: 5 }}>
       {label}{required && <span style={{ color: K.danger }}> *</span>}
     </div>
   );
