@@ -877,10 +877,10 @@ export default function App() {
           <div style={{position:"relative",zIndex:1,width:K.sbWidth,margin:"10px 0 10px 10px",borderRadius:22,background:K.sbBg,border:`1px solid ${K.sbLine}`,
             boxShadow:K.sidebarShadow,display:"flex",flexDirection:"column",flexShrink:0,overflow:"hidden"}}>
             {/* Sidebar artwork — hides itself if the file is missing. */}
-            <img src={`${import.meta.env.BASE_URL}sidebar-bg.webp`} alt="" aria-hidden="true" draggable="false"
+            <img src={`${import.meta.env.BASE_URL}leaf-bg.webp`} alt="" aria-hidden="true" draggable="false"
               onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
               style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",
-                opacity:.65,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
+                opacity:.5,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
 
             {/* Brand — the Ambria wordmark, same treatment (and same sheen) as
                 the admin sidebar. Falls back to .png, then to the chef-hat mark
@@ -1180,15 +1180,15 @@ export default function App() {
       <div style={{width:K.sbWidth,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",overflow:"hidden"}}>
 
         {/* Decorative background art.
-            Drop the artwork at Fnbapp/public/sidebar-bg.webp — BASE_URL is used
+            Drop the artwork at Fnbapp/public/leaf-bg.webp — BASE_URL is used
             (not a bare "/") because vite.config.js sets base:'/Fnbapp/', so an
             absolute path would 404 on GitHub Pages. If the file is missing the
             image hides itself and the plain ivory panel shows through. */}
         {sideOpen&&(
-          <img src={`${import.meta.env.BASE_URL}sidebar-bg.webp`} alt="" aria-hidden="true" draggable="false"
+          <img src={`${import.meta.env.BASE_URL}leaf-bg.webp`} alt="" aria-hidden="true" draggable="false"
             onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
             style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",
-              opacity:.65,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
+              opacity:.5,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
         )}
 
         {/* ── Brand ── */}
