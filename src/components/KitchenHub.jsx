@@ -3727,39 +3727,89 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>
                 {editingSteps?(
                   <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>Steps ({sopForm.steps.length})</div>
+                    <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:10}}>
+                      {T2("Steps")} ({sopForm.steps.length})
+                    </div>
                     {sopForm.steps.map((step,si)=>(
-                      <div key={si} style={{display:"flex",gap:8,padding:"10px 0",borderBottom:si<sopForm.steps.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"flex-start"}}>
-                        <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center",flexShrink:0,paddingTop:6}}>
-                          <span style={{fontSize:12,fontWeight:700,color:C.gold}}>{si+1}</span>
-                          <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si>0?C.muted:C.faint,cursor:si>0?"pointer":"default",padding:0}}>—</button>
-                          <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} style={{width:22,height:22,borderRadius:5,border:`1px solid ${C.border}`,background:C.surface,fontSize:10,color:si<sopForm.steps.length-1?C.muted:C.faint,cursor:si<sopForm.steps.length-1?"pointer":"default",padding:0}}>—</button>
+                      // Each step is its own card. Rows separated only by a
+                      // hairline ran together once a step had sub-steps, and
+                      // there was no way to see where one ended.
+                      <div key={si} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10,
+                        padding:"14px",borderRadius:14,backgroundColor:"#FFFFFF",
+                        border:`1px solid ${step.ccp?K.dangerBorder:K.cardWarmLine}`,
+                        borderLeft:`3px solid ${step.ccp?K.danger:K.brand}`,boxShadow:K.shadowCard}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"center",flexShrink:0}}>
+                          <span style={{display:"flex",alignItems:"center",justifyContent:"center",width:30,height:30,
+                            borderRadius:"50%",background:step.ccp?K.danger:K.brand,color:"#FFFFFF",
+                            fontSize:13,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{si+1}</span>
+                          {/* Both reorder buttons rendered as a literal "?" - a
+                              mojibake glyph where an arrow used to be. */}
+                          <button onClick={()=>sopMoveStep(si,-1)} disabled={si===0} title={T2("Move up")}
+                            style={{width:28,height:24,borderRadius:8,border:`1px solid ${K.line}`,background:K.surfaceAlt,
+                              color:si>0?K.textMuted:K.lineStrong,cursor:si>0?"pointer":"default",padding:0,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="chevronD" size={13} strokeWidth={2.3} style={{transform:"rotate(180deg)"}}/>
+                          </button>
+                          <button onClick={()=>sopMoveStep(si,1)} disabled={si===sopForm.steps.length-1} title={T2("Move down")}
+                            style={{width:28,height:24,borderRadius:8,border:`1px solid ${K.line}`,background:K.surfaceAlt,
+                              color:si<sopForm.steps.length-1?K.textMuted:K.lineStrong,
+                              cursor:si<sopForm.steps.length-1?"pointer":"default",padding:0,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <Icon name="chevronD" size={13} strokeWidth={2.3}/>
+                          </button>
                         </div>
                         <div style={{flex:1,minWidth:0}}>
-                          <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder="Step title" style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontWeight:600,color:C.text,background:"transparent",boxSizing:"border-box",marginBottom:4,minHeight:32}}/>
-                          <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={2} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:40,marginBottom:4}}/>
-                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                            {!(step.subs&&step.subs.length>0)&&<div style={{display:"flex",alignItems:"center",gap:3}}>
-                              <span style={{fontSize:10,color:C.muted}}>⏱</span>
-                              <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""} onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))} placeholder="min" style={{width:60,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                              <span style={{fontSize:9,color:C.faint}}>min</span>
-                            </div>}
-                            <div style={{display:"flex",alignItems:"center",gap:3}}>
-                              <span style={{fontSize:10,color:C.muted}}>CCP</span>
-                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} placeholder="Critical control" style={{width:110,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                            </div>
-                            <label style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",fontSize:10,color:step.d1?C.green:C.muted,fontWeight:step.d1?700:400}}>
-                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)} style={{accentColor:C.green}}/>
-                              D-1   
+                          <input value={step.t} onChange={e=>sopFormStep(si,"t",e.target.value)} placeholder={T2("Step title")}
+                            style={{width:"100%",padding:"10px 13px",borderRadius:10,border:`1px solid ${K.line}`,
+                              fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,background:"#FFFFFF",
+                              boxSizing:"border-box",marginBottom:8,fontFamily:K.fontBody,outline:"none"}}/>
+                          <textarea value={step.i} onChange={e=>sopFormStep(si,"i",e.target.value)} placeholder={T2("Instructions (Hindi)")} rows={2}
+                            style={{width:"100%",padding:"10px 13px",borderRadius:10,border:`1px solid ${K.line}`,
+                              fontSize:14,fontWeight:500,color:K.text,background:"#FFFFFF",boxSizing:"border-box",
+                              resize:"vertical",minHeight:64,marginBottom:10,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                            {/* A step with sub-steps takes its time from them, so
+                                the timer is hidden rather than left to contradict. */}
+                            {!(step.subs&&step.subs.length>0)&&(
+                              <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                border:`1px solid ${K.line}`,overflow:"hidden",width:126}}>
+                                <span style={{padding:"0 0 0 11px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={14} strokeWidth={2}/></span>
+                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                  placeholder="0"
+                                  style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",background:"transparent",
+                                    fontSize:14,fontWeight:700,color:K.text,fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                <span style={{padding:"0 11px 0 4px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>min</span>
+                              </span>
+                            )}
+                            <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                              border:`1px solid ${step.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 200px",minWidth:0}}>
+                              <span style={{padding:"0 0 0 11px",fontSize:11,fontWeight:700,letterSpacing:".5px",
+                                color:step.ccp?K.danger:K.textFaint}}>CCP</span>
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)}
+                                placeholder={T2("Critical control")}
+                                style={{flex:1,minWidth:0,padding:"9px 11px 9px 9px",border:"none",outline:"none",background:"transparent",
+                                  fontSize:13.5,color:K.text,fontFamily:K.fontBody}}/>
+                            </span>
+                            {/* D-1 is a state, so it reads as a chip that fills
+                                when on, not a bare checkbox with a loose label. */}
+                            <label style={{display:"inline-flex",alignItems:"center",gap:8,cursor:"pointer",flexShrink:0,
+                              padding:"9px 14px",borderRadius:10,fontSize:13,fontWeight:700,
+                              background:step.d1?K.brandBg:"#FFFFFF",
+                              border:`1px solid ${step.d1?K.brandBorder:K.line}`,
+                              color:step.d1?K.brandText:K.textMuted}}>
+                              <input type="checkbox" checked={step.d1} onChange={e=>sopFormStep(si,"d1",e.target.checked)}
+                                style={{width:15,height:15,accentColor:K.brand,cursor:"pointer",margin:0}}/>
+                              {T2("Prep a day ahead")}
                             </label>
                           </div>
                           {(step.subs&&step.subs.length>0)&&(
-                            <div style={{borderLeft:`2.5px solid ${C.gold}`,marginLeft:2,marginTop:8,paddingLeft:12}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.gold,marginBottom:6,textTransform:"uppercase",letterSpacing:.5,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
+                            <div style={{borderLeft:`2px solid ${K.brandBorder}`,marginLeft:2,marginTop:12,paddingLeft:14}}>
+                              <div style={{...type.label,fontSize:10,color:K.brandText,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
                               {step.subs.map((sb,sbi)=>(
-                                <div key={sbi} style={{background:C.surface,border:`1px solid ${C.borderLight}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                                <div key={sbi} style={{background:"#FFFFFF",border:`1px solid ${K.line}`,borderRadius:11,padding:"10px 12px",marginBottom:8}}>
                                   <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                                    <span style={{fontSize:10,fontWeight:700,color:C.gold,minWidth:22}}>{si+1}{String.fromCharCode(97+sbi)}.</span>
+                                    <span style={{fontSize:11.5,fontWeight:700,color:K.brandText,minWidth:24,fontVariantNumeric:"tabular-nums"}}>{si+1}{String.fromCharCode(97+sbi)}</span>
                                     <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent",minHeight:28}}/>
                                     <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:22,height:22,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",padding:0,flexShrink:0}}>—</button>
                                   </div>
@@ -3777,15 +3827,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               ))}
                             </div>
                           )}
-                          <button onClick={()=>sopAddSub(si)} style={{marginTop:6,padding:"5px 12px",borderRadius:6,background:C.goldBg,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:10,fontWeight:600,cursor:"pointer"}}>+ Add Sub-step</button>
+                          <button onClick={()=>sopAddSub(si)} className="kh-rip" onPointerDown={ripple} style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:10,padding:"8px 14px",borderRadius:K.rPill,background:"#FFFFFF",border:`1px solid ${K.line}`,color:K.textBody,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}><Icon name="plus" size={14} strokeWidth={2.1}/>{T2("Add sub-step")}</button>
                         </div>
                         <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>—</button>
                       </div>
                     ))}
-                    <button onClick={sopAddStep} style={{width:"100%",padding:"10px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.goldBorder}`,color:C.gold,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:8,minHeight:36}}>+ Add Step</button>
-                    <div style={{display:"flex",gap:8,marginTop:12}}>
-                      <button onClick={()=>{saveSop();setEditingSteps(false);}} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:42}}>💾 Save Recipe</button>
-                      <button onClick={()=>{setEditingSteps(false);setSopModal(null);}} style={{padding:"12px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:42}}>Cancel</button>
+                    {/* Dashed, because it adds a row that does not exist yet —
+                        the same signal the Add Category tile uses. */}
+                    <button onClick={sopAddStep} className="kh-sopadd kh-rip" onPointerDown={ripple}
+                      style={{display:"flex",alignItems:"center",justifyContent:"center",gap:9,width:"100%",
+                        padding:"14px",borderRadius:14,background:K.brandSoft,border:`1.5px dashed ${K.brandBorder}`,
+                        color:K.brandText,fontSize:14,fontWeight:700,cursor:"pointer",marginTop:4,
+                        fontFamily:K.fontBody,transition:"background .16s, border-color .16s"}}>
+                      <Icon name="plus" size={16} strokeWidth={2.1}/>{T2("Add step")}
+                    </button>
+                    <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                      <KButton icon="close" onClick={()=>{setEditingSteps(false);setSopModal(null);}}
+                        style={{padding:"13px 20px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                      <KButton variant="brand" icon="check" onClick={()=>{saveSop();setEditingSteps(false);}}
+                        style={{padding:"13px 26px",borderRadius:K.rPill,fontSize:14}}>{T2("Save recipe")}</KButton>
                     </div>
                   </div>
                 ):(
