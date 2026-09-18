@@ -2586,7 +2586,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 el.appendChild(s);
                 s.addEventListener("animationend", () => s.remove());
               };
-              const Seg = ({ segKey, sel, icon, title, meta, first, warn }) => (
+              const Seg = ({ segKey, sel, icon, title, meta, first, warn, externalCaterer }) => (
                 <button className={"kh-btn kh-seg"+(sel?" is-active":"")}
                   onClick={(e)=>{ fillUp(e); setD1FnFilter(segKey); }}
                   style={{
@@ -2604,6 +2604,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{display:"flex",alignItems:"center",gap:6,fontSize:16,fontWeight:700,color:K.hdrTitle,minWidth:0}}>
                       <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</span>
                       {warn&&<span style={{color:K.warn,display:"flex",flexShrink:0}} title={T2("Menu not confirmed")}><Icon name="alert" size={14} strokeWidth={2.2}/></span>}
+                      {externalCaterer&&<span style={{flexShrink:0,fontSize:12}} title={T2("Third-party caterer on-site — be present to observe, not cook")}>👀</span>}
                     </span>
                     <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meta}</span>
                   </span>
@@ -2617,6 +2618,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   {d1Evs.map(ev=>(
                     <Seg key={ev.id} segKey={ev.id} sel={d1FnFilter===ev.id} icon="users"
                       warn={ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed}
+                      externalCaterer={!!ev.external_caterer}
                       title={ev.guest||T2("Function")}
                       meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"}`}/>
                   ))}

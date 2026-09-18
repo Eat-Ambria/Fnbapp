@@ -69,7 +69,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   const [closureEv, setClosureEv] = useState(null);
   const [closureRemark, setClosureRemark] = useState("");
   const [closureRating, setClosureRating] = useState("");
-  const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});
+  const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
   const [menuAlertGroups, setMenuAlertGroups] = useState({week:true, month:false, later:false});
@@ -111,8 +111,8 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
   // the very event just created would vanish the moment its realtime echo
   // arrived. A timestamp+random id needs no knowledge of existing ids at all.
   function genId(){ return `FP-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
-  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done"});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
-  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done"});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
+  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
+  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
   function saveForm(){
     if(!form.guest||!form.date||!form.pax)return;
     const formIsODC = form.venue==="Outdoor Catering (ODC)";
@@ -121,6 +121,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
       ? menuEditorDishes
       : (form.menuPackage && MENU_PACKAGES[form.menuPackage] ? MENU_PACKAGES[form.menuPackage] : (form.menu||"").split(",").map(s=>s.trim()).filter(Boolean));
     const d = {...form, pax:+form.pax, veg:+form.veg||0, nonveg:+form.nonveg||0, menu:mi,
+      external_caterer_name: form.external_caterer ? (form.external_caterer_name||null) : null,
       ...(formIsODC ? {odc_location:form.odc_location, odc_address:form.odc_address, odc_contact_phone:form.odc_contact_phone, odc_lead:form.odc_lead, site_recce:form.site_recce, odc_menu_confirmed:mi.length>0} : {})
     };
     if(editId){setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);}else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
@@ -183,6 +184,16 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                 {form.menuPackage&&form.menuPackage!=="(Custom)"&&<div style={{gridColumn:"1/-1",background:C.amberBg,borderRadius:8,padding:"6px 10px",fontSize:12,color:C.amber}}>{(MENU_PACKAGES[form.menuPackage]||[]).length} dishes — {form.menuPackage}</div>}
                 {(!form.menuPackage||form.menuPackage==="(Custom)")&&!showMenuEditor&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Custom menu</div><textarea value={form.menu} onChange={e=>setForm(p=>({...p,menu:e.target.value}))} placeholder="Dal Makhni, Paneer Tikka…" style={{...fld,height:44,resize:"none"}}/></div>}
                 <div style={{gridColumn:"1/-1"}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Special instructions</div><input value={form.special} onChange={e=>setForm(p=>({...p,special:e.target.value}))} placeholder="Jain, no onion-garlic…" style={fld}/></div>
+              </div>
+
+              {/* ── External caterer (third party catering AT our venue — the reverse
+                   of ODC) so kitchen knows to be present and observe, not cook ── */}
+              <div style={{marginBottom:12,padding:"10px 14px",borderRadius:10,background:form.external_caterer?C.amberBg:C.bg,border:`1px solid ${form.external_caterer?C.amberBorder:C.border}`}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,fontWeight:500,color:C.text}}>
+                  <input type="checkbox" checked={form.external_caterer} onChange={e=>setForm(p=>({...p,external_caterer:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+                  👀 Third-party caterer on-site (kitchen to observe only, not cook)
+                </label>
+                {form.external_caterer&&<div style={{marginTop:8}}><div style={{fontSize:12,color:C.muted,marginBottom:2,fontWeight:500}}>Caterer name</div><input value={form.external_caterer_name} onChange={e=>setForm(p=>({...p,external_caterer_name:e.target.value}))} placeholder="e.g. Spice Route Catering" style={fld}/></div>}
               </div>
 
               {/* ── ODC-specific fields ── */}
@@ -343,6 +354,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                             or this line reads identically for every outdoor function. */}
                         {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {describeEventMenu(ev)}
                         {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
+                        {ev.external_caterer&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:C.amberBg,color:C.amber,border:`1px solid ${C.amberBorder}`}}>👀 {ev.external_caterer_name||"External caterer"}</span>}
                       </div>
                       {evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:evReady>=evMenu.length?C.greenBg:C.amberBg,color:evReady>=evMenu.length?"#0F6E56":"#854F0B"}}>{evReady}/{evMenu.length} dishes ready</span></div>}
                       
@@ -423,6 +435,7 @@ function Dashboard({attendance,events,setEvents,leaves,setScreen,kitchenTracking
                   <div style={{fontSize:12,color:C.muted,marginTop:2}}>
                     {(VP[ev.venue]||{}).code||"EV"} · {ev.time} · {describeEventMenu(ev)}
                     {ev.lms_source&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:"#EEF4FD",color:"#378ADD",border:"1px solid #C8DDF4"}}>LMS</span>}
+                    {ev.external_caterer&&<span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,background:C.amberBg,color:C.amber,border:`1px solid ${C.amberBorder}`}}>👀 {ev.external_caterer_name||"External caterer"}</span>}
                   </div>
                   {isD1&&evMenu.length>0&&<div style={{marginTop:4}}><span style={{fontSize:11,fontWeight:500,padding:"2px 8px",borderRadius:4,background:d1Done>0?C.greenBg:C.amberBg,color:d1Done>0?"#0F6E56":"#854F0B"}}>D-1 prep: {d1Done}/{evMenu.length} done</span></div>}
                   
