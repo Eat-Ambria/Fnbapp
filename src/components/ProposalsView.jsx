@@ -3,6 +3,7 @@
 // Place in: src/components/ProposalsView.jsx
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
@@ -172,6 +173,12 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var [sortKey, setSortKey] = useState('guest_name');
   var [sortDir, setSortDir] = useState('asc');
   var [page, setPage]       = useState(1);
+  // The shell renders #kh-hdr-slot inside the page header plate; its DOM node
+  // only exists after that commit, so it is read in an effect rather than
+  // during render. Screen-level actions go there instead of sitting in a row
+  // of their own above the content.
+  var [hdrSlot, setHdrSlot] = useState(null);
+  useEffect(function(){ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [mode]);
   var PAGE_SIZE = 12;
   useEffect(function(){ setPage(1); }, [searchQ, statusFilter, repFilter, sortKey, sortDir]);
 
@@ -424,20 +431,23 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
-      {/* No badge, title or subtitle: the sidebar already names this screen and
-          the toolbar under this row says what the list is filtered to. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 18, justifyContent: "flex-end", marginBottom: 18, flexWrap: "wrap" }}>
-        {mode === 'list' && canCreate && (
-          <KButton variant="brand" icon="plus" onClick={openNew}
-            style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 15 }}>{T2("New Proposal")}</KButton>
-        )}
-        {mode !== 'list' && (
-          <KButton icon="chevronL" onClick={cancelForm}
-            style={{ padding: "12px 20px", borderRadius: K.rPill, fontSize: 14, background: K.cardWarm, borderColor: K.cardWarmLine }}>
-            {T2("Back to list")}
-          </KButton>
-        )}
-      </div>
+      {/* Screen actions live in the page header plate, portalled into the slot
+          the shell renders there, so they sit on the banner rather than in a
+          row of their own pushing the list down. */}
+      {hdrSlot && createPortal((
+        <>
+          {mode === 'list' && canCreate && (
+            <KButton variant="brand" icon="plus" onClick={openNew}
+              style={{ padding: "12px 22px", borderRadius: K.rPill, fontSize: 14.5 }}>{T2("New Proposal")}</KButton>
+          )}
+          {mode !== 'list' && (
+            <KButton icon="chevronL" onClick={cancelForm}
+              style={{ padding: "11px 18px", borderRadius: K.rPill, fontSize: 14, background: "#FFFFFF", borderColor: K.hdrChipLine }}>
+              {T2("Back to list")}
+            </KButton>
+          )}
+        </>
+      ), hdrSlot)}
 
       {/* ── FORM (new / edit) ── */}
       {mode !== 'list' && (
