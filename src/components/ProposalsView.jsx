@@ -337,6 +337,9 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
     if (!form.venue) { alert(T2('Pick a venue.')); return; }
     if (saving) return;
     setSaving(true);
+    // Snapshot the pre-edit row so we can tell, after saving, whether the
+    // template actually changed on an existing proposal — see reset block below.
+    var origProposal = editingId ? proposals.find(function(p){ return p.id === editingId; }) : null;
     var payload = {
       rep_emp_id: repId,
       guest_name: form.guest_name.trim(),
@@ -363,6 +366,28 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       }
       if (res.error) throw res.error;
       var saved = res.data;
+
+      // Template swapped on a proposal whose menu was already built: the old
+      // seed (proposal_items from the PREVIOUS template) would otherwise stick
+      // around forever and get misread as "add-ons" against the new template
+      // (see the Chatori Chaat bug — a proposal seeded from Luxury Veg, then
+      // switched to Double Magnum Non Veg, kept showing Luxury Veg's dishes).
+      // Reset means: wipe the stale items and clear menu_initialized so the
+      // existing seedTemplateIfNeeded() in MenuBuilderView re-seeds cleanly
+      // from the new template next time Build Menu is opened.
+      if (origProposal && origProposal.menu_initialized && origProposal.tier_package_id !== saved.tier_package_id) {
+        try {
+          var delRes = await supabase.from('proposal_items').delete().eq('proposal_id', saved.id);
+          if (delRes.error) throw delRes.error;
+          var reinitRes = await supabase.from('proposals').update({ menu_initialized: false }).eq('id', saved.id).select().single();
+          if (reinitRes.error) throw reinitRes.error;
+          saved = reinitRes.data;
+        } catch (e) {
+          console.error('[Proposals] template-switch reset failed:', e);
+          alert(T2('Package changed, but resetting the old menu selections failed:') + ' ' + (e.message || e));
+        }
+      }
+
       setProposals(function(prev){
         var idx = prev.findIndex(function(p){ return p.id === saved.id; });
         if (idx >= 0) { var copy = prev.slice(); copy[idx] = saved; return copy; }
