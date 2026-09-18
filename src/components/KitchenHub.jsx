@@ -914,6 +914,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       logActivity("kitchen", (url?"Recipe photo set: ":"Recipe photo removed: ")+recipe.n, "sop_photo", {dish:recipe.n, catId}, currentUser?.id);
     } finally { setPhotoBusy(false); }
   }
+  // Drag feedback. `draggable` has to sit on the grip - putting it on the whole
+  // row would hijack text selection in the inputs inside it - but that makes the
+  // browser's drag ghost the grip itself, which is why dragging looked like a
+  // few dots floating around. setDragImage hands it the row instead, so the
+  // whole row travels with the cursor, grabbed at the point actually clicked.
+  function armRowDrag(e, setIdx, idx){
+    const row = e.currentTarget.closest("[data-dragrow]");
+    if(row && e.dataTransfer){
+      const r = row.getBoundingClientRect();
+      try { e.dataTransfer.setDragImage(row, e.clientX - r.left, e.clientY - r.top); } catch(_) {}
+      e.dataTransfer.effectAllowed = "move";
+    }
+    setIdx(idx);
+  }
   function sopDuplicateStep(si){setSopForm(p=>{
     const s=[...p.steps];
     const copy=JSON.parse(JSON.stringify(s[si]));
@@ -1659,16 +1673,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
                   <div style={{maxHeight:"46vh",overflowY:"auto"}} className="kh-thinscroll">
                     {sopForm.steps.map((step,si)=>(
-                      <div key={si} onDragOver={e=>e.preventDefault()} onDrop={()=>sopReorderStepTo(si)}
+                      <div key={si} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>sopReorderStepTo(si)}
                         style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:12,padding:"14px",
-                          borderRadius:16,background:"#FFFFFF",opacity:stepDragIdx===si?.4:1,
+                          borderRadius:16,background:"#FFFFFF",opacity:stepDragIdx===si?.4:1,transition:"opacity .12s ease",
                           border:`1px solid ${step.ccp?K.dangerBorder:K.line}`}}>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,flexShrink:0}}>
                           <span style={{display:"flex",alignItems:"center",justifyContent:"center",width:34,height:34,
                             borderRadius:"50%",background:step.ccp?K.danger:K.brand,color:"#FFFFFF",
                             fontSize:14,fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{si+1}</span>
                           <span style={{width:1,flex:1,minHeight:10,background:K.lineSoft}}/>
-                          <span draggable onDragStart={()=>setStepDragIdx(si)} onDragEnd={()=>setStepDragIdx(null)}
+                          <span draggable onDragStart={e=>armRowDrag(e,setStepDragIdx,si)} onDragEnd={()=>setStepDragIdx(null)}
                             title={T2("Drag to reorder")}
                             style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,color:K.textFaint,userSelect:"none"}}>
                             <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
@@ -3645,8 +3659,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               // A section is a heading inside the list, so it
                               // gets a band rather than a row of fields wearing
                               // the same white as the ingredients under it.
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)}
-                                style={{background:K.brandBg,opacity:ingDragIdx===idx?0.4:1}}>
+                              <tr key={idx} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)}
+                                style={{background:K.brandBg,opacity:ingDragIdx===idx?0.4:1,transition:"opacity .12s ease"}}>
                                 <td colSpan={5} style={{padding:"10px 10px 10px 13px",borderTop:`1px solid ${K.brandBorder}`,
                                   borderBottom:`1px solid ${K.brandBorder}`,borderLeft:`3px solid ${K.brand}`}}>
                                   <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -3682,7 +3696,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",background:K.brandBg,
                                   borderTop:`1px solid ${K.brandBorder}`,borderBottom:`1px solid ${K.brandBorder}`}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")}
+                                  <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")}
                                     style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,
                                       borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}>
                                     <Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/>
@@ -3712,7 +3726,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             const tIcon  = isInv ? "box" : isBg ? "utensils" : "note";
                             const nameLocked = isInv || isBg;
                             return (
-                              <tr key={idx} onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:"#FFFFFF",opacity:ingDragIdx===idx?0.4:1}}>
+                              <tr key={idx} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)} style={{background:"#FFFFFF",opacity:ingDragIdx===idx?0.4:1,transition:"opacity .12s ease"}}>
                                 <td style={{padding:"8px 10px",textAlign:"center",borderTop:`1px solid ${K.lineSoft}`,
                                   borderLeft:`3px solid ${nameLocked?rowFg:"transparent"}`}}>
                                   <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:28,height:28,borderRadius:"50%",background:K.surfaceAlt,border:`1px solid ${K.line}`,fontSize:12.5,fontWeight:700,color:K.textMuted}}>
@@ -3769,7 +3783,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
                                 <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",borderTop:`1px solid ${K.lineSoft}`}}>
-                                  <span draggable onDragStart={()=>setIngDragIdx(idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
+                                  <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
                                   <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove row")} style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}><Icon name="trash" size={15}/></button>
                                 </td>
                               </tr>
