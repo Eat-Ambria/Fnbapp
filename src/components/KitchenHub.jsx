@@ -13,7 +13,7 @@ import { fetchAllRows } from '../lib/db.js';
 // imported module"). Static import removes that risk entirely for this module.
 import { supabase } from '../lib/supabase.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
-import { MENU_PACKAGES, MENU_PACKAGE_NAMES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_NAMES, describeEventMenu } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
@@ -2620,7 +2620,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       warn={ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed}
                       externalCaterer={!!ev.external_caterer}
                       title={ev.guest||T2("Function")}
-                      meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"}`}/>
+                      meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"} · ${describeEventMenu(ev)}`}/>
                   ))}
                 </div>
               );
@@ -2661,8 +2661,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{...type.label,fontSize:10,color:K.sbLabel}}>{headerLabel}</div>
                     <div style={{fontSize:13,color:K.hdrMeta,marginTop:2,overflowWrap:"anywhere"}}>
                       {isCombined
-                        ? d1Evs.map(e=>`${e.guest||T2("Function")} (${e.pax} pax · ${e.time||"TBD"})`).join("  ·  ")
-                        : `${activeEv?.guest||""} · ${activeEv?.venue||""} · ${activeEv?.pax} pax · ${activeEv?.time||"TBD"}`}
+                        ? d1Evs.map(e=>`${e.guest||T2("Function")} (${e.pax} pax · ${e.time||"TBD"} · ${describeEventMenu(e)})`).join("  ·  ")
+                        : `${activeEv?.guest||""} · ${activeEv?.venue||""} · ${activeEv?.pax} pax · ${activeEv?.time||"TBD"} · ${activeEv?describeEventMenu(activeEv):""}`}
                     </div>
                   </div>
                 </div>
