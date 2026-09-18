@@ -13,6 +13,10 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
+import { K, type } from '../utils/theme.js';
+import { ripple } from '../utils/ripple.js';
+import { Icon } from './Icons.jsx';
+import { KButton, KToast } from './KitchenUI.jsx';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
@@ -330,6 +334,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return function(){ supabase.removeChannel(chan); };
   }, [proposal && proposal.id]);
 
+  // In-app notice instead of window.alert. The browser one is unstyled OS
+  // chrome, it blocks the page until dismissed, and on a kiosk tablet it can be
+  // suppressed entirely - so a failed save would vanish without a word.
+  var [toast, setToast] = useState(null);
+  function say(tone, title, body){ setToast({ tone: tone, title: title, body: body || '' }); }
+  function sayFail(title, err){ say('danger', title, String((err && err.message) || err || '')); }
+
   // ── Selection lookups ──
   var selectedSet = useMemo(function(){
     var s = {}; dishItems.forEach(function(x){ s[x.dish_name] = true; }); return s;
@@ -349,7 +360,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         console.error('[MenuBuilder] toggle-off failed:', e);
         // Rollback
         await loadItems().then(setDishItems);
-        alert(T2('Failed to remove dish:') + ' ' + (e.message || e));
+        sayFail(T2('Could not remove that dish'), e);
       }
     } else {
       var row = { proposal_id: proposal.id, dish_name: dishName, is_addon: !inTemplate, ordering: dishItems.length };
@@ -362,7 +373,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       } catch (e) {
         console.error('[MenuBuilder] toggle-on failed:', e);
         await loadItems().then(setDishItems);
-        alert(T2('Failed to add dish:') + ' ' + (e.message || e));
+        sayFail(T2('Could not add that dish'), e);
       }
     }
   }
@@ -403,7 +414,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var have = {};
     dishItems.forEach(function(x){ have[x.dish_name] = true; });
     var toAdd = templateInfo.dishes.filter(function(d){ return !have[d]; });
-    if (toAdd.length === 0) { alert(T2('All package dishes are already selected.')); return; }
+    if (toAdd.length === 0) { say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.')); return; }
     setSeeding(true);
     try {
       var rows = toAdd.map(function(d, i){ return { proposal_id: proposal.id, dish_name: d, is_addon: false, ordering: dishItems.length + i }; });
@@ -413,7 +424,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       await supabase.from('proposals').update({ menu_initialized: true }).eq('id', proposal.id);
     } catch (e) {
       console.error('[MenuBuilder] loadPackageDefaults failed:', e);
-      alert(T2('Failed to load package defaults:') + ' ' + (e.message || e));
+      sayFail(T2('Could not load the package defaults'), e);
     } finally {
       setSeeding(false);
     }
@@ -956,43 +967,111 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: C.bg }}>
-      {/* ── Top bar ── */}
-      <div style={{ flexShrink: 0, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", boxShadow: "0 1px 3px " + C.shadow }}>
-        <button onClick={onClose}
-          style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          ← {T2("Back to proposals")}
-        </button>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>
-            🍽 {T2("Menu for")} <span style={{ color: C.gold || "#D4A843" }}>{proposal.guest_name}</span>
-          </div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-            {(proposal.event_type || T2("Event")) + " · " + (proposal.venue || '—') + (proposal.event_date ? ' · ' + proposal.event_date : '') + (proposal.pax ? ' · ' + proposal.pax + ' pax' : '')}
-            {templateInfo.name && (
-              <>
-                {' · '}
-                {dietMeta && (
-                  <span style={{ padding: "1px 6px", borderRadius: 3, background: dietMeta.bg, color: dietMeta.color, fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", marginRight: 4 }}>{dietMeta.label}</span>
-                )}
-                {templateInfo.name}
-              </>
-            )}
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: K.shellBg, overflow: "hidden" }}>
+      {/* This view takes over the whole window, so it sits outside the shell and
+         gets none of its chrome - including the page artwork. Its own image, not
+         the shell's: this screen is a full-bleed workspace and carries a warmer,
+         larger-scale backdrop. Falls back to the shell artwork if it is missing,
+         so the view never lands on a flat colour. BASE_URL, not a bare "/",
+         because vite sets base:'/Fnbapp/'. */}
+      <img src={`${import.meta.env.BASE_URL}menu-bg.webp`} alt="" aria-hidden="true" draggable="false"
+        onError={function(e){
+          var el = e.currentTarget;
+          if (!el.dataset.step) { el.dataset.step = "png"; el.src = el.src.replace(/menu-bg.webp.*$/, "menu-bg.png"); return; }
+          if (el.dataset.step === "png") { el.dataset.step = "shell"; el.src = el.src.replace(/menu-bg.png.*$/, "page-bg.webp"); return; }
+          el.style.display = "none";
+        }}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+          objectPosition: "center", opacity: K.pageBgOpacity, pointerEvents: "none", userSelect: "none", zIndex: 0 }} />
+      {/* ── Top bar ──
+          A plate, not a flat strip: this view takes over the whole window, so it
+          has to carry its own identity the way the shell's header does. */}
+      <div className="kh-plateart kh-rise" style={{ position: "relative", zIndex: 1, flexShrink: 0, margin: "14px 16px 0", padding: "16px 20px",
+        borderRadius: 20, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
+        boxShadow: K.shadowCard, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 260 }}>
+          <span style={{ width: 54, height: 54, borderRadius: 16, flexShrink: 0, background: K.brandBg,
+            border: "1px solid " + K.brandBorder, color: K.brand,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="utensils" size={25} strokeWidth={1.8} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button onClick={onClose} className="kh-btn kh-backbtn kh-rip" onPointerDown={ripple}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: K.rPill,
+                  background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.textBody,
+                  fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: K.fontBody, whiteSpace: "nowrap" }}>
+                <Icon name="chevronL" size={14} strokeWidth={2.1} />{T2("Back to proposals")}
+              </button>
+            </div>
+            {/* "Menu for" is a label and the guest name is the content; at one
+                size and one weight they read as a single phrase and neither
+                carries. Split into an eyebrow and a title, the name is what the
+                eye lands on - which is the only thing on this plate anyone is
+                actually looking for. type.pageTitle, because this IS the page
+                title; nothing on the screen was using it.
+                700 rather than the scale value of 600: Cormorant is a light face, and at 600
+                on a plate this wide and this busy the name did not hold. */}
+            <div style={{ ...type.label, color: K.hdrMeta, marginTop: 9 }}>{T2("Menu for")}</div>
+            <div style={{ ...type.pageTitle, fontWeight: 700, color: K.hdrTitle, marginTop: 1, overflowWrap: "anywhere" }}>
+              {proposal.guest_name || T2("Untitled proposal")}
+            </div>
+            {/* Each fact is its own chip. The old line ran them together with
+                dots, so the template name and the venue read as one string. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7, flexWrap: "wrap", ...type.meta, color: K.hdrMeta }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Icon name="calendar" size={14} strokeWidth={1.9} />{proposal.event_type || T2("Event")}
+              </span>
+              <span style={{ color: K.textFaint }}>·</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Icon name="building" size={14} strokeWidth={1.9} />{proposal.venue || T2("Venue not set")}
+              </span>
+              {proposal.pax != null && (<>
+                <span style={{ color: K.textFaint }}>·</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, color: K.hdrMetaStrong }}>
+                  <Icon name="users" size={14} strokeWidth={1.9} />{proposal.pax} pax
+                </span>
+              </>)}
+              {dietMeta && (<>
+                <span style={{ color: K.textFaint }}>·</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700,
+                  color: dietMeta.color || K.hdrMeta }}>
+                  <Icon name="apple" size={14} strokeWidth={1.9} />{dietMeta.label}
+                </span>
+              </>)}
+              {templateInfo.name && (<>
+                <span style={{ color: K.textFaint }}>·</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="layers" size={14} strokeWidth={1.9} />{templateInfo.name}
+                </span>
+              </>)}
+            </div>
           </div>
         </div>
-        <button onClick={function(){ setShowPreview(true); }}
+        <KButton variant="brand" icon="eye" onClick={function(){ setShowPreview(true); }}
           disabled={dishItems.length === 0}
           title={dishItems.length === 0 ? T2("Add items first before previewing") : T2("Open client preview")}
-          style={{ padding: "8px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: dishItems.length === 0 ? "not-allowed" : "pointer", opacity: dishItems.length === 0 ? 0.55 : 1, boxShadow: "0 1px 3px " + C.shadow }}>
-          👁 {T2("Preview")}
-        </button>
+          style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, flexShrink: 0 }}>
+          {T2("Preview Menu")}
+        </KButton>
       </div>
 
       {/* ── Body: sidebar + main ── */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", overflow: "hidden", gap: 16, padding: "14px 16px 16px", minHeight: 0 }}>
         {/* ── Dept sidebar ── */}
-        <div style={{ flexShrink: 0, width: 200, background: C.surface, borderRight: "1px solid " + C.border, padding: "12px 8px", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, padding: "6px 10px", marginBottom: 4 }}>
+        {/* The artwork is a real image layer here, not the 20% wash the cards
+            use. This panel is tall and narrow - the same shape the image was
+            drawn for - so its leaves land in the corners where they belong
+            instead of being cropped to a meaningless patch. overflow:hidden so
+            the picture is clipped by the card's radius rather than squaring it. */}
+        <div className="kh-thinscroll" style={{ position: "relative", flexShrink: 0, width: 232, borderRadius: 20,
+          backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard,
+          padding: "16px 14px", overflowY: "auto", overflowX: "hidden" }}>
+          <img src={`${import.meta.env.BASE_URL}leaf-bg.webp`} alt="" aria-hidden="true" draggable="false"
+            onError={function(e){ e.currentTarget.style.display = "none"; }}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+              objectPosition: "center top", opacity: .5, pointerEvents: "none", userSelect: "none", zIndex: 0 }} />
+          <div style={{ position: "relative", zIndex: 1, ...type.label, fontSize: 10.5, color: K.hdrMeta, padding: "0 6px", marginBottom: 12 }}>
             {T2("Departments")}
           </div>
           {SALES_DEPTS.map(function(d){
@@ -1000,31 +1079,47 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             var counts = deptCounts[d.id] || { sel: 0, total: 0 };
             var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
             var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
-            var isFunctional   = deptHasItems || deptHasConfigs; // Phase 5A: kit/bev/bak/frt (items) + bev/svc (configs so far)
+            var isFunctional   = deptHasItems || deptHasConfigs; // Phase 5A: kit/bev/bak/frt (items) + bev/svc (configs)
             return (
-              <button key={d.id} onClick={function(){
+              <button key={d.id} className={"kh-btn kh-deptbtn kh-rip" + (isActive ? " is-on" : "")} onPointerDown={ripple}
+                onClick={function(){
                   setActiveDept(d.id);
                   // Default to Items sub-tab if this dept has items, otherwise Configs
                   setActiveSubTab(deptHasItems ? 'items' : 'configs');
                 }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
-                  padding: "10px 12px", marginBottom: 3, borderRadius: 8,
-                  background: isActive ? d.bg : "transparent",
-                  border: "1px solid " + (isActive ? d.color : "transparent"),
-                  color: C.text, fontSize: 13, fontWeight: isActive ? 700 : 500,
-                  cursor: "pointer", textAlign: "left",
-                  opacity: isFunctional ? 1 : 0.75,
+                  position: "relative", zIndex: 1,
+                  display: "flex", alignItems: "center", gap: 11, width: "100%",
+                  padding: "10px 12px", marginBottom: 5, borderRadius: 13,
+                  // Sage for the picked department, the same as a picked config
+                  // row. The brand green is this app's chrome colour; used as a
+                  // selection it reads almost black and puts a hard edge around
+                  // something the user merely navigated to.
+                  background: isActive ? K.sageSel : "transparent",
+                  border: "1px solid " + (isActive ? K.sage : "transparent"),
+                  color: isActive ? K.sageText : K.textBody,
+                  ...type.rowTitle, fontWeight: isActive ? 700 : 600,
+                  cursor: "pointer", textAlign: "left", fontFamily: K.fontBody,
+                  opacity: isFunctional ? 1 : 0.6,
                 }}>
-                <span style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
-                <span style={{ flex: 1 }}>{d.icon} {d.name}</span>
+                {/* The department's own colour stays on the tile, where it reads
+                    as a marker, rather than on the label, where it competes with
+                    the text it is meant to identify. An icon, not an emoji: an
+                    emoji renders differently on every OS, sits on its own
+                    baseline, and cannot take the department colour. */}
+                <span style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+                  background: (d.color || K.brand) + "1A", color: d.color || K.brand,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name={d.glyph || "utensils"} size={17} strokeWidth={1.9} />
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
                 {isFunctional && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: counts.sel > 0 ? d.color : C.muted, background: isActive ? "#fff" : C.bg, padding: "2px 6px", borderRadius: 10 }}>
-                    {counts.sel}
-                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, flexShrink: 0,
+                    color: counts.sel > 0 ? K.brandText : K.textFaint,
+                    fontVariantNumeric: "tabular-nums" }}>{counts.sel}</span>
                 )}
                 {!isFunctional && (
-                  <span style={{ fontSize: 9, color: C.muted, fontStyle: "italic" }}>{T2("soon")}</span>
+                  <span style={{ fontSize: 11, color: K.textFaint, flexShrink: 0 }}>{T2("soon")}</span>
                 )}
               </button>
             );
@@ -1032,11 +1127,14 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         </div>
 
         {/* ── Main area ── */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+        <div className="kh-thinscroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: 2 }}>
           {loading && (
-            <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>{seeding ? '🌱' : '⏳'}</div>
-              <div style={{ fontSize: 13 }}>{seeding ? T2("Seeding template dishes…") : T2("Loading menu builder…")}</div>
+            <div className="kh-cardart-sm" style={{ padding: "60px 20px", textAlign: "center", color: K.hdrMeta,
+              borderRadius: 20, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard }}>
+              <div style={{ color: K.textFaint, display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <Icon name={seeding ? "layers" : "refresh"} size={28} strokeWidth={1.7} />
+              </div>
+              <div style={{ fontSize: 14 }}>{seeding ? T2("Seeding template dishes…") : T2("Loading menu builder…")}</div>
             </div>
           )}
 
@@ -1092,31 +1190,42 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         {/* ── V77: live totals — one always-visible per-dept count list (mirrors the
             left sidebar's badges), replacing the old per-tab "Total" sub-tab so
             sales don't have to click into every dept just to see what's picked. ── */}
-        <div style={{ flexShrink: 0, width: 190, background: C.surface, borderLeft: "1px solid " + C.border, padding: "12px 10px", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, padding: "6px 4px", marginBottom: 4 }}>
-            🧾 {T2("Live total")}
-          </div>
-          {SALES_DEPTS.map(function(d){
-            var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-            var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
-            var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
-            if (!deptHasItems && !deptHasConfigs) return null;
-            return (
-              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
-                <span style={{ flex: 1, fontSize: 12, color: C.text }}>{d.name}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: counts.sel > 0 ? d.color : C.faint }}>{counts.sel}</span>
-              </div>
-            );
-          })}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 4px 6px", marginTop: 6, borderTop: "1px solid " + C.border }}>
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: C.text }}>{T2("Total items")}</span>
-            <span style={{ fontSize: 13, fontWeight: 800, color: C.text }}>
-              {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
-            </span>
+        <div style={{ flexShrink: 0, width: 232, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }} className="kh-thinscroll">
+          <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
+            border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "16px 16px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <span style={{ color: K.sbGold, display: "flex" }}><Icon name="chart" size={18} strokeWidth={2} /></span>
+              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle }}>{T2("Live total")}</span>
+            </div>
+            {SALES_DEPTS.map(function(d){
+              var counts = deptCounts[d.id] || { sel: 0, total: 0 };
+              var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+              var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+              if (!deptHasItems && !deptHasConfigs) return null;
+              return (
+                <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 2px" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: K.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                  {/* A zero is deliberately faint: the eye should land on the
+                      departments that actually have something in them. */}
+                  <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                    color: counts.sel > 0 ? K.hdrTitle : K.textFaint }}>{counts.sel}</span>
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 2px 4px", marginTop: 8,
+              borderTop: "1px solid " + K.cardWarmLine }}>
+              <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: K.hdrTitle }}>{T2("Total items")}</span>
+              <span style={{ fontSize: 19, fontWeight: 800, color: K.hdrTitle, fontVariantNumeric: "tabular-nums" }}>
+                {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
+      <KToast open={!!toast} toneName={toast && toast.tone} title={toast && toast.title}
+        body={toast && toast.body} onClose={function(){ setToast(null); }} />
     </div>
   );
 }
@@ -1148,6 +1257,8 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
   // later) plus which section/subsection pill to place it in for THIS
   // proposal/event — flattened from whatever's currently grouped, so a
   // package-linked section's own subsections show up as pickable targets too.
+  var [tabToast, setTabToast] = useState(null);
+  function sayFail(title, err){ setTabToast({ tone: 'danger', title: title, body: String((err && err.message) || err || '') }); }
   var [pendingCustom, setPendingCustom] = useState(null); // { name, catId, sectionId } | null
   var [customSaving, setCustomSaving] = useState(false);
   var placementOptions = useMemo(function(){
@@ -1168,7 +1279,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
       setPendingCustom(null);
     } catch (e) {
-      alert(T2('Failed to add dish:') + ' ' + (e.message || e));
+      sayFail(T2('Could not add that dish'), e);
     } finally {
       setCustomSaving(false);
     }
@@ -1188,62 +1299,118 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       await onAddSectionFromLibrary(pendingSection.catSectionId, pendingSection.targetId || null);
       setPendingSection(null);
     } catch (e) {
-      alert(T2('Failed to add section:') + ' ' + (e.message || e));
+      sayFail(T2('Could not add that section'), e);
     } finally {
       setSectionSaving(false);
     }
   }
 
+  var deptMeta = SALES_DEPT_MAP[activeDept] || {};
   return (
-    <div>
-      {/* Filter bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
-          placeholder={T2("Search dish…")}
-          style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
+    <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
+      border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "18px 20px 20px" }}>
+      {/* Department header — says which department you are in and how much of it
+          is picked, so the left rail is not the only place that answers it. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+        <span style={{ color: K.sbGold, display: "flex", flexShrink: 0 }}>
+          <Icon name="chefHat" size={26} strokeWidth={1.7} />
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ ...type.sectionHead, fontSize: 21, color: K.hdrTitle }}>{deptMeta.name || T2("Department")}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, padding: "4px 11px", borderRadius: K.rPill,
+              background: K.brandBg, border: "1px solid " + K.brandBorder, color: K.brandText, whiteSpace: "nowrap" }}>
+              {deptTotal} {T2("items")}
+            </span>
+          </span>
+          <span style={{ display: "block", fontSize: 13.5, color: K.hdrMeta, marginTop: 2 }}>
+            {T2("Explore and select dishes for this department")}
+          </span>
+        </span>
+        <div style={{ position: "relative", flex: "1 1 260px", minWidth: 200, marginLeft: "auto" }}>
+          <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)",
+            color: K.textFaint, display: "flex", pointerEvents: "none" }}>
+            <Icon name="search" size={17} strokeWidth={1.9} />
+          </span>
+          <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
+            placeholder={T2("Search dishes, cuisines or keywords…")}
+            style={{ width: "100%", padding: "13px 16px 13px 46px", borderRadius: K.rPill,
+              border: "1px solid " + K.cardWarmLine, fontSize: 14, color: K.text, background: "#FFFFFF",
+              boxSizing: "border-box", fontFamily: K.fontBody, outline: "none" }} />
+        </div>
+      </div>
 
-        {/* Diet chips */}
-        <div style={{ display: "flex", gap: 4 }}>
-          <DietChip active={dietFilter === 'all'} onClick={function(){ setDietFilter('all'); }} color={C.muted} label={T2("All")} />
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <DietChip active={dietFilter === 'all'} onClick={function(){ setDietFilter('all'); }} color={K.brand} label={T2("All")} />
           {DIET_TAGS.map(function(dt){
-            return <DietChip key={dt.id} active={dietFilter === dt.id} onClick={function(){ setDietFilter(dt.id); }} color={dt.color} label={dt.icon + ' ' + dt.label} />;
+            return <DietChip key={dt.id} active={dietFilter === dt.id} onClick={function(){ setDietFilter(dietFilter === dt.id ? 'all' : dt.id); }} color={dt.color} label={dt.label} />;
           })}
         </div>
 
-        {/* Show add-ons toggle */}
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 8, background: showAddons ? "#EADFF5" : C.surface, border: "1px solid " + (showAddons ? "#8A70C8" : C.border), fontSize: 12, fontWeight: 600, color: showAddons ? "#5A3EA0" : C.text, cursor: "pointer", userSelect: "none" }}>
+        {/* A switch, not a checkbox: it turns a view mode on and off, and the
+            old bare checkbox read as one more filter to tick. */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 10, cursor: "pointer",
+          fontSize: 13.5, fontWeight: 600, color: K.textBody, marginLeft: 4 }}>
           <input type="checkbox" checked={showAddons} onChange={function(e){ setShowAddons(e.target.checked); }}
-            style={{ margin: 0, cursor: "pointer" }} />
-          {T2("Show add-ons")}
+            style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+          <span style={{ width: 42, height: 24, borderRadius: K.rPill, flexShrink: 0, position: "relative",
+            background: showAddons ? K.brand : K.lineStrong, transition: "background .16s ease" }}>
+            <span style={{ position: "absolute", top: 3, left: showAddons ? 21 : 3, width: 18, height: 18,
+              borderRadius: "50%", background: "#FFFFFF", transition: "left .16s ease",
+              boxShadow: "0 1px 3px rgba(17,28,51,.28)" }} />
+          </span>
+          {T2("Show add-ons only")}
         </label>
 
-        {onAddCustomDish && (
-          <button onClick={openCustomModal}
-            style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.wine, color: C.wine, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            + {T2("Add dish")}
-          </button>
-        )}
-        {onAddSectionFromLibrary && (
-          <button onClick={openSectionModal}
-            style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            📚 {T2("Add section")}
-          </button>
-        )}
+        <span style={{ display: "flex", gap: 10, marginLeft: "auto", flexWrap: "wrap" }}>
+          {onAddCustomDish && (
+            <KButton size="sm" icon="plus" onClick={openCustomModal}
+              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+              {T2("Add dish")}
+            </KButton>
+          )}
+          {onAddSectionFromLibrary && (
+            <KButton size="sm" icon="layers" onClick={openSectionModal}
+              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+              {T2("Add section")}
+            </KButton>
+          )}
+        </span>
       </div>
 
       {/* Template summary bar (per-dept scoped counts) */}
       {templateInfo.name && (
-        <div style={{ padding: "10px 14px", marginBottom: 14, borderRadius: 10, background: C.bg, border: "1px solid " + C.border, fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span>📋 <b style={{ color: C.text }}>{templateInfo.name}</b> · {templateCountInDept} {T2("template dishes in this dept")} <span style={{ opacity: 0.7 }}>({templateInfo.dishes.length} {T2("total")})</span></span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", marginBottom: 16,
+          borderRadius: 16, background: K.sageBg, border: "1px solid " + K.sageBorder, flexWrap: "wrap" }}>
+          <span style={{ width: 52, height: 52, borderRadius: 14, flexShrink: 0, background: "#FFFFFF",
+            border: "1px solid " + K.sageBorder, color: K.sage,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="layers" size={23} strokeWidth={1.8} />
+          </span>
+          <span style={{ minWidth: 0, flex: "1 1 220px" }}>
+            <span style={{ display: "block", fontSize: 15.5, fontWeight: 700, letterSpacing: "-0.2px", color: K.sageText }}>
+              {templateInfo.name}
+            </span>
+            <span style={{ display: "block", fontSize: 13, color: K.sage, marginTop: 2 }}>
+              {templateCountInDept} {T2("template dishes in this dept")} ({deptTotal} {T2("total")})
+            </span>
+          </span>
           {onLoadDefaults && (
-            <button onClick={onLoadDefaults} disabled={!!seeding}
+            <KButton size="sm" icon="refresh" onClick={onLoadDefaults} disabled={!!seeding}
               title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
-              style={{ padding: "4px 10px", borderRadius: 7, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 600, cursor: seeding ? "wait" : "pointer" }}>
-              {seeding ? T2("Loading…") : "↺ " + T2("Load package defaults")}
-            </button>
+              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.sageBorder, color: K.sageText }}>
+              {seeding ? T2("Loading…") : T2("Load package defaults")}
+            </KButton>
           )}
-          <span style={{ marginLeft: "auto" }}>
-            ✓ {totalSel} {T2("selected")} · ✨ {addonsAvailable} {T2("add-ons available")}
+          <span style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: K.ok }}>
+              <Icon name="check" size={15} strokeWidth={2.2} />{totalSel} {T2("selected")}
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: K.sage }}>
+              <Icon name="layers" size={15} strokeWidth={2} />{addonsAvailable} {T2("add-ons available")}
+            </span>
           </span>
         </div>
       )}
@@ -1259,12 +1426,20 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
         var top = elsewhere[0];
         var elsewhereTotal = elsewhere.reduce(function(n, d){ return n + (allDeptCounts[d.id].sel || 0); }, 0);
         return (
-          <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted, background: C.surface, borderRadius: 12, border: "1px dashed " + C.border }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>{top ? '📌' : '🔍'}</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+          // The old panel was built from the C palette - cool grey on a wine
+          // accent - which is why an empty result looked like it belonged to a
+          // different application than the cards it replaces.
+          <div className="kh-cardart-sm" style={{ padding: "56px 24px", textAlign: "center",
+            background: K.cardWarm, borderRadius: 20, border: "1px dashed " + K.cardWarmLine, boxShadow: K.shadowCard }}>
+            <span style={{ width: 56, height: 56, borderRadius: 18, margin: "0 auto 14px",
+              background: K.brandBg, border: "1px solid " + K.brandBorder, color: K.brand,
+              display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name={top ? "layers" : "search"} size={24} strokeWidth={1.7} />
+            </span>
+            <div style={{ ...type.cardTitle, fontSize: 16, color: K.hdrTitle, marginBottom: 5 }}>
               {top ? T2("Nothing selected in this department") : T2("No dishes match")}
             </div>
-            <div style={{ fontSize: 12 }}>
+            <div style={{ ...type.meta, color: K.hdrMeta }}>
               {top
                 ? (elsewhereTotal + ' ' + T2("selected in") + ' ' + top.label + (elsewhere.length > 1 ? ' ' + T2("and others") : ''))
                 : (!showAddons && templateInfo.name
@@ -1272,9 +1447,11 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
                     : T2("Try clearing filters or search."))}
             </div>
             {top && setActiveDept && (
-              <button onClick={function(){ setActiveDept(top.id); }}
-                style={{ marginTop: 12, padding: "6px 14px", borderRadius: 6, background: C.surface, border: "1px solid " + C.wine, color: C.wine, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                {T2("Go to")} {top.label} →
+              <button onClick={function(){ setActiveDept(top.id); }} className="kh-btn kh-backbtn kh-rip" onPointerDown={ripple}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, marginTop: 16, padding: "10px 18px",
+                  borderRadius: K.rPill, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
+                  color: K.brandText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: K.fontBody }}>
+                {T2("Go to")} {top.label}<Icon name="chevronR" size={14} strokeWidth={2.2} />
               </button>
             )}
           </div>
@@ -1284,27 +1461,31 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
       {/* Section pills — pick one section instead of scrolling through all of them.
           Hidden while searching, since search already spans every section. */}
       {!isSearching && groupedByCat.length > 1 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 }}>
           {groupedByCat.map(function(g){
             var isActive = g.id === activeSectionId;
             var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
             return (
               <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                 <button onClick={function(){ setActiveSectionId(g.id); }}
+                  className={"kh-secpill" + (isActive ? " is-on" : "")}
                   style={{
-                    padding: "6px 12px", borderRadius: g.isAdHoc && onRemoveSection ? "20px 0 0 20px" : 20, fontSize: 12, fontWeight: isActive ? 700 : 500,
-                    background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.text,
-                    border: "1px solid " + (isActive ? C.wine : C.border), borderRight: (g.isAdHoc && onRemoveSection) ? "none" : undefined, cursor: "pointer", whiteSpace: "nowrap",
+                    display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
+                    padding: "11px 18px", borderRadius: g.isAdHoc && onRemoveSection ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                    background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
+                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: (g.isAdHoc && onRemoveSection) ? "none" : undefined, cursor: "pointer",
                   }}>
-                  {g.icon} {g.name} <span style={{ opacity: 0.75 }}>· {selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>{g.icon}</span>{g.name} <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>{selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
                 </button>
                 {g.isAdHoc && onRemoveSection && (
                   <button onClick={function(){ onRemoveSection(g); if (activeSectionId === g.id) setActiveSectionId(null); }}
+                    className="kh-secx"
                     title={T2("Remove this ad-hoc section from this menu")}
                     style={{
-                      padding: "6px 8px", borderRadius: "0 20px 20px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
-                      background: isActive ? C.wine : C.surface, color: isActive ? "#fff" : C.muted,
-                      border: "1px solid " + (isActive ? C.wine : C.border), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? K.brand : "#FFFFFF", color: isActive ? "rgba(255,255,255,.8)" : K.textFaint,
+                      border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
                     }}>
                     ✕
                   </button>
@@ -1327,7 +1508,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
         if (grp.subGroups) {
           return (
             <div key={grp.id} style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+              <div style={{ ...type.label, fontSize: 11, color: K.hdrMeta, letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
                 {grp.icon} {grp.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {grp.dishes.length}</span>
               </div>
               {grp.subGroups.map(function(sub){
@@ -1337,7 +1518,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8, padding: "0 2px" }}>
                       ↳ {sub.name} <span style={{ color: C.muted, fontWeight: 500 }}>· {selInSub > 0 ? selInSub + "/" : ""}{sub.dishes.length}</span>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
                       {sub.dishes.map(function(d){
                         return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
                       })}
@@ -1350,10 +1531,10 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
         }
         return (
           <div key={grp.id} style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+            <div style={{ ...type.label, fontSize: 11, color: K.hdrMeta, letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
               {grp.icon} {grp.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {grp.dishes.length}</span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
               {grp.dishes.map(function(d){
                 return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
               })}
@@ -1493,6 +1674,8 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
           </div>
         </div>
       )}
+      <KToast open={!!tabToast} toneName={tabToast && tabToast.tone} title={tabToast && tabToast.title}
+        body={tabToast && tabToast.body} onClose={function(){ setTabToast(null); }} />
     </div>
   );
 }
@@ -1508,61 +1691,80 @@ function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
   var desc = (meta && meta.sales_description) || '';
   var img = (meta && meta.hero_image_url) || d.image || '';
 
-  var borderStyle;
-  var bg;
-  if (inT && isSel)      { borderStyle = "1.5px solid #2A7A48"; bg = "#F0F9F3"; }
-  else if (inT && !isSel){ borderStyle = "1px solid " + C.border; bg = C.surface; }
-  else if (!inT && isSel){ borderStyle = "1.5px dashed #8A70C8"; bg = "#F8F4FC"; }
-  else                    { borderStyle = "1px dashed " + C.border; bg = C.surface; }
+  // Four states, and each one has to be legible at a glance in a grid of forty:
+  //   in template + picked  → included, brand green
+  //   in template, not picked → available, plain
+  //   off template + picked → an add-on, sage, so it is visibly a deliberate extra
+  //   off template, not picked → available add-on, dashed
+  var accent = isSel ? (inT ? K.brand : K.sage) : K.cardWarmLine;
+  var face   = isSel ? (inT ? K.brandBg : K.sageBg) : "#FFFFFF";
+  var dashed = !inT && !isSel;
 
   return (
-    <button onClick={function(){ onToggle(d.name); }}
+    <button onClick={function(){ onToggle(d.name); }} className="kh-dishcard kh-rip" onPointerDown={ripple}
       style={{
-        position: "relative", padding: 0, borderRadius: 10,
-        background: bg, border: borderStyle,
-        cursor: "pointer", textAlign: "left", overflow: "hidden",
-        transition: "transform 0.08s ease",
+        position: "relative", padding: 0, borderRadius: 16,
+        background: face, border: (isSel ? "1.5px solid " : (dashed ? "1.5px dashed " : "1px solid ")) + accent,
+        cursor: "pointer", textAlign: "left", overflow: "hidden", fontFamily: K.fontBody,
+        boxShadow: K.shadowCard,
       }}>
       {/* ADD-ON badge */}
       {!inT && isSel && !d.isPhantom && (
-        <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#8A70C8", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-          ADD-ON
+        <span style={{ position: "absolute", top: 10, left: 10, zIndex: 2, padding: "3px 9px", borderRadius: K.rPill,
+          background: K.sage, color: "#FFFFFF", fontSize: 10, fontWeight: 700, letterSpacing: ".5px" }}>
+          {"ADD-ON"}
         </span>
       )}
       {/* PHANTOM badge — dish in package but not in catalogue */}
       {d.isPhantom && (
         <span title="Not in dish catalogue — edit in Dish Library"
-          style={{ position: "absolute", top: 6, left: 6, zIndex: 2, padding: "1px 6px", borderRadius: 4, background: "#D4A843", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: 0.5 }}>
-          ⚠ NO CAT
+          style={{ position: "absolute", top: 10, left: 10, zIndex: 2, display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "3px 9px", borderRadius: K.rPill, background: K.warnBg, border: "1px solid " + K.warnBorder,
+            color: K.warn, fontSize: 10, fontWeight: 700, letterSpacing: ".4px" }}>
+          <Icon name="alert" size={10} strokeWidth={2.4} />{"NO CAT"}
         </span>
       )}
       {/* Checkbox */}
       <span style={{
-        position: "absolute", top: 6, right: 6, zIndex: 2,
-        width: 22, height: 22, borderRadius: 5,
-        background: isSel ? (inT ? "#2A7A48" : "#8A70C8") : "rgba(255,255,255,0.9)",
-        border: "1.5px solid " + (isSel ? (inT ? "#2A7A48" : "#8A70C8") : "#BBB"),
+        position: "absolute", top: 10, right: 10, zIndex: 2,
+        width: 26, height: 26, borderRadius: 8,
+        background: isSel ? (inT ? K.brand : K.sage) : "rgba(255,255,255,.92)",
+        border: "1.5px solid " + (isSel ? (inT ? K.brand : K.sage) : K.lineStrong),
         display: "flex", alignItems: "center", justifyContent: "center",
-        color: "#fff", fontSize: 13, fontWeight: 700,
+        color: "#FFFFFF", boxShadow: "0 1px 4px rgba(17,28,51,.16)",
       }}>
-        {isSel ? "✓" : ""}
+        {isSel && <Icon name="check" size={15} strokeWidth={2.6} />}
       </span>
 
-      {/* Image area */}
-      <div style={{ height: 90, background: img ? "transparent" : "#EEE", backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {!img && <span style={{ fontSize: 32, opacity: 0.4 }}>{d.catIcon}</span>}
+      {/* Image area — a tinted panel with the category glyph when a dish has no
+          photograph of its own, rather than a grey box that reads as broken. */}
+      <div style={{ height: 116, display: "flex", alignItems: "center", justifyContent: "center",
+        background: img ? "transparent" : ((dietMeta && dietMeta.color ? dietMeta.color : K.brand) + "14"),
+        backgroundImage: img ? "url(" + img + ")" : "none", backgroundSize: "cover", backgroundPosition: "center" }}>
+        {!img && <span style={{ fontSize: 34, opacity: 0.55 }}>{d.catIcon}</span>}
       </div>
 
       {/* Text area */}
-      <div style={{ padding: "8px 10px 10px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+      <div style={{ padding: "12px 13px 13px" }}>
+        <div style={{ ...type.cardTitle, color: K.hdrTitle, wordBreak: "break-word" }}>{d.name}</div>
+        {desc && <div style={{ ...type.meta, color: K.hdrMeta, marginTop: 4 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
+        {!desc && d.hindi && <div style={{ ...type.meta, color: K.textMuted, marginTop: 4 }}>{d.hindi}</div>}
+        {/* The state in words. A coloured border alone is not a label, and this
+            row is what tells you whether a dish is actually on the menu. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+            background: isSel ? (inT ? K.ok : K.sage) : K.lineStrong }} />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: isSel ? (inT ? K.ok : K.sageText) : K.textFaint }}>
+            {isSel ? (inT ? "Included" : "Add-on") : "Select to add"}
+          </span>
           {dietMeta && (
-            <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
+            <span title={dietMeta.label} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
+              fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: K.rPill,
+              background: (dietMeta.color || K.brand) + "18", color: dietMeta.color || K.brand }}>
+              {dietMeta.label}
+            </span>
           )}
-          <span style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.25, wordBreak: "break-word" }}>{d.name}</span>
         </div>
-        {desc && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.3, marginTop: 2 }}>{desc.length > 60 ? desc.slice(0, 58) + '…' : desc}</div>}
-        {!desc && d.hindi && <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic" }}>{d.hindi}</div>}
       </div>
     </button>
   );
@@ -1590,21 +1792,32 @@ function ComingSoonPlaceholder({ T2, dept }) {
 // Small UI bits
 // ═══════════════════════════════════════════════════════════════
 function SubTab({ label, active, disabled, title, onClick }) {
+  // Same shape as the app's main tab strip: a solid deep-green pill for the
+  // active tab rather than a thin underline, which is hard to spot at a glance.
   var style = {
-    padding: "10px 14px", background: "transparent", border: "none",
-    borderBottom: "2.5px solid " + (active ? (C.gold || "#D4A843") : "transparent"),
-    color: active ? C.text : (disabled ? C.muted : C.text),
-    fontSize: 13, fontWeight: active ? 700 : 500,
+    display: "inline-flex", alignItems: "center", gap: 8,
+    padding: "9px 16px", borderRadius: 10, border: "none",
+    background: active ? K.tabActiveBg : "transparent",
+    color: active ? K.tabActiveText : (disabled ? K.textFaint : K.tabIdleText),
+    fontSize: 14, fontWeight: active ? 700 : 500,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.5 : 1,
-    marginBottom: -1,
+    whiteSpace: "nowrap", fontFamily: K.fontBody,
   };
-  return <button style={style} disabled={disabled} title={title || ''} onClick={onClick}>{label}</button>;
+  return <button className={"kh-btn kh-subtab kh-rip" + (active ? " is-on" : "")} onPointerDown={ripple} style={style} disabled={disabled} title={title || ''} onClick={onClick}>{label}</button>;
 }
 
 function SubTabStrip({ T2, activeSubTab, setActiveSubTab, hasItems, hasConfigs, totalSel }) {
+  // Nothing to switch between means this is not a control, it is a label - and
+  // one that was taking a whole row above the panel. The count it carried is
+  // already on the department heading and in the Live total rail.
+  if (!(hasItems && hasConfigs)) return null;
   return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 14, borderBottom: "1px solid " + C.border }}>
+    // A tray, not a bare underlined row. Sitting transparent on the page
+    // artwork it read as a stray rule with text floating above it - the same
+    // failure the station rows had in the Closing tab.
+    <div style={{ display: "inline-flex", gap: 4, marginBottom: 12, padding: 4, borderRadius: 13,
+      background: K.tabBarBg, border: "1px solid " + K.tabBarLine }}>
       {hasItems && (
         <SubTab
           label={"🍛 " + T2("Items") + (totalSel > 0 ? " · " + totalSel : '')}
@@ -1625,13 +1838,20 @@ function SubTabStrip({ T2, activeSubTab, setActiveSubTab, hasItems, hasConfigs, 
 
 function DietChip({ active, onClick, color, label }) {
   return (
-    <button onClick={onClick}
+    // White when off rather than transparent: these sit on a warm card, and a
+    // transparent chip let the card texture through and read as disabled.
+    <button onClick={onClick} className={"kh-btn kh-dietchip kh-rip" + (active ? " is-on" : "")} onPointerDown={ripple}
       style={{
-        padding: "6px 10px", borderRadius: 16,
-        background: active ? color : "transparent",
-        border: "1px solid " + (active ? color : "#DDD"),
-        color: active ? "#fff" : color,
-        fontSize: 11, fontWeight: 700, cursor: "pointer",
+        display: "inline-flex", alignItems: "center", gap: 7,
+        padding: "11px 18px", borderRadius: K.rPill,
+        background: active ? color : "#FFFFFF",
+        border: "1px solid " + (active ? color : K.cardWarmLine),
+        // Off-state text stays the normal dark body colour; the colour only
+        // appears once the chip is on, as the fill. Tinting the label too made
+        // four unselected chips look like four different states.
+        color: active ? "#FFFFFF" : K.textBody,
+        fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+        fontFamily: K.fontBody, whiteSpace: "nowrap",
       }}>{label}</button>
   );
 }
