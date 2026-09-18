@@ -591,6 +591,10 @@ const KITCHEN_CSS = `
 /* Amber variant for the upload panel, which is the destructive path. */
 .kh-pressrow.is-warn:hover { background: ${K.warnBorder} !important; border-color: ${K.warn} !important; }
 .kh-pressrow.is-warn:active { background: ${K.warnBg} !important; }
+/* Proposal rows. Unscoped: this screen is not inside .kh-scope. */
+.kh-proprow { transition: background .14s ease; }
+.kh-proprow:hover { background: ${K.surfaceAlt} !important; }
+
 /* Bare icon buttons inside table rows. They had no rule at all, so like the
    panels above they looked clickable and produced nothing on hover or click. */
 .kh-scope .kh-iconbtn { transition: background .14s ease, color .14s ease; }
