@@ -3,6 +3,7 @@
 // Place in: src/components/ProposalsView.jsx
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
@@ -13,7 +14,7 @@ import { supabase } from '../lib/supabase.js';
 import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
-import { KButton } from './KitchenUI.jsx';
+import { KButton, ModalWatermark } from './KitchenUI.jsx';
 import { fetchAllRows } from '../lib/db.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
@@ -172,6 +173,12 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var [sortKey, setSortKey] = useState('guest_name');
   var [sortDir, setSortDir] = useState('asc');
   var [page, setPage]       = useState(1);
+  // The shell renders #kh-hdr-slot inside the page header plate; its DOM node
+  // only exists after that commit, so it is read in an effect rather than
+  // during render. Screen-level actions go there instead of sitting in a row
+  // of their own above the content.
+  var [hdrSlot, setHdrSlot] = useState(null);
+  useEffect(function(){ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [mode]);
   var PAGE_SIZE = 12;
   useEffect(function(){ setPage(1); }, [searchQ, statusFilter, repFilter, sortKey, sortDir]);
 
@@ -459,142 +466,225 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
   return (
     <div style={{ padding: "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
-      {/* No badge, title or subtitle: the sidebar already names this screen and
-          the toolbar under this row says what the list is filtered to. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 18, justifyContent: "flex-end", marginBottom: 18, flexWrap: "wrap" }}>
-        {mode === 'list' && canCreate && (
-          <KButton variant="brand" icon="plus" onClick={openNew}
-            style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 15 }}>{T2("New Proposal")}</KButton>
-        )}
-        {mode !== 'list' && (
-          <KButton icon="chevronL" onClick={cancelForm}
-            style={{ padding: "12px 20px", borderRadius: K.rPill, fontSize: 14, background: K.cardWarm, borderColor: K.cardWarmLine }}>
-            {T2("Back to list")}
-          </KButton>
-        )}
-      </div>
+      {/* Screen actions live in the page header plate, portalled into the slot
+          the shell renders there, so they sit on the banner rather than in a
+          row of their own pushing the list down. */}
+      {hdrSlot && createPortal((
+        <>
+          {mode === 'list' && canCreate && (
+            <KButton variant="brand" icon="plus" onClick={openNew}
+              style={{ padding: "12px 22px", borderRadius: K.rPill, fontSize: 14.5 }}>{T2("New Proposal")}</KButton>
+          )}
+          {mode !== 'list' && (
+            <KButton icon="chevronL" onClick={cancelForm}
+              style={{ padding: "11px 18px", borderRadius: K.rPill, fontSize: 14, background: "#FFFFFF", borderColor: K.hdrChipLine }}>
+              {T2("Back to list")}
+            </KButton>
+          )}
+        </>
+      ), hdrSlot)}
 
       {/* ── FORM (new / edit) ── */}
+      {/* A dialog, not a panel pushed in above the list: editing a proposal is
+          a task you finish and leave, and inline it left the table hanging
+          below with no way to tell which row you were on. */}
       {mode !== 'list' && (
-        <div style={{ background: C.surface, borderRadius: 14, border: "1px solid " + C.border, padding: "20px 22px", marginBottom: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", marginBottom: 14 }}>
-            {mode === 'edit' ? T2("Edit proposal") : T2("New proposal")}
-          </div>
+        <div onClick={saving ? undefined : cancelForm}
+          style={{ position: "fixed", inset: 0, zIndex: 9999, background: K.modalScrim,
+            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "28px 20px", overflowY: "auto" }}>
+          <div onClick={function(e){ e.stopPropagation(); }} role="dialog" aria-modal="true"
+            style={{ position: "relative", background: K.modalBg, border: "1px solid " + K.modalLine,
+              borderRadius: K.modalRadius, boxShadow: K.shadowLift, maxWidth: 1180, width: "100%", overflow: "hidden" }}>
+            <ModalWatermark />
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
-            <Field label={T2("Guest name") + " *"} value={form.guest_name} onChange={function(v){ updateForm('guest_name', v); }} placeholder="Rohan & Priya" />
-            <Field label={T2("Phone")} value={form.phone} onChange={function(v){ updateForm('phone', v); }} placeholder="+91 98…" />
-            <Field label={T2("Email")} value={form.email} onChange={function(v){ updateForm('email', v); }} placeholder="guest@…" type="email" />
-            <SelectField label={T2("Event type")} value={form.event_type} onChange={function(v){ updateForm('event_type', v); }} options={EVENT_TYPES} placeholder={T2("Select…")} />
-            <SelectField label={T2("Venue") + " *"} value={form.venue} onChange={function(v){ updateForm('venue', v); }}
-              options={SALES_VENUES.map(function(v){ return { value: v.code, label: v.code + ' — ' + v.name.replace('Ambria ','') }; })}
-              placeholder={T2("Pick venue")} />
-            <Field label={T2("Event date")} value={form.event_date} onChange={function(v){ updateForm('event_date', v); }} type="date" />
-            <Field label={T2("Pax")} value={form.pax} onChange={function(v){ updateForm('pax', v.replace(/[^0-9]/g,'')); }} placeholder="250" />
-            <SelectField label={T2("Source")} value={form.source} onChange={function(v){ updateForm('source', v); }} options={SOURCES} placeholder={T2("How did they find us?")} />
-          </div>
-
-          {/* V71 — Menu diet + template picker */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 12, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6 }}>
-                {T2("Menu template")} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {T2("optional starting point")}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>{T2("Guest diet")}:</span>
-                {DIET_OPTIONS.map(function(opt){
-                  var isSel = form.menu_diet === opt.value;
-                  return (
-                    <button key={opt.value || 'both'} type="button" onClick={function(){ updateForm('menu_diet', opt.value); }}
-                      style={{
-                        padding: "4px 10px", borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                        background: isSel ? (opt.value === 'nonveg' ? '#FAE5E5' : opt.value === 'veg' ? '#E5F5EA' : '#F5F0E8') : C.surface,
-                        color:      isSel ? (opt.value === 'nonveg' ? '#A52828' : opt.value === 'veg' ? '#2A7A48' : C.text) : C.muted,
-                        border: "1px solid " + (isSel ? (opt.value === 'nonveg' ? '#F0B8B8' : opt.value === 'veg' ? '#B8E0C6' : (C.gold || '#D4A843')) : C.border),
-                      }}>
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
+            <div style={{ position: "relative", zIndex: 1, padding: "24px 28px", display: "flex", alignItems: "center", gap: 18 }}>
+              <span style={{ width: 62, height: 62, borderRadius: 18, flexShrink: 0, backgroundColor: K.cardWarm,
+                border: "1px solid " + K.hdrLine, color: K.sbGold,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="note" size={28} strokeWidth={1.6} />
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ display: "block", ...type.sectionHead, fontSize: 28, color: K.hdrTitle }}>
+                  {mode === 'edit' ? T2("Edit Proposal") : T2("New Proposal")}
+                </span>
+                <span style={{ display: "block", fontSize: 14, color: K.hdrMeta, marginTop: 2 }}>
+                  {T2("Update guest details, event information and menu preferences.")}
+                </span>
+              </span>
+              <button onClick={cancelForm} disabled={saving} aria-label={T2("Cancel")}
+                className="kh-modal-x kh-rip" onPointerDown={ripple}
+                style={{ width: 40, height: 40, borderRadius: K.rPill, flexShrink: 0, background: K.surface,
+                  border: "1px solid " + K.modalLine, color: K.textMuted, cursor: "pointer", padding: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="close" size={18} strokeWidth={2.1} />
+              </button>
             </div>
-            {allPackages.length === 0 && (
-              <div style={{ padding: "16px 14px", background: C.amberBg || "#FFF4D9", border: "1px dashed " + (C.amberBorder || "#F2D98A"), borderRadius: 10, fontSize: 12, color: C.muted }}>
-                {T2("No menu packages yet. Create some in Menu Packages first.")}
+
+            <div style={{ position: "relative", zIndex: 1, padding: "0 28px 24px" }}>
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "20px 22px", marginBottom: 18 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 18 }}>
+                  <Field label={T2("Guest name")} required icon="contact" value={form.guest_name}
+                    onChange={function(v){ updateForm('guest_name', v); }} placeholder={T2("Full name")} />
+                  <Field label={T2("Phone")} icon="contact" value={form.phone}
+                    onChange={function(v){ updateForm('phone', v); }} placeholder="+91 98…" />
+                  <Field label={T2("Email")} icon="note" value={form.email}
+                    onChange={function(v){ updateForm('email', v); }} placeholder="guest@…" />
+                  <SelectField label={T2("Event type")} icon="calendar" value={form.event_type}
+                    onChange={function(v){ updateForm('event_type', v); }} options={EVENT_TYPES}
+                    placeholder={T2("Pick event type")} />
+                  <Field label={T2("Event date")} type="date" icon="calendarDays" value={form.event_date}
+                    onChange={function(v){ updateForm('event_date', v); }} />
+                  <Field label={T2("Pax")} required icon="users" value={form.pax}
+                    onChange={function(v){ updateForm('pax', v.replace(/[^0-9]/g,'')); }} placeholder="300" />
+                  <SelectField label={T2("Source")} icon="tag" value={form.source}
+                    onChange={function(v){ updateForm('source', v); }} options={SOURCES}
+                    placeholder={T2("How did they find us?")} />
+                  <SelectField label={T2("Venue")} required icon="building" value={form.venue}
+                    onChange={function(v){ updateForm('venue', v); }}
+                    options={SALES_VENUES.map(function(v){ return { value: v.code, label: v.code + ' — ' + v.name.replace(/^Ambria\s*/,'') }; })}
+                    placeholder={T2("Pick venue")} />
+                </div>
               </div>
-            )}
-            {allPackages.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-                <button type="button" onClick={function(){ updateForm('tier_package_id', null); }}
-                  style={{
-                    padding: "14px 12px", borderRadius: 10,
-                    background: !form.tier_package_id ? "#F5F0E8" : C.surface,
-                    border: !form.tier_package_id ? ("1.5px solid " + (C.gold || "#D4A843")) : ("1px solid " + C.border),
-                    textAlign: "left", cursor: "pointer",
-                  }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 2 }}>✨ {T2("Start from scratch")}</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>{T2("Build menu without a template")}</div>
-                </button>
-                {filteredPackages.map(function(pkg){
-                  var isSel = form.tier_package_id === pkg.id;
-                  var dietBg = pkg.diet === 'nonveg' ? '#FAE5E5' : pkg.diet === 'veg' ? '#E5F5EA' : '#F0F0F0';
-                  var dietFg = pkg.diet === 'nonveg' ? '#A52828' : pkg.diet === 'veg' ? '#2A7A48' : '#666';
-                  var dietLabel = pkg.diet === 'nonveg' ? '🍗 Non-Veg' : pkg.diet === 'veg' ? '🥬 Veg' : '❓';
-                  return (
-                    <button key={pkg.id || pkg.name} type="button" onClick={function(){ pickTemplate(pkg); }}
-                      disabled={!pkg.id}
-                      title={!pkg.id ? T2('Package id not loaded yet — refresh?') : ''}
-                      style={{
-                        padding: "14px 12px", borderRadius: 10,
-                        background: isSel ? "#F5F0E8" : C.surface,
-                        border: isSel ? ("1.5px solid " + (C.gold || "#D4A843")) : ("1px solid " + C.border),
-                        textAlign: "left", cursor: pkg.id ? "pointer" : "not-allowed",
-                        opacity: pkg.id ? 1 : 0.55,
-                      }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.2 }}>{pkg.name}</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: dietBg, color: dietFg, whiteSpace: "nowrap" }}>
-                          {dietLabel}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: C.muted }}>{pkg.dishCount} {T2("dishes")}</div>
+
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "18px 22px 22px", marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
+                    <span style={{ width: 40, height: 40, borderRadius: 12, flexShrink: 0, background: K.brandBg,
+                      border: "1px solid " + K.brandBorder, color: K.brand,
+                      display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="utensils" size={19} strokeWidth={1.8} />
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 17, fontWeight: 700, letterSpacing: "-0.2px", color: K.hdrTitle }}>{T2("Menu Template")}</span>
+                      <span style={{ display: "block", fontSize: 13.5, color: K.hdrMeta, marginTop: 2 }}>
+                        {T2("Choose a menu template or start from scratch. You can customise it later.")}
+                      </span>
+                    </span>
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13.5, color: K.hdrMeta }}>{T2("Guest diet preference")}:</span>
+                    {DIET_OPTIONS.map(function(opt){
+                      var isSel = form.menu_diet === opt.value;
+                      var fg = opt.value === 'nonveg' ? K.danger : opt.value === 'veg' ? K.ok : K.brand;
+                      return (
+                        <button key={opt.value || 'both'} type="button" onClick={function(){ updateForm('menu_diet', opt.value); }}
+                          className="kh-rip" onPointerDown={ripple}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px", borderRadius: K.rPill,
+                            fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: K.fontBody,
+                            background: isSel ? (opt.value ? fg : K.brand) : "#FFFFFF",
+                            color: isSel ? "#FFFFFF" : K.textBody,
+                            border: "1px solid " + (isSel ? (opt.value ? fg : K.brand) : K.line) }}>
+                          {opt.value && <Icon name="apple" size={14} strokeWidth={2} />}
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </span>
+                </div>
+
+                {allPackages.length === 0 && (
+                  <div style={{ padding: "16px 18px", background: K.warnBg, border: "1px dashed " + K.warnBorder,
+                    borderRadius: 14, fontSize: 13.5, color: K.warn }}>
+                    {T2("No menu packages yet. Create some in Menu Packages first.")}
+                  </div>
+                )}
+
+                {allPackages.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
+                    <button type="button" onClick={function(){ updateForm('tier_package_id', null); }}
+                      className="kh-rip kh-pressrow is-sage" onPointerDown={ripple}
+                      style={{ display: "flex", alignItems: "center", gap: 13, padding: "14px", borderRadius: 14,
+                        background: !form.tier_package_id ? K.sageBg : "#FFFFFF",
+                        border: "1.5px solid " + (!form.tier_package_id ? K.sage : K.line),
+                        textAlign: "left", cursor: "pointer", fontFamily: K.fontBody, color: K.sage }}>
+                      <span style={{ width: 42, height: 42, borderRadius: "50%", flexShrink: 0, background: K.brand, color: "#FFFFFF",
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Icon name="plus" size={20} strokeWidth={2.1} />
+                      </span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: K.hdrTitle }}>{T2("Start from scratch")}</span>
+                        <span style={{ display: "block", fontSize: 12.5, color: K.hdrMeta, marginTop: 2 }}>{T2("Build menu without a template")}</span>
+                      </span>
                     </button>
-                  );
-                })}
-                {filteredPackages.length === 0 && (
-                  <div style={{ gridColumn: "1 / -1", padding: "14px", textAlign: "center", fontSize: 12, color: C.muted, background: C.bg, borderRadius: 10, border: "1px dashed " + C.border }}>
-                    {T2("No packages match this diet. Rename your package to include 'Veg' or 'Non-Veg', or pick a different diet.")}
+                    {filteredPackages.map(function(pkg){
+                      var isSel = form.tier_package_id === pkg.id;
+                      var isNV = pkg.diet === 'nonveg';
+                      var dietFg = isNV ? K.danger : pkg.diet === 'veg' ? K.ok : K.textFaint;
+                      var dietBg = isNV ? K.dangerBg : pkg.diet === 'veg' ? K.okBg : K.surfaceAlt;
+                      var dietBd = isNV ? K.dangerBorder : pkg.diet === 'veg' ? K.okBorder : K.line;
+                      var dietLabel = isNV ? T2("Non-Veg") : pkg.diet === 'veg' ? T2("Veg") : T2("Mixed");
+                      return (
+                        <button key={pkg.id || pkg.name} type="button" onClick={function(){ pickTemplate(pkg); }}
+                          disabled={!pkg.id} className="kh-rip" onPointerDown={ripple}
+                          title={!pkg.id ? T2('Package id not loaded yet — refresh?') : ''}
+                          style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", borderRadius: 14,
+                            background: isSel ? K.brandBg : "#FFFFFF",
+                            border: "1.5px solid " + (isSel ? K.brand : K.line),
+                            textAlign: "left", cursor: pkg.id ? "pointer" : "not-allowed",
+                            opacity: pkg.id ? 1 : 0.55, fontFamily: K.fontBody }}>
+                          {/* A tinted tile, not a photograph: menu packages carry
+                              no image of their own, and a stock picture would
+                              claim to show a menu it has never seen. */}
+                          <span style={{ width: 52, height: 52, borderRadius: 13, flexShrink: 0,
+                            background: dietBg, border: "1px solid " + dietBd, color: dietFg,
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Icon name="utensils" size={22} strokeWidth={1.8} />
+                          </span>
+                          <span style={{ minWidth: 0, flex: 1 }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: K.hdrTitle, lineHeight: 1.25 }}>{pkg.name}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: K.rPill,
+                                background: dietBg, color: dietFg, border: "1px solid " + dietBd, whiteSpace: "nowrap" }}>{dietLabel}</span>
+                            </span>
+                            <span style={{ display: "block", fontSize: 12.5, color: K.hdrMeta, marginTop: 3 }}>
+                              {pkg.dishCount} {T2("dishes")}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {filteredPackages.length === 0 && (
+                      <div style={{ gridColumn: "1 / -1", padding: "16px", textAlign: "center", fontSize: 13.5, color: K.hdrMeta }}>
+                        {T2("No packages match this diet. Rename your package to include 'Veg' or 'Non-Veg', or pick a different diet.")}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Notes */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2("Internal notes")}</div>
-            <textarea value={form.notes} onChange={function(e){ updateForm('notes', e.target.value); }}
-              placeholder={T2("Any client requests, dietary notes, deadlines…")}
-              style={{ width: "100%", minHeight: 60, padding: "8px 10px", borderRadius: 8, border: "1px solid " + C.border, background: C.bg, fontSize: 13, color: C.text, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box" }} />
-          </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 8 }}>
+                  <span style={{ color: K.sbGold, display: "flex" }}><Icon name="note" size={17} strokeWidth={1.8} /></span>
+                  <span style={{ fontSize: 14.5, fontWeight: 700, color: K.hdrTitle }}>{T2("Internal notes")}</span>
+                </div>
+                <textarea value={form.notes} onChange={function(e){ updateForm('notes', e.target.value); }}
+                  placeholder={T2("Any client requests, dietary notes, deadlines…")}
+                  style={{ width: "100%", minHeight: 88, padding: "13px 15px", borderRadius: 14,
+                    border: "1px solid " + K.line, background: "#FFFFFF", fontSize: 14, color: K.text,
+                    boxSizing: "border-box", resize: "vertical", fontFamily: K.fontBody, outline: "none", lineHeight: 1.55 }} />
+              </div>
+            </div>
 
-          {/* Action bar */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap", borderTop: "1px solid " + C.border, paddingTop: 14 }}>
-            <button onClick={cancelForm} disabled={saving}
-              style={{ padding: "9px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              {T2("Cancel")}
-            </button>
-            <button onClick={function(){ saveProposal(); }} disabled={saving}
-              style={{ padding: "9px 18px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>
-              {saving ? T2("Saving…") : (mode === 'edit' ? T2("Save changes") : T2("Save as draft"))}
-            </button>
-            {mode === 'edit' && (
-              <button onClick={function(){ var p = proposals.find(function(x){ return x.id === editingId; }); if (p) openMenuBuilder(p); }}
-                title={T2("Open the Menu Builder for this proposal")}
-                style={{ padding: "9px 18px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 1px 3px " + C.shadow }}>
-                {T2("Build Menu")} →
-              </button>
-            )}
+            <div style={{ position: "relative", zIndex: 1, padding: "18px 28px 24px", borderTop: "1px solid " + K.modalLine,
+              display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <KButton onClick={cancelForm} disabled={saving}
+                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.surface, borderColor: K.modalLine }}>
+                {T2("Cancel")}
+              </KButton>
+              <KButton icon="check" onClick={function(){ saveProposal(); }} disabled={saving}
+                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.brandBg,
+                  borderColor: K.brandBorder, color: K.brandText }}>
+                {saving ? T2("Saving…") : (mode === 'edit' ? T2("Save changes") : T2("Save as draft"))}
+              </KButton>
+              {mode === 'edit' && (
+                <KButton variant="brand" icon="utensils" disabled={saving}
+                  onClick={function(){ var p = proposals.find(function(x){ return x.id === editingId; }); if (p) openMenuBuilder(p); }}
+                  title={T2("Open the Menu Builder for this proposal")}
+                  style={{ padding: "14px 26px", borderRadius: K.rPill, fontSize: 14.5 }}>
+                  {T2("Build Menu")}
+                </KButton>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -880,29 +970,54 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 }
 
 // ── Small form field components ──
-function Field({ label, value, onChange, placeholder, type }) {
+// The icon lives inside the field so the label above it stays a plain word, and
+// a required field marks itself rather than carrying a " *" glued to its label.
+const FIELD_SHELL = {
+  display: "flex", alignItems: "center", background: "#FFFFFF", borderRadius: 12,
+  border: "1px solid " + K.line, overflow: "hidden",
+};
+const FIELD_PRE = {
+  display: "flex", alignItems: "center", alignSelf: "stretch", padding: "0 11px",
+  color: K.textFaint, borderRight: "1px solid " + K.lineSoft,
+};
+const FIELD_INPUT = {
+  flex: 1, minWidth: 0, padding: "12px 13px", border: "none", outline: "none",
+  background: "transparent", fontSize: 14.5, color: K.text, fontFamily: K.fontBody,
+};
+function FieldLabel({ label, required }) {
+  return (
+    <div style={{ fontSize: 13.5, fontWeight: 700, color: K.hdrTitle, marginBottom: 7 }}>
+      {label}{required && <span style={{ color: K.danger }}> *</span>}
+    </div>
+  );
+}
+function Field({ label, value, onChange, placeholder, type, icon, required }) {
   return (
     <label style={{ display: "block" }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "#666", marginBottom: 3 }}>{label}</div>
-      <input type={type || 'text'} value={value || ''} onChange={function(e){ onChange(e.target.value); }}
-        placeholder={placeholder}
-        style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #DDD", background: "#FFF", fontSize: 13, color: "#222", boxSizing: "border-box" }} />
+      <FieldLabel label={label} required={required} />
+      <div style={FIELD_SHELL}>
+        {icon && <span style={FIELD_PRE}><Icon name={icon} size={16} strokeWidth={1.8} /></span>}
+        <input type={type || 'text'} value={value || ''} onChange={function(e){ onChange(e.target.value); }}
+          placeholder={placeholder} style={FIELD_INPUT} />
+      </div>
     </label>
   );
 }
-
-function SelectField({ label, value, onChange, options, placeholder }) {
+function SelectField({ label, value, onChange, options, placeholder, icon, required }) {
   return (
     <label style={{ display: "block" }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "#666", marginBottom: 3 }}>{label}</div>
-      <select value={value || ''} onChange={function(e){ onChange(e.target.value); }}
-        style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #DDD", background: "#FFF", fontSize: 13, color: "#222", cursor: "pointer", boxSizing: "border-box" }}>
-        <option value="">{placeholder || '—'}</option>
-        {options.map(function(o){
-          if (typeof o === 'string') return <option key={o} value={o}>{o}</option>;
-          return <option key={o.value} value={o.value}>{o.label}</option>;
-        })}
-      </select>
+      <FieldLabel label={label} required={required} />
+      <div style={FIELD_SHELL}>
+        {icon && <span style={FIELD_PRE}><Icon name={icon} size={16} strokeWidth={1.8} /></span>}
+        <select className="kh-select" value={value || ''} onChange={function(e){ onChange(e.target.value); }}
+          style={{ ...FIELD_INPUT, cursor: "pointer", color: value ? K.text : K.textFaint }}>
+          {placeholder && <option value="">{placeholder}</option>}
+          {options.map(function(o){
+            if (typeof o === 'string') return <option key={o} value={o}>{o}</option>;
+            return <option key={o.value} value={o.value}>{o.label}</option>;
+          })}
+        </select>
+      </div>
     </label>
   );
 }
