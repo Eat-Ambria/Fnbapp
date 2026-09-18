@@ -18,7 +18,7 @@ import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
-import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast } from './KitchenUI.jsx';
+import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast, ModalWatermark } from './KitchenUI.jsx';
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -1595,52 +1595,147 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
       {/* -- CSV IMPORT MODAL -- */}
       {csvImport&&(
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(12,20,16,.55)",display:"flex",alignItems:"center",justifyContent:"center",padding:12}}>
-          <div style={{background:C.surface,borderRadius:14,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",border:`2px solid ${C.gold}`,boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
-            <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>📥 Import Ingredients CSV</div>
-              <button onClick={()=>setCsvImport(null)} style={{padding:"4px 10px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>?</button>
+        // Not KModal: that one takes a title, a body and one confirm. This has
+        // two alternative actions, a file picker and a parse result, so it keeps
+        // its own shell - built from the same tokens so it reads as the same
+        // family of dialog.
+        <div onClick={()=>setCsvImport(null)} style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+            style={{position:"relative",background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,
+              boxShadow:K.shadowLift,maxWidth:620,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <ModalWatermark/>
+
+            <div style={{position:"relative",zIndex:1,padding:"22px 24px",borderBottom:`1px solid ${K.modalLine}`,
+              display:"flex",alignItems:"center",gap:16}}>
+              <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.brandBg,color:K.brand,
+                border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="note" size={24} strokeWidth={1.8}/>
+              </span>
+              <span style={{minWidth:0,flex:1,paddingRight:34}}>
+                <span style={{display:"block",...type.sectionHead,fontSize:23,color:K.hdrTitle}}>{T2("Import Ingredients CSV")}</span>
+                <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Update ingredients for this recipe")}</span>
+              </span>
+              <button onClick={()=>setCsvImport(null)} aria-label={T2("Cancel")} className="kh-modal-x kh-rip" onPointerDown={ripple}
+                style={{position:"absolute",top:18,right:18,width:34,height:34,borderRadius:K.rPill,background:K.surface,
+                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"pointer",padding:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="close" size={16} strokeWidth={2.1}/>
+              </button>
             </div>
-            <div style={{padding:16}}>
-              <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.5}}>
-                <b style={{color:C.text}}>{csvImport.recipeName}</b> — currently {csvImport.currentCount} items<br/>
-                Download the current ingredients, edit in Excel or Sheets, then upload to <b>replace all ingredients</b> for this recipe.
-                <br/><span style={{color:C.faint,fontSize:11}}>Quantities are at {csvImport.basePax} pax anchor.</span>
+
+            <div style={{position:"relative",zIndex:1,padding:"20px 24px",overflowY:"auto",flex:1,minHeight:0}}>
+              <div style={{fontSize:16,color:K.hdrMeta,marginBottom:6}}>
+                <b style={{color:K.hdrTitle,fontWeight:700}}>{csvImport.recipeName}</b>
+                {" — "}{T2("currently")} {csvImport.currentCount} {T2("items")}
               </div>
-              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} style={{width:"100%",padding:"10px",borderRadius:10,border:`1.5px solid ${C.goldBorder}`,background:C.goldBg,color:C.gold,fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12,minHeight:40}}>? Download current CSV</button>
-              <div style={{padding:"10px 12px",borderRadius:10,background:C.darkCard,border:`1px dashed ${C.border}`,marginBottom:10}}>
-                <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>Upload edited CSV:</div>
-                <input type="file" accept=".csv,text/csv" onChange={e=>{
-                  const f=e.target.files?.[0]; if(!f) return;
-                  const rd=new FileReader();
-                  rd.onload=()=>{ const {items,warnings}=csvImportParse(rd.result); setCsvImport(p=>({...p,parsedItems:items,warnings})); };
-                  rd.readAsText(f,'utf-8');
-                }} style={{fontSize:12,color:C.text,width:"100%"}}/>
+              <div style={{fontSize:14.5,color:K.textBody,lineHeight:1.55}}>
+                {T2("Download the current ingredients, edit in Excel or Sheets, then upload to replace all ingredients for this recipe.")}
               </div>
+              <div style={{fontSize:13,color:K.textFaint,marginTop:6}}>
+                {T2("Quantities are at")} {csvImport.basePax} {T2("pax anchor")}.
+              </div>
+
+              {/* Step one, and the whole row is the button — a single small link
+                  inside a panel invites a miss. */}
+              <button onClick={()=>csvDownloadFromRecipe(csvImport.recipe)} className="kh-btn kh-rip" onPointerDown={ripple}
+                style={{display:"flex",alignItems:"center",gap:16,width:"100%",textAlign:"left",marginTop:18,
+                  padding:"16px 18px",borderRadius:16,background:K.brandSoft,border:`1px solid ${K.brandBorder}`,
+                  cursor:"pointer",fontFamily:K.fontBody}}>
+                <span style={{width:48,height:48,borderRadius:14,flexShrink:0,background:"#FFFFFF",color:K.brand,
+                  border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="note" size={22} strokeWidth={1.8}/>
+                </span>
+                <span style={{flex:1,minWidth:0}}>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Download current CSV")}</span>
+                  <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Get the latest ingredients for this recipe")}</span>
+                </span>
+                {/* No trailing glyph here. The icon set has no download mark,
+                    and a chevron in that position reads as a dropdown - it
+                    suggested the row opens a menu rather than saving a file. */}
+              </button>
+
+              <div style={{display:"flex",alignItems:"center",gap:14,margin:"18px 0"}}>
+                <span style={{flex:1,height:1,background:K.modalLine}}/>
+                <span style={{...type.label,fontSize:11,color:K.textFaint}}>{T2("or")}</span>
+                <span style={{flex:1,height:1,background:K.modalLine}}/>
+              </div>
+
+              {/* Dashed, because nothing has been picked yet. The native file
+                  input is hidden behind its own label so the control can be
+                  styled - the browser's default button cannot be. */}
+              <div style={{display:"flex",alignItems:"center",gap:16,padding:"16px 18px",borderRadius:16,
+                background:K.surfaceAlt,border:`1.5px dashed ${K.lineStrong}`,flexWrap:"wrap"}}>
+                <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",color:K.brand,
+                  border:`1px solid ${K.line}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="box" size={24} strokeWidth={1.8}/>
+                </span>
+                <span style={{flex:"1 1 200px",minWidth:0}}>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Upload edited CSV")}</span>
+                  <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Choose a CSV file from your device to replace all ingredients.")}</span>
+                  <span style={{display:"block",fontSize:12.5,color:K.textFaint,marginTop:3}}>{T2("Only .csv files are supported.")}</span>
+                </span>
+                <span style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flexShrink:0}}>
+                  <label className="kh-btn kh-rip" onPointerDown={ripple}
+                    style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 20px",borderRadius:K.rPill,
+                      background:"#FFFFFF",border:`1px solid ${K.line}`,boxShadow:K.shadowCard,
+                      color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>
+                    <Icon name="store" size={16} strokeWidth={1.9}/>{T2("Choose file")}
+                    <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{
+                      const f=e.target.files?.[0]; if(!f) return;
+                      const rd=new FileReader();
+                      rd.onload=()=>{ const {items,warnings}=csvImportParse(rd.result); setCsvImport(p=>({...p,fileName:f.name,parsedItems:items,warnings})); };
+                      rd.readAsText(f,'utf-8');
+                    }}/>
+                  </label>
+                  <span style={{fontSize:12.5,color:csvImport.fileName?K.hdrMeta:K.textFaint,maxWidth:180,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {csvImport.fileName||T2("No file chosen")}
+                  </span>
+                </span>
+              </div>
+
               {csvImport.parsedItems&&(
-                <div style={{padding:"10px 12px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,marginBottom:10}}>
-                  <div style={{fontSize:12,color:C.text,fontWeight:700,marginBottom:6}}>
-                    Found {csvImport.parsedItems.length} rows: {csvImport.parsedItems.filter(i=>!i.isSection).length} ingredients + {csvImport.parsedItems.filter(i=>i.isSection).length} sections
+                <div style={{marginTop:16,padding:"14px 16px",borderRadius:14,background:"#FFFFFF",
+                  border:`1px solid ${K.line}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:K.hdrTitle}}>
+                    <Icon name="check" size={15} strokeWidth={2.2} style={{color:K.ok}}/>
+                    {T2("Found")} {csvImport.parsedItems.length} {T2("rows")}
+                    <span style={{fontWeight:500,color:K.hdrMeta}}>
+                      · {csvImport.parsedItems.filter(i=>!i.isSection).length} {T2("ingredients")}
+                      {" + "}{csvImport.parsedItems.filter(i=>i.isSection).length} {T2("sections")}
+                    </span>
                   </div>
                   {csvImport.warnings?.length>0&&(
-                    <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:10,color:C.amber,maxHeight:120,overflowY:"auto"}}>
-                      <div style={{fontWeight:700,marginBottom:4}}>? Warnings ({csvImport.warnings.length}):</div>
-                      {csvImport.warnings.map((w,i)=>(<div key={i}>— {w}</div>))}
+                    <div style={{marginTop:11,padding:"11px 13px",borderRadius:11,background:K.warnBg,
+                      border:`1px solid ${K.warnBorder}`,fontSize:13,color:K.warn,lineHeight:1.5}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,fontWeight:700,marginBottom:5}}>
+                        <Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Warnings")} ({csvImport.warnings.length})
+                      </div>
+                      {csvImport.warnings.map((w,i)=>(<div key={i}>· {w}</div>))}
                     </div>
                   )}
-                  <div style={{fontSize:11,color:C.muted,marginTop:8}}>
-                    Replace current <b>{csvImport.currentCount}</b> items with these <b>{csvImport.parsedItems.length}</b>?
+                  {/* Said plainly, because the import is destructive: the rows in
+                      the file become the whole list. */}
+                  <div style={{marginTop:11,fontSize:13,color:K.hdrMeta,lineHeight:1.5}}>
+                    {T2("Replacing")} <b style={{color:K.hdrTitle}}>{csvImport.currentCount}</b> {T2("items with these")}
+                    {" "}<b style={{color:K.hdrTitle}}>{csvImport.parsedItems.length}</b>. {T2("The current list is overwritten.")}
                   </div>
                 </div>
               )}
-              <div style={{display:"flex",gap:8,marginTop:14}}>
-                {csvImport.parsedItems&&csvImport.parsedItems.length>0&&(
-                  <button onClick={csvImportSave} style={{flex:1,padding:"12px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",minHeight:44}}>
-                    ? Replace with {csvImport.parsedItems.length} items
-                  </button>
-                )}
-                <button onClick={()=>setCsvImport(null)} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",minHeight:44}}>Cancel</button>
-              </div>
+            </div>
+
+            <div style={{position:"relative",zIndex:1,padding:"18px 24px",borderTop:`1px solid ${K.modalLine}`,
+              display:"flex",justifyContent:"flex-end",gap:12,flexWrap:"wrap"}}>
+              <KButton icon="close" onClick={()=>setCsvImport(null)}
+                style={{padding:"13px 24px",borderRadius:K.rPill,fontSize:14,background:K.surface,borderColor:K.modalLine}}>{T2("Cancel")}</KButton>
+              <KButton variant="brand" icon="check" onClick={csvImportSave}
+                disabled={!csvImport.parsedItems||csvImport.parsedItems.length===0}
+                style={{padding:"13px 26px",borderRadius:K.rPill,fontSize:14}}>
+                {csvImport.parsedItems&&csvImport.parsedItems.length>0
+                  ? `${T2("Replace with")} ${csvImport.parsedItems.length} ${T2("items")}`
+                  : T2("Upload & replace")}
+              </KButton>
             </div>
           </div>
         </div>

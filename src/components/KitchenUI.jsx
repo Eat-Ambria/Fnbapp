@@ -422,4 +422,4 @@ function KColHead({ children, align = "left", className }) {
 
 // Components only — keeps React Fast Refresh working for this file.
 // Import tokens straight from '../utils/theme.js' (K, tone).
-export { Icon, KTabs, KButton, KPanel, KStat, KPill, KProgress, KBanner, KContextBar, KColHead, KModal, KToast };
+export { Icon, KTabs, KButton, KPanel, KStat, KPill, KProgress, KBanner, KContextBar, KColHead, KModal, KToast, ModalWatermark };
