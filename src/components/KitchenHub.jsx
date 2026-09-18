@@ -1538,12 +1538,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   {T2("Create a new recipe with step-by-step instructions")}
                 </span>
               </span>
-              {/* A span, not a button: it carries a tooltip and nothing else, and
-                  a button shape would promise a click that goes nowhere. */}
-              <span title={T2("Steps run in order. Sub-steps sit under a step and take their own timers. A CCP marks a food-safety check.")}
-                style={{width:38,height:38,borderRadius:K.rPill,flexShrink:0,background:K.surface,
-                  border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"help",
-                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700}}>?</span>
               <button onClick={()=>setSopModal(null)} aria-label={T2("Cancel")} className="kh-modal-x kh-rip" onPointerDown={ripple}
                 style={{width:38,height:38,borderRadius:K.rPill,flexShrink:0,background:K.surface,
                   border:`1px solid ${K.modalLine}`,color:K.textMuted,cursor:"pointer",padding:0,
@@ -1659,10 +1653,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 style={{flex:1,minWidth:0,padding:"11px 12px",border:"none",outline:"none",background:"transparent",
                                   fontSize:14,fontWeight:600,color:K.hdrTitle,fontFamily:K.fontBody}}/>
                             </span>
-                            <span title={T2("A step is one instruction a chef can act on. Break long ones into sub-steps.")}
-                              style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.surfaceAlt,
-                                border:`1px solid ${K.line}`,color:K.textMuted,cursor:"help",
-                                display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700}}>?</span>
                             <button onClick={()=>sopDuplicateStep(si)} className="kh-rip" onPointerDown={ripple}
                               title={T2("Duplicate this step")}
                               style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.surfaceAlt,
