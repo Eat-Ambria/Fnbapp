@@ -2641,8 +2641,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               );
             })()}
 
-            {/* Context line — who this prep is for */}
-            {(()=>{
+            {/* Context line — who this prep is for. Redundant once there's more
+                than one function that day: the tab strip above already shows
+                each function's guest/pax/venue/time/menu, and "Combined" here
+                would just repeat the same list a second time. */}
+            {d1Evs.length<=1 && (()=>{
               const pct=totalD1>0?Math.round(totalD1Done/totalD1*100):0;
               const headerLabel = isCombined
                 ? `${d1Label} ${T2("prep")} — ${T2("Combined")}`
