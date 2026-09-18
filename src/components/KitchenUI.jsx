@@ -385,24 +385,24 @@ function KToast({ open, toneName = "ok", icon, title, body, onClose, duration })
   return createPortal(
     <div className="kh-toast-wrap" role="status" aria-live="polite">
       <div className="kh-toast" style={{
-        display: "flex", alignItems: "flex-start", gap: 12,
-        background: K.surface, border: `1px solid ${t.border}`, borderLeft: `4px solid ${t.fg}`,
-        borderRadius: 14, boxShadow: K.shadowLift, padding: "13px 14px 13px 15px",
-        maxWidth: 420, minWidth: 280, pointerEvents: "auto",
+        display: "flex", alignItems: "center", gap: 13,
+        background: K.cardWarm, border: `1px solid ${K.cardWarmLine}`, borderTop: `3px solid ${t.fg}`,
+        borderRadius: 16, boxShadow: K.shadowLift, padding: "14px 14px 14px 16px",
+        maxWidth: 440, minWidth: 300, pointerEvents: "auto",
       }}>
-        <span style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, background: t.bg, color: t.fg,
+        <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: t.bg, color: t.fg,
           border: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Icon name={icon || (toneName === "danger" ? "alert" : toneName === "warn" ? "alert" : "check")} size={16} strokeWidth={2.2} />
+          <Icon name={icon || (toneName === "danger" ? "alert" : toneName === "warn" ? "alert" : "check")} size={18} strokeWidth={2.2} />
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          {title && <div style={{ fontSize: 13.5, fontWeight: 700, color: K.hdrTitle, lineHeight: 1.35 }}>{title}</div>}
-          {body && <div style={{ fontSize: 12.5, color: K.hdrMeta, marginTop: 2, lineHeight: 1.5, whiteSpace: "pre-line" }}>{body}</div>}
+          {title && <div style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: "-0.15px", color: K.hdrTitle, lineHeight: 1.35 }}>{title}</div>}
+          {body && <div style={{ fontSize: 13, color: K.hdrMeta, marginTop: 3, lineHeight: 1.5, whiteSpace: "pre-line" }}>{body}</div>}
         </div>
         <button type="button" onClick={onClose} aria-label="Dismiss" className="kh-modal-x"
-          style={{ width: 24, height: 24, borderRadius: K.rPill, flexShrink: 0, background: "transparent",
-            border: "1px solid transparent", color: K.textFaint, display: "flex", alignItems: "center",
+          style={{ width: 30, height: 30, borderRadius: K.rPill, flexShrink: 0, background: "#FFFFFF",
+            border: `1px solid ${K.cardWarmLine}`, color: K.textMuted, display: "flex", alignItems: "center",
             justifyContent: "center", cursor: "pointer", padding: 0 }}>
-          <Icon name="close" size={14} strokeWidth={2.2} />
+          <Icon name="close" size={15} strokeWidth={2.2} />
         </button>
       </div>
     </div>,
