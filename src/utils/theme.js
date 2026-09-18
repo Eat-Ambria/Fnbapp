@@ -68,6 +68,9 @@ const K = {
   // sageText, not sage, for anything carrying words: sage alone is about 3:1 on
   // sageBg, which is fine for an icon and not for a sentence.
   sage:      "#5E7355",  sageBg:    "#EDF2E8",  sageBorder:    "#D3DFC8",
+  // A picked surface. Darker than sageBg, which is the panel wash - side by
+  // side down a list the two were too close to tell apart.
+  sageSel:   "#D7E4CB",
   sageText:  "#44543D",  sageBgHover: "#E3EBDB",
   // Hover shades. Tokens rather than literals buried in the stylesheet, so a
   // palette change cannot leave the hover states behind on the old colour.
@@ -182,8 +185,8 @@ const K = {
   // Deeper than a flat-canvas app would need: cards now sit over the page
   // artwork, and a faint shadow leaves them looking pasted onto the image
   // rather than lifted off it.
-  shadowCard: "0 1px 3px rgba(17,28,51,.09), 0 6px 14px rgba(17,28,51,.07), 0 18px 40px rgba(17,28,51,.09)",
-  shadowLift: "0 2px 6px rgba(17,28,51,.12), 0 10px 22px rgba(17,28,51,.10), 0 26px 56px rgba(17,28,51,.14)",
+  shadowCard: "0 1px 3px rgba(17,28,51,.16), 0 6px 14px rgba(17,28,51,.13), 0 20px 42px rgba(17,28,51,.17)",
+  shadowLift: "0 2px 6px rgba(17,28,51,.22), 0 10px 22px rgba(17,28,51,.19), 0 28px 60px rgba(17,28,51,.28)",
   shadowAccent: "0 4px 14px rgba(37,99,235,.28)",
 
   // ── Type ──
@@ -418,6 +421,72 @@ const KITCHEN_CSS = `
   background-position: left -16px bottom -24px, right -26px top -34px, center, center;
   background-size: 150px auto, 165px auto, cover, cover;
 }
+/* The leaf photograph, laid UNDER the vector motifs as a texture rather than
+   as a picture. The flat ivory layer on top of it is what keeps text legible:
+   a background-image cannot take an opacity of its own, so the photo is faded
+   by stacking a near-opaque wash above it in the same background list.
+   .80, not .90: at 10% strength the photograph was there and invisible,
+   which is the same as not applying it.
+   Larger surfaces get more of it; a 210px dish card would only show one
+   meaningless crop, so it keeps the vector motif alone.
+   url() is relative to the stylesheet, and this sheet is injected into the
+   page, so the path resolves against the document - which vite serves at
+   base:/Fnbapp/. Hence the leading /Fnbapp/.
+   One class, not two: .kh-leafwash and .kh-cardart-sm both set background-image,
+   and the one declared later in this sheet would silently win. So the wash
+   carries the vector motif itself and replaces cardart on the surfaces it is
+   applied to. */
+.kh-leafwash {
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><g fill='%231C3D2B' fill-opacity='0.045'><path d='M118 4C78 8 48 30 38 60c-5 14-2 27 7 33 12 8 30 1 42-16C99 60 110 34 118 4z'/><path d='M62 74c-27 2-47 17-54 37-3 9 0 17 6 20 9 4 21-2 29-15 8-12 15-26 19-42z'/></g></svg>"),
+    linear-gradient(rgba(251,250,245,.80), rgba(251,250,245,.80)),
+    url("/Fnbapp/leaf-bg.webp");
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: right -20px top -24px, center, center;
+  background-size: 108px auto, cover, cover;
+}
+
+/* The menu-builder header plate carries its own artwork. A separate class, not
+   a change to .kh-leafwash: three surfaces on that screen share the wash, and
+   editing it would repaint all of them.
+   The photograph is 3:1 and this plate is roughly 14:1, so cover crops it to a
+   thin horizontal band. Anchored to the bottom, that band is the one carrying
+   the gold line and the foliage, which is what the artwork is for - centred,
+   it lands on empty marble and the picture may as well not be there.
+   The ivory gradient is not decoration. The photograph's leaf shadows fall
+   exactly where the heading sits, and the heading has to win; it clears by 55%
+   so the gold line still starts under the meta row rather than past it.
+   No wash and no vector motif on top, unlike .kh-leafwash - this image already
+   carries its own marble and foliage, and a second layer only muddies it.
+   url() resolves against the document, which vite serves at base:/Fnbapp/. */
+.kh-plateart { position: relative; overflow: hidden; }
+.kh-plateart > * { position: relative; z-index: 1; }
+
+/* The photograph sits on a pseudo-element rather than on the plate, because a
+   filter on the plate would blur the heading along with it.
+   inset is negative so the blur has material to pull from past every edge -
+   blurred to the boundary and no further, the picture fades out in a band all
+   the way round and reads as a smudge rather than a backdrop. The plate's own
+   overflow:hidden clips the overspill back to the rounded corner.
+   bottom 26px, not bottom: the box now ends 26px below the plate, so the band
+   the artwork is cropped to has to be pushed back up by the same amount. */
+.kh-plateart::before {
+  content: ""; position: absolute; inset: -26px; z-index: 0; pointer-events: none;
+  background-image: url("/Fnbapp/plate-bg.webp");
+  background-repeat: no-repeat;
+  background-position: center bottom 26px;
+  background-size: cover;
+  filter: blur(3px);
+  opacity: .68;
+}
+
+/* The ivory fade has to sit above the photograph, so it gets its own layer
+   rather than riding along as a second background on the one below. */
+.kh-plateart::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image: linear-gradient(90deg, rgba(251,250,245,.90) 0%, rgba(251,250,245,.58) 24%, rgba(251,250,245,0) 55%);
+}
+
 /* Smaller cards get one motif at a smaller size — the full pair reads as
    clutter once the card is only a few hundred pixels wide. */
 .kh-cardart-sm {
@@ -486,15 +555,18 @@ const KITCHEN_CSS = `
 /* Toasts. Bottom-right on desktop, full width along the bottom on a phone so
    the message is not squeezed into a corner. The wrapper ignores pointer
    events; only the toast itself accepts them, so it never blocks the UI. */
+/* Top-centre, where a browser alert appears - this is the thing replacing it,
+   and a message that lands in the corner gets missed when the eye is on the
+   middle of the screen. */
 .kh-toast-wrap {
-  position: fixed; right: 22px; bottom: 22px; z-index: 10001;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+  position: fixed; top: 22px; left: 50%; transform: translateX(-50%); z-index: 10001;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
   pointer-events: none;
 }
 @media (max-width: 640px) {
-  .kh-toast-wrap { left: 14px; right: 14px; bottom: 14px; align-items: stretch; }
+  .kh-toast-wrap { left: 14px; right: 14px; top: 14px; transform: none; align-items: stretch; }
 }
-@keyframes kh-toast-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes kh-toast-in { from { opacity: 0; transform: translateY(-14px) scale(.98); } to { opacity: 1; transform: none; } }
 .kh-toast { animation: kh-toast-in .24s cubic-bezier(.22,1,.36,1) both; }
 @media (prefers-reduced-motion: reduce) { .kh-toast { animation: none !important; } }
 
@@ -591,6 +663,88 @@ const KITCHEN_CSS = `
 /* Amber variant for the upload panel, which is the destructive path. */
 .kh-pressrow.is-warn:hover { background: ${K.warnBorder} !important; border-color: ${K.warn} !important; }
 .kh-pressrow.is-warn:active { background: ${K.warnBg} !important; }
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Three jobs only, all tied to something the user did or is waiting for:
+   panels arriving, a pick registering, and a number changing. Nothing loops
+   and nothing moves on its own: movement you notice while reading is what
+   makes a screen tiring.
+   Every rule here is switched off wholesale under prefers-reduced-motion,
+   the same guard the ripple already honours. */
+@keyframes kh-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes kh-pop  { 0% { transform: scale(.55); opacity: 0; } 62% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes kh-tick { 0% { transform: translateY(-5px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+
+/* Panels arriving. The fill mode is both, so the element is already hidden
+   before the first frame paints - otherwise it flashes at full opacity and
+   then animates. NOTE: no backticks in this block, the stylesheet is a JS
+   template literal and a stray backtick ends it. */
+.kh-rise { animation: kh-rise .42s cubic-bezier(.22,1,.36,1) both; }
+
+/* A pick registering. Overshoots slightly, because the whole point is to be
+   felt at the edge of vision while the eye is still on the card. */
+.kh-pop { animation: kh-pop .3s cubic-bezier(.34,1.56,.64,1) both; }
+
+/* A number changing. Keyed on the value in JSX so React remounts the span and
+   the animation replays - a CSS transition cannot animate a text swap. */
+.kh-tick { animation: kh-tick .28s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kh-rise, .kh-pop, .kh-tick { animation: none !important; }
+}
+
+/* ── Menu-builder controls ────────────────────────────────────────────────
+   Every control on that screen is a bare .kh-btn - none of them carries a
+   kh-btn-<variant>, so not one of the variant hovers above reaches them, and
+   the global button:hover brightness(1.08) in styles.js does nothing at all to
+   a white or transparent face. That is why the screen felt dead under the
+   pointer. !important throughout, for the usual reason: the values these
+   override are painted inline.
+   The transition is declared here too - .kh-btn only gets one inside
+   .kh-scope, and this screen is not wrapped in it. */
+.kh-deptbtn, .kh-secpill, .kh-secx, .kh-dietchip, .kh-subtab, .kh-backbtn, .kh-pickchip {
+  transition: background .16s ease, border-color .16s ease, color .16s ease, filter .16s ease;
+}
+
+.kh-deptbtn:hover { background: ${K.sageBg} !important; border-color: ${K.sageBorder} !important; }
+.kh-deptbtn.is-on:hover { background: ${K.sageBorder} !important; border-color: ${K.sage} !important; }
+
+.kh-backbtn:hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; }
+
+/* A selected pill is solid brand carrying white text, so its hover has to go
+   darker. Tinting it the way the idle pill is tinted would put white text on a
+   pale ground and make the label vanish at exactly the moment it is aimed at. */
+.kh-secpill:hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; }
+.kh-secpill.is-on:hover { background: ${K.brandHover} !important; border-color: ${K.brandHover} !important; }
+.kh-secx:hover { background: ${K.dangerBg} !important; border-color: ${K.danger} !important; color: ${K.danger} !important; }
+
+/* Diet chips and pick chips take their on-state fill from data, not from a
+   token, so their hover cannot name a colour - it darkens whatever is there.
+   :not(.is-on) is load-bearing. The on-rule only sets filter, so without it the
+   idle rule would still repaint the background and a selected red chip would
+   turn pale green under the pointer - which is what it did. */
+.kh-dietchip:not(.is-on):hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; }
+.kh-dietchip.is-on:hover { filter: brightness(.93) !important; }
+.kh-pickchip:not(.is-on):hover { background: ${K.brandBg} !important; border-color: ${K.brandBorder} !important; }
+.kh-pickchip.is-on:hover { filter: brightness(.93) !important; }
+
+.kh-subtab:hover { background: ${K.brandBg} !important; }
+.kh-subtab.is-on:hover { background: ${K.brandHover} !important; }
+
+/* Config rows. No motif: repeated down a list of rows the leaf outline read
+   as a pattern rather than as texture, and it sat right where the eye travels
+   between a row name and its stepper. */
+.kh-cfgrow { transition: background-color .16s ease, border-color .16s ease; }
+.kh-cfgrow:hover { border-color: ${K.sage} !important; }
+/* The stepper keys share one outline, so they highlight rather than repaint -
+   a filled face here would break the segmented control into three buttons. */
+.kh-stepkey { transition: background .14s ease; }
+.kh-stepkey:hover:not(:disabled) { background: ${K.sageBgHover} !important; }
+
+/* Menu-builder dish cards. Unscoped: that view takes over the window and is
+   not wrapped in .kh-scope. */
+.kh-dishcard { transition: transform .12s ease, box-shadow .12s ease; }
+.kh-dishcard:hover { transform: translateY(-2px); box-shadow: ${K.shadowLift} !important; }
+
 /* Proposal rows. Unscoped: this screen is not inside .kh-scope. */
 .kh-proprow { transition: background .14s ease; }
 .kh-proprow:hover { background: ${K.surfaceAlt} !important; }
