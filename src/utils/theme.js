@@ -591,6 +591,11 @@ const KITCHEN_CSS = `
 /* Amber variant for the upload panel, which is the destructive path. */
 .kh-pressrow.is-warn:hover { background: ${K.warnBorder} !important; border-color: ${K.warn} !important; }
 .kh-pressrow.is-warn:active { background: ${K.warnBg} !important; }
+/* Bare icon buttons inside table rows. They had no rule at all, so like the
+   panels above they looked clickable and produced nothing on hover or click. */
+.kh-scope .kh-iconbtn { transition: background .14s ease, color .14s ease; }
+.kh-scope .kh-iconbtn:hover { background: ${K.brandBg} !important; color: ${K.brandText} !important; }
+
 /* Sage variant for the secondary panel, so hovering it does not borrow the
    brand green that the dialog's primary button already owns. */
 .kh-pressrow.is-sage:hover { background: ${K.sageBgHover} !important; border-color: ${K.sage} !important; }

@@ -1067,7 +1067,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     if(existing[id]) id=slug+'_'+Date.now().toString(36);
     var row={id:id,name:trimmed,icon:'📋',sort_order:RECIPE_DB.cats.length};
     var res=await supabase.from('recipe_categories').insert(row);
-    if(res.error){window.alert('Failed to add category: '+res.error.message);return;}
+    if(res.error){setResetModal({tone:"danger",icon:"alert",title:T2("Could not add the category"),body:String(res.error.message||res.error),confirmLabel:T2("Close")});return;}
     RECIPE_DB.cats.push({id:id,name:trimmed,icon:'📋',color:'#8E8678',count:0});
     RECIPE_DB.recipes[id]=[];
     logActivity('kitchen','SOP category added: '+trimmed,'sop_category_add',{catId:id,name:trimmed},currentUser?.id);
@@ -3805,10 +3805,27 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   </div>
                                   {typePickerIdx===idx && typePickerPos && createPortal((
                                     <>
-                                      <div onClick={()=>{setTypePickerIdx(null);setTypePickerPos(null);}} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:998,background:"transparent"}}/>
-                                      <div style={{position:"fixed",top:typePickerPos.top,left:typePickerPos.left,zIndex:999,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
-                                        {[{k:'raw',label:'📝 Raw'},{k:'inv',label:'📦 Inv'},{k:'bg',label:'🥘 BG'}].map(o=>(
-                                          <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} style={{display:"block",width:"100%",padding:"6px 10px",textAlign:"left",background:tRow===o.k?C.goldBg:"transparent",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,color:C.text,fontWeight:tRow===o.k?700:500}}>{o.label}{tRow===o.k?" ✓":""}</button>
+                                      <div onClick={()=>{setTypePickerIdx(null);setTypePickerPos(null);}} style={{position:"fixed",inset:0,zIndex:998,background:"transparent"}}/>
+                                      {/* Same icons and tints as the row's type
+                                          chip, so the menu names the thing you
+                                          just clicked rather than showing a
+                                          different emoji for the same state. */}
+                                      <div className="kh-thinscroll" style={{position:"fixed",top:typePickerPos.top,left:typePickerPos.left,zIndex:999,
+                                        background:K.surface,border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5,minWidth:172}}>
+                                        {[{k:'raw',icon:'note',label:T2("Raw ingredient"),fg:K.textMuted,bg:K.surfaceAlt,bd:K.line},
+                                          {k:'inv',icon:'box',label:T2("Inventory item"),fg:K.accent,bg:K.accentSoft,bd:K.accentBorder},
+                                          {k:'bg',icon:'utensils',label:T2("Base gravy"),fg:K.warn,bg:K.warnBg,bd:K.warnBorder}].map(o=>(
+                                          <button key={o.k} onClick={()=>ingChangeType(idx,o.k)} className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 11px",borderRadius:9,
+                                              border:"none",background:tRow===o.k?K.brandBg:"transparent",cursor:"pointer",textAlign:"left",
+                                              color:tRow===o.k?K.brandText:K.textBody,fontSize:13.5,fontWeight:tRow===o.k?700:500,fontFamily:K.fontBody}}>
+                                            <span style={{width:28,height:28,borderRadius:9,flexShrink:0,background:o.bg,border:`1px solid ${o.bd}`,
+                                              color:o.fg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                              <Icon name={o.icon} size={14} strokeWidth={1.9}/>
+                                            </span>
+                                            <span style={{flex:1,minWidth:0}}>{o.label}</span>
+                                            {tRow===o.k&&<Icon name="check" size={15} strokeWidth={2.2}/>}
+                                          </button>
                                         ))}
                                       </div>
                                     </>
