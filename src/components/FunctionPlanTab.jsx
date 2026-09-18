@@ -159,7 +159,7 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
   var driversOn = !!(fp && fp.drivers_food_required);
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div style={{ maxWidth: 980, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
         <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
