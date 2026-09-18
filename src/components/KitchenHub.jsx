@@ -1606,10 +1606,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               boxShadow:K.shadowLift,maxWidth:620,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <ModalWatermark/>
 
-            <div style={{position:"relative",zIndex:1,padding:"22px 24px",borderBottom:`1px solid ${K.modalLine}`,
-              display:"flex",alignItems:"center",gap:16}}>
-              <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.brandBg,color:K.brand,
-                border:`1px solid ${K.brandBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{position:"relative",zIndex:1,padding:"22px 24px",borderBottom:`1px solid ${K.brandBorder}`,
+              background:K.brandSoft,display:"flex",alignItems:"center",gap:16}}>
+              <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.brand,color:"#FFFFFF",
+                border:"1px solid transparent",boxShadow:"0 4px 14px rgba(28,61,43,.26)",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <Icon name="note" size={24} strokeWidth={1.8}/>
               </span>
               <span style={{minWidth:0,flex:1,paddingRight:34}}>
@@ -1625,15 +1625,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
 
             <div style={{position:"relative",zIndex:1,padding:"20px 24px",overflowY:"auto",flex:1,minHeight:0}}>
-              <div style={{fontSize:16,color:K.hdrMeta,marginBottom:6}}>
-                <b style={{color:K.hdrTitle,fontWeight:700}}>{csvImport.recipeName}</b>
-                {" — "}{T2("currently")} {csvImport.currentCount} {T2("items")}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:17,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.2px"}}>{csvImport.recipeName}</span>
+                <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 11px",borderRadius:K.rPill,
+                  background:K.brandBg,border:`1px solid ${K.brandBorder}`,fontSize:12.5,fontWeight:700,color:K.brandText}}>
+                  <Icon name="listCheck" size={13} strokeWidth={2}/>{csvImport.currentCount} {T2("items")}
+                </span>
               </div>
               <div style={{fontSize:14.5,color:K.textBody,lineHeight:1.55}}>
                 {T2("Download the current ingredients, edit in Excel or Sheets, then upload to replace all ingredients for this recipe.")}
               </div>
-              <div style={{fontSize:13,color:K.textFaint,marginTop:6}}>
-                {T2("Quantities are at")} {csvImport.basePax} {T2("pax anchor")}.
+              <div style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:10,padding:"5px 12px",borderRadius:K.rPill,
+                background:K.warnBg,border:`1px solid ${K.warnBorder}`,fontSize:12.5,fontWeight:600,color:K.warn}}>
+                <Icon name="users" size={13} strokeWidth={2}/>{T2("Quantities are at")} {csvImport.basePax} {T2("pax anchor")}
               </div>
 
               {/* Step one, and the whole row is the button — a single small link
@@ -1656,30 +1660,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </button>
 
               <div style={{display:"flex",alignItems:"center",gap:14,margin:"18px 0"}}>
-                <span style={{flex:1,height:1,background:K.modalLine}}/>
-                <span style={{...type.label,fontSize:11,color:K.textFaint}}>{T2("or")}</span>
-                <span style={{flex:1,height:1,background:K.modalLine}}/>
+                <span style={{flex:1,height:1,background:K.sageBorder}}/>
+                <span style={{...type.label,fontSize:10.5,color:K.sageText,padding:"4px 12px",borderRadius:K.rPill,
+                  background:K.sageBg,border:`1px solid ${K.sageBorder}`}}>{T2("or")}</span>
+                <span style={{flex:1,height:1,background:K.sageBorder}}/>
               </div>
 
               {/* Dashed, because nothing has been picked yet. The native file
                   input is hidden behind its own label so the control can be
                   styled - the browser's default button cannot be. */}
               <div style={{display:"flex",alignItems:"center",gap:16,padding:"16px 18px",borderRadius:16,
-                background:K.surfaceAlt,border:`1.5px dashed ${K.lineStrong}`,flexWrap:"wrap"}}>
-                <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",color:K.brand,
-                  border:`1px solid ${K.line}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                background:K.warnBg,border:`1.5px dashed ${K.warnBorder}`,flexWrap:"wrap"}}>
+                <span style={{width:56,height:56,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",color:K.warn,
+                  border:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <Icon name="box" size={24} strokeWidth={1.8}/>
                 </span>
                 <span style={{flex:"1 1 200px",minWidth:0}}>
-                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{T2("Upload edited CSV")}</span>
+                  <span style={{display:"block",fontSize:16,fontWeight:700,letterSpacing:"-0.2px",color:K.warn}}>{T2("Upload edited CSV")}</span>
                   <span style={{display:"block",fontSize:13.5,color:K.hdrMeta,marginTop:2}}>{T2("Choose a CSV file from your device to replace all ingredients.")}</span>
-                  <span style={{display:"block",fontSize:12.5,color:K.textFaint,marginTop:3}}>{T2("Only .csv files are supported.")}</span>
+                  <span style={{display:"block",fontSize:12.5,color:K.warn,opacity:.85,marginTop:3}}>{T2("Only .csv files are supported.")}</span>
                 </span>
                 <span style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flexShrink:0}}>
-                  <label className="kh-btn kh-rip kh-pressrow" onPointerDown={ripple}
+                  <label className="kh-btn kh-rip kh-pressrow is-warn" onPointerDown={ripple}
                     style={{display:"inline-flex",alignItems:"center",gap:9,padding:"13px 20px",borderRadius:K.rPill,
-                      background:"#FFFFFF",border:`1px solid ${K.line}`,boxShadow:K.shadowCard,
-                      color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>
+                      background:"#FFFFFF",border:`1px solid ${K.warnBorder}`,boxShadow:K.shadowCard,
+                      color:K.warn,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:K.fontBody}}>
                     <Icon name="store" size={16} strokeWidth={1.9}/>{T2("Choose file")}
                     <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{
                       const f=e.target.files?.[0]; if(!f) return;

@@ -588,6 +588,9 @@ const KITCHEN_CSS = `
 .kh-pressrow { transition: background .14s ease, border-color .14s ease, transform .08s ease; }
 .kh-pressrow:hover { background: ${K.brandBg} !important; border-color: ${K.brand} !important; }
 .kh-pressrow:active { transform: scale(.995); background: ${K.brandBgHover} !important; }
+/* Amber variant for the upload panel, which is the destructive path. */
+.kh-pressrow.is-warn:hover { background: ${K.warnBorder} !important; border-color: ${K.warn} !important; }
+.kh-pressrow.is-warn:active { background: ${K.warnBg} !important; }
 /* Sage variant for the secondary panel, so hovering it does not borrow the
    brand green that the dialog's primary button already owns. */
 .kh-pressrow.is-sage:hover { background: ${K.sageBgHover} !important; border-color: ${K.sage} !important; }
