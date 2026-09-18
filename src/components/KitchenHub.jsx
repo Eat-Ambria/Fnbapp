@@ -3022,14 +3022,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     Without a photograph to give it weight it read as floating
                     text on the page artwork. */}
                 <div className="kh-cardart-sm" style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                  gap:18,marginBottom:16,flexWrap:"wrap",padding:"20px 22px",borderRadius:20,
+                  gap:18,marginBottom:editingSteps?0:16,flexWrap:"wrap",padding:"20px 22px",
+                  // While editing, this plate and the step list below it are one
+                  // sheet: the bottom corners square off and the card under it
+                  // drops its top border so the seam disappears.
+                  borderRadius:editingSteps?"20px 20px 0 0":20,
                   backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
                   <div style={{flex:"1 1 320px",minWidth:0,display:"flex",gap:18,alignItems:"center"}}>
                     {/* Monogram, not a photograph — same tile the recipe list
                         uses, so the two views agree and no dish needs an image
                         asset to look finished. The category's own emoji rides in
                         the corner, which is the one badge that carries meaning. */}
-                    {!editingSteps&&(()=>{
+                    {(()=>{
                       const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
                       const tintSop=SOP_TINTS[Math.max(0,safeArr(RECIPE_DB.recipes[sopCat]).findIndex(r=>r.n===sopRecipe.n))%SOP_TINTS.length];
                       return (
@@ -3049,17 +3053,29 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     })()}
                   <div style={{flex:1,minWidth:0}}>
                     {editingSteps?(
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                        <input value={sopForm.name} onChange={e=>setSopForm(p=>({...p,name:e.target.value}))} placeholder="Recipe name" style={{flex:1,minWidth:140,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.gold}`,fontSize:15,fontWeight:700,color:C.text,background:"transparent",fontFamily:"var(--font-display)"}}/>
-                        <input value={sopForm.sub} onChange={e=>setSopForm(p=>({...p,sub:e.target.value}))} placeholder="Sub (Hot/Cold)" style={{width:100,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent"}}/>
-                        <select value={sopForm.catId} onChange={e=>setSopForm(p=>({...p,catId:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,minHeight:30}}>
-                          {safeArr(RECIPE_DB.cats).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-                        </select>
-                        <label style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,background:sopForm.bg?C.goldBg:C.surface,border:`1px solid ${sopForm.bg?C.goldBorder:C.border}`,cursor:"pointer",minHeight:30}}>
-                          <input type="checkbox" checked={!!sopForm.bg} onChange={e=>setSopForm(p=>({...p,bg:e.target.checked}))} style={{width:14,height:14,accentColor:C.gold,cursor:"pointer"}}/>
-                          <span style={{fontSize:11,fontWeight:700,color:sopForm.bg?C.gold:C.muted}}>🥘 Base Gravy</span>
-                        </label>
-                      </div>
+                      // Editing steps shows the recipe's identity as chips, not
+                      // as four form fields. Name, sub-label, category and the
+                      // base-gravy flag are edited in the recipe dialog; putting
+                      // them here too meant two places to change one thing.
+                      (()=>{
+                        const catObjEd=safeArr(RECIPE_DB.cats).find(c=>c.id===(sopForm.catId||sopCat));
+                        const nStepsEd=safeArr(sopForm.steps).length;
+                        const chip={display:"inline-flex",alignItems:"center",gap:6,fontSize:13,fontWeight:600,
+                          lineHeight:1.2,color:K.hdrMeta};
+                        const dot=<span style={{color:K.textFaint}}>·</span>;
+                        return(<>
+                          <div style={{...type.pageTitle,fontSize:27,color:K.hdrTitle,overflowWrap:"anywhere"}}>
+                            {sopForm.name||T2("Untitled recipe")}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:7,flexWrap:"wrap"}}>
+                            {catObjEd&&<span style={chip}><Icon name="utensils" size={14} strokeWidth={1.9}/>{T2(catObjEd.name)}</span>}
+                            {catObjEd&&dot}
+                            <span style={chip}><Icon name="listCheck" size={14} strokeWidth={1.9}/>{nStepsEd} {nStepsEd===1?T2("step"):T2("steps")}</span>
+                            {!!sopForm.bg&&<>{dot}<span style={{...chip,color:K.warn}}><Icon name="layers" size={14} strokeWidth={1.9}/>{T2("Base gravy")}</span></>}
+                            {sopForm.sub&&<>{dot}<span style={{...chip,color:K.danger}}><Icon name="flame" size={14} strokeWidth={1.9}/>{sopForm.sub}</span></>}
+                          </div>
+                        </>);
+                      })()
                     ):(
                       (()=>{
                         const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
@@ -3132,17 +3148,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </>
                       ):(
                         <>
-                          <KButton variant="brand" icon="check" onClick={()=>{saveSop();setEditingSteps(false);}}
-                            style={{padding:"12px 20px",borderRadius:K.rPill,fontSize:14}}>{T2("Save")}</KButton>
+                          {/* No "Preview": leaving the editor without saving
+                              discards the edits, so a button that looked like a
+                              harmless look-ahead would lose work. Cancel says
+                              what it does. */}
                           <KButton icon="close" onClick={()=>{setEditingSteps(false);setSopModal(null);}}
-                            style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                            style={{padding:"13px 20px",borderRadius:K.rPill,fontSize:14,background:"#FFFFFF",borderColor:K.cardWarmLine}}>{T2("Cancel")}</KButton>
+                          <KButton variant="brand" icon="check" onClick={()=>{saveSop();setEditingSteps(false);}}
+                            style={{padding:"13px 24px",borderRadius:K.rPill,fontSize:14}}>{T2("Save changes")}</KButton>
                         </>
                       )}
                     </div>
                   )}
                 </div>
                 {/* Ingredient count + Edit button */}
-                {(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
+                {!editingSteps&&(()=>{const fallbackIng=!sopRecipe.ingredients?.items?.length&&getIngrForDish?getIngrForDish(sopRecipe.n,500):null;return(<>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
                   <span style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:K.rPill,
                     background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
@@ -3581,7 +3601,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 ):<div style={{marginBottom:16}}/>}
                 </>);})()}
                 {/* —— Yield anchor (base_yield @ base_pax) — moved below ingredient table —— */}
-                {(()=>{
+                {!editingSteps&&(()=>{
                   const basePax = sopRecipe.ingredients?.base_pax || 300;
                   const by = sopRecipe.ingredients?.base_yield || {};
                   const kg = by.kg;
@@ -3707,9 +3727,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 })()}
 
                 {/* ── Procedure panel ── */}
-                <div className="kh-cardart-sm" style={{borderRadius:18,backgroundColor:K.cardWarm,
-                  border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,padding:"18px 20px 20px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+                <div className="kh-cardart-sm" style={{borderRadius:editingSteps?"0 0 18px 18px":18,backgroundColor:K.cardWarm,
+                  border:`1px solid ${K.cardWarmLine}`,borderTop:editingSteps?"none":`1px solid ${K.cardWarmLine}`,
+                  boxShadow:K.shadowCard,padding:"18px 20px 20px",marginTop:editingSteps?-16:0}}>
+                {!editingSteps&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
                   <span style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
                     <span style={{color:K.sbGold,display:"flex",flexShrink:0}}><Icon name="chefHat" size={26} strokeWidth={1.7}/></span>
                     <span style={{minWidth:0}}>
@@ -3724,7 +3745,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <KButton icon="plus" onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);sopAddStep();}}
                       style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Add step")}</KButton>
                   )}
-                </div>
+                </div>}
                 {editingSteps?(
                   <div>
                     <div style={{...type.label,fontSize:10.5,color:K.hdrMeta,marginBottom:10}}>
@@ -3786,8 +3807,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               border:`1px solid ${step.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 200px",minWidth:0}}>
                               <span style={{padding:"0 0 0 11px",fontSize:11,fontWeight:700,letterSpacing:".5px",
                                 color:step.ccp?K.danger:K.textFaint}}>CCP</span>
-                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)}
-                                placeholder={T2("Critical control")}
+                              <input value={step.ccp} onChange={e=>sopFormStep(si,"ccp",e.target.value)} list={"ccp-opts-"+si}
+                                placeholder={T2("Critical control (optional)")}
                                 style={{flex:1,minWidth:0,padding:"9px 11px 9px 9px",border:"none",outline:"none",background:"transparent",
                                   fontSize:13.5,color:K.text,fontFamily:K.fontBody}}/>
                             </span>
@@ -3804,32 +3825,95 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             </label>
                           </div>
                           {(step.subs&&step.subs.length>0)&&(
-                            <div style={{borderLeft:`2px solid ${K.brandBorder}`,marginLeft:2,marginTop:12,paddingLeft:14}}>
-                              <div style={{...type.label,fontSize:10,color:K.brandText,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>Sub-steps ({step.subs.length}){step.d1&&<span style={{fontSize:9,color:C.green,fontWeight:600,background:C.greenBg,padding:"1px 6px",borderRadius:4,border:`1px solid ${C.greenBorder}`}}>D-1 inherited</span>}</div>
+                            <div style={{marginTop:14}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                                <span style={{...type.label,fontSize:10.5,color:K.hdrMeta}}>
+                                  {T2("Sub-steps")} ({step.subs.length})
+                                </span>
+                                {step.d1&&<span style={{fontSize:11,fontWeight:700,color:K.brandText,background:K.brandBg,
+                                  padding:"3px 9px",borderRadius:K.rPill,border:`1px solid ${K.brandBorder}`}}>{T2("Prepped a day ahead")}</span>}
+                                <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
+                              </div>
                               {step.subs.map((sb,sbi)=>(
-                                <div key={sbi} style={{background:"#FFFFFF",border:`1px solid ${K.line}`,borderRadius:11,padding:"10px 12px",marginBottom:8}}>
-                                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                                    <span style={{fontSize:11.5,fontWeight:700,color:K.brandText,minWidth:24,fontVariantNumeric:"tabular-nums"}}>{si+1}{String.fromCharCode(97+sbi)}</span>
-                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)} placeholder="Sub-step title" style={{flex:1,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:"transparent",minHeight:28}}/>
-                                    <button onClick={()=>sopRemoveSub(si,sbi)} style={{width:22,height:22,borderRadius:5,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",padding:0,flexShrink:0}}>—</button>
+                                <div key={sbi} style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10,
+                                  padding:"12px",borderRadius:13,background:K.surfaceAlt,
+                                  border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`}}>
+                                  {/* 1a, 1b … rather than a bare letter: a chef
+                                      reading the printed SOP calls it out that way. */}
+                                  <span style={{display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                                    width:38,height:38,borderRadius:11,background:K.brandBg,border:`1px solid ${K.brandBorder}`,
+                                    fontSize:13,fontWeight:700,color:K.brandText}}>{si+1}{String.fromCharCode(97+sbi)}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <input value={sb.t} onChange={e=>sopEditSub(si,sbi,"t",e.target.value)}
+                                      placeholder={T2("Sub-step title")}
+                                      style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:13.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",
+                                        marginBottom:8,fontFamily:K.fontBody,outline:"none"}}/>
+                                    <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)}
+                                      placeholder={T2("Instructions (Hindi)")} rows={2}
+                                      style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,
+                                        fontSize:14,color:K.text,background:"#FFFFFF",boxSizing:"border-box",resize:"vertical",
+                                        minHeight:56,marginBottom:8,fontFamily:K.fontBody,outline:"none",lineHeight:1.5}}/>
+                                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${K.line}`,overflow:"hidden",width:150}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:6,padding:"0 0 0 11px",
+                                          fontSize:12,fontWeight:700,color:K.warn}}>
+                                          <Icon name="clock" size={14} strokeWidth={2}/>{T2("Timer")}
+                                        </span>
+                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                          placeholder="0"
+                                          style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:14,fontWeight:700,color:K.text,
+                                            fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
+                                        <span style={{padding:"0 11px 0 4px",fontSize:12.5,fontWeight:700,color:K.textFaint}}>min</span>
+                                      </span>
+                                      <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
+                                        border:`1px solid ${sb.ccp?K.dangerBorder:K.line}`,overflow:"hidden",flex:"1 1 220px",minWidth:0}}>
+                                        <span style={{display:"flex",alignItems:"center",gap:6,padding:"0 0 0 11px",
+                                          fontSize:11,fontWeight:700,letterSpacing:".5px",color:sb.ccp?K.danger:K.textFaint}}>
+                                          <span style={{width:7,height:7,borderRadius:"50%",background:sb.ccp?K.danger:K.lineStrong}}/>CCP
+                                        </span>
+                                        {/* A datalist, so one control both offers
+                                            the wordings already used elsewhere in
+                                            this recipe and accepts a new one. */}
+                                        <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)}
+                                          list={"ccp-opts-"+si} placeholder={T2("Critical control (optional)")}
+                                          style={{flex:1,minWidth:0,padding:"9px 11px 9px 9px",border:"none",outline:"none",
+                                            background:"transparent",fontSize:13.5,color:K.text,fontFamily:K.fontBody}}/>
+                                      </span>
+                                    </div>
                                   </div>
-                                  <textarea value={sb.i} onChange={e=>sopEditSub(si,sbi,"i",e.target.value)} placeholder="Instructions (Hindi)" rows={1} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.muted,background:"transparent",boxSizing:"border-box",resize:"vertical",minHeight:28,marginBottom:4}}/>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,background:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${C.borderLight}`,marginBottom:4}}>
-                                    <span style={{fontSize:10,color:C.amber,fontWeight:600}}>⏱ Timer</span>
-                                    <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""} onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))} placeholder="0" style={{width:50,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.amberBorder}`,fontSize:12,fontWeight:600,textAlign:"center",color:C.amber,background:"transparent",minHeight:26}}/>
-                                    <span style={{fontSize:10,color:C.faint}}>min</span>
-                                  </div>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,background:sb.ccp?C.redBg:C.bg,borderRadius:6,padding:"4px 8px",border:`1px solid ${sb.ccp?C.redBorder:C.borderLight}`}}>
-                                    <span style={{fontSize:10,color:C.red,fontWeight:700}}>🔴 CCP</span>
-                                    <input value={sb.ccp||""} onChange={e=>sopEditSub(si,sbi,"ccp",e.target.value)} placeholder="Critical control (optional)" style={{flex:1,padding:"4px 6px",borderRadius:5,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:"transparent",minHeight:26}}/>
-                                  </div>
+                                  <button onClick={()=>sopRemoveSub(si,sbi)} className="kh-rip" onPointerDown={ripple}
+                                    title={T2("Remove sub-step")}
+                                    style={{width:34,height:34,borderRadius:10,flexShrink:0,border:`1px solid ${K.dangerBorder}`,
+                                      background:K.dangerBg,color:K.danger,cursor:"pointer",padding:0,
+                                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    <Icon name="trash" size={15}/>
+                                  </button>
                                 </div>
                               ))}
+                              {/* One datalist per step, feeding every sub-step's
+                                  CCP field with the values already in use. */}
+                              <datalist id={"ccp-opts-"+si}>
+                                {[...new Set(safeArr(sopForm.steps).flatMap(s=>[s.ccp,...safeArr(s.subs).map(x=>x.ccp)]).filter(Boolean))]
+                                  .map(v=><option key={v} value={v}/>)}
+                              </datalist>
                             </div>
                           )}
                           <button onClick={()=>sopAddSub(si)} className="kh-rip" onPointerDown={ripple} style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:10,padding:"8px 14px",borderRadius:K.rPill,background:"#FFFFFF",border:`1px solid ${K.line}`,color:K.textBody,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}><Icon name="plus" size={14} strokeWidth={2.1}/>{T2("Add sub-step")}</button>
                         </div>
-                        <button onClick={()=>sopRemoveStep(si)} style={{width:24,height:24,borderRadius:6,border:`1px solid ${C.redBorder}`,background:C.redBg,cursor:"pointer",fontSize:11,color:C.red,flexShrink:0,marginTop:6,padding:0}}>—</button>
+                        {/* Was a 24px square whose label was a literal em dash —
+                            another mangled glyph — floating clear of the fields
+                            it belongs to. Now a trash button sized and aligned
+                            to the title input beside it. */}
+                        <button onClick={()=>sopRemoveStep(si)} className="kh-rip" onPointerDown={ripple} title={T2("Remove step")}
+                          style={{width:38,height:38,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,
+                            cursor:"pointer",color:K.danger,flexShrink:0,padding:0,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="trash" size={16}/>
+                        </button>
                       </div>
                     ))}
                     {/* Dashed, because it adds a row that does not exist yet —
