@@ -1,27 +1,258 @@
 // Ambria FnB — Menu Builder Preview (Sales)
 // V70 Phase 6: client-facing menu card + Print/Save-as-PDF via window.print().
+// V89: rebuilt to match the printed Ambria menu (the 28-page "Luxury" PDF) —
+//      A4 pages, a photo/cream split per section, Nova Quinta for the section
+//      titles. Only the presentation changed; the grouping logic below is
+//      untouched from V73.
 // Place in: src/components/MenuBuilderPreview.jsx
 
-import React, { useState, useMemo, useEffect } from "react";
-import { C } from '../data/constants.js';
+import { useState, useMemo, useEffect } from "react";
 import { T } from '../data/translations.js';
 import { getCatIdForDish, RECIPE_DB, getAllDishes } from '../data/recipeData.js';
-import { SALES_DEPTS, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT } from '../data/salesConfig.js';
+import { SALES_DEPTS, ITEM_HAVING_DEPTS, DEFAULT_DEPT } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import { K } from '../utils/theme.js';
+import { Icon } from './KitchenUI.jsx';
 
-// Print stylesheet — injected inline so Preview is self-contained (no global CSS changes).
-// Hides everything except the print card + resets margins/backgrounds for clean PDF output.
-const PRINT_CSS = `
+// ── Palette ───────────────────────────────────────────────────────────────
+// Sampled from the printed menu rather than matched by eye: the cream is the
+// dominant colour of the text panel on pages 3/5/7, and the two browns are the
+// darkest pixels inside a dish name and a dish description.
+const M = {
+  cream:    "#F1EDE2",
+  ink:      "#000000",   // section title, and the all-caps diet line under it
+  dish:     "#3B1110",   // dish name
+  dishDesc: "#3C1211",   // description — same hue, carried lighter by weight
+  gold:     "#E0A82E",   // the dot on the i in the wordmark
+  dark:     "#1A1008",   // cover fallback when no photograph is supplied
+};
+
+const BASE = import.meta.env.BASE_URL;
+
+// Optional artwork. Every one of these is allowed to be missing — the page
+// falls back to a tinted panel rather than a broken image, so the preview is
+// usable before the photography lands.
+const ART = {
+  back:      BASE + "menu/back.webp",
+  qr:        BASE + "menu/qr.png",
+  logoLight: BASE + "menu/ambria-logo-white.webp",
+  logoDark:  BASE + "ambria-logo.webp",
+};
+
+// Section name → section photograph. The catalogue's sections are created by
+// the sales team and change per package, so they cannot be enumerated here;
+// matching on what the section is called is what lets a new one still get a
+// picture. An unmatched section falls through to the tinted panel.
+//
+// The names on the left are the ones the printed menu actually uses — they were
+// read out of the PDF's own text layer, not invented — with the generic words a
+// sales user is likely to type kept alongside them. Order matters: the first
+// match wins, so the specific names sit above the generic ones.
+const SECTION_ART = [
+  [/chatoori|chaat|golgapp|tikki/,                      "chaat"],
+  [/snack\s*soiree|tandoor|kebab|seekh|grill|snack/,    "tandoor"],
+  [/epicurean|chinese|asian|wok|noodle|momo|sushi/,     "asian"],
+  [/mocktail/,                                          "mocktails"],
+  [/pour\s*atelier|infusion\s*lounge|tea|coffee/,       "atelier"],
+  [/shake|beverage|juice|drink/,                        "beverages"],
+  [/international\s*main/,                              "international"],
+  // Above maincourse on purpose: "bread" appears in both, and a section called
+  // Accompaniments should take its own picture rather than the mains one.
+  [/accompaniment|bread|roti|naan|raita|chutney|papad|pickle/, "accompaniments"],
+  [/signature\s*main|main|curry|dal|paneer|biryani|rice|bread/, "maincourse"],
+  [/botanical|salad|souperie|soup|starter/,             "salads"],
+  [/dessert|sweet|mithai|halwa|ice/,                    "desserts"],
+  [/assembly|thera|live|counter|station/,               "live"],
+];
+// The cover follows the guest's diet, which is the difference a guest actually
+// notices; the tier is already set in full across the cover in the script face.
+function coverPhoto(diet) {
+  return BASE + "menu/" + (diet === 'veg' ? "cover-veg" : "cover-nonveg") + ".webp";
+}
+function sectionPhoto(name) {
+  const hay = String(name || "").toLowerCase();
+  for (const [re, slug] of SECTION_ART) if (re.test(hay)) return BASE + "menu/" + slug + ".webp";
+  return null;
+}
+
+// ── Ornament ──────────────────────────────────────────────────────────────
+// Drawn rather than typed, so every piece scales with the sheet and prints at
+// whatever resolution the printer has, instead of blurring like a bitmap.
+const GOLD = "%23B08A3E";   // the gold, url-encoded for use inside a data URI
+
+// One corner, placed four times by rotating it inside its own SVG: CSS cannot
+// rotate a background image, and four separately drawn corners would drift
+// apart the first time one of them was adjusted.
+const CORNER_PATH = "M3 33 C3 16 16 3 33 3 M3 21 C3 11 11 3 21 3 M3 33 L3 26 M33 3 L26 3";
+const corner = (deg) =>
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'>" +
+  "<g transform='rotate(" + deg + " 18 18)' fill='none' stroke='" + GOLD + "' stroke-width='1.9' stroke-linecap='round'>" +
+  "<path d='" + CORNER_PATH + "'/><circle cx='11' cy='11' r='2.6' fill='" + GOLD + "' stroke='none'/></g></svg>\")";
+
+// A symmetric scroll on a rule — the divider that sits under every heading.
+const FILIGREE =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='16' viewBox='0 0 260 16'>" +
+  "<g stroke='" + GOLD + "' fill='none' stroke-width='1.9' stroke-linecap='round'>" +
+  "<path d='M6 8 H102'/><path d='M158 8 H254'/>" +
+  "<path d='M102 8 C 110 8, 114 3, 122 3 C 129 3, 131 8, 124 8'/>" +
+  "<path d='M158 8 C 150 8, 146 13, 138 13 C 131 13, 129 8, 136 8'/>" +
+  "<circle cx='130' cy='8' r='3' fill='" + GOLD + "' stroke='none'/>" +
+  "</g></svg>\")";
+
+// A medallion for the foot of the panel: a botanical sprig inside a broken
+// ring. This is what fills a section that has only two dishes on it.
+const MEDALLION =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'>" +
+  "<g fill='none' stroke='%233C1211' stroke-width='2.4' stroke-linecap='round'>" +
+  "<path d='M80 12 A68 68 0 0 1 148 80 A68 68 0 0 1 80 148 A68 68 0 0 1 12 80 A68 68 0 0 1 80 12' stroke-dasharray='60 14'/>" +
+  "<path d='M80 128 V54'/>" +
+  "<path d='M80 108 C 62 104, 50 92, 45 77 C 62 79, 74 91, 80 108z'/>" +
+  "<path d='M80 108 C 98 104, 110 92, 115 77 C 98 79, 86 91, 80 108z'/>" +
+  "<path d='M80 82 C 66 78, 57 68, 53 56 C 67 59, 76 69, 80 82z'/>" +
+  "<path d='M80 82 C 94 78, 103 68, 107 56 C 93 59, 84 69, 80 82z'/>" +
+  "<circle cx='80' cy='44' r='5.5'/></g></svg>\")";
+
+// A trace of paper grain. Without it the cream is a flat digital fill; with it
+// the panel reads as stock. Kept below 4% so it never becomes visible texture.
+const GRAIN =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>" +
+  "<filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/></filter>" +
+  "<rect width='160' height='160' filter='url(%23g)' opacity='0.35'/></svg>\")";
+// Nova Quinta is a personal-use licence (public/fonts/NovaQuinta-LICENCE.txt);
+// a client menu is commercial use, so a licence has to be bought before this
+// ships to guests. The stack falls back to the display serif if it is pulled.
+const MENU_CSS = `
+/* Josefin Sans comes from the app-wide Google Fonts import in styles.js. It is
+   not imported here: an @import is only valid at the very top of a stylesheet,
+   and this sheet opens with the @font-face below, so one placed here would be
+   dropped without an error. */
+:root { --font-menu: 'Josefin Sans', var(--font-body), sans-serif; }
+@font-face {
+  font-family: 'NovaQuinta';
+  src: url('${BASE}fonts/NovaQuinta.otf') format('opentype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+.amb-page {
+  position: relative; width: 100%; aspect-ratio: 1 / 1.4142;
+  display: flex; overflow: hidden;
+  background-color: ${M.cream};
+  background-image: ${GRAIN};
+  background-size: 160px 160px;
+}
+.amb-photo { flex: 0 0 50%; background-size: cover; background-position: center; position: relative; }
+/* No photograph yet: a warm panel that says so, rather than a broken image or
+   a white hole that reads as a bug. */
+.amb-photo.is-empty {
+  background: linear-gradient(160deg, #2A1B10 0%, #140C06 100%);
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.amb-panel {
+  flex: 1 1 50%; min-width: 0; padding: 5% 6% 4%;
+  display: flex; flex-direction: column; position: relative;
+}
+/* A hairline frame and a sprig at the foot. On a section with twenty dishes
+   neither is noticed; on one with two, they are the difference between a
+   designed page and a blank one. Both are decoration, so they stay behind the
+   text and out of the accessibility tree. */
+.amb-panel::before {
+  content: ""; position: absolute; inset: 3.4%; pointer-events: none; z-index: 0;
+  border: 1.2px solid rgba(60,18,17,.26);
+  background-image: ${corner(0)}, ${corner(90)}, ${corner(180)}, ${corner(270)};
+  background-repeat: no-repeat;
+  background-position: left 6px top 6px, right 6px top 6px, right 6px bottom 6px, left 6px bottom 6px;
+  background-size: clamp(26px, 5.8cqw, 54px);
+}
+/* The medallion only appears on a section short enough to leave room for it.
+   On a full page the list runs down to the foot, and the medallion ended up
+   sitting behind the last dish's description — decoration competing with the
+   thing it is meant to frame. */
+.amb-panel.is-sparse::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 9%; height: 17%;
+  pointer-events: none; z-index: 0; opacity: .24;
+  background: ${MEDALLION} no-repeat center bottom;
+  background-size: auto 100%;
+}
+.amb-panel > * { position: relative; z-index: 1; }
+.amb-title {
+  font-family: 'NovaQuinta', var(--font-display), Georgia, serif;
+  color: ${M.ink}; text-align: center; line-height: 1.05;
+  font-size: clamp(26px, 6.2cqw, 58px); margin: 0 0 2% 0;
+}
+.amb-sub {
+  text-align: center; color: ${M.ink}; letter-spacing: .14em;
+  font-size: clamp(9px, 1.9cqw, 17px); margin: 0 0 4% 0;
+  font-family: var(--font-menu); font-weight: 400;
+}
+/* The rule under the heading. A line with a lozenge on it, drawn rather than
+   typed, so it scales with the sheet like everything else here. */
+.amb-rule {
+  display: block; margin: 0 auto 5%; width: 62%; height: clamp(9px, 2.1cqw, 19px);
+  background: ${FILIGREE} no-repeat center;
+  background-size: 100% 100%;
+}
+.amb-list { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 3.2%; }
+/* A short list is not centred. Centring two dishes on a full page splits the
+   emptiness into a gap above and a gap below, and the page reads as unfinished;
+   sitting them under the heading puts all the space in one block at the foot,
+   where the sprig is, and that reads as margin. */
+.amb-list.is-sparse { justify-content: flex-start; padding-top: 6%; gap: 5%; }
+.amb-dish { text-align: center; }
+.amb-dish-name {
+  font-family: var(--font-menu); color: ${M.dish};
+  font-size: clamp(12px, 2.7cqw, 25px); line-height: 1.2; font-weight: 400;
+}
+.amb-dish-desc {
+  font-family: var(--font-menu); font-weight: 300; color: ${M.dishDesc}; opacity: .85;
+  font-size: clamp(9px, 1.8cqw, 16px); line-height: 1.35; margin: .3em auto 0;
+  max-width: 82%;
+}
+.amb-foot { display: flex; justify-content: flex-end; padding-top: 3%; }
+.amb-foot img { height: clamp(14px, 3cqw, 30px); width: auto; }
+
+/* Cover + back cover */
+.amb-cover {
+  position: relative; width: 100%; aspect-ratio: 1 / 1.4142; overflow: hidden;
+  background-size: cover; background-position: center; background-color: ${M.dark};
+  display: flex; flex-direction: column; align-items: center;
+  padding: 7% 8%; text-align: center; color: #FFFFFF;
+}
+.amb-cover::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.18) 38%, rgba(0,0,0,.62) 100%);
+}
+.amb-cover > * { position: relative; z-index: 1; }
+.amb-cover-mark { height: clamp(26px, 6cqw, 58px); width: auto; }
+.amb-cover-tag {
+  font-family: var(--font-display), Georgia, serif; letter-spacing: .06em;
+  font-size: clamp(10px, 2.2cqw, 21px); margin-top: 3%;
+}
+.amb-cover-title {
+  font-family: 'NovaQuinta', var(--font-display), Georgia, serif;
+  font-size: clamp(40px, 11cqw, 104px); line-height: .95; margin: auto 0 0;
+}
+.amb-cover-kind {
+  letter-spacing: .34em; font-size: clamp(8px, 1.8cqw, 16px);
+  font-family: var(--font-menu); font-weight: 400; margin-top: 1%;
+}
+.amb-cover-foot { margin-top: auto; font-size: clamp(8px, 1.6cqw, 14px); line-height: 1.7;
+  font-family: var(--font-menu); font-weight: 300; letter-spacing: .04em; }
+.amb-cover-foot img { width: clamp(46px, 11cqw, 104px); height: auto; margin-bottom: 3%; }
+
 @media print {
-  @page { margin: 12mm; size: A4; }
-  html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 0; size: A4 portrait; }
+  html, body { background: #fff !important; margin: 0 !important; padding: 0 !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body * { visibility: hidden; }
   .ambria-print-card, .ambria-print-card * { visibility: visible; }
-  .ambria-print-card { position: absolute !important; top: 0; left: 0; right: 0; padding: 0 !important; box-shadow: none !important; border: none !important; max-width: 100% !important; margin: 0 !important; background: #fff !important; }
+  .ambria-print-card { position: absolute !important; inset: 0 auto auto 0;
+    width: 100% !important; max-width: none !important; margin: 0 !important;
+    padding: 0 !important; box-shadow: none !important; background: #fff !important; }
   .ambria-print-hide { display: none !important; }
-  .ambria-print-dept { page-break-inside: avoid; break-inside: avoid; }
-  .ambria-print-cat  { page-break-inside: avoid; break-inside: avoid; }
+  /* One sheet per page, and never split a section across two. */
+  .amb-sheet { width: 100%; margin: 0 !important; box-shadow: none !important;
+    break-after: page; page-break-after: always; break-inside: avoid; page-break-inside: avoid; }
+  .amb-sheet:last-child { break-after: auto; page-break-after: auto; }
 }
 `;
 
@@ -207,15 +438,32 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
 
   var totalItems = (dishItems || []).length;
 
-  // ── Formatted event details line ──
-  var eventLine = useMemo(function(){
-    var parts = [];
-    if (proposal.event_type) parts.push(proposal.event_type);
-    if (proposal.venue)      parts.push(proposal.venue);
-    if (proposal.event_date) parts.push(formatDate(proposal.event_date));
-    if (proposal.pax)        parts.push(proposal.pax + " " + T2("guests"));
-    return parts.join(" · ");
-  }, [proposal, lang]);
+  // ── V89: one printed page per section ──
+  // The printed menu has no notion of departments; it is a run of sections, each
+  // on its own sheet. Section routing is still what produces them, so the dept
+  // order above decides the order they appear in.
+  var pages = useMemo(function(){
+    var out = [];
+    deptSections.forEach(function(d){
+      var groups = sectionGroupsByDept[d.id];
+      if (groups && groups.length) {
+        groups.forEach(function(g){
+          out.push({ key: d.id + ':' + g.id, title: g.name || d.name, items: g.items });
+        });
+        return;
+      }
+      // No section routing for this dept yet — fall back to the category
+      // buckets so the dept still prints rather than silently vanishing.
+      (byDeptByCat[d.id] || []).forEach(function(c){
+        out.push({ key: d.id + ':cat:' + c.id, title: c.name, items: c.items });
+      });
+    });
+    return out;
+  }, [deptSections, sectionGroupsByDept, byDeptByCat]);
+
+  var dietLine = proposal.menu_diet === 'veg' ? T2("VEGETARIAN")
+               : proposal.menu_diet === 'nonveg' ? T2("NON-VEGETARIAN") : "";
+  var tierName = (templateInfo && templateInfo.name) || T2("Curated Menu");
 
   // ── Mark as Sent ──
   async function markAsSent() {
@@ -228,204 +476,159 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       if (res.error) throw res.error;
       setSentJust(true);
     } catch (e) {
-      console.error('[Preview] markAsSent failed:', e);
-      alert(T2('Failed to mark as sent:') + ' ' + (e.message || e));
+      console.error('[Preview] mark as sent failed:', e);
     } finally {
       setMarkingSent(false);
     }
   }
-
-  function handlePrint() {
-    window.print();
-  }
-
   var showMarkSent = currentStatus === 'draft' && !sentJust;
-  var statusPill = sentJust
-    ? { label: T2('Marked as sent'), bg: '#E5F5EA', fg: '#2A7A48' }
-    : currentStatus === 'sent' ? { label: T2('Sent'), bg: '#E5F0FA', fg: '#1858A5' }
-    : currentStatus === 'won'  ? { label: T2('Won'),  bg: '#E5F5EA', fg: '#2A7A48' }
-    : currentStatus === 'lost' ? { label: T2('Lost'), bg: '#FAE5E5', fg: '#A52828' }
-    : null;
+
+  function handlePrint() { window.print(); }
+
+  var barBtn = {
+    display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px",
+    borderRadius: K.rPill, fontSize: 13.5, fontWeight: 600, cursor: "pointer",
+    fontFamily: K.fontBody, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
+    color: K.textBody,
+  };
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 200, background: "#F5F1E8", overflowY: "auto" }}>
-      {/* Print stylesheet (self-contained) */}
-      <style>{PRINT_CSS}</style>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#2C2A26", overflowY: "auto" }}>
+      <style>{MENU_CSS}</style>
 
       {/* ── Top bar (hidden in print) ── */}
       <div className="ambria-print-hide"
-        style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, borderBottom: "1px solid " + C.border, padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: "0 1px 3px " + C.shadow }}>
-        <button onClick={onClose}
-          style={{ padding: "8px 14px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          ← {T2("Back to menu")}
+        style={{ position: "sticky", top: 0, zIndex: 10, background: K.cardWarm,
+          borderBottom: "1px solid " + K.cardWarmLine, padding: "10px 18px", display: "flex",
+          alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: K.shadowCard }}>
+        <button onClick={onClose} style={barBtn}>
+          <Icon name="chevronL" size={14} strokeWidth={2.1} />{T2("Back to menu")}
         </button>
-        <div style={{ flex: 1, fontSize: 12, color: C.muted }}>
-          👁 {T2("Client-facing preview")} · {totalItems} {T2(totalItems === 1 ? "item" : "items")}
-          {statusPill && (
-            <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 10, background: statusPill.bg, color: statusPill.fg, fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>{statusPill.label}</span>
-          )}
-        </div>
+        <span style={{ flex: 1, fontSize: 13, color: K.hdrMeta }}>
+          {T2("Client-facing preview")} · {totalItems} {T2(totalItems === 1 ? "item" : "items")} · {pages.length} {T2("pages")}
+        </span>
         {showMarkSent && (
           <button onClick={markAsSent} disabled={markingSent}
-            style={{ padding: "8px 16px", borderRadius: 8, background: "#1858A5", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: markingSent ? "wait" : "pointer", opacity: markingSent ? 0.7 : 1 }}>
-            {markingSent ? T2("Saving…") : "✉ " + T2("Mark as Sent")}
+            style={{ ...barBtn, background: K.sageSel, borderColor: K.sage, color: K.sageText,
+              cursor: markingSent ? "wait" : "pointer", opacity: markingSent ? .7 : 1 }}>
+            <Icon name="check" size={14} strokeWidth={2.3} />
+            {markingSent ? T2("Saving…") : T2("Mark as Sent")}
           </button>
         )}
         <button onClick={handlePrint}
-          style={{ padding: "8px 16px", borderRadius: 8, background: C.gold || "#D4A843", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          🖨 {T2("Print / Save PDF")}
+          style={{ ...barBtn, background: K.brand, borderColor: K.brand, color: "#FFFFFF" }}>
+          <Icon name="fileText" size={14} strokeWidth={2} />{T2("Print / Save PDF")}
         </button>
       </div>
 
-      {/* ── Print card ── */}
-      <div className="ambria-print-card"
-        style={{
-          maxWidth: 780, margin: "24px auto 60px", background: "#fff",
-          borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
-          padding: "48px 56px",
-          fontFamily: 'ui-serif, Georgia, "Times New Roman", serif',
-          color: "#2a2622",
-        }}>
+      {/* ── The menu itself ── */}
+      <div className="ambria-print-card" style={{ maxWidth: 820, margin: "22px auto 60px" }}>
+        <Sheet><Cover tier={tierName} diet={dietLine} proposal={proposal} T2={T2} /></Sheet>
 
-        {/* Wordmark header */}
-        <div style={{ textAlign: "center", paddingBottom: 22, borderBottom: "2px solid " + (C.gold || "#D4A843"), marginBottom: 28 }}>
-          <div style={{
-            fontSize: 36, fontWeight: 700, letterSpacing: 6, color: C.gold || "#B8862D",
-            fontFamily: 'var(--font-display), "Playfair Display", ui-serif, Georgia, serif',
-            textTransform: "uppercase",
-          }}>
-            AMBRIA
-          </div>
-          <div style={{ fontSize: 10, letterSpacing: 4, color: "#8a7a5d", marginTop: 4, textTransform: "uppercase" }}>
-            {T2("Catering & Banquets")}
-          </div>
-        </div>
-
-        {/* Guest title */}
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontSize: 14, color: "#8a7a5d", marginBottom: 6, textTransform: "uppercase", letterSpacing: 3 }}>
-            {T2("Menu curated for")}
-          </div>
-          <div style={{
-            fontSize: 32, fontWeight: 700, color: "#2a2622",
-            fontFamily: 'var(--font-display), "Playfair Display", ui-serif, Georgia, serif',
-            fontStyle: "italic",
-          }}>
-            {proposal.guest_name || T2("Guest")}
-          </div>
-          {eventLine && (
-            <div style={{ fontSize: 13, color: "#5a5148", marginTop: 10, letterSpacing: 0.5 }}>
-              {eventLine}
-            </div>
-          )}
-          {templateInfo && templateInfo.name && (
-            <div style={{ fontSize: 11, color: "#8a7a5d", marginTop: 6, letterSpacing: 1, textTransform: "uppercase" }}>
-              {templateInfo.name}
-            </div>
-          )}
-        </div>
-
-        <div style={{ height: 1, background: "linear-gradient(to right, transparent, #d4a843, transparent)", marginBottom: 28 }}></div>
-
-        {/* Empty state */}
-        {deptSections.length === 0 && (
-          <div style={{ textAlign: "center", padding: "60px 20px", color: "#8a7a5d" }}>
-            <div style={{ fontSize: 32, marginBottom: 10 }}>🍽</div>
-            <div style={{ fontSize: 14, fontStyle: "italic" }}>
-              {T2("No dishes selected yet. Go back to the Menu Builder to pick items.")}
-            </div>
-          </div>
-        )}
-
-        {/* Dept sections */}
-        {deptSections.map(function(dept){
-          // V73: any dept can use section grouping when its sales_dept-routed sections exist.
-          var secGroups = sectionGroupsByDept[dept.id];
-          var useSec = secGroups && secGroups.length > 0;
-          var cats = useSec ? secGroups : (byDeptByCat[dept.id] || []);
+        {pages.map(function(pg, i){
           return (
-            <div key={dept.id} className="ambria-print-dept" style={{ marginBottom: 32 }}>
-              {/* Dept header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, paddingBottom: 8, borderBottom: "1px dashed " + (dept.color || "#d4a843") }}>
-                <span style={{ fontSize: 20 }}>{dept.icon}</span>
-                <span style={{
-                  fontSize: 18, fontWeight: 700, color: dept.color || "#2a2622",
-                  fontFamily: 'var(--font-display), "Playfair Display", ui-serif, Georgia, serif',
-                  letterSpacing: 1,
-                }}>
-                  {dept.name}
-                </span>
-              </div>
-
-              {/* Categories / sections in this dept */}
-              {cats.map(function(cat){
-                var isExtras = cat.id === '__extras__';
-                return (
-                  <div key={cat.id} className="ambria-print-cat" style={{ marginBottom: 20 }}>
-                    {!isExtras && (
-                      <div style={{
-                        fontSize: 12, fontWeight: 700, color: "#8a7a5d",
-                        textTransform: "uppercase", letterSpacing: 2,
-                        marginBottom: 8, paddingLeft: 4,
-                      }}>
-                        {cat.icon ? (cat.icon + ' ') : ''}{cat.name}
-                      </div>
-                    )}
-                    <div style={{ paddingLeft: 20 }}>
-                      {cat.items.map(function(item, ii){
-                        var meta = salesMeta[item.dish_name];
-                        var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
-                        var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
-                        var desc = (meta && meta.sales_description) || '';
-                        return (
-                          <div key={ii} style={{ marginBottom: desc ? 10 : 4, display: "flex", alignItems: "flex-start", gap: 8 }}>
-                            <span style={{ color: "#d4a843", marginTop: 2, flexShrink: 0 }}>◆</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontSize: 14, color: "#2a2622", fontWeight: 500 }}>{item.dish_name}</span>
-                                {dietMeta && dietMeta.id !== 'veg' && (
-                                  <span style={{ fontSize: 10, color: dietMeta.color }} title={dietMeta.label}>{dietMeta.icon}</span>
-                                )}
-                              </div>
-                              {desc && (
-                                <div style={{ fontSize: 11, color: "#7a6f5e", fontStyle: "italic", marginTop: 2, lineHeight: 1.4 }}>{desc}</div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <Sheet key={pg.key}>
+              <SectionPage page={pg} diet={dietLine} flip={i % 2 === 1} salesMeta={salesMeta} T2={T2} />
+            </Sheet>
           );
         })}
 
-        {/* Footer */}
-        <div style={{
-          marginTop: 40, paddingTop: 20, borderTop: "1px solid #e8dfc9",
-          textAlign: "center", fontSize: 11, color: "#8a7a5d", letterSpacing: 1.5,
-        }}>
-          <div style={{ marginBottom: 4, fontWeight: 600 }}>{T2("With warm regards from the Ambria team")}</div>
-          <div style={{ fontSize: 10, opacity: 0.75 }}>
-            {T2("This menu is a proposal and may be tailored further to your preferences.")}
-          </div>
-        </div>
+        <Sheet><BackCover /></Sheet>
       </div>
     </div>
   );
 }
 
-function formatDate(iso) {
-  if (!iso) return '';
-  try {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  } catch (e) {
-    return iso;
-  }
+// A single A4 sheet. containerType so the clamp()s inside scale with the sheet
+// rather than the viewport — the same page then prints and previews identically.
+function Sheet({ children }) {
+  return (
+    <div className="amb-sheet"
+      style={{ containerType: "inline-size", background: "#FFF", marginBottom: 18,
+        boxShadow: "0 6px 26px rgba(0,0,0,.35)" }}>
+      {children}
+    </div>
+  );
+}
+
+// An <img> that removes itself if the file is not there, so a missing asset
+// leaves the layout intact instead of showing a broken-image glyph.
+function Art({ src, alt, className, style }) {
+  return (
+    <img src={src} alt={alt || ""} className={className} style={style} draggable="false"
+      onError={function(e){ e.currentTarget.style.display = "none"; }} />
+  );
+}
+
+function Cover({ tier, diet, proposal, T2 }) {
+  return (
+    <div className="amb-cover" style={{ backgroundImage: "url(" + coverPhoto(proposal.menu_diet) + ")" }}>
+      <Art src={ART.logoLight} alt="Ambria Cuisines" className="amb-cover-mark" />
+      <div className="amb-cover-tag">{T2("Curated to indulge, crafted to impress!")}</div>
+      <div className="amb-cover-title">{tier}</div>
+      {diet && <div className="amb-cover-kind">{diet}</div>}
+      <div className="amb-cover-foot">
+        <Art src={ART.qr} alt="" />
+        <div>{proposal.guest_name}</div>
+        <div>{T2("TO HOST YOU, CALL US")} : +91-8826399444 | +91-8800163444</div>
+        <div>F-20, DWARKA LINK ROAD, SAMALKA, NEW DELHI, 110061</div>
+      </div>
+    </div>
+  );
+}
+
+function BackCover() {
+  return (
+    <div className="amb-cover" style={{ backgroundImage: "url(" + ART.back + ")", justifyContent: "flex-start" }}>
+      <Art src={ART.logoLight} alt="Ambria Cuisines" className="amb-cover-mark" />
+      <div className="amb-cover-foot" style={{ width: "100%", display: "flex",
+        justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <span>CATERING@AMBRIA.IN</span>
+        <span>8826399444 | +91- 8800163444</span>
+      </div>
+    </div>
+  );
+}
+
+function SectionPage({ page, diet, flip, salesMeta, T2 }) {
+  var photo = sectionPhoto(page.title);
+  var sparse = page.items.length <= 4;
+  var panel = (
+    <div className={"amb-panel" + (sparse ? " is-sparse" : "")}>
+      <h2 className="amb-title">{page.title}</h2>
+      {diet && <div className="amb-sub">{diet}</div>}
+      <span className="amb-rule" aria-hidden="true" />
+      <div className={"amb-list" + (sparse ? " is-sparse" : "")}>
+        {page.items.map(function(it){
+          var meta = salesMeta[it.dish_name];
+          var desc = (meta && meta.sales_description) || "";
+          return (
+            <div className="amb-dish" key={it.dish_name}>
+              <div className="amb-dish-name">{it.dish_name}</div>
+              {desc && <div className="amb-dish-desc">{desc}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="amb-foot"><Art src={ART.logoDark} alt="Ambria Cuisines" /></div>
+    </div>
+  );
+
+  var art = (
+    <div className={"amb-photo" + (photo ? "" : " is-empty")}
+      style={photo ? { backgroundImage: "url(" + photo + ")" } : undefined}>
+      {!photo && (
+        <span style={{ color: "rgba(255,255,255,.45)", fontFamily: "var(--font-body), sans-serif",
+          fontSize: "clamp(8px, 1.5cqw, 13px)", letterSpacing: ".12em", padding: "0 10%" }}>
+          {T2("PHOTOGRAPH")}
+        </span>
+      )}
+    </div>
+  );
+
+  // The printed menu alternates which side carries the photograph, so facing
+  // pages do not mirror each other.
+  return <div className="amb-page">{flip ? <>{panel}{art}</> : <>{art}{panel}</>}</div>;
 }
 
 export default MenuBuilderPreview;

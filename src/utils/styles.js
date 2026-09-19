@@ -2,7 +2,7 @@
 // Extracted from App.jsx lines 6-80
 
 const LUXURY_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&family=Josefin+Sans:wght@300;400;500;600&display=swap');
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
