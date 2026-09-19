@@ -159,14 +159,14 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
   var driversOn = !!(fp && fp.drivers_food_required);
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1080, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
         <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
       </div>
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div style={{ flex: "1 1 420px", display: "flex", flexDirection: "column", gap: 16, minWidth: 320 }}>
+      <div style={{ flex: "1.2 1 480px", display: "flex", flexDirection: "column", gap: 16, minWidth: 360 }}>
 
         {/* ── Food Preference (+ Corkage) ── */}
         <Panel icon="plate" badgeBg={K.okBg} badgeColor={K.ok} title={T2("Food Preference")}>
@@ -246,7 +246,7 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
         </Panel>
 
       </div>
-      <div style={{ flex: "1 1 420px", display: "flex", flexDirection: "column", gap: 16, minWidth: 320 }}>
+      <div style={{ flex: "1 1 400px", display: "flex", flexDirection: "column", gap: 16, minWidth: 320 }}>
 
         {/* ── Room Info ── */}
         <Panel icon="home" badgeBg={K.idleBg} badgeColor={K.idle} title={T2("Room Info")}
