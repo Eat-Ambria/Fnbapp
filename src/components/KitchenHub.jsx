@@ -5014,7 +5014,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // evPlanRows (already loaded for every event — no extra fetch). Every
         // dish gets an entry (__auto:true when nothing is pinned) so the auto
         // suggestion shown is the correct day-aware total, not one function's.
-        const planRowsSingle = planRows;
+        //
+        // NOTE: deliberately named viewPlanRows, NOT planRows — a same-named
+        // local const here would shadow the hook state for this entire
+        // function scope (including above this line, in the TDZ), throwing
+        // "Cannot access 'planRows' before initialization" the moment this
+        // tab renders. Every read below that means "the current view's rows"
+        // must go through viewPlanRows; the bare hook state `planRows` is
+        // only ever read directly by savePlanYield/the load effect elsewhere.
         const combinedPlanRows = {};
         if(isCombinedMode){
           const seen = new Set();
@@ -5033,17 +5040,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             combinedPlanRows[dish] = { target_yield_kg: Math.round(total*10)/10, section_yields:null, __auto:!anyOverride };
           });
         }
-        const planRows = isCombinedMode ? combinedPlanRows : planRowsSingle;
+        const viewPlanRows = isCombinedMode ? combinedPlanRows : planRows;
         // Combined mode's day-aware auto suggestion (falls back to the raw
         // single-event formula's result when not in combined mode, or when a
         // dish has no combined entry at all — e.g. nothing on the day's menus
         // resolves it, which the raw formula also can't help with).
         function daySuggested(dish, rawSuggested){
-          if(isCombinedMode && planRows[dish]?.__auto) return planRows[dish].target_yield_kg;
+          if(isCombinedMode && viewPlanRows[dish]?.__auto) return viewPlanRows[dish].target_yield_kg;
           return rawSuggested;
         }
         function isRealOverride(dish){
-          return !!planRows[dish] && !planRows[dish].__auto;
+          return !!viewPlanRows[dish] && !viewPlanRows[dish].__auto;
         }
         // Same day-aware sum as daySuggested, for a recipe's per-section
         // auto yield. Section-level overrides stay single-function-only
@@ -5061,7 +5068,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const draft = planDrafts[dish];
           if(draft===undefined) return;
           const draftStr = String(draft).trim();
-          const savedStr = String(isRealOverride(dish) ? (planRows[dish]?.target_yield_kg ?? "") : "");
+          const savedStr = String(isRealOverride(dish) ? (viewPlanRows[dish]?.target_yield_kg ?? "") : "");
           if(draftStr === savedStr) return;
           // If chef typed the exact auto suggestion and dish isn't already an override, don't create a redundant pin
           if(!isRealOverride(dish) && draftStr !== ""){
@@ -5358,7 +5365,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {dishes.length>0 && (()=>{
                   // Total = overrides + auto suggestions for every mapped dish (mirrors what ingredient calc uses)
                   const plannedKgTotal = dishes.reduce((s,d)=>{
-                    const override = Number(planRows[d]?.target_yield_kg);
+                    const override = Number(viewPlanRows[d]?.target_yield_kg);
                     if(override>0) return s+override;
                     const st = dishStatus(d);
                     if(!st.baseYield) return s;
@@ -5466,7 +5473,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         recSections.forEach(sec=>{
                           const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg)*10)/10;
                           const secAutoScaled = Math.round(secAutoRaw*mult*10)/10;
-                          const savedVal = isCombinedMode ? null : planRows[it.dish]?.section_yields?.[sec.name];
+                          const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                           const isSecOverride = savedVal!=null && savedVal!=="";
                           const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                           sectionsTotalKg += (effKgSec||0);
@@ -5476,7 +5483,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       } else {
                         const suggestedRaw = st.baseYield ? daySuggested(it.dish, selEv.pax/basePax*st.baseYield) : null;
                         const isOverride = isRealOverride(it.dish);
-                        const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                        const overrideKgRaw = isOverride ? viewPlanRows[it.dish]?.target_yield_kg : null;
                         const effKg = isOverride
                           ? (overrideKgRaw!=null ? Math.round(overrideKgRaw*mult*10)/10 : null)
                           : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
@@ -5645,7 +5652,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             recSections.forEach(sec=>{
                               const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg) * 10)/10;
                               const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
-                              const savedVal = isCombinedMode ? null : planRows[it.dish]?.section_yields?.[sec.name];
+                              const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                               const isSecOverride = savedVal!=null && savedVal!=="";
                               const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                               sectionsTotalKg += (effKgSec || 0);
@@ -5665,7 +5672,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg) * 10)/10;
                               const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
                               const draftKey = it.dish+"|"+sec.name;
-                              const savedVal = isCombinedMode ? null : planRows[it.dish]?.section_yields?.[sec.name];
+                              const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                               const isSecOverride = savedVal!=null && savedVal!=="";
                               const currentVal = planDrafts[draftKey] ?? (isSecOverride ? String(savedVal) : "");
                               const isSaving = planSaving.has(draftKey);
@@ -5710,7 +5717,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const suggestedRaw = it.isBaseGravy ? Math.round(it.demandKg * 10)/10 : (st.baseYield ? daySuggested(it.dish, selEv.pax/basePax * st.baseYield) : null);
                           const suggested = suggestedRaw!=null ? Math.round(suggestedRaw * mult * 10)/10 : null;
                           const isOverride = isRealOverride(it.dish);
-                          const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                          const overrideKgRaw = isOverride ? viewPlanRows[it.dish]?.target_yield_kg : null;
                           const overrideEff = overrideKgRaw!=null ? Math.round(overrideKgRaw * mult * 10)/10 : null;
                           const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKgRaw ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
