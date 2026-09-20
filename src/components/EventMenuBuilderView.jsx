@@ -1079,7 +1079,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               <div style={{ fontSize: 13 }}>{T2("Loading…")}</div>
             </div>
           ) : (
-            <FunctionPlanTab T2={T2} fp={fp} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
+            <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
           )}
         </div>
       )}

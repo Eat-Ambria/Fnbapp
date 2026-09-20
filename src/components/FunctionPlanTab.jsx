@@ -119,7 +119,26 @@ function FieldLabel({ children }) {
 
 var inputStyle = { fontFamily: "inherit", fontSize: 13.5, color: K.text, border: "1px solid " + K.line, borderRadius: K.rSm, background: K.surfaceAlt, padding: "9px 11px", outline: "none" };
 
-export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
+// Complimentary-plate count and extra-plate rate straight from the LMS
+// contract, keyed by whichever detail-row schema this event came from
+// (venue: fiscd_*, catering: chcd_*). LMS stores the extra-plate rate at
+// half its real value — doubled here so this always shows the true rate.
+function getLmsPlateInfo(event) {
+  var raw = event && event.lms_raw;
+  if (!raw || String((event && event.id) || '').indexOf('LMS-') !== 0) return null;
+  var isCatering = event.lms_source === 'catering';
+  var compRaw = isCatering ? raw.chcd_freepax : raw.fiscd_free_pax_no;
+  var rateRaw = isCatering ? raw.chcd_extra_plate : raw.fiscd_extra_plate_charge;
+  var comp = (compRaw !== null && compRaw !== undefined && compRaw !== '') ? Number(compRaw) : null;
+  var rate = (rateRaw !== null && rateRaw !== undefined && rateRaw !== '') ? Number(rateRaw) : null;
+  if ((comp == null || isNaN(comp)) && (rate == null || isNaN(rate))) return null;
+  return {
+    comp: (comp != null && !isNaN(comp)) ? comp : null,
+    rateFull: (rate != null && !isNaN(rate)) ? rate * 2 : null,
+  };
+}
+
+export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
 
@@ -157,6 +176,7 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
 
   var roomOn = !!(fp && fp.room_info_enabled);
   var driversOn = !!(fp && fp.drivers_food_required);
+  var lmsPlate = getLmsPlateInfo(event);
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto" }}>
@@ -357,6 +377,27 @@ export function FunctionPlanTab({ T2, fp, onSaveField, onOpenPrint }) {
             <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("Not required for this function.")}</div>
           )}
         </Panel>
+
+        {/* ── Extra Plate Info (from LMS) ── */}
+        {lmsPlate && (
+          <Panel icon="tag" badgeBg={K.infoBg} badgeColor={K.info} title={T2("Extra Plate Info")}>
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 4 }}>{T2("Complimentary plates")}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: K.text, fontVariantNumeric: "tabular-nums" }}>
+                  {lmsPlate.comp != null ? lmsPlate.comp : "—"}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 4 }}>{T2("Extra plate rate")}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: K.text, fontVariantNumeric: "tabular-nums" }}>
+                  {lmsPlate.rateFull != null ? "₹" + lmsPlate.rateFull.toLocaleString('en-IN') : "—"}
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: K.textFaint }}>{T2("From the LMS contract. Extra-plate rate is doubled from LMS's stored value.")}</div>
+          </Panel>
+        )}
 
       </div>
       </div>
