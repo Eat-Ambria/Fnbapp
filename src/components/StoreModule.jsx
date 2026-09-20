@@ -134,6 +134,124 @@ async function fetchOpsEquipmentItems() {
   return all.map(transformOpsEquipment);
 }
 
+// ═══ Ingredient duplicate-finder — same approach as DishLibrary.jsx's
+// "Find duplicates", adapted to ingredient entries ({name, hindi, dishes}
+// instead of {dish_name, hindi, packages}). Kept as a separate copy rather
+// than importing DishLibrary's (unexported) helpers — small, pure, and this
+// keeps StoreModule free of a cross-feature dependency for four functions. ══
+function normalizeIngName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9ऀ-ॿ\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function tokenSetKeyIng(s) {
+  var n = normalizeIngName(s);
+  if (!n) return '';
+  return n.split(' ').filter(Boolean).sort().join(' ');
+}
+function levenshteinIng(a, b) {
+  if (a === b) return 0;
+  var m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  var prev = new Array(n + 1);
+  var curr = new Array(n + 1);
+  for (var j = 0; j <= n; j++) prev[j] = j;
+  for (var i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (var jj = 1; jj <= n; jj++) {
+      var cost = a.charCodeAt(i - 1) === b.charCodeAt(jj - 1) ? 0 : 1;
+      curr[jj] = Math.min(curr[jj - 1] + 1, prev[jj] + 1, prev[jj - 1] + cost);
+    }
+    var tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[n];
+}
+// Clusters ingredients by four signals, highest confidence first. Each
+// ingredient appears in at most one cluster (first-hit wins).
+function findIngredientDuplicateClusters(ingredients) {
+  var clusters = [];
+  var assigned = {}; // name -> true
+
+  var byNorm = {};
+  ingredients.forEach(function(d) {
+    var k = normalizeIngName(d.name);
+    if (!k) return;
+    (byNorm[k] = byNorm[k] || []).push(d);
+  });
+  Object.keys(byNorm).forEach(function(k) {
+    if (byNorm[k].length < 2) return;
+    clusters.push({ reason: 'Same after normalization', confidence: 'high', items: byNorm[k].slice() });
+    byNorm[k].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byTok = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var k = tokenSetKeyIng(d.name);
+    if (!k) return;
+    (byTok[k] = byTok[k] || []).push(d);
+  });
+  Object.keys(byTok).forEach(function(k) {
+    if (byTok[k].length < 2) return;
+    clusters.push({ reason: 'Same words, reordered', confidence: 'high', items: byTok[k].slice() });
+    byTok[k].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byHi = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var h = String(d.hindi || '').trim().toLowerCase();
+    if (!h) return;
+    (byHi[h] = byHi[h] || []).push(d);
+  });
+  Object.keys(byHi).forEach(function(h) {
+    if (byHi[h].length < 2) return;
+    clusters.push({ reason: 'Same Hindi (' + byHi[h][0].hindi + ')', confidence: 'high', items: byHi[h].slice() });
+    byHi[h].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byFirst = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var n = normalizeIngName(d.name);
+    if (!n) return;
+    var f = n[0];
+    (byFirst[f] = byFirst[f] || []).push({ orig: d, norm: n });
+  });
+  Object.keys(byFirst).forEach(function(f) {
+    var bucket = byFirst[f];
+    for (var i = 0; i < bucket.length; i++) {
+      if (assigned[bucket[i].orig.name]) continue;
+      var group = [bucket[i].orig];
+      for (var j = i + 1; j < bucket.length; j++) {
+        if (assigned[bucket[j].orig.name]) continue;
+        if (Math.abs(bucket[i].norm.length - bucket[j].norm.length) > 2) continue;
+        var dist = levenshteinIng(bucket[i].norm, bucket[j].norm);
+        if (dist > 0 && dist <= 2) group.push(bucket[j].orig);
+      }
+      if (group.length >= 2) {
+        clusters.push({ reason: '1–2 letters apart', confidence: 'medium', items: group });
+        group.forEach(function(d) { assigned[d.name] = true; });
+      }
+    }
+  });
+
+  return clusters;
+}
+// Default target = highest recipe-usage count, tie-broken alphabetically.
+function pickDefaultIngTarget(cluster) {
+  var sorted = cluster.items.slice().sort(function(a, b) {
+    var au = (a.dishes || []).length;
+    var bu = (b.dishes || []).length;
+    if (au !== bu) return bu - au;
+    return a.name.localeCompare(b.name);
+  });
+  return sorted[0].name;
+}
+
 function StoreModule({events, lang="en", currentUser=null}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = (Array.isArray(events)?events:[]).filter(e=>e&&e.date);
@@ -173,6 +291,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingMergeModal, setIngMergeModal] = useState(null); // {sources:[name,...], target, unit} | null
   const [ingMerging, setIngMerging] = useState(false);
   const [ingRefreshTick, setIngRefreshTick] = useState(0); // bumped after a merge/unit edit to re-derive allRecipeIngredients from the now-mutated RECIPE_DB
+  const [ingDedupOpen, setIngDedupOpen] = useState(false);
+  const [ingDedupClusters, setIngDedupClusters] = useState([]);
+  const [ingDedupTargets, setIngDedupTargets] = useState({});   // {idx: name}
+  const [ingDedupUnits, setIngDedupUnits] = useState({});       // {idx: unit}
+  const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
+  const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
+  const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
   const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
@@ -503,6 +628,59 @@ function StoreModule({events, lang="en", currentUser=null}) {
       alert(T2('Merge failed: ') + (e.message || e));
     } finally {
       setIngMerging(false);
+    }
+  }
+
+  /* ── Ingredient duplicate finder — "🔍 Find duplicates", same flow as
+     Dish Library's: scan once on open, review clusters, pick a target per
+     group, merge or skip. ── */
+  function openIngDedup() {
+    const clusters = findIngredientDuplicateClusters(allRecipeIngredients);
+    const targets = {}, units = {};
+    clusters.forEach((c, i) => {
+      const t = pickDefaultIngTarget(c);
+      targets[i] = t;
+      units[i] = (c.items.find(x => x.name === t) || {}).unit || '';
+    });
+    setIngDedupClusters(clusters);
+    setIngDedupTargets(targets);
+    setIngDedupUnits(units);
+    setIngDedupSkipped({});
+    setIngDedupResolved({});
+    setIngDedupOpen(true);
+  }
+  function closeIngDedup() {
+    if (ingDedupSavingIdx != null) return;
+    setIngDedupOpen(false);
+  }
+  function pickIngDedupTarget(idx, name) {
+    setIngDedupTargets(prev => ({ ...prev, [idx]: name }));
+    const cluster = ingDedupClusters[idx];
+    const found = cluster && cluster.items.find(x => x.name === name);
+    if (found) setIngDedupUnits(prev => ({ ...prev, [idx]: found.unit || '' }));
+  }
+  function skipIngDedupCluster(idx) {
+    setIngDedupSkipped(prev => ({ ...prev, [idx]: true }));
+  }
+  function resetIngDedupSkipped() {
+    setIngDedupSkipped({});
+  }
+  async function mergeIngDedupCluster(idx) {
+    const cluster = ingDedupClusters[idx];
+    if (!cluster) return;
+    const target = (ingDedupTargets[idx] || '').trim();
+    const unit = (ingDedupUnits[idx] || '').trim();
+    if (!target || !unit) { alert(T2('Pick a target and unit for this group.')); return; }
+    const sources = cluster.items.map(d => d.name).filter(n => n !== target);
+    if (sources.length === 0) { alert(T2('Nothing to merge — target is the only ingredient.')); return; }
+    setIngDedupSavingIdx(idx);
+    try {
+      await performIngredientMerge(sources, target, unit);
+      setIngDedupResolved(prev => ({ ...prev, [idx]: 'merged' }));
+    } catch (e) {
+      alert(T2('Merge failed: ') + (e.message || e));
+    } finally {
+      setIngDedupSavingIdx(null);
     }
   }
 
@@ -1467,8 +1645,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   background:mapTabFilter===f.v?C.gold:C.bg,color:mapTabFilter===f.v?C.goldBg:C.muted,border:`1px solid ${mapTabFilter===f.v?C.gold:C.border}`}}>{f.l}</button>
               ))}
             </div>
-            <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
-              style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
+                style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
+                style={{padding:"10px 14px",borderRadius:10,background:C.surface,color:C.text,border:`1px solid ${C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                🔍 {T2("Find duplicates")}
+              </button>
+            </div>
 
             {/* Merge selection bar — pick 2+ cards' checkboxes to merge duplicate/similar ingredient names into one, same idea as the dish-merge feature */}
             {Object.keys(ingSelected).length>0&&(
@@ -1717,6 +1901,104 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
           </div>
         </div>
+        );
+      })()}
+
+      {/* ── Ingredient duplicate finder — same UX as Dish Library's "Find duplicates":
+           grouped by confidence, radio-pick a target per group, merge or skip. ── */}
+      {ingDedupOpen && (()=>{
+        const totalGroups = ingDedupClusters.length;
+        const resolvedCount = Object.keys(ingDedupResolved).length;
+        const skippedCount = Object.keys(ingDedupSkipped).length;
+        const remainingIdx = ingDedupClusters.map((_,i)=>i).filter(i=>!ingDedupResolved[i]&&!ingDedupSkipped[i]);
+        const highIdx = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='high');
+        const medIdx  = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='medium');
+        const allDone = totalGroups>0 && remainingIdx.length===0;
+        const nothingFound = totalGroups===0;
+
+        function renderIngCard(idx){
+          const c = ingDedupClusters[idx];
+          const target = ingDedupTargets[idx]||'';
+          const unit = ingDedupUnits[idx]||'';
+          const saving = ingDedupSavingIdx===idx;
+          const disabled = ingDedupSavingIdx!=null && !saving;
+          return (
+            <div key={idx} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:10,background:C.bg}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>{T2(c.reason)}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+                {c.items.slice().sort((a,b)=>(b.dishes||[]).length-(a.dishes||[]).length).map(d=>{
+                  const isT = d.name===target;
+                  const uses = (d.dishes||[]).length;
+                  const isMapped = d.hasInv || !!ingredientMap[d.name];
+                  return (
+                    <label key={d.name} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:5,background:isT?C.greenBg:C.surface,border:`1px solid ${isT?C.greenBorder:C.border}`,cursor:disabled?"not-allowed":"pointer"}}>
+                      <input type="radio" name={"ingdedup-target-"+idx} checked={isT} disabled={disabled||saving}
+                        onChange={()=>pickIngDedupTarget(idx,d.name)} style={{margin:0,cursor:disabled?"not-allowed":"pointer"}}/>
+                      <span style={{fontSize:13,fontWeight:isT?700:500,color:C.text,flex:1}}>{d.name}</span>
+                      <span style={{fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:3,background:isMapped?C.greenBg:C.amberBg,color:isMapped?C.green:"#854F0B"}}>{isMapped?T2("MAPPED"):T2("UNMAPPED")}</span>
+                      {d.hindi&&<span style={{fontSize:11,color:C.muted}}>{d.hindi}</span>}
+                      <span style={{fontSize:11,color:uses===0?C.muted:C.text,minWidth:70,textAlign:"right"}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}>
+                <span style={{fontSize:10,color:C.muted}}>{T2("Unit")}:</span>
+                <input value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
+                  style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}/>
+                <div style={{flex:1}}/>
+                <button onClick={()=>skipIngDedupCluster(idx)} disabled={saving||disabled}
+                  style={{padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
+                <button onClick={()=>mergeIngDedupCluster(idx)} disabled={saving||disabled||!target||!unit}
+                  style={{padding:"5px 12px",borderRadius:5,background:C.gold,border:"none",color:C.goldBg,fontSize:11,fontWeight:600,cursor:(saving||disabled||!target||!unit)?"not-allowed":"pointer",opacity:(saving||disabled||!target||!unit)?0.5:1}}>
+                  {saving?T2("Merging…"):T2('Merge into "')+target+'"'}
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div onClick={closeIngDedup} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:12,padding:20,maxWidth:720,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14,gap:10}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🔍 {T2("Find duplicates")}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>{totalGroups} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {skippedCount} {T2("skipped")} · {remainingIdx.length} {T2("remaining")}</div>
+                </div>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer",padding:4}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:"auto",marginBottom:14}}>
+                {nothingFound&&<div style={{textAlign:"center",padding:"40px 20px",color:C.muted,fontSize:13}}>{T2("No duplicate candidates found in the current ingredient list.")}</div>}
+                {allDone&&(
+                  <div style={{textAlign:"center",padding:"30px 20px"}}>
+                    <div style={{fontSize:40,marginBottom:8}}>✓</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{T2("All done")}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{resolvedCount} {T2("merged")} · {skippedCount} {T2("skipped")}</div>
+                    {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:12,padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
+                  </div>
+                )}
+                {!allDone&&highIdx.length>0&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("High confidence")} ({highIdx.length})</div>
+                    {highIdx.map(renderIngCard)}
+                  </div>
+                )}
+                {!allDone&&medIdx.length>0&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("Medium confidence")} ({medIdx.length})</div>
+                    {medIdx.map(renderIngCard)}
+                  </div>
+                )}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11,color:C.muted}}>
+                  {skippedCount>0&&!allDone&&<button onClick={resetIngDedupSkipped} style={{padding:"4px 10px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Reset skipped")} ({skippedCount})</button>}
+                </div>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{padding:"6px 14px",borderRadius:6,background:C.gold,border:"none",color:C.goldBg,fontSize:12,fontWeight:600,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>{T2("Close")}</button>
+              </div>
+            </div>
+          </div>
         );
       })()}
 
