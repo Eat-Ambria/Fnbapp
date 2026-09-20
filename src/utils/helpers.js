@@ -20,8 +20,14 @@ const LIVE_EVENTS_INIT = [];
 // update), so every screen that reads it is covered without touching each
 // one individually — and removing this one predicate later reverses it
 // everywhere at once.
+// Some bookings carry the venue as the short code "AR" instead of the full
+// "Ambria Restro" name — match both (case/whitespace-insensitive) so neither
+// form slips through.
+var RESTRO_VENUE_VALUES = new Set(["ambria restro", "ar"]);
 function isHiddenSmallRestroBooking(ev) {
-  return !!ev && ev.venue === "Ambria Restro" && (Number(ev.pax) || 0) < 50;
+  if (!ev) return false;
+  var v = String(ev.venue || "").trim().toLowerCase();
+  return RESTRO_VENUE_VALUES.has(v) && (Number(ev.pax) || 0) < 50;
 }
 
 function safeArr(v) { return Array.isArray(v) ? v : []; }
