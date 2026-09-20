@@ -1851,6 +1851,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
            single-ingredient "edit unit" flow when sources.length===1. ── */}
       {ingMergeModal&&(()=>{
         const isSingle = ingMergeModal.sources.length===1;
+        const sourceUnits = Array.from(new Set(
+          ingMergeModal.sources.map(n=>(allRecipeIngredients.find(i=>i.name===n)?.unit||"").trim()).filter(Boolean)
+        ));
+        const unitOptions = Array.from(new Set([...sourceUnits, (ingMergeModal.unit||"").trim()].filter(Boolean)));
         return(
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
           onClick={()=>{if(!ingMerging)setIngMergeModal(null);}}>
@@ -1885,9 +1889,21 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
               <div>
                 <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Unit")}</div>
-                <input value={ingMergeModal.unit} onChange={e=>setIngMergeModal(m=>({...m,unit:e.target.value}))}
-                  placeholder="kg, gm, L, pcs..."
-                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                {isSingle||unitOptions.length===0?(
+                  <input value={ingMergeModal.unit} onChange={e=>setIngMergeModal(m=>({...m,unit:e.target.value}))}
+                    placeholder="kg, gm, L, pcs..."
+                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+                ):(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {unitOptions.map(u=>(
+                      <button key={u} onClick={()=>setIngMergeModal(m=>({...m,unit:u}))}
+                        style={{fontSize:11,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontWeight:600,
+                          background:ingMergeModal.unit===u?C.gold:C.bg,color:ingMergeModal.unit===u?C.goldBg:C.text,border:`1px solid ${ingMergeModal.unit===u?C.gold:C.border}`}}>
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {!isSingle&&<div style={{fontSize:10,color:C.faint}}>{T2("The kept store-item link (if any) carries over; the others are dropped.")}</div>}
             </div>
