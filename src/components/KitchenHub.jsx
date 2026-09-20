@@ -2307,7 +2307,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
           dishes.forEach(dish => {
             if (dish.eventDayOnly) return;
-            const {ing, effKg} = getScaledIngredients(dish.name, dish.fEvId);
+            // Base-gravy pseudo-dishes already carry the correctly-summed
+            // demand (across every function sharing them) as totalKg —
+            // re-deriving from a single fEvId here would undo that and go
+            // back to one function's worth. See getScaledIngredients's
+            // overrideKg path.
+            const {ing, effKg} = dish.isBaseGravy
+              ? getScaledIngredients(dish.name, dish.fEvId, { overrideKg: dish.totalKg })
+              : getScaledIngredients(dish.name, dish.fEvId);
             if (effKg) totalKg += effKg;
             if (!ing) return;
             ing.filter(i => i.q > 0).forEach(i => {
@@ -2491,52 +2498,60 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             const rec = findRecipeForDish(d.name);
             if (!rec?.ingredients?.items?.length) return;
             const baseKg = rec.ingredients.base_yield?.kg || null;
-            const ev = evById[d.fEvId];
-            const mult = Number(ev?.yield_multiplier) || 1.0;
-            const evPax = Number(ev?.pax) || 0;
-            let bgs = [];
-            if (baseKg) {
-              const planRow = evPlanRows?.[ev?.id]?.[d.name] || null;
-              const planned = Number(planRow?.target_yield_kg) || null;
-              const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
-              const effKg = (planned || defaultYield) * mult;
-              const sectionYieldsPlan = planRow?.section_yields || null;
-              let sectionFactors = null;
-              if (sectionYieldsPlan) {
-                const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
-                const acc = {};
-                recSections.forEach(sec=>{
-                  const planKg = Number(sectionYieldsPlan[sec.name]);
-                  if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
-                });
-                if (Object.keys(acc).length>0) sectionFactors = acc;
-              }
-              bgs = getBgDemandForYield(d.name, effKg, sectionFactors);
-            } else {
-              const adjPax = Math.round(evPax * mult);
-              bgs = getBgDemandForDish(d.name, adjPax || evPax);
-            }
-            bgs.forEach(b=>{
-              if (!b.bgName || b.qty <= 0) return;
-              const key = b.bgName;
-              if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
-              // V72: unit-aware conversion. kg/L → 1:1 (density assumption for chef
-              // signal); gm → /1000; ml → /1000. Non-mass/volume units (pcs, slice,
-              // tsp, tbsp, Bot, tin, bunch, dozen) are skipped from totalKg with
-              // a one-time console warning per key.
-              const bu = String(b.unit || 'kg').toLowerCase();
-              const bq = Number(b.qty) || 0;
-              let deltaKg = 0;
-              if (bu === 'kg' || bu === 'l')       deltaKg = bq;
-              else if (bu === 'gm' || bu === 'ml') deltaKg = bq / 1000;
-              else {
-                if (!bgDemand[key]._warned) {
-                  console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
-                  bgDemand[key]._warned = true;
+            // V92 — when 2+ functions share this dish on the same prep day,
+            // d.fEvId only ever points at the FIRST one encountered while
+            // building byDishD1 above; computing demand off that single event
+            // silently dropped every other function's contribution (Combined
+            // could show LESS gravy than one of its own component functions).
+            // d.fns already lists every contributing function — sum each
+            // one's own demand instead of reading just the anchor event's.
+            const contributingFns = (d.fns && d.fns.length > 0) ? d.fns : [{ evId: d.fEvId }];
+            contributingFns.forEach(fn=>{
+              const ev = evById[fn.evId];
+              const mult = Number(ev?.yield_multiplier) || 1.0;
+              const evPax = Number(ev?.pax ?? fn.p) || 0;
+              let bgs = [];
+              if (baseKg) {
+                const planRow = evPlanRows?.[fn.evId]?.[d.name] || null;
+                const planned = Number(planRow?.target_yield_kg) || null;
+                const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
+                const effKg = (planned || defaultYield) * mult;
+                const sectionYieldsPlan = planRow?.section_yields || null;
+                let sectionFactors = null;
+                if (sectionYieldsPlan) {
+                  const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+                  const acc = {};
+                  recSections.forEach(sec=>{
+                    const planKg = Number(sectionYieldsPlan[sec.name]);
+                    if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
+                  });
+                  if (Object.keys(acc).length>0) sectionFactors = acc;
                 }
+                bgs = getBgDemandForYield(d.name, effKg, sectionFactors);
+              } else {
+                const adjPax = Math.round(evPax * mult);
+                bgs = getBgDemandForDish(d.name, adjPax || evPax);
               }
-              bgDemand[key].totalKg += deltaKg;
-              (d.fns||[]).forEach(fn=>{
+              bgs.forEach(b=>{
+                if (!b.bgName || b.qty <= 0) return;
+                const key = b.bgName;
+                if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
+                // V72: unit-aware conversion. kg/L → 1:1 (density assumption for chef
+                // signal); gm → /1000; ml → /1000. Non-mass/volume units (pcs, slice,
+                // tsp, tbsp, Bot, tin, bunch, dozen) are skipped from totalKg with
+                // a one-time console warning per key.
+                const bu = String(b.unit || 'kg').toLowerCase();
+                const bq = Number(b.qty) || 0;
+                let deltaKg = 0;
+                if (bu === 'kg' || bu === 'l')       deltaKg = bq;
+                else if (bu === 'gm' || bu === 'ml') deltaKg = bq / 1000;
+                else {
+                  if (!bgDemand[key]._warned) {
+                    console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
+                    bgDemand[key]._warned = true;
+                  }
+                }
+                bgDemand[key].totalKg += deltaKg;
                 if (!bgDemand[key].fns.some(x=>x.evId===fn.evId)) bgDemand[key].fns.push(fn);
               });
             });
@@ -2738,7 +2753,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
                               return(
                                 <div style={{padding:"12px 20px 20px",borderTop:`1.5px solid ${C.border}`}}>
-                                  {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=getScaledIngredients(dish.name,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
+                                  {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=dish.isBaseGravy?getScaledIngredients(dish.name,dish.fEvId,{overrideKg:dish.totalKg}):getScaledIngredients(dish.name,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
                                     <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                       {warn==='no_base_yield'&&<div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:8,padding:"6px 10px",background:C.redBg,borderRadius:8,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Recipe missing base_yield — using legacy pax scaling. Chef must set base_yield in SOP.")}</div>}
                                       <div style={{fontSize:14,fontWeight:700,color:C.muted,marginBottom:8}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
@@ -2871,7 +2886,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {isExp&&(()=>{
                             return(
                               <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
-                                {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=getScaledIngredients(dishName,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
+                                {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=dish.isBaseGravy?getScaledIngredients(dishName,dish.fEvId,{overrideKg:dish.totalKg}):getScaledIngredients(dishName,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                     {warn==='no_base_yield'&&<div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:5,padding:"3px 6px",background:C.redBg,borderRadius:5,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Missing base_yield in SOP")}</div>}
                                     <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:5}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>

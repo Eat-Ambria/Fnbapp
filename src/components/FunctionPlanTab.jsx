@@ -18,13 +18,19 @@ var SPICE_LEVELS = [
   { id: 'extra_spicy',  label: 'Extra Spicy', icon: '🔥' },
 ];
 
+// Order is deliberate: rendered as a 2-col grid with row-major placement, so
+// consecutive pairs here become (left column, right column) of the same row —
+// chaat/snacks/main course/wind-up down the left, assembly/baarat/jaimala/
+// phera down the right.
 var TIME_FIELDS = [
-  { id: 'snacks_time',   label: 'Snacks' },
-  { id: 'baarat_time',   label: 'Baarat' },
-  { id: 'assembly_time', label: 'Assembly' },
-  { id: 'phera_time',    label: 'Phera' },
-  { id: 'chaat_time',    label: 'Chaat' },
-  { id: 'windup_time',   label: 'Wind-up' },
+  { id: 'chaat_time',       label: 'Chaat' },
+  { id: 'assembly_time',    label: 'Assembly' },
+  { id: 'snacks_time',      label: 'Snacks' },
+  { id: 'baarat_time',      label: 'Baarat' },
+  { id: 'main_course_time', label: 'Main course' },
+  { id: 'jaimala_time',     label: 'Jaimala' },
+  { id: 'windup_time',      label: 'Wind-up' },
+  { id: 'phera_time',       label: 'Phera' },
 ];
 
 var EQUIP_FIELDS = [
