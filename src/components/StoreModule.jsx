@@ -169,6 +169,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
   
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
+  const [ingSelected, setIngSelected] = useState({}); // {ingredientName: true} — Ingredient Map merge selection
+  const [ingMergeModal, setIngMergeModal] = useState(null); // {sources:[name,...], target, unit} | null
+  const [ingMerging, setIngMerging] = useState(false);
+  const [ingRefreshTick, setIngRefreshTick] = useState(0); // bumped after a merge/unit edit to re-derive allRecipeIngredients from the now-mutated RECIPE_DB
   const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
 
@@ -398,7 +402,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (error) console.error("Assignment save failed:", error);
   }
 
-  /* ── Extract all unique ingredient names from recipe DB ── */
+  /* ── Extract all unique ingredient names from recipe DB ──
+     ingRefreshTick is a dependency on purpose: after a merge/unit-edit
+     mutates RECIPE_DB in place (see performIngredientMerge), nothing else
+     would tell this memo to re-derive — RECIPE_DB itself isn't React state. */
   const allRecipeIngredients = useMemo(() => {
     const seen = {};
     for (const catId of Object.keys(RECIPE_DB.recipes || {})) {
@@ -408,19 +415,96 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if (it.isSection) return;
             if (it.type === 'bg') return;                          // 9D — bg refs aren't shopped for
             const n = it.name;
-            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || it.hi || "", unit: it.unit || "", dishes: [], hasInv: false, ops_inventory_id: null };
+            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || it.hi || "", unit: it.unit || "", dishes: [], usages: [], hasInv: false, ops_inventory_id: null };
             // 9D — mark inv-mapped when any usage carries embedded ops_inventory_id
             if (it.type === 'inv') {
               seen[n].hasInv = true;
               if (!seen[n].ops_inventory_id && it.ops_inventory_id) seen[n].ops_inventory_id = it.ops_inventory_id;
             }
             seen[n].dishes.push(recipe.n);
+            // catId+dishName pair, so a merge/unit-edit can find and rewrite
+            // the exact recipes.ingredients row this usage came from.
+            seen[n].usages.push({ dishName: recipe.n, catId });
           });
         }
       }
     }
     return Object.values(seen).sort((a, b) => a.name.localeCompare(b.name));
-  }, []);
+  }, [ingRefreshTick]);
+
+  /* ── Merge/rename N ingredient names into one, with one shared unit ──
+     Models the existing dish-merge feature (DishLibrary.jsx): pick a
+     canonical name, rewrite every place the string is referenced (there:
+     menu_packages; here: every recipes row's ingredients.items[]), drop the
+     merged-away names' own side-table rows, keep the canonical's. A
+     standalone "edit this ingredient's unit" is just this same function
+     called with sources=[name], target=name — it still rewrites every
+     recipe's ingredients.items[].unit for that name, which is the whole
+     point (unit lives inline per recipe, not normalized anywhere). */
+  async function performIngredientMerge(sourceNames, targetName, targetUnit) {
+    const target = (targetName || "").trim();
+    const unit = (targetUnit || "").trim();
+    if (!target || !unit) { alert(T2("Name and unit are both required.")); return; }
+    setIngMerging(true);
+    try {
+      const allNames = new Set(sourceNames);
+      allNames.add(target);
+      const touched = [];
+      allNames.forEach(n => {
+        const entry = allRecipeIngredients.find(i => i.name === n);
+        if (entry) entry.usages.forEach(u => touched.push(u));
+      });
+      const seenKey = new Set();
+      const uniqueTouched = touched.filter(u => {
+        const k = u.catId + "|" + u.dishName;
+        if (seenKey.has(k)) return false;
+        seenKey.add(k); return true;
+      });
+      for (const { catId, dishName } of uniqueTouched) {
+        const catRecipes = RECIPE_DB.recipes[catId] || [];
+        const recipe = catRecipes.find(r => r.n === dishName);
+        if (!recipe || !recipe.ingredients?.items) continue;
+        let changed = false;
+        const nextItems = recipe.ingredients.items.map(it => {
+          if (!it.isSection && allNames.has(it.name) && (it.name !== target || it.unit !== unit)) {
+            changed = true;
+            return { ...it, name: target, unit };
+          }
+          return it;
+        });
+        if (!changed) continue;
+        const payload = { ...recipe.ingredients, items: nextItems };
+        recipe.ingredients = payload; // local mutation — mirrors the pattern in KitchenHub.jsx's own ingredient saves
+        const { error } = await supabase.from('recipes').update({ ingredients: payload }).eq('dish_name', dishName).eq('category_id', catId);
+        if (error) { console.error('[ingredient merge] recipe update failed', dishName, error); throw error; }
+      }
+
+      // Carry the surviving mapping forward: keep target's own if it has
+      // one, else adopt the first merged-away source's; drop the rest —
+      // same "keep canonical's, drop duplicates'" rule dish-merge uses for
+      // dish_store_map.
+      const sourcesToDrop = [...allNames].filter(n => n !== target);
+      if (!ingredientMap[target]) {
+        const donorName = sourcesToDrop.find(n => ingredientMap[n]);
+        if (donorName) {
+          const donor = ingredientMap[donorName];
+          await saveIngredientMapping(target, donor.ingredient_hindi, { _opsId: donor.ops_item_id, inventoryId: donor.ops_inventory_id, name: donor.ops_item_name, unit: donor.ops_item_unit }, donor.unit_conversion || 1);
+        }
+      }
+      for (const n of sourcesToDrop) {
+        if (ingredientMap[n]) await removeIngredientMapping(n);
+      }
+
+      setIngSelected({});
+      setIngMergeModal(null);
+      setIngRefreshTick(t => t + 1);
+    } catch (e) {
+      console.error('[performIngredientMerge]', e);
+      alert(T2('Merge failed: ') + (e.message || e));
+    } finally {
+      setIngMerging(false);
+    }
+  }
 
   /* ── Fuzzy match: find best Ops store item for an ingredient name ── */
   function fuzzyMatchStoreItem(ingName) {
@@ -1386,6 +1470,24 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
               style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}/>
 
+            {/* Merge selection bar — pick 2+ cards' checkboxes to merge duplicate/similar ingredient names into one, same idea as the dish-merge feature */}
+            {Object.keys(ingSelected).length>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.gold}`,marginBottom:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,fontWeight:600,color:"#854F0B"}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                <div style={{flex:1}}/>
+                <button onClick={()=>setIngSelected({})} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"transparent",color:"#854F0B",border:`1px solid ${C.gold}`,cursor:"pointer",fontWeight:600}}>{T2("Clear")}</button>
+                <button disabled={Object.keys(ingSelected).length<2}
+                  onClick={()=>{
+                    const names = Object.keys(ingSelected);
+                    const first = allRecipeIngredients.find(i=>i.name===names[0]);
+                    setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
+                  }}
+                  style={{fontSize:11,padding:"6px 14px",borderRadius:8,background:Object.keys(ingSelected).length<2?C.border:C.gold,color:Object.keys(ingSelected).length<2?C.muted:C.goldBg,border:"none",cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer",fontWeight:700}}>
+                  🔗 {T2("Merge into one")}
+                </button>
+              </div>
+            )}
+
             {/* Auto-link all suggestions button */}
             {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
               const suggestions = allRecipeIngredients.filter(i=>!i.hasInv && !ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
@@ -1427,12 +1529,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ing.name}</div>
                       {ing.hindi&&<div style={{fontSize:11,color:C.muted}}>{ing.hindi}</div>}
-                      <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                      <div style={{fontSize:10,color:C.faint,marginTop:2,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
                         <span onClick={e=>{e.stopPropagation();setRecipesModalIng(ing);}}
                           style={{cursor:"pointer",color:C.gold,textDecoration:"underline",fontWeight:600}}
                           title={T2("Click to see which recipes use this ingredient")}>
                           {T2("Used in")} {ing.dishes.length} {T2("recipes")}
                         </span> · {T2("unit")}: {ing.unit}
+                        <button onClick={()=>setIngMergeModal({sources:[ing.name],target:ing.name,unit:ing.unit})}
+                          title={T2("Edit unit — updates every recipe using this ingredient")}
+                          style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"transparent",color:C.faint,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
                       </div>
 
                       {/* Mapped — show linked item */}
@@ -1486,10 +1591,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       )}
                     </div>
 
-                    {/* Right side — status indicator */}
-                    <div style={{flexShrink:0,width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
-                      background:isMapped?C.greenBg:C.amberBg}}>
-                      <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                    {/* Right side — merge checkbox + status indicator */}
+                    <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                      <input type="checkbox" checked={!!ingSelected[ing.name]}
+                        onChange={()=>setIngSelected(p=>{const n={...p};if(n[ing.name])delete n[ing.name];else n[ing.name]=true;return n;})}
+                        title={T2("Select to merge with other ingredients")}
+                        style={{width:16,height:16,cursor:"pointer",accentColor:C.gold}}/>
+                      <div style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
+                        background:isMapped?C.greenBg:C.amberBg}}>
+                        <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -1549,6 +1660,65 @@ function StoreModule({events, lang="en", currentUser=null}) {
           </div>
         </div>
       )}
+
+      {/* ── Merge ingredients modal — pick a canonical name + unit; rewrites every
+           recipes row's ingredients.items[] that used any selected name, and
+           carries the surviving store-item mapping forward. Also doubles as the
+           single-ingredient "edit unit" flow when sources.length===1. ── */}
+      {ingMergeModal&&(()=>{
+        const isSingle = ingMergeModal.sources.length===1;
+        return(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>{if(!ingMerging)setIngMergeModal(null);}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{isSingle?T2("Edit Ingredient Unit"):T2("Merge Ingredients")}</div>
+              <div style={{fontSize:12,color:C.muted}}>
+                {isSingle
+                  ? T2("Changes the unit everywhere this ingredient is used across every SOP recipe.")
+                  : T2("Pick which name survives — every recipe using any of the others switches to it, with the unit below.")}
+              </div>
+            </div>
+            <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:12}}>
+              {!isSingle&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Merging")}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {ingMergeModal.sources.map(n=>(
+                      <button key={n} onClick={()=>setIngMergeModal(m=>({...m,target:n,unit:(allRecipeIngredients.find(i=>i.name===n)?.unit)||m.unit}))}
+                        style={{fontSize:11,padding:"6px 10px",borderRadius:20,cursor:"pointer",fontWeight:600,
+                          background:ingMergeModal.target===n?C.gold:C.bg,color:ingMergeModal.target===n?C.goldBg:C.text,border:`1px solid ${ingMergeModal.target===n?C.gold:C.border}`}}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Canonical name")}</div>
+                <input value={ingMergeModal.target} onChange={e=>setIngMergeModal(m=>({...m,target:e.target.value}))}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Unit")}</div>
+                <input value={ingMergeModal.unit} onChange={e=>setIngMergeModal(m=>({...m,unit:e.target.value}))}
+                  placeholder="kg, gm, L, pcs..."
+                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              </div>
+              {!isSingle&&<div style={{fontSize:10,color:C.faint}}>{T2("The kept store-item link (if any) carries over; the others are dropped.")}</div>}
+            </div>
+            <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+              <button onClick={()=>setIngMergeModal(null)} disabled={ingMerging}
+                style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:ingMerging?"not-allowed":"pointer"}}>{T2("Cancel")}</button>
+              <button onClick={()=>performIngredientMerge(ingMergeModal.sources, ingMergeModal.target, ingMergeModal.unit)} disabled={ingMerging}
+                style={{flex:1,padding:"10px",borderRadius:10,background:ingMerging?C.border:C.gold,border:"none",color:ingMerging?C.muted:C.goldBg,fontSize:12,fontWeight:700,cursor:ingMerging?"not-allowed":"pointer"}}>
+                {ingMerging?T2("Saving..."):(isSingle?T2("Save unit"):T2("Merge"))}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* ── Recipe list modal — shows which SOP recipes use this ingredient ── */}
       {recipesModalIng&&(
