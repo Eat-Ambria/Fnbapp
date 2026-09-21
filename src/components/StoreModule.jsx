@@ -1026,7 +1026,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 {itemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
-            {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
+            <div>
+              <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Unit</div>
+              <select value={newItem.unit||"pcs"} onChange={e=>setNewItem(p=>({...p,unit:e.target.value}))} style={fld}>
+                {ING_UNIT_CHOICES.map(u=><option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            {[{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
               <div key={f.k}>
                 <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={fld}/>
