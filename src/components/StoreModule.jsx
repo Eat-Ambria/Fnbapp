@@ -963,6 +963,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
   /* ── Derived: unique categories & venues from live data ── */
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
+  const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
   // Add-item form only writes to catering_store_items, so its category picker is
   // scoped to categories that already have a source:"store" item — that's the only
   // way we can resolve a valid category_id without a separate categories-table fetch.
