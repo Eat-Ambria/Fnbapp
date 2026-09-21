@@ -34,6 +34,7 @@ function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#61708C"; }
 function transformOpsItem(it) {
   return {
     _opsId: it.id,
+    _categoryId: it.category_id || null,
     id: "ops-" + it.id,
     inventoryId: it.inventory_id || "",
     name: it.name || "",
@@ -304,6 +305,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
   const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
+  const [addingItem, setAddingItem] = useState(false);
 
   
 
@@ -961,13 +963,40 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
   /* ── Derived: unique categories & venues from live data ── */
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
-  const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
+  // Add-item form only writes to catering_store_items, so its category picker is
+  // scoped to categories that already have a source:"store" item — that's the only
+  // way we can resolve a valid category_id without a separate categories-table fetch.
+  const storeItemCategories = useMemo(() => [...new Set(items.filter(i => i.source === "store" && i._categoryId).map(i => i.cat))].filter(Boolean).sort(), [items]);
 
-  function addItem(){
+  async function addItem(){
+    if(addingItem) return; // Btn doesn't support a disabled prop — guard re-entrancy here instead
     if(!newItem.name.trim()) return;
-    setItems(p=>[...p,{...newItem,id:"it-"+Date.now(),inStock:+newItem.inStock||0,minStock:+newItem.minStock||0,perPax:+newItem.perPax||0}]);
-    setNewItem({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
-    setShowAdd(false);
+    if(!opsSupabase){ alert(T2("Inventory system not connected.")); return; }
+    const donor = items.find(i => i.source === "store" && i.cat === newItem.cat && i._categoryId);
+    if(!donor){ alert(T2('Pick a different category — could not resolve a category id for "')+newItem.cat+'".'); return; }
+    setAddingItem(true);
+    try {
+      const payload = {
+        name: newItem.name.trim(),
+        name_hindi: null,
+        brand: newItem.brand || null,
+        unit: newItem.unit || "pcs",
+        category_id: donor._categoryId,
+        qty: +newItem.inStock || 0,
+        season_reorder_qty: +newItem.minStock || 0,
+        off_season_reorder_qty: +newItem.minStock || 0,
+        status: "approved",
+      };
+      const { error } = await opsSupabase.from("catering_store_items").insert(payload);
+      if (error) throw error;
+      setNewItem({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
+      setShowAdd(false);
+    } catch (e) {
+      console.error("[addItem] insert failed", e);
+      alert(T2("Could not add item: ") + (e.message || e));
+    } finally {
+      setAddingItem(false);
+    }
   }
 
   const upcoming  = safeEvs.filter(e=>e.date>=TODAY);
@@ -1023,7 +1052,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <div>
               <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
               <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={fld}>
-                {itemCategories.map(ct=><option key={ct}>{ct}</option>)}
+                {storeItemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
             <div>
@@ -1040,8 +1069,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>{setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>}
+            <Btn onClick={()=>{if(!addingItem)setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12,opacity:addingItem?0.6:1}}>Cancel</Btn>
+            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px",opacity:addingItem?0.6:1,cursor:addingItem?"not-allowed":"pointer"}}>{addingItem?"Adding...":"✓ Add to Inventory"}</Btn>}
           </div>
         </div>
       )}
