@@ -1474,12 +1474,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
                       <thead>
                         <tr style={{background:C.bg}}>
-                          <th style={{position:"sticky",left:0,background:C.bg,zIndex:2,textAlign:"left",padding:"6px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,minWidth:150,maxWidth:150}}>{T2("Item")}</th>
+                          <th style={{position:"sticky",left:0,background:C.bg,zIndex:2,textAlign:"left",padding:"6px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,minWidth:160,maxWidth:160}}>{T2("Item")}</th>
                           <th style={{textAlign:"center",padding:"6px 6px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("UM")}</th>
-                          {stations.map(st=><th key={st.id} style={{textAlign:"right",padding:"6px 6px",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.2,borderBottom:`2px solid ${C.border}`,minWidth:56,whiteSpace:"normal",lineHeight:1.15}} title={st.name}>{st.icon} {st.name}</th>)}
+                          {stations.map(st=><th key={st.id} style={{textAlign:"right",padding:"6px 6px",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.2,borderBottom:`2px solid ${C.border}`,minWidth:50,whiteSpace:"normal",lineHeight:1.15}} title={st.name}>{st.icon} {st.name}</th>)}
                           <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.text,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Total")}</th>
                           <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Stock")}</th>
-                          <th style={{textAlign:"left",padding:"6px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`,minWidth:210}}>{T2("Actions")}</th>
+                          <th style={{textAlign:"center",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`,borderLeft:`1px solid ${C.border}`,minWidth:110}}>{T2("Actions")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1489,41 +1489,42 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           const done = rowIssued(row);
                           const list = orderListFor(row.name);
                           const pickerOpen = reqPicker===row.name;
+                          const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
                           return (
                             <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                              <td style={{position:"sticky",left:0,background:C.surface,padding:"4px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={row.name+(row.hindi?" ("+row.hindi+")":"")}>{row.name}{row.hindi?<span style={{fontSize:9.5,color:C.muted,marginLeft:4}}>({row.hindi})</span>:""}</td>
-                              <td style={{textAlign:"center",padding:"4px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
+                              <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={fullTitle}>{row.name}</td>
+                              <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
                               {stations.map(st=>{
                                 const cell = row.byCat[st.name];
-                                return <td key={st.id} style={{textAlign:"right",padding:"4px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
+                                return <td key={st.id} style={{textAlign:"right",padding:"3px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
                               })}
-                              <td style={{textAlign:"right",padding:"4px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
-                              <td style={{textAlign:"right",padding:"4px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
+                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
+                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
                                 {!isMapped
                                   ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:9.5,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
                                   : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
                               </td>
-                              <td style={{padding:"4px 10px",verticalAlign:"middle"}}>
-                                <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                              <td style={{padding:"3px 8px",verticalAlign:"middle",borderLeft:`1px solid ${C.borderLight}`}}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
                                   {done ? (
-                                    <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:7,background:C.greenBg,color:C.green,whiteSpace:"nowrap"}}>✓ {T2("Issued")}</span>
+                                    <div title={T2("Issued from store")} style={{width:24,height:24,borderRadius:7,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
                                   ) : (
-                                    hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} style={{padding:"3px 8px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("Issue from Store")}</button>
+                                    hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
                                   )}
                                   {list ? (
-                                    <span style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:7,background:ORDER_LIST_META[list.list_key].bg,color:ORDER_LIST_META[list.list_key].color,whiteSpace:"nowrap"}}>
-                                      {ORDER_LIST_META[list.list_key].icon} {ORDER_LIST_META[list.list_key].label}
+                                    <span title={ORDER_LIST_META[list.list_key].label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:ORDER_LIST_META[list.list_key].bg,color:ORDER_LIST_META[list.list_key].color,whiteSpace:"nowrap",flexShrink:0}}>
+                                      {ORDER_LIST_META[list.list_key].icon}
                                       <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
                                     </span>
                                   ) : pickerOpen ? (
-                                    <div style={{display:"flex",alignItems:"center",gap:3}}>
+                                    <div style={{display:"flex",alignItems:"center",gap:2}}>
                                       {Object.entries(ORDER_LIST_META).map(([key,meta])=>(
-                                        <button key={key} onClick={()=>addToOrderList(row,key)} style={{padding:"3px 6px",borderRadius:6,fontSize:9.5,fontWeight:700,cursor:"pointer",background:meta.bg,color:meta.color,border:`1px solid ${meta.border}`,whiteSpace:"nowrap"}}>{meta.icon} {meta.label}</button>
+                                        <button key={key} onClick={()=>addToOrderList(row,key)} title={meta.label} style={{width:22,height:22,borderRadius:6,cursor:"pointer",background:meta.bg,border:`1px solid ${meta.border}`,fontSize:11,lineHeight:1,padding:0}}>{meta.icon}</button>
                                       ))}
-                                      <button onClick={()=>setReqPicker(null)} aria-label={T2("Cancel")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"0 2px"}}>×</button>
+                                      <button onClick={()=>setReqPicker(null)} aria-label={T2("Cancel")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"0 1px"}}>×</button>
                                     </div>
                                   ) : (
-                                    <button onClick={()=>setReqPicker(row.name)} style={{padding:"3px 8px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,whiteSpace:"nowrap"}}>+ {T2("Add to Order list")}</button>
+                                    <button onClick={()=>setReqPicker(row.name)} title={T2("Add to an order list")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
                                   )}
                                 </div>
                               </td>
