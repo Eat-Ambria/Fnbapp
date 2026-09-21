@@ -139,6 +139,10 @@ async function fetchOpsEquipmentItems() {
 // instead of {dish_name, hindi, packages}). Kept as a separate copy rather
 // than importing DishLibrary's (unexported) helpers — small, pure, and this
 // keeps StoreModule free of a cross-feature dependency for four functions. ══
+// Same canonical unit list the SOP recipe editor (KitchenHub.jsx) offers,
+// so "Edit unit" here can never write a unit the recipe editor wouldn't.
+const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
+
 function normalizeIngName(s) {
   return String(s || '')
     .toLowerCase()
@@ -1886,7 +1890,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const sourceUnits = Array.from(new Set(
           ingMergeModal.sources.map(n=>(allRecipeIngredients.find(i=>i.name===n)?.unit||"").trim()).filter(Boolean)
         ));
-        const unitOptions = Array.from(new Set([...sourceUnits, (ingMergeModal.unit||"").trim()].filter(Boolean)));
+        const unitOptions = Array.from(new Set([
+          ...(isSingle?ING_UNIT_CHOICES:sourceUnits),
+          (ingMergeModal.unit||"").trim(),
+        ].filter(Boolean)));
         return(
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
           onClick={()=>{if(!ingMerging)setIngMergeModal(null);}}>
@@ -1921,21 +1928,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
               <div>
                 <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Unit")}</div>
-                {isSingle||unitOptions.length===0?(
-                  <input value={ingMergeModal.unit} onChange={e=>setIngMergeModal(m=>({...m,unit:e.target.value}))}
-                    placeholder="kg, gm, L, pcs..."
-                    style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
-                ):(
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {unitOptions.map(u=>(
-                      <button key={u} onClick={()=>setIngMergeModal(m=>({...m,unit:u}))}
-                        style={{fontSize:11,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontWeight:600,
-                          background:ingMergeModal.unit===u?C.gold:C.bg,color:ingMergeModal.unit===u?C.goldBg:C.text,border:`1px solid ${ingMergeModal.unit===u?C.gold:C.border}`}}>
-                        {u}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {unitOptions.map(u=>(
+                    <button key={u} onClick={()=>setIngMergeModal(m=>({...m,unit:u}))}
+                      style={{fontSize:11,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontWeight:600,
+                        background:ingMergeModal.unit===u?C.gold:C.bg,color:ingMergeModal.unit===u?C.goldBg:C.text,border:`1px solid ${ingMergeModal.unit===u?C.gold:C.border}`}}>
+                      {u}
+                    </button>
+                  ))}
+                </div>
               </div>
               {!isSingle&&<div style={{fontSize:10,color:C.faint}}>{T2("The kept store-item link (if any) carries over; the others are dropped.")}</div>}
             </div>
@@ -1968,7 +1969,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const c = ingDedupClusters[idx];
           const target = ingDedupTargets[idx]||'';
           const unit = ingDedupUnits[idx]||'';
-          const unitOptions = Array.from(new Set(c.items.map(d=>(d.unit||'').trim()).filter(Boolean).concat(unit?[unit]:[])));
+          const clusterUnits = c.items.map(d=>(d.unit||'').trim()).filter(Boolean);
+          const unitOptions = Array.from(new Set((clusterUnits.length?clusterUnits:ING_UNIT_CHOICES).concat(unit?[unit]:[])));
           const saving = ingDedupSavingIdx===idx;
           const disabled = ingDedupSavingIdx!=null && !saving;
           return (
