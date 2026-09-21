@@ -813,9 +813,14 @@ const KITCHEN_CSS = `
   align-items: start;
 }
 /* The card's own colours are inline, so every hover rule that repaints one
-   needs !important to win. Not on transform - nothing sets that inline. */
-.kh-scope .kh-sopcard { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-.kh-scope .kh-sopcard:hover { transform: translateY(-3px); border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
+   needs !important to win. Not on transform - nothing sets that inline.
+   translateY(-3px) used to be here too, but in this tightly-packed grid
+   (10px gap) lifting the card moved it out from under a stationary cursor,
+   dropping :hover, snapping it back down, and re-triggering :hover — an
+   infinite flicker as long as the mouse stayed still over a card. The
+   shadow/border change alone still reads as "lifted" without moving the box. */
+.kh-scope .kh-sopcard { transition: box-shadow .16s ease, border-color .16s ease; }
+.kh-scope .kh-sopcard:hover { border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
 .kh-scope .kh-sopcard:hover .kh-sopgo { background: ${K.brand} !important; border-color: ${K.brand} !important; color: #FFFFFF !important; }
 /* The "..." button only appears on hover or focus, so 13 cards do not read as
    13 menus. Focus-within keeps it reachable from the keyboard. */
