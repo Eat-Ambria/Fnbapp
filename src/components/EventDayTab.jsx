@@ -249,6 +249,20 @@ function EventDayTab({
     return total > 0 ? total : null;
   }
 
+  // Same idea, for recipes with no base_yield.kg — the legacy pax-based scaling
+  // path has the identical single-fEvId bug. Sums each function's own pax*multiplier.
+  function sumAdjPaxAcrossFns(fns) {
+    if (!fns || !fns.length) return null;
+    let total = 0;
+    fns.forEach(fn => {
+      const ev = todayEvs.find(e => e.id === fn.evId);
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      total += Math.round(evPax * mult);
+    });
+    return total > 0 ? total : null;
+  }
+
   // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
   function aggSecIngredients(dishes) {
     const bucket = {}; let totalKg = 0;
@@ -279,7 +293,8 @@ function EventDayTab({
         ing = getIngrForYield(dish.name, effKg);
       }
       if (!ing || ing.length === 0) {
-        const adjPax = Math.round(pax * mult);
+        const summedPax = sumAdjPaxAcrossFns(dish.fns);
+        const adjPax = summedPax!=null ? summedPax : Math.round(pax * mult);
         ing = getIngrForDish(dish.name, adjPax || pax);
         effKg = null;
       }
@@ -1208,7 +1223,8 @@ function EventDayTab({
                               planned = !!plannedKg;
                             }
                             if (!ing || ing.length === 0) {
-                              const adjPax = Math.round(pax * mult);
+                              const summedPax = sumAdjPaxAcrossFns(dish.fns);
+                              const adjPax = summedPax!=null ? summedPax : Math.round(pax * mult);
                               ing = getIngrForDish(dish.name, adjPax || pax);
                               if (!baseKg) warn = 'no_base_yield';
                               effKg = null;
