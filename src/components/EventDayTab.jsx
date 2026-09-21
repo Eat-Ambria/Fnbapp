@@ -224,6 +224,31 @@ function EventDayTab({
       return o;
     });
   }
+  // A dish shared by multiple functions on the same day only ever has ONE
+  // fEvId — the byDish build loop pins it to whichever function's menu added
+  // the dish first, never updating it when a second function shares it. Every
+  // call site below that re-derived kg from `todayEvs.find(dish.fEvId)` alone
+  // therefore silently dropped every other function's share (e.g. 26kg from
+  // function A + 11kg from function B read as 26kg). Sum each contributing
+  // function's own effKg from dish.fns instead — mirrors the fix already
+  // applied to the bg-demand injection loop lower in this file.
+  function sumEffKgAcrossFns(dishName, fns) {
+    const rec = findRecipeForDish(dishName);
+    const baseKg = rec?.ingredients?.base_yield?.kg || null;
+    if (!baseKg || !fns || !fns.length) return null;
+    const basePax = rec.ingredients.base_pax || 300;
+    let total = 0;
+    fns.forEach(fn => {
+      const ev = todayEvs.find(e => e.id === fn.evId);
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      const planned = Number(evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg) || null;
+      const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
+      total += (planned != null ? planned : defaultYield) * mult;
+    });
+    return total > 0 ? total : null;
+  }
+
   // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
   function aggSecIngredients(dishes) {
     const bucket = {}; let totalKg = 0;
@@ -242,10 +267,15 @@ function EventDayTab({
       const mult = Number(evObj.yield_multiplier) || 1.0;
       let ing = null, effKg = null;
       if (baseKg) {
-        const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
-        const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-        // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-        effKg = plannedKg ? plannedKg : defaultYield * mult;
+        const summedKg = sumEffKgAcrossFns(dish.name, dish.fns);
+        if (summedKg != null) {
+          effKg = summedKg;
+        } else {
+          const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+          const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+          // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+          effKg = plannedKg ? plannedKg : defaultYield * mult;
+        }
         ing = getIngrForYield(dish.name, effKg);
       }
       if (!ing || ing.length === 0) {
@@ -1164,10 +1194,16 @@ function EventDayTab({
                             const mult = Number(evObj.yield_multiplier) || 1.0;
 
                             if (baseKg) {
-                              const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
-                              const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-                              // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-                              effKg = plannedKg ? plannedKg : defaultYield * mult;
+                              const summedKg = sumEffKgAcrossFns(dish.name, dish.fns);
+                              let plannedKg = null;
+                              if (summedKg != null) {
+                                effKg = summedKg;
+                              } else {
+                                plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+                                const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+                                // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+                                effKg = plannedKg ? plannedKg : defaultYield * mult;
+                              }
                               ing = getIngrForYield(dish.name, effKg);
                               planned = !!plannedKg;
                             }
