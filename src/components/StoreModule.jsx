@@ -1976,7 +1976,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const target = ingDedupTargets[idx]||'';
           const unit = ingDedupUnits[idx]||'';
           const clusterUnits = c.items.map(d=>(d.unit||'').trim()).filter(Boolean);
-          const unitOptions = Array.from(new Set((clusterUnits.length?clusterUnits:ING_UNIT_CHOICES).concat(unit?[unit]:[])));
+          const unitOptions = Array.from(new Set(clusterUnits.concat(ING_UNIT_CHOICES).concat(unit?[unit]:[])));
           const saving = ingDedupSavingIdx===idx;
           const disabled = ingDedupSavingIdx!=null && !saving;
           return (
