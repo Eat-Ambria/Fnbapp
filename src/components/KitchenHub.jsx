@@ -2690,8 +2690,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 el.appendChild(s);
                 s.addEventListener("animationend", () => s.remove());
               };
-              const Seg = ({ segKey, sel, icon, title, meta, first, warn, externalCaterer }) => (
-                <button className={"kh-btn kh-seg"+(sel?" is-active":"")}
+              // Same fix as RecipeCard above: called as a plain function, not
+              // <Seg/> as a JSX element type — this whole component re-renders
+              // every second (the global tick), and an inline-defined
+              // component used as a JSX element gets a fresh type each render,
+              // forcing React to unmount/remount it every tick.
+              function Seg({ segKey, sel, icon, title, meta, first, warn, externalCaterer }){ return (
+                <button key={segKey} className={"kh-btn kh-seg"+(sel?" is-active":"")}
                   onClick={(e)=>{ fillUp(e); setD1FnFilter(segKey); }}
                   style={{
                     flex:"1 1 230px", minWidth:0, display:"flex", alignItems:"center", gap:14,
@@ -2713,19 +2718,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meta}</span>
                   </span>
                 </button>
-              );
+              );}
               return (
                 <div style={{display:"flex",flexWrap:"wrap",borderRadius:14,overflow:"hidden",border:`1px solid ${K.line}`,marginBottom:14,background:K.surface,boxShadow:K.shadowCard}}>
-                  <Seg segKey="combined" sel={isCombined} first icon="layers"
-                    title={T2("Combined")}
-                    meta={`${combinedPax} pax · ${d1Evs.length} ${T2("functions")}`}/>
-                  {d1Evs.map(ev=>(
-                    <Seg key={ev.id} segKey={ev.id} sel={d1FnFilter===ev.id} icon="users"
-                      warn={ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed}
-                      externalCaterer={!!ev.external_caterer}
-                      title={ev.guest||T2("Function")}
-                      meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"} · ${describeEventMenu(ev)}`}/>
-                  ))}
+                  {Seg({segKey:"combined", sel:isCombined, first:true, icon:"layers",
+                    title:T2("Combined"),
+                    meta:`${combinedPax} pax · ${d1Evs.length} ${T2("functions")}`})}
+                  {d1Evs.map(ev=>Seg({segKey:ev.id, sel:d1FnFilter===ev.id, icon:"users",
+                      warn:ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed,
+                      externalCaterer:!!ev.external_caterer,
+                      title:ev.guest||T2("Function"),
+                      meta:`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"} · ${describeEventMenu(ev)}`}))}
                 </div>
               );
             })()}
@@ -3330,7 +3333,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               };
               const isSelected=(recipe)=>sopSelected.has(recipe.n);
               const toggleSelected=(recipe)=>setSopSelected(p=>{const n=new Set(p);n.has(recipe.n)?n.delete(recipe.n):n.add(recipe.n);return n;});
-              const RecipeCard=({recipe,ri,isBg})=>{
+              // A plain function, called directly — NOT <RecipeCard/> as a JSX
+              // element type. Defining a component inline in a render body and
+              // using it as <RecipeCard/> gives React a brand-new component
+              // TYPE every render (a new function reference), so the global
+              // 1-second tick (line ~1299) that re-renders all of KitchenHub
+              // was force-unmounting and remounting every single recipe card
+              // once a second — visible as the whole card "blinking" whenever
+              // its hover styling (lost and re-applied on each remount) was
+              // on screen. Calling it as a function instead makes its JSX
+              // part of the parent's own tree, so identity is stable across
+              // re-renders and only the map's own key controls reconciliation.
+              function RecipeCard({recipe,ri,isBg}){
                 const ys=yieldStatus(recipe);
                 const pills=[];
                 if(ys){
@@ -3346,7 +3360,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const tint=isBg?K.warnBg:SOP_TINTS[ri%SOP_TINTS.length];
                 const steps=safeArr(recipe.steps).length;
                 return(
-                <div key={ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
+                <div key={(isBg?"bg":"n")+ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
                   backgroundColor:sel?K.brandBg:K.cardWarm,
                   border:`1px solid ${sel?K.brand:(isBg?K.warnBorder:K.cardWarmLine)}`,
                   borderRadius:16,boxShadow:K.shadowCard,boxSizing:"border-box"}}>
@@ -3438,7 +3452,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>);
-              };
+              }
               return(
               <div>
                 {/* Toolbar — Back and Select on the left, Sort on the right. */}
@@ -3505,7 +3519,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>
                   <div className="kh-soprows" style={{marginBottom:20}}>
-                    {bgR.map((r,ri)=><RecipeCard key={"bg"+ri} recipe={r} ri={ri} isBg={true}/>)}
+                    {bgR.map((r,ri)=>RecipeCard({recipe:r, ri, isBg:true}))}
                   </div>
                 </>}
                 {nrmR.length>0&&<>
@@ -3515,7 +3529,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>}
                   <div className="kh-soprows">
-                    {nrmR.map((r,ri)=><RecipeCard key={"n"+ri} recipe={r} ri={ri} isBg={false}/>)}
+                    {nrmR.map((r,ri)=>RecipeCard({recipe:r, ri, isBg:false}))}
                   </div>
                 </>}
                 {allR.length===0&&(
