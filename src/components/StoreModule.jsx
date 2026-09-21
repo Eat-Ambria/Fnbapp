@@ -1936,6 +1936,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const c = ingDedupClusters[idx];
           const target = ingDedupTargets[idx]||'';
           const unit = ingDedupUnits[idx]||'';
+          const unitOptions = Array.from(new Set(c.items.map(d=>(d.unit||'').trim()).filter(Boolean).concat(unit?[unit]:[])));
           const saving = ingDedupSavingIdx===idx;
           const disabled = ingDedupSavingIdx!=null && !saving;
           return (
@@ -1960,8 +1961,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}>
                 <span style={{fontSize:10,color:C.muted}}>{T2("Unit")}:</span>
-                <input value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
-                  style={{width:70,padding:"5px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}/>
+                <select value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
+                  style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                  {!unitOptions.includes(unit)&&<option value={unit}>{unit||"—"}</option>}
+                  {unitOptions.map(u=><option key={u} value={u}>{u}</option>)}
+                </select>
                 <div style={{flex:1}}/>
                 <button onClick={()=>skipIngDedupCluster(idx)} disabled={saving||disabled}
                   style={{padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
