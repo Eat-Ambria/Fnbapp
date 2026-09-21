@@ -144,6 +144,13 @@ async function fetchOpsEquipmentItems() {
 // so "Edit unit" here can never write a unit the recipe editor wouldn't.
 const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
 
+// Requirements tab's "Add to Order list" destinations — keys match store_order_lists.list_key.
+const ORDER_LIST_META = {
+  dairy:     { label: "Dairy",     icon: "🥛", bg: "#E4F5FE", color: "#0EA5E9", border: "#B6E5FB" },
+  grocery:   { label: "Grocery",   icon: "🛒", bg: "#FDF3E2", color: "#C4790C", border: "#F5DBA6" },
+  vegetable: { label: "Vegetable", icon: "🥕", bg: "#E6F7F0", color: "#129A6C", border: "#B4E8D3" },
+};
+
 function normalizeIngName(s) {
   return String(s || '')
     .toLowerCase()
@@ -274,11 +281,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [showAdd,  setShowAdd]  = useState(false);
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
-  const [issueDate, setIssueDate] = useState("all");
-  const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
-  const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
-  const [issueExpGroup, setIssueExpGroup] = useState(null); // expanded dept-group key "evId::grp::kitchen|beverages|fruits"
-  const [issueExpSec, setIssueExpSec] = useState(null); // expanded section key "evId::secName"
+  const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
+  const [reqPicker, setReqPicker] = useState(null); // ingredient name currently showing its inline Dairy/Grocery/Veg picker
+  const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
+  const [orderListLoading, setOrderListLoading] = useState(false);
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
@@ -303,7 +309,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
   const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
   const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
-  const [expandedShortage, setExpandedShortage] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
   const [addingItem, setAddingItem] = useState(false);
 
@@ -468,6 +473,33 @@ function StoreModule({events, lang="en", currentUser=null}) {
     };
   }, []);
 
+  /* ── Load Order Lists (Requirements tab "Add to Order list") + subscribe ── */
+  useEffect(() => {
+    if (!supabase) return;
+    async function loadOrderLists() {
+      setOrderListLoading(true);
+      try {
+        const rows = await fetchAllRows(() => supabase.from('store_order_lists').select('*'));
+        setOrderListItems(rows || []);
+      } catch (e) { console.error("Order lists load failed:", e); }
+      setOrderListLoading(false);
+    }
+    loadOrderLists();
+    const ch = supabase.channel('sol-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_order_lists' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setOrderListItems(prev => prev.filter(r => !(r.order_date === p.old.order_date && r.ingredient_name === p.old.ingredient_name)));
+      } else {
+        const r = p.new;
+        setOrderListItems(prev => {
+          const idx = prev.findIndex(x => x.order_date === r.order_date && x.ingredient_name === r.ingredient_name);
+          if (idx >= 0) { const n = [...prev]; n[idx] = r; return n; }
+          return [...prev, r];
+        });
+      }
+    }).subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
   /* ── Smart Issue helpers ── */
   const VENUE_CODES = ["AP", "AE", "AM", "AR"];
 
@@ -531,6 +563,44 @@ function StoreModule({events, lang="en", currentUser=null}) {
       { onConflict: 'event_id,section_name' }
     );
     if (error) console.error("Assignment save failed:", error);
+  }
+
+  /* ── Order Lists (Requirements tab "Add to Order list") ── */
+  async function addToOrderList(row, listKey) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const rec = {
+      order_date: reqDay,
+      ingredient_name: row.name,
+      ingredient_hindi: row.hindi || null,
+      unit: row.unit,
+      qty: row.total,
+      list_key: listKey,
+      source: [...new Set(row.evBreak.map(b => b.evName))].join(', '),
+      ordered: false,
+      added_by: staffId,
+      added_at: new Date().toISOString(),
+    };
+    setOrderListItems(prev => {
+      const idx = prev.findIndex(r => r.order_date === reqDay && r.ingredient_name === row.name);
+      if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...rec }; return n; }
+      return [...prev, rec];
+    });
+    setReqPicker(null);
+    const { error } = await supabase.from('store_order_lists').upsert(rec, { onConflict: 'order_date,ingredient_name' });
+    if (error) console.error("Add to order list failed:", error);
+  }
+  async function removeFromOrderList(row) {
+    setOrderListItems(prev => prev.filter(r => !(r.order_date === reqDay && r.ingredient_name === row.name)));
+    const { error } = await supabase.from('store_order_lists').delete().eq('order_date', reqDay).eq('ingredient_name', row.name);
+    if (error) console.error("Remove from order list failed:", error);
+  }
+  async function toggleOrdered(item) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const next = !item.ordered;
+    const patch = { ordered: next, ordered_by: next ? staffId : null, ordered_at: next ? new Date().toISOString() : null };
+    setOrderListItems(prev => prev.map(r => (r.order_date === item.order_date && r.ingredient_name === item.ingredient_name) ? { ...r, ...patch } : r));
+    const { error } = await supabase.from('store_order_lists').update(patch).eq('order_date', item.order_date).eq('ingredient_name', item.ingredient_name);
+    if (error) console.error("Toggle ordered failed:", error);
   }
 
   /* ── Extract all unique ingredient names from recipe DB ──
@@ -1078,7 +1148,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"orderlists",l:T2("🧺 Order Lists")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -1274,408 +1344,246 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* ── REQUIREMENTS — event-first with collective toggle ── */}
       {tab==="requirements"&&(()=>{
-        const issueEvs = safeEvs.filter(e=>e.date===TODAY||e.date===TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-        const filtEvs = issueDate==="all"?issueEvs:issueEvs.filter(e=>e.date===issueDate);
-        const evBags = buildEventBags(filtEvs);
+        const dayEvs = safeEvs.filter(e=>e.date===reqDay).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+        const evBags = buildEventBags(dayEvs);
 
-        /* helpers for counting */
-        function secIngList(secObj) { return Object.values(secObj.items).sort((a,b)=>b.totalQty-a.totalQty); }
         function isIssued(evId, sec, ingName) { const r=issueRecords[evId+"::"+sec+"::"+ingName]; return r&&r.issued; }
-        function secIssuedCount(evId, sec, list) { return list.filter(ing=>isIssued(evId,sec,ing.name)).length; }
 
-        /* collective bags — merge across events */
-        const collBags = {};
+        /* Reshape evBags (per-event, per-section) into ingredient rows with one
+           column per category/station, mirroring Kitchen Hub's Ingredient
+           Ordering Sheet — minus the yield-adjust slider, which is a Kitchen
+           planning concept the Store team has no use for. */
+        const catSeen = new Set();
+        const rowMap = {};
         Object.values(evBags).forEach(({ev, sections})=>{
           Object.entries(sections).forEach(([sec, secObj])=>{
-            if(!collBags[sec]) collBags[sec]={items:{},events:[],meta:secObj.meta};
-            if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
+            catSeen.add(sec);
             Object.values(secObj.items).forEach(ing=>{
-              // Carry the direct inv-link through the merge too — otherwise a
-              // fruit pick (or any dish_store_map-only dish) loses its
-              // ops_inventory_id here and reads as "Unlinked" in Collective
-              // even though it's linked, same bug as the per-event IngRow.
-              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[],_type:ing._type||null,ops_inventory_id:ing.ops_inventory_id||null};
-              var collMerged=addQtyWithUnitNorm(collBags[sec].items[ing.name],ing.totalQty,ing.unit);
-              collBags[sec].items[ing.name].totalQty=collMerged.totalQty;
-              collBags[sec].items[ing.name].unit=collMerged.unit;
-              collBags[sec].items[ing.name].evBreak.push({evId:ev.id,evName:ev.guest,qty:ing.totalQty});
+              if(!rowMap[ing.name]) rowMap[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,total:0,byCat:{},evBreak:[],_type:null,ops_inventory_id:null};
+              const row=rowMap[ing.name];
+              const cellPrev = row.byCat[sec] || {totalQty:0,unit:ing.unit};
+              row.byCat[sec] = addQtyWithUnitNorm(cellPrev, ing.totalQty, ing.unit);
+              const totMerged = addQtyWithUnitNorm({totalQty:row.total,unit:row.unit}, ing.totalQty, ing.unit);
+              row.total = totMerged.totalQty; row.unit = totMerged.unit;
+              row.evBreak.push({evId:ev.id, evName:ev.guest, sec, qty:ing.totalQty, unit:ing.unit});
+              if(!row._type && ing._type==='inv'){ row._type='inv'; row.ops_inventory_id = ing.ops_inventory_id||null; }
             });
           });
         });
-        function collIssuedCount(sec, list) {
-          return list.filter(ing=>{
-            const bag=collBags[sec];
-            return bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
-          }).length;
+        const stations = RECIPE_DB.cats.filter(c=>catSeen.has(c.name));
+        const rows = Object.values(rowMap).sort((a,b)=>a.name.localeCompare(b.name));
+
+        /* Stock resolution — same 3-tier unit-conversion chain the old
+           Shortages table used (grams, then ml, then a configured conversion
+           factor for anything else), so "short" here means the same thing it
+           always has. */
+        function resolveStock(row){
+          const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
+          const stock = isDirectInv ? getStockByInventoryId(row.ops_inventory_id) : getStockForIngredient(row.name);
+          const isMapped = isDirectInv || !!ingredientMap[row.name];
+          if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null};
+          let requiredSU;
+          const recG=toGrams(row.total,row.unit), stoG=toGrams(1,stock.unit);
+          if(recG!=null && stoG!=null){ requiredSU = recG/stoG; }
+          else{
+            const recM=toMl(row.total,row.unit), stoM=toMl(1,stock.unit);
+            if(recM!=null && stoM!=null){ requiredSU = recM/stoM; }
+            else{
+              const oF=getUnitFamily(row.unit), aF=getUnitFamily(stock.unit);
+              const adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;
+              requiredSU = row.total*adj*(stock.conversion||1);
+            }
+          }
+          return {isMapped:true, stock, requiredSU};
         }
 
-        /* venue color helper */
-        const vcMap={"AP":{bg:C.goldBg,color:C.gold},"AE":{bg:C.amberBg,color:"#854F0B"},"AM":{bg:"#EEF4FD",color:"#185FA5"},"AR":{bg:C.greenBg,color:"#0F6E56"}};
-        function venueStyle(code){return vcMap[code]||{bg:C.bg,color:C.muted};}
-
-        /* shared ingredient row renderer */
-        function IngRow({ing, evId, sec, idx, total}){
-          const done = isIssued(evId,sec,ing.name);
-          // A fruit pick (or any dish resolved via a direct dish_store_map,
-          // see buildEventBags) already carries a real ops_inventory_id and
-          // was never meant to go through the name-based ingredient_item_map
-          // at all — checking only ingredientMap[ing.name] flagged it
-          // "Unlinked" even though it's linked, just via the other path.
-          const isDirectInv = ing._type === 'inv' && !!ing.ops_inventory_id;
-          const stock = isDirectInv ? getStockByInventoryId(ing.ops_inventory_id) : getStockForIngredient(ing.name);
-          const isMapped = isDirectInv || !!ingredientMap[ing.name];
-          var reqSU = stock ? ing.totalQty * (stock.conversion || 1) : 0;
-          return(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
-                {isMapped&&stock&&<div style={{fontSize:10,color:stock.available>=reqSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>
-                  {T2("Stock")}: {stock.available} {stock.unit}{reqSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(reqSU-stock.available,stock.unit):""}
-                  {stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}
-                </div>}
-                {!isMapped&&<div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>}
-              </div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
-              <div onClick={()=>toggleIssueItem(evId,sec,ing,done)}
-                style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
-                {done&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
-              </div>
-            </div>
-          );
+        function rowIssued(row){ return row.evBreak.every(b=>isIssued(b.evId,b.sec,row.name)); }
+        async function toggleRowIssue(row){
+          const done = rowIssued(row);
+          for(const b of row.evBreak){
+            await toggleIssueItem(b.evId, b.sec, {name:row.name, hindi:row.hindi, unit:b.unit, totalQty:b.qty}, done);
+          }
         }
 
-        /* venue assignment dropdown */
-        function VenueTag({evId, sec}){
-          const code=issueAssignments[evId+"::"+sec];
-          if(!code) return(
-            <select value="" onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.value)setVenueAssignment(evId,sec,e.target.value);}}
-              style={{fontSize:10,padding:"2px 6px",borderRadius:10,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
-              <option value="" disabled>⚠ assign</option>
-              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
-            </select>
-          );
-          const vs=venueStyle(code);
-          return(
-            <select value={code} onClick={e=>e.stopPropagation()} onChange={e=>setVenueAssignment(evId,sec,e.target.value)}
-              style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:vs.bg,color:vs.color,border:"1px solid transparent",cursor:"pointer",fontWeight:600}}>
-              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
-            </select>
-          );
-        }
+        const orderListsForDay = orderListItems.filter(r=>r.order_date===reqDay);
+        function orderListFor(name){ return orderListsForDay.find(r=>r.ingredient_name===name); }
 
-        const todayCount = issueEvs.filter(e=>e.date===TODAY).length;
-        const tmrwCount = issueEvs.filter(e=>e.date===TOMORROW).length;
+        const todayFnCount = safeEvs.filter(e=>e.date===TODAY).length;
+        const tmrwFnCount = safeEvs.filter(e=>e.date===TOMORROW).length;
+
+        let shortCount=0, issuedCount=0, orderedRowCount=0;
+        rows.forEach(row=>{
+          const {isMapped, stock, requiredSU} = resolveStock(row);
+          if(isMapped && stock && requiredSU!=null && requiredSU>stock.available) shortCount++;
+          if(rowIssued(row)) issuedCount++;
+          if(orderListFor(row.name)) orderedRowCount++;
+        });
 
         return(
           <div>
-            {/* Header + mode toggle */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements")}</div>
-              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
-                <button onClick={()=>setIssueMode("event")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="event"?C.gold:"transparent",color:issueMode==="event"?C.goldBg:C.muted}}>📅 {T2("By Event")}</button>
-                <button onClick={()=>setIssueMode("collective")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="collective"?C.gold:"transparent",color:issueMode==="collective"?C.goldBg:C.muted}}>📦 {T2("Collective")}</button>
+            {/* Header + day picker */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements — Day Sheet")}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("One ordering sheet per day — every function on that day, combined.")}</div>
               </div>
-            </div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{issueMode==="event"?T2("Aggregate ingredient needs per event"):T2("Merged quantities across events")}</div>
-
-            {/* Date filter */}
-            <div style={{display:"flex",gap:6,marginBottom:14}}>
-              {[{v:"all",l:T2("All")},{v:TODAY,l:T2("Today")+" ("+todayCount+")"},{v:TOMORROW,l:T2("Tomorrow")+" ("+tmrwCount+")"}].map(d=>(
-                <button key={d.v} onClick={()=>setIssueDate(d.v)} style={{padding:"7px 14px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36,
-                  background:issueDate===d.v?C.gold:C.bg,color:issueDate===d.v?C.goldBg:C.muted,border:`1px solid ${issueDate===d.v?C.gold:C.border}`}}>{d.l}</button>
-              ))}
+              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
+                <button onClick={()=>setReqDay(TODAY)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TODAY?C.gold:"transparent",color:reqDay===TODAY?C.goldBg:C.muted}}>{T2("Today")} ({todayFnCount})</button>
+                <button onClick={()=>setReqDay(TOMORROW)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TOMORROW?C.gold:"transparent",color:reqDay===TOMORROW?C.goldBg:C.muted}}>{T2("Tomorrow")} ({tmrwFnCount})</button>
+              </div>
             </div>
 
             {issueLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading issue state…")}</div>}
 
-            {filtEvs.length===0&&!issueLoading&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events with recipe data for this period.")}</div>}
-
-            {/* ── EVENT VIEW ── */}
-            {issueMode==="event"&&Object.entries(evBags).map(([evId,{ev,sections}])=>{
-              const secEntries=Object.entries(sections).sort((a,b)=>a[0].localeCompare(b[0]));
-              const totalSec=secEntries.length;
-              const doneSec=secEntries.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
-              const isExpanded=issueExpEv===evId;
-              const evVs=venueStyle((ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||"");
-              const evCode=(ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||ev.venue||"";
-              const pct=totalSec>0?Math.round(doneSec/totalSec*100):0;
-
-              return(
-                <Card key={evId} style={{marginBottom:10,padding:0,overflow:"hidden",border:doneSec===totalSec&&totalSec>0?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
-                  {/* Event header */}
-                  <div onClick={()=>setIssueExpEv(isExpanded?null:evId)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:14,fontWeight:700,color:C.text}}>{ev.guest}</div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                        <span>{ev.pax} pax</span>
-                        <span style={{color:C.borderLight}}>|</span>
-                        <span>{ev.time||"TBD"}</span>
-                        {evCode&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:evVs.bg,color:evVs.color,fontWeight:600}}>{evCode}</span>}
-                      </div>
-                    </div>
-                    <div style={{textAlign:"center",flexShrink:0,marginLeft:12}}>
-                      <div style={{fontSize:15,fontWeight:700,color:doneSec===totalSec&&totalSec>0?C.green:C.amber}}>{doneSec}<span style={{fontSize:11,color:C.muted,fontWeight:400}}> / {totalSec}</span></div>
-                      <div style={{fontSize:10,color:C.muted}}>{T2("sections")}</div>
-                      <div style={{height:3,borderRadius:2,background:C.borderLight,marginTop:4,width:48}}>
-                        <div style={{height:3,borderRadius:2,background:doneSec===totalSec&&totalSec>0?C.green:C.amber,width:pct+"%",transition:"width .3s"}}/>
-                      </div>
-                    </div>
+            {/* Functions-combined strip */}
+            {dayEvs.length>0 ? (
+              <div style={{margin:"14px 0",padding:"12px 16px",borderRadius:14,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.gold,background:C.goldBg,padding:"5px 12px",borderRadius:20}}>🔗 {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} {T2("combined")}</div>
+                {dayEvs.map(ev=>(
+                  <div key={ev.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:20,background:C.bg,border:`1px solid ${C.border}`}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>{ev.guest}</span>
+                    <span style={{fontSize:11,color:C.faint}}>{ev.pax} {T2("pax")} · {ev.time||"TBD"}</span>
                   </div>
+                ))}
+                <div style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{dayEvs.reduce((s,e)=>s+(+e.pax||0),0)} {T2("pax total")}</div>
+              </div>
+            ) : (
+              <div style={{margin:"14px 0",padding:"36px 20px",borderRadius:14,background:C.surface,border:`1px dashed ${C.border}`,textAlign:"center",color:C.muted,fontSize:13}}>
+                {T2("No functions scheduled — nothing to prep or order yet.")}
+              </div>
+            )}
 
-                  {/* Sections inside event — grouped by which team actually
-                      issues/preps them. Store issues to three separate teams
-                      (Kitchen, Beverages, Fruits), not just Kitchen, so each
-                      gets its own collapsible group instead of one flat list. */}
-                  {isExpanded&&(()=>{
-                    const DEPT_GROUPS=[
-                      {key:"kitchen",label:T2("Kitchen"),icon:"👨‍🍳",match:s=>s!=="Beverages"&&s!=="Fruits"},
-                      {key:"beverages",label:T2("Beverages"),icon:"🥤",match:s=>s==="Beverages"},
-                      {key:"fruits",label:T2("Fruits"),icon:"🍓",match:s=>s==="Fruits"},
-                    ];
-                    const grouped=DEPT_GROUPS.map(g=>({...g,secs:secEntries.filter(([sec])=>g.match(sec))})).filter(g=>g.secs.length>0);
-                    return grouped.map(g=>{
-                      const gKey=evId+"::grp::"+g.key;
-                      const gExpanded=issueExpGroup===gKey;
-                      const gTotal=g.secs.length;
-                      const gDone=g.secs.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
-                      return(
-                        <div key={g.key} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                          {/* Dept-group header */}
-                          <div onClick={()=>setIssueExpGroup(gExpanded?null:gKey)} style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:C.bg}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
-                              <span style={{fontSize:15}}>{g.icon}</span>
-                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g.label}</span>
-                              <span style={{fontSize:11,color:C.muted}}>({g.secs.length} {T2("sections")})</span>
-                            </div>
-                            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                              <span style={{fontSize:12,fontWeight:600,color:gDone===gTotal&&gTotal>0?C.green:C.muted}}>{gDone}/{gTotal}</span>
-                              <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:gExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                            </div>
-                          </div>
+            {dayEvs.length>0 && rows.length===0 && (
+              <div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
+            )}
 
-                          {gExpanded&&g.secs.map(([sec,secObj])=>{
-                            const m=secObj.meta;
-                            const list=secIngList(secObj);
-                            const cnt=secIssuedCount(evId,sec,list);
-                            const allDone=cnt===list.length&&list.length>0;
-                            const secKey=evId+"::"+sec;
-                            const secExpanded=issueExpSec===secKey;
-
-                            return(
-                              <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                                {/* Section header */}
-                                <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px 11px 30px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                                  <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                                    <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                                    <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
-                                    <VenueTag evId={evId} sec={sec}/>
-                                    {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                                  </div>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                    <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                                    <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                                  </div>
-                                </div>
-
-                                {/* Ingredient rows */}
-                                {secExpanded&&<div style={{padding:"0 16px"}}>
-                                  {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
-                                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                                    <div style={{padding:"6px 0 10px"}}>
-                                      <button onClick={()=>issueAllForSection(evId,sec,list)}
-                                        style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                        ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    });
-                  })()}
-                </Card>
-              );
-            })}
-
-            {/* ── COLLECTIVE VIEW ── */}
-            {issueMode==="collective"&&(()=>{
-              const collKeys=Object.keys(collBags).sort();
-              if(collKeys.length===0) return null;
-              return(
-                <div>
-                  <div style={{padding:"10px 14px",background:C.goldBg,borderRadius:10,border:`1px solid ${C.goldBorder}`,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:12,color:C.gold}}>ℹ {T2("Quantities merged across events. Issue marks apply to all contributing events.")}</span>
-                  </div>
-                  {collKeys.map(sec=>{
-                    const bag=collBags[sec];
-                    const m=bag.meta;
-                    const list=Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
-                    const cnt=collIssuedCount(sec,list);
-                    const allDone=cnt===list.length&&list.length>0;
-                    const secKey="coll::"+sec;
-                    const secExpanded=issueExpSec===secKey;
-
-                    return(
-                      <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
-                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                              <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                              <span style={{fontSize:13,fontWeight:700,color:m.color}}>{T2(sec)}</span>
-                              <span style={{fontSize:11,color:C.muted}}>{list.length} {T2("items")}</span>
-                              {(()=>{
-                                const codes=[...new Set(bag.events.map(ev=>issueAssignments[ev.id+"::"+sec]).filter(Boolean))];
-                                if(codes.length>0) return codes.map(c=>{const vs=venueStyle(c);return <span key={c} style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:vs.bg,color:vs.color,fontWeight:600}}>{c}</span>;});
-                                return <span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.amberBg,color:"#854F0B",fontWeight:600}}>⚠ {T2("assign")}</span>;
-                              })()}
-                              {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                            </div>
-                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
-                              {bag.events.map(e=><span key={e.id} style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.bg,color:C.muted,border:`1px solid ${C.borderLight}`}}>{e.guest} ({e.pax}p)</span>)}
-                            </div>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
-                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                          </div>
-                        </div>
-
-                        {secExpanded&&<div style={{padding:"0 16px",borderTop:`1px solid ${C.borderLight}`}}>
-                          {list.map((ing,ii)=>{
-                            /* In collective, issue across all events at once */
-                            const allEvIssued=bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
-                            return(
-                              <div key={ing.name} style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:ii<list.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                                <div>
-                                  <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
-                                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
-                                  {(()=>{
-                                    const isDirectInv=ing._type==='inv'&&!!ing.ops_inventory_id;
-                                    const stock=isDirectInv?getStockByInventoryId(ing.ops_inventory_id):getStockForIngredient(ing.name);
-                                    const isMapped=isDirectInv||!!ingredientMap[ing.name];
-                                    if(isMapped&&stock){var rSU=ing.totalQty*(stock.conversion||1);return <div style={{fontSize:10,color:stock.available>=rSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{rSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(rSU-stock.available,stock.unit):""}{stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}</div>;}
-                                    if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
-                                    return null;
-                                  })()}
-                                </div>
-                                <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:allEvIssued?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
-                                <div onClick={async()=>{
-                                  for(const ev of bag.events){
-                                    await toggleIssueItem(ev.id,sec,{name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:ing.evBreak.find(b=>b.evId===ev.id)?.qty||ing.totalQty},allEvIssued);
-                                  }
-                                }}
-                                  style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${allEvIssued?C.green:C.border}`,background:allEvIssued?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
-                                  {allEvIssued&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                            <div style={{padding:"6px 0 10px"}}>
-                              <button onClick={async()=>{for(const ev of bag.events){await issueAllForSection(ev.id,sec,Object.values(bag.items).map(i=>({...i,totalQty:i.evBreak.find(b=>b.evId===ev.id)?.qty||i.totalQty})));}}}
-                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                              </button>
-                            </div>
-                          )}
-                        </div>}
-                      </Card>
-                    );
-                  })}
+            {dayEvs.length>0 && rows.length>0 && (
+              <>
+                {/* Summary chips */}
+                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.goldBg,color:C.gold}}>{rows.length} {T2("ingredient lines")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.redBg,color:C.red}}>⚠ {shortCount} {T2("short of stock")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.greenBg,color:C.green}}>{issuedCount} {T2("issued")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.purpleBg,color:C.purple}}>{orderedRowCount} {T2("on order lists")}</div>
+                  <button onClick={()=>setTab("orderlists")} style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.gold,background:"transparent",border:"none",cursor:"pointer"}}>{T2("View Order Lists")} →</button>
                 </div>
-              );
-            })()}
 
-            {/* ── SHORTAGE SUMMARY ── */}
-            {(()=>{
-              const shortages = [];
-              const seenIng = {};
-              Object.values(evBags).forEach(({ev, sections})=>{
-                Object.entries(sections).forEach(([sec, secObj])=>{
-                  Object.values(secObj.items).forEach(ing=>{
-                    // 9D — inv-typed rows bypass ingredient_item_map, use their embedded ops_inventory_id directly
-                    let stock = null, opsItemId = null, opsItemName = null, invIdDirect = null;
-                    if (ing._type === 'inv' && ing.ops_inventory_id) {
-                      stock = getStockByInventoryId(ing.ops_inventory_id);
-                      if (!stock) return;
-                      opsItemId = stock.item._opsId || null;
-                      opsItemName = stock.item.name || ing.name;
-                      invIdDirect = ing.ops_inventory_id;
-                    } else {
-                      const mapping = ingredientMap[ing.name];
-                      if(!mapping) return;
-                      stock = getStockForIngredient(ing.name);
-                      if(!stock) return;
-                      opsItemId = mapping.ops_item_id;
-                      opsItemName = mapping.ops_item_name;
-                      invIdDirect = mapping.ops_inventory_id || null;
-                    }
-                    if(!seenIng[ing.name]){var _oi=allRecipeIngredients.find(function(a){return a.name===ing.name;});seenIng[ing.name]={name:ing.name,unit:ing.unit,origUnit:_oi?_oi.unit:ing.unit,storeUnit:stock.unit,opsItemId:opsItemId,opsItemName:opsItemName,ops_inventory_id:invIdDirect,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};}
-                    var sMerged=addQtyWithUnitNorm({totalQty:seenIng[ing.name].required,unit:seenIng[ing.name].unit},ing.totalQty,ing.unit);
-                    seenIng[ing.name].required=sMerged.totalQty;
-                    seenIng[ing.name].unit=sMerged.unit;
-                    if(!seenIng[ing.name].eventIds.includes(ev.id)){seenIng[ing.name].eventIds.push(ev.id);seenIng[ing.name].eventNames.push(ev.guest);}
-                  });
-                });
-              });
-              Object.values(seenIng).forEach(s=>{
-                var recG=toGrams(s.required,s.unit);var stoG=toGrams(1,s.storeUnit);
-                if(recG!==null&&stoG!==null){s.required=recG/stoG;s.unit=s.storeUnit;}
-                else{var recM=toMl(s.required,s.unit);var stoM=toMl(1,s.storeUnit);
-                if(recM!==null&&stoM!==null){s.required=recM/stoM;s.unit=s.storeUnit;}
-                else{var oF=getUnitFamily(s.origUnit),aF=getUnitFamily(s.unit),adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;s.required=s.required*adj*(s.conversion||1);s.unit=s.storeUnit;}}
-                s.shortfall=Math.ceil(Math.max(0,s.required-s.available));
-                if(s.shortfall > 0) shortages.push(s);
-              });
-              shortages.sort((a,b)=>b.shortfall-a.shortfall);
-              if(!shortages.length) return null;
-              return(
-                <Card style={{padding:"14px 16px",marginTop:16,border:`1.5px solid ${C.redBorder}`,background:C.redBg}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700,color:C.red}}>⚠ {T2("Shortages")} — {shortages.length} {T2("items")}</div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Stock below required for")} {filtEvs.length} {T2("events")}</div>
-                    </div>
-                    
+                {/* Table */}
+                <div style={{border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",background:C.surface}}>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}>
+                      <thead>
+                        <tr style={{background:C.bg}}>
+                          <th style={{position:"sticky",left:0,background:C.bg,zIndex:2,textAlign:"left",padding:"10px 14px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,minWidth:170}}>{T2("Item")}</th>
+                          <th style={{textAlign:"center",padding:"10px 8px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("UM")}</th>
+                          {stations.map(st=><th key={st.id} style={{textAlign:"right",padding:"10px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,minWidth:76,whiteSpace:"normal",lineHeight:1.25}} title={st.name}>{st.icon} {st.name}</th>)}
+                          <th style={{textAlign:"right",padding:"10px 12px",fontSize:10,fontWeight:700,color:C.text,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Total")}</th>
+                          <th style={{textAlign:"right",padding:"10px 12px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Stock")}</th>
+                          <th style={{textAlign:"left",padding:"10px 14px",fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`,minWidth:230}}>{T2("Actions")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(row=>{
+                          const {isMapped, stock, requiredSU} = resolveStock(row);
+                          const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                          const done = rowIssued(row);
+                          const list = orderListFor(row.name);
+                          const pickerOpen = reqPicker===row.name;
+                          return (
+                            <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+                              <td style={{position:"sticky",left:0,background:C.surface,padding:"9px 14px",fontWeight:600,color:C.text}}>{row.name}{row.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({row.hindi})</span>:""}</td>
+                              <td style={{textAlign:"center",padding:"9px 8px",color:C.faint}}>{row.unit}</td>
+                              {stations.map(st=>{
+                                const cell = row.byCat[st.name];
+                                return <td key={st.id} style={{textAlign:"right",padding:"9px 10px",color:C.muted}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
+                              })}
+                              <td style={{textAlign:"right",padding:"9px 12px",fontWeight:700,color:C.text}}>{fmtIssueQty(row.total,row.unit)}</td>
+                              <td style={{textAlign:"right",padding:"9px 12px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text}}>
+                                {!isMapped
+                                  ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:10,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
+                                  : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
+                              </td>
+                              <td style={{padding:"8px 14px"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                                  {done ? (
+                                    <span style={{fontSize:11,fontWeight:700,padding:"6px 10px",borderRadius:8,background:C.greenBg,color:C.green,whiteSpace:"nowrap"}}>✓ {T2("Issued")}</span>
+                                  ) : (
+                                    hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} style={{padding:"6px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("Issue from Store")}</button>
+                                  )}
+                                  {list ? (
+                                    <span style={{display:"flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,padding:"6px 10px",borderRadius:8,background:ORDER_LIST_META[list.list_key].bg,color:ORDER_LIST_META[list.list_key].color,whiteSpace:"nowrap"}}>
+                                      {ORDER_LIST_META[list.list_key].icon} {ORDER_LIST_META[list.list_key].label}
+                                      <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:12,padding:0,lineHeight:1}}>×</button>
+                                    </span>
+                                  ) : pickerOpen ? (
+                                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                      {Object.entries(ORDER_LIST_META).map(([key,meta])=>(
+                                        <button key={key} onClick={()=>addToOrderList(row,key)} style={{padding:"5px 8px",borderRadius:7,fontSize:10.5,fontWeight:700,cursor:"pointer",background:meta.bg,color:meta.color,border:`1px solid ${meta.border}`,whiteSpace:"nowrap"}}>{meta.icon} {meta.label}</button>
+                                      ))}
+                                      <button onClick={()=>setReqPicker(null)} aria-label={T2("Cancel")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:13,padding:"0 2px"}}>×</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={()=>setReqPicker(row.name)} style={{padding:"6px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,whiteSpace:"nowrap"}}>+ {T2("Add to Order list")}</button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                  <div style={{border:`1px solid ${C.redBorder}`,borderRadius:10,overflow:"hidden"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",background:C.red+"15",borderBottom:`1px solid ${C.redBorder}`}}>
-                      {[T2("Ingredient"),T2("Required"),T2("Stock"),T2("Short")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase"}}>{h}</div>)}
-                    </div>
-                    {shortages.slice(0,20).map((s,idx)=>{
-                      const isExp=expandedShortage===s.name;
-                      const sopMatch=allRecipeIngredients.find(i=>i.name===s.name);
-                      const recipes=sopMatch?sopMatch.dishes:[];
-                      return(
-                      <div key={s.name}>
-                      <div onClick={()=>setExpandedShortage(isExp?null:s.name)} style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",borderBottom:(!isExp&&idx<Math.min(shortages.length,20)-1)?`1px solid ${C.redBorder}22`:"none",alignItems:"center",cursor:"pointer",background:isExp?C.red+"08":"transparent"}}>
-                        <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{isExp?"▾":"▸"} {s.name}</div><div style={{fontSize:10,color:C.muted}}>{s.eventNames.join(", ")}</div></div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtIssueQty(s.required,s.unit)}</div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.amber}}>{fmtIssueQty(s.available,s.unit)}</div>
-                        <div style={{fontSize:12,fontWeight:700,color:C.red}}>−{fmtIssueQty(s.shortfall,s.unit)}</div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── ORDER LISTS (Dairy / Grocery / Vegetable) ── */}
+      {tab==="orderlists"&&(()=>{
+        const grouped = {dairy:[],grocery:[],vegetable:[]};
+        orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
+          if(grouped[r.list_key]) grouped[r.list_key].push(r);
+        });
+        return(
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧺 {T2("Order Lists")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Items sent here from the Requirements sheet — split by what the buyer actually orders from.")}</div>
+
+            {orderListLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading…")}</div>}
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start"}}>
+              {Object.entries(ORDER_LIST_META).map(([key,meta])=>{
+                const list = grouped[key];
+                return (
+                  <Card key={key} style={{padding:0,overflow:"hidden"}}>
+                    <div style={{padding:"14px 16px",background:meta.bg,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:meta.color}}>
+                        <span>{meta.icon}</span><span>{T2(meta.label)}</span>
                       </div>
-                      {isExp&&<div style={{padding:"6px 12px 10px",background:C.red+"06",borderBottom:`1px solid ${C.redBorder}22`}}>
-                        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Used in {recipes.length} SOP recipe{recipes.length!==1?"s":""}</div>
-                        {recipes.length?<div style={{display:"flex",flexWrap:"wrap",gap:4}}>{recipes.map(r=><span key={r} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.text}}>{r}</span>)}</div>
-                        :<div style={{fontSize:11,color:C.muted}}>No SOP recipe match found</div>}
-                      </div>}
-                      </div>);
-                    })}
-                    {shortages.length>20&&<div style={{padding:"6px 12px",fontSize:11,color:C.muted,textAlign:"center"}}>+{shortages.length-20} {T2("more")}</div>}
-                  </div>
-                </Card>
-              );
-            })()}
-
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
+                    </div>
+                    {list.length===0 && <div style={{padding:"30px 16px",textAlign:"center",color:C.muted,fontSize:12}}>{T2("Nothing added to this list yet.")}</div>}
+                    {list.map(item=>(
+                      <div key={item.order_date+item.ingredient_name} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,display:"flex",alignItems:"flex-start",gap:10}}>
+                        <button onClick={()=>toggleOrdered(item)} aria-label={T2("Mark ordered")} style={{width:20,height:20,flexShrink:0,marginTop:1,borderRadius:6,border:`1.5px solid ${item.ordered?meta.color:C.border}`,background:item.ordered?meta.color:"transparent",color:"#fff",fontSize:12,lineHeight:"17px",textAlign:"center",cursor:"pointer",padding:0}}>{item.ordered?"✓":""}</button>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:item.ordered?C.faint:C.text,textDecoration:item.ordered?"line-through":"none"}}>{item.ingredient_name} · {fmtIssueQty(item.qty,item.unit)}</div>
+                          <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("for")} {item.source||"—"} · {item.order_date}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                );
+              })}
             </div>
+          </div>
         );
       })()}
 
       {/* ── EVENT REQUIREMENTS ── */}
-      
+
 
       {/* ── INGREDIENT MAP (admin) ── */}
       {tab==="ingmap"&&(()=>{
