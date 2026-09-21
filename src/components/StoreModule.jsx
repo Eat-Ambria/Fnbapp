@@ -557,6 +557,23 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return Object.values(seen).sort((a, b) => a.name.localeCompare(b.name));
   }, [ingRefreshTick]);
 
+  // Weight/volume unit conversion so a merge that changes an item's unit
+  // rescales its qty instead of silently relabeling it (200 "gm" becoming
+  // 200 "kg" would be a 1000x data error). Returns null when the two units
+  // aren't a known convertible pair (e.g. "pcs" -> "kg") — callers must
+  // then leave qty untouched and flag it for manual review.
+  const ING_UNIT_RATE_TO_BASE = { kg: 1000, gm: 1, g: 1, l: 1000, ltr: 1000, ml: 1 };
+  const ING_UNIT_FAMILY = { kg: 'wt', gm: 'wt', g: 'wt', l: 'vol', ltr: 'vol', ml: 'vol' };
+  function convertIngQty(qty, fromUnit, toUnit) {
+    const f = (fromUnit || '').trim().toLowerCase();
+    const t = (toUnit || '').trim().toLowerCase();
+    if (!f || !t || f === t) return qty;
+    if (ING_UNIT_FAMILY[f] && ING_UNIT_FAMILY[f] === ING_UNIT_FAMILY[t]) {
+      return qty * (ING_UNIT_RATE_TO_BASE[f] / ING_UNIT_RATE_TO_BASE[t]);
+    }
+    return null;
+  }
+
   /* ── Merge/rename N ingredient names into one, with one shared unit ──
      Models the existing dish-merge feature (DishLibrary.jsx): pick a
      canonical name, rewrite every place the string is referenced (there:
@@ -565,7 +582,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
      standalone "edit this ingredient's unit" is just this same function
      called with sources=[name], target=name — it still rewrites every
      recipe's ingredients.items[].unit for that name, which is the whole
-     point (unit lives inline per recipe, not normalized anywhere). */
+     point (unit lives inline per recipe, not normalized anywhere).
+     When a source row's unit differs from the target unit, qty is rescaled
+     (kg<->gm, l<->ml) so the merge never silently relabels a quantity into
+     the wrong magnitude; unconvertible pairs (e.g. "pcs" -> "kg") are left
+     as-is and reported back for manual review. */
   async function performIngredientMerge(sourceNames, targetName, targetUnit) {
     const target = (targetName || "").trim();
     const unit = (targetUnit || "").trim();
@@ -585,6 +606,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         if (seenKey.has(k)) return false;
         seenKey.add(k); return true;
       });
+      const unconvertible = []; // [{dishName, name, fromUnit}] — qty left as-is, needs manual review
       for (const { catId, dishName } of uniqueTouched) {
         const catRecipes = RECIPE_DB.recipes[catId] || [];
         const recipe = catRecipes.find(r => r.n === dishName);
@@ -593,7 +615,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const nextItems = recipe.ingredients.items.map(it => {
           if (!it.isSection && allNames.has(it.name) && (it.name !== target || it.unit !== unit)) {
             changed = true;
-            return { ...it, name: target, unit };
+            if (it.unit === unit) return { ...it, name: target, unit };
+            const convertedQty = convertIngQty(Number(it.qty) || 0, it.unit, unit);
+            if (convertedQty == null) {
+              unconvertible.push({ dishName, name: it.name, fromUnit: it.unit });
+              return { ...it, name: target, unit };
+            }
+            return { ...it, name: target, unit, qty: convertedQty };
           }
           return it;
         });
@@ -623,6 +651,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
       setIngSelected({});
       setIngMergeModal(null);
       setIngRefreshTick(t => t + 1);
+      if (unconvertible.length) {
+        const lines = unconvertible.map(u => `• ${u.dishName}: ${u.name} (${u.fromUnit} → ${unit}, qty left unchanged)`);
+        alert(T2('Merged, but these couldn\'t be auto-converted to ') + unit + T2(' — check the quantities manually:') + '\n\n' + lines.join('\n'));
+      }
     } catch (e) {
       console.error('[performIngredientMerge]', e);
       alert(T2('Merge failed: ') + (e.message || e));
