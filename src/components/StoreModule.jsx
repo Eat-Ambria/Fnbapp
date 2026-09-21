@@ -1465,8 +1465,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.redBg,color:C.red}}>⚠ {shortCount} {T2("short of stock")}</div>
                   <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.greenBg,color:C.green}}>{issuedCount} {T2("issued")}</div>
                   <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.purpleBg,color:C.purple}}>{orderedRowCount} {T2("on order lists")}</div>
+                  <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
+                    style={{fontSize:12,fontWeight:700,color:C.text,background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer"}}>
+                    🔍 {T2("Find duplicates")}
+                  </button>
                   <button onClick={()=>setTab("orderlists")} style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.gold,background:"transparent",border:"none",cursor:"pointer"}}>{T2("View Order Lists")} →</button>
                 </div>
+
+                {/* Merge selection bar — same flow as Ingredient Map: tick 2+ rows' checkboxes to
+                    merge duplicate/similar ingredient names into one, across every recipe that uses them. */}
+                {Object.keys(ingSelected).length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.gold}`,marginBottom:12,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:600,color:"#854F0B"}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                    <div style={{flex:1}}/>
+                    <button onClick={()=>setIngSelected({})} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"transparent",color:"#854F0B",border:`1px solid ${C.gold}`,cursor:"pointer",fontWeight:600}}>{T2("Clear")}</button>
+                    <button disabled={Object.keys(ingSelected).length<2}
+                      onClick={()=>{
+                        const names = Object.keys(ingSelected);
+                        const first = allRecipeIngredients.find(i=>i.name===names[0]);
+                        setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
+                      }}
+                      style={{fontSize:11,padding:"6px 14px",borderRadius:8,background:Object.keys(ingSelected).length<2?C.border:C.gold,color:Object.keys(ingSelected).length<2?C.muted:C.goldBg,border:"none",cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer",fontWeight:700}}>
+                      🔗 {T2("Merge into one")}
+                    </button>
+                  </div>
+                )}
 
                 {/* Table */}
                 <div style={{border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",background:C.surface}}>
@@ -1492,7 +1515,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
                           return (
                             <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                              <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={fullTitle}>{row.name}</td>
+                              <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160}} title={fullTitle}>
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <input type="checkbox" checked={!!ingSelected[row.name]}
+                                    onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
+                                    title={T2("Select to merge with other ingredients")}
+                                    style={{width:13,height:13,flexShrink:0,cursor:"pointer",accentColor:C.gold}}/>
+                                  <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
+                                </div>
+                              </td>
                               <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
                               {stations.map(st=>{
                                 const cell = row.byCat[st.name];
