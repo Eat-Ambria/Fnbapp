@@ -38,6 +38,15 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(37,99,235,.14) !important;
 }
 
+/* Buttons were never given the treatment the fields above got, so a clicked
+   button kept Chrome's own dark focus ring — on a rounded pill that reads as a
+   stray black edge down one side, and on a selected card as a near-black
+   border. Dropped for pointer focus only: :focus-visible still paints a ring,
+   so the app stays usable from the keyboard rather than losing focus entirely,
+   and it is the brand green instead of the browser's black. */
+button:focus { outline: none; }
+button:focus-visible { outline: 2px solid #1C3D2B; outline-offset: 2px; }
+
 /* Animations */
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(12px); }
