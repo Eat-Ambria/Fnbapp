@@ -165,6 +165,35 @@ async function uploadRecipePhoto(supabase, key, file) {
   }
 }
 
+// Menu artwork: the photograph that fills half the page on a section's sheet in
+// the client menu, and the one on a dish. Same shape as the two helpers above —
+// compress, upsert under a deterministic path, hand back a cache-busted public
+// URL — so there stays one way photos reach storage in this app.
+//
+// `kind` is 'sections' or 'dishes' and becomes the path prefix, which is what
+// lets both live in one bucket. 1100px, not the 400/600 used above: this one is
+// printed across half of an A4 sheet, where 600px is visibly soft.
+async function uploadMenuPhoto(supabase, kind, key, file) {
+  if (!supabase || !file || !key) return null;
+  try {
+    var blob = await compressImage(file, 1100, 0.84);
+    if (!blob) return null;
+    var path = String(kind) + "/" + String(key) + ".jpg";
+    var { error: upErr } = await supabase.storage
+      .from("menu-photos")
+      .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    if (upErr) { console.error("menu photo upload:", upErr); throw upErr; }
+    var { data } = supabase.storage.from("menu-photos").getPublicUrl(path);
+    return data && data.publicUrl ? data.publicUrl + "?v=" + Date.now() : null;
+  } catch (e) {
+    console.error("menu photo upload:", e);
+    // Rethrown, unlike the two helpers above: the caller shows the reason in a
+    // toast, and "returned null" cannot say whether the bucket is missing or
+    // the file was rejected.
+    throw e;
+  }
+}
+
 // A dish name is not a safe storage path: it can carry spaces, slashes and
 // Devanagari. Lower-cased alphanumerics joined by dashes keeps the path stable
 // for the same dish so a re-upload overwrites rather than piling up files.
@@ -321,4 +350,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };

@@ -306,7 +306,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, image_url')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -413,7 +413,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       deptSections.forEach(function(s){
         var list = bySection[s.id] || [];
         if (list.length === 0) return;
-        out.push({ id: s.id, name: s.name, icon: iconFor(s), items: sortWithin(list) });
+        out.push({ id: s.id, name: s.name, icon: iconFor(s), image: s.image_url || null, items: sortWithin(list) });
       });
       if (extras.length > 0) {
         out.push({ id: '__extras__', name: '', icon: '', items: sortWithin(extras) });
@@ -448,7 +448,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       var groups = sectionGroupsByDept[d.id];
       if (groups && groups.length) {
         groups.forEach(function(g){
-          out.push({ key: d.id + ':' + g.id, title: g.name || d.name, items: g.items });
+          out.push({ key: d.id + ':' + g.id, title: g.name || d.name, image: g.image || null, items: g.items });
         });
         return;
       }
@@ -591,7 +591,9 @@ function BackCover() {
 }
 
 function SectionPage({ page, diet, flip, salesMeta, T2 }) {
-  var photo = sectionPhoto(page.title);
+  // An uploaded photograph wins. The name matching below it is the fallback
+  // for sections nobody has given one to yet.
+  var photo = page.image || sectionPhoto(page.title);
   var sparse = page.items.length <= 4;
   var panel = (
     <div className={"amb-panel" + (sparse ? " is-sparse" : "")}>

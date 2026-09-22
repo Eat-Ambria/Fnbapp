@@ -21,6 +21,8 @@ import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS } from '../data/salesConfig.js';
+import { KToast, KModal } from './KitchenUI.jsx';
+import { uploadMenuPhoto, slugRecipeKey } from '../utils/helpers.js';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -67,6 +69,22 @@ function DishSectionsEditor(props) {
   const [saving, setSaving] = useState(false);
 
   const [addingSection, setAddingSection] = useState(false);
+  // Why an add was refused, shown next to the field. Without it the only
+  // feedback for a rejected click was that nothing happened.
+  const [addError, setAddError] = useState('');
+
+  // Every outcome on this screen used to be a browser alert, and the only
+  // confirmation was window.confirm — both of which sit outside the app, look
+  // nothing like it, and on a save gave no sign at all that anything worked.
+  const [toast, setToast] = useState(null);
+  const [dlg, setDlg] = useState(null);
+  // The section whose photo is mid-upload, so only that one row goes busy.
+  const [photoBusy, setPhotoBusy] = useState(null);
+  function say(title, body) { setToast({ tone: 'ok', title: title, body: body || '' }); }
+  function fail(title, err) {
+    setToast({ tone: 'danger', title: title, body: String((err && err.message) || err || '') });
+  }
+  function ask(opts) { setDlg(opts); }
   const [newSectionName, setNewSectionName] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
@@ -84,11 +102,11 @@ function DishSectionsEditor(props) {
     try {
       const results = await Promise.all([
         fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').eq('dept', dept).order('sort_order', { ascending: true }); }),
-        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active, is_veg').eq('is_active', true); })
+        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active, is_veg, image_url').eq('is_active', true); })
       ]);
       setSections(results[0] || []);
       const assignments = {};
-      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg }; });
+      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
       setDishAssignments(assignments);
     } catch (e) {
       console.error('[Sections] load failed:', e);
@@ -118,7 +136,7 @@ function DishSectionsEditor(props) {
       const a = dishAssignments[dishName];
       const key = a.section_id || '__unassigned__';
       if (!map[key]) map[key] = [];
-      map[key].push({ name: dishName, sort: a.sort_in_section || 0, is_veg: a.is_veg == null ? null : !!a.is_veg });
+      map[key].push({ name: dishName, sort: a.sort_in_section || 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
     });
     Object.keys(map).forEach(function(k){
       map[k].sort(function(a, b){ return (a.sort - b.sort) || a.name.localeCompare(b.name); });
@@ -161,10 +179,18 @@ function DishSectionsEditor(props) {
   }
 
   // ── Actions ────────────────────────────────────────────────────────
-  async function addSection(parentId) {
-    if (!isAdmin) return;
+  async function addSection(arg) {
+    // Every exit from here used to be a bare return, so a refused click looked
+    // exactly like a working one: no row, no message, nothing in the console.
+    setAddError('');
+    if (!isAdmin) { setAddError('Only an admin or head chef can add sections.'); return; }
+    // A section id is a string. Anything else reaching this argument means the
+    // function was handed to onClick directly and is holding a click event —
+    // which used to make a top-level section read the empty subsection input
+    // and return without saving or complaining.
+    const parentId = typeof arg === 'string' ? arg : null;
     const nameVal = parentId ? newSubName.trim() : newSectionName.trim();
-    if (!nameVal) return;
+    if (!nameVal) { setAddError('Type a name first.'); return; }
     setSaving(true);
     try {
       const siblings = parentId ? (subsByParent[parentId] || []) : topSections;
@@ -173,12 +199,16 @@ function DishSectionsEditor(props) {
       if (parentId) payload.parent_section_id = parentId;
       const { data, error } = await supabase.from('dish_catalogue_sections').insert(payload).select('*').single();
       if (error) throw error;
-      if (!data) { alert('Add failed: no row returned (RLS?)'); return; }
+      if (!data) { fail('Could not add the section', 'The database returned no row — this is usually a permissions rule.'); return; }
       // V73: optimistic append — realtime may not be enabled on dish_catalogue_sections
       setSections(function(prev){ return [...(prev || []), data]; });
       if (parentId) { setNewSubName(''); setAddingSubFor(null); }
       else { setNewSectionName(''); setAddingSection(false); }
-    } catch (e) { alert('Add failed: ' + e.message); }
+      // A new section sorts to the very end of a list twenty-five long, so it
+      // lands off-screen. Without this the save looked like it did nothing.
+      say(parentId ? 'Subsection added' : 'Section added',
+          '"' + nameVal + '" is at the bottom of the list.');
+    } catch (e) { setAddError('Could not save: ' + e.message); fail('Could not add the section', e); }
     finally { setSaving(false); }
   }
 
@@ -190,22 +220,103 @@ function DishSectionsEditor(props) {
       const { data, error } = await supabase.from('dish_catalogue_sections')
         .update({ name: newName, updated_at: new Date().toISOString() }).eq('id', id).select('id');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Rename failed: 0 rows updated (RLS?)'); return; }
+      if (!data || data.length === 0) { fail('Could not rename', 'No row was updated — this is usually a permissions rule.'); return; }
       // V73: optimistic local update
       setSections(function(prev){ return (prev || []).map(function(s){ return s.id === id ? { ...s, name: newName } : s; }); });
       setRenamingId(null); setRenameValue('');
-    } catch (e) { alert('Rename failed: ' + e.message); }
+      say('Renamed', 'Now called "' + newName + '".');
+    } catch (e) { fail('Could not rename', e); }
     finally { setSaving(false); }
   }
 
-  async function deleteSection(sec) {
-    if (!isAdmin) return;
+  // ── Section photographs ───────────────────────────────────────────────
+  // What the client menu prints beside a section's dish list. Before this the
+  // preview guessed a picture by matching words in the section's name against
+  // filenames shipped in public/menu/, which gave nothing at all to any section
+  // added later. That matching stays, but only as the fallback.
+  async function uploadSectionPhoto(sec, file) {
+    if (!file) return;
+    if (!isAdmin) { fail('Only an admin or head chef can change photos'); return; }
+    setPhotoBusy(sec.id);
+    try {
+      const url = await uploadMenuPhoto(supabase, 'sections', sec.id, file);
+      if (!url) throw new Error('The upload returned no URL.');
+      const { data, error } = await supabase.from('dish_catalogue_sections')
+        .update({ image_url: url }).eq('id', sec.id).select('id');
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error('No row was updated — this is usually a permissions rule.');
+      setSections(function(prev){ return (prev || []).map(function(s){ return s.id === sec.id ? { ...s, image_url: url } : s; }); });
+      say('Photo updated', '"' + sec.name + '" will use it in the menu preview and PDF.');
+    } catch (e) {
+      // The bucket is the one thing that cannot be created from here, so say so
+      // plainly rather than surfacing "Bucket not found" on its own.
+      const missing = /bucket not found|nosuchbucket/i.test(String(e && e.message));
+      fail('Could not upload the photo', missing
+        ? 'The menu-photos storage bucket does not exist yet — run MIGRATION_menu_photos.sql.'
+        : e);
+    } finally { setPhotoBusy(null); }
+  }
+
+  // The dish card's picture in Menu Builder. The printed menu has no per-dish
+  // photograph, so this one deliberately does not reach the preview or the PDF.
+  async function uploadDishPhoto(dishName, file) {
+    if (!file) return;
+    if (!isAdmin) { fail('Only an admin or head chef can change photos'); return; }
+    setPhotoBusy(dishName);
+    try {
+      const url = await uploadMenuPhoto(supabase, 'dishes', slugRecipeKey(dishName), file);
+      if (!url) throw new Error('The upload returned no URL.');
+      const { data, error } = await supabase.from('dishes_master')
+        .update({ image_url: url }).eq('dish_name', dishName).select('dish_name');
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error('No row was updated — this is usually a permissions rule.');
+      setDishAssignments(function(prev){
+        const next = { ...(prev || {}) };
+        if (next[dishName]) next[dishName] = { ...next[dishName], image_url: url };
+        return next;
+      });
+      say('Photo updated', dishName + ' now has a picture on its card in Menu Builder.');
+    } catch (e) {
+      const missing = /bucket not found|nosuchbucket/i.test(String(e && e.message));
+      fail('Could not upload the photo', missing
+        ? 'The menu-photos storage bucket does not exist yet — run MIGRATION_menu_photos.sql.'
+        : e);
+    } finally { setPhotoBusy(null); }
+  }
+
+  async function clearSectionPhoto(sec) {
+    if (!isAdmin) { fail('Only an admin or head chef can change photos'); return; }
+    setPhotoBusy(sec.id);
+    try {
+      const { error } = await supabase.from('dish_catalogue_sections')
+        .update({ image_url: null }).eq('id', sec.id);
+      if (error) throw error;
+      setSections(function(prev){ return (prev || []).map(function(s){ return s.id === sec.id ? { ...s, image_url: null } : s; }); });
+      say('Photo removed', '"' + sec.name + '" falls back to the default artwork.');
+    } catch (e) { fail('Could not remove the photo', e); }
+    finally { setPhotoBusy(null); }
+  }
+
+  // Asks first, then does the work in the confirm handler. window.confirm blocks
+  // the thread and renders outside the app; the consequences of this particular
+  // delete are worth showing properly, so they go in the dialog's subhead.
+  function deleteSection(sec) {
+    if (!isAdmin) { fail('Only an admin or head chef can delete sections'); return; }
     const dishCount = (dishesBySection[sec.id] || []).length;
     const subCount = (subsByParent[sec.id] || []).length;
-    let msg = 'Delete "' + sec.name + '"?';
-    if (dishCount > 0) msg += ' Its ' + dishCount + ' dish' + (dishCount === 1 ? '' : 'es') + ' will move to Unassigned.';
-    if (subCount > 0) msg += ' Its ' + subCount + ' subsection' + (subCount === 1 ? '' : 's') + ' will become top-level section' + (subCount === 1 ? '' : 's') + '.';
-    if (!window.confirm(msg)) return;
+    const lines = [];
+    if (dishCount > 0) lines.push('Its ' + dishCount + ' dish' + (dishCount === 1 ? '' : 'es') + ' will move to Unassigned.');
+    if (subCount > 0) lines.push('Its ' + subCount + ' subsection' + (subCount === 1 ? '' : 's') + ' will become top-level section' + (subCount === 1 ? '' : 's') + '.');
+    ask({
+      tone: 'danger', icon: 'trash',
+      title: 'Delete "' + sec.name + '"?',
+      subhead: lines.length ? lines.join(' ') : 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      onConfirm: function(){ setDlg(null); reallyDeleteSection(sec); },
+    });
+  }
+
+  async function reallyDeleteSection(sec) {
     setSaving(true);
     try {
       // V73: orphan dishes to Unassigned in DB FIRST, then delete the section.
@@ -222,7 +333,7 @@ function DishSectionsEditor(props) {
       }
       const { data, error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id).select('id');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Delete failed: 0 rows deleted (RLS?)'); return; }
+      if (!data || data.length === 0) { fail('Could not delete', 'No row was deleted — this is usually a permissions rule.'); return; }
       // Optimistic local removal + orphan the dish assignments locally.
       // ON DELETE SET NULL un-nests any subsections at the DB level — mirror
       // that locally too, or they'd vanish (still pointing at a deleted parent).
@@ -238,7 +349,8 @@ function DishSectionsEditor(props) {
         });
         return next;
       });
-    } catch (e) { alert('Delete failed: ' + e.message); }
+      say('Section deleted', '"' + sec.name + '" is gone.');
+    } catch (e) { fail('Could not delete', e); }
     finally { setSaving(false); }
   }
 
@@ -257,10 +369,10 @@ function DishSectionsEditor(props) {
         .eq('id', sectionId)
         .select('id');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Route failed: 0 rows updated (RLS?)'); return; }
+      if (!data || data.length === 0) { fail('Could not change the tab', 'No row was updated — this is usually a permissions rule.'); return; }
       // Optimistic local update
       setSections(function(prev){ return (prev || []).map(function(s){ return s.id === sectionId ? { ...s, sales_dept: val } : s; }); });
-    } catch (e) { alert('Route failed: ' + e.message); }
+    } catch (e) { fail('Could not change the tab', e); }
     finally { setSaving(false); }
   }
 
@@ -310,7 +422,7 @@ function DishSectionsEditor(props) {
         console.warn('[Sections] 0 rows updated — check RLS on dish_catalogue_sections');
       }
     } catch (e) {
-      alert('Reorder failed: ' + e.message);
+      fail('Could not reorder', e);
       setSections(prevSections); // revert local
     } finally { setSaving(false); }
   }
@@ -332,7 +444,7 @@ function DishSectionsEditor(props) {
       ]);
       if (r1.error) throw r1.error;
       if (r2.error) throw r2.error;
-      if (!r1.data?.length || !r2.data?.length) { alert('Reorder failed: 0 rows updated (RLS or dish not found)'); return; }
+      if (!r1.data?.length || !r2.data?.length) { fail('Could not reorder', 'No row was updated — a permissions rule, or the dish is missing.'); return; }
       // V73: optimistic local update — don't wait for realtime
       setDishAssignments(function(prev){
         const cur = prev || {};
@@ -342,7 +454,7 @@ function DishSectionsEditor(props) {
           [target.name]: { ...(cur[target.name] || {}), sort_in_section: targetSort },
         };
       });
-    } catch (e) { alert('Reorder failed: ' + e.message); }
+    } catch (e) { fail('Could not reorder', e); }
     finally { setSaving(false); }
   }
 
@@ -358,13 +470,13 @@ function DishSectionsEditor(props) {
         .eq('dish_name', dishName)
         .select('dish_name');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Move failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      if (!data || data.length === 0) { fail('Could not move the dish', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
       // V73: optimistic local update — realtime on dishes_master may not be enabled
       setDishAssignments(function(prev){
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: newSectionId, sort_in_section: newSort } };
       });
-    } catch (e) { alert('Move failed: ' + e.message); }
+    } catch (e) { fail('Could not move the dish', e); }
     finally { setSaving(false); }
   }
 
@@ -377,13 +489,13 @@ function DishSectionsEditor(props) {
         .eq('dish_name', dishName)
         .select('dish_name');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Unassign failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      if (!data || data.length === 0) { fail('Could not unassign', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
       // V73: optimistic local update
       setDishAssignments(function(prev){
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: null, sort_in_section: null } };
       });
-    } catch (e) { alert('Unassign failed: ' + e.message); }
+    } catch (e) { fail('Could not unassign', e); }
     finally { setSaving(false); }
   }
 
@@ -398,12 +510,12 @@ function DishSectionsEditor(props) {
         .eq('dish_name', dishName)
         .select('dish_name');
       if (error) throw error;
-      if (!data || data.length === 0) { alert('Update failed: 0 rows updated (RLS blocking, or dish inactive)'); return; }
+      if (!data || data.length === 0) { fail('Could not update', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
       setDishAssignments(function(prev){
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), is_veg: next } };
       });
-    } catch (e) { alert('Update failed: ' + e.message); }
+    } catch (e) { fail('Could not update', e); }
     finally { setSaving(false); }
   }
 
@@ -439,17 +551,26 @@ function DishSectionsEditor(props) {
   async function confirmDishMerge() {
     if (!props.onMergeDishes) return;
     const target = (dishMergeTarget || '').trim();
-    if (!target) { alert('Enter a target dish name.'); return; }
+    if (!target) { fail('Type a target dish name first'); return; }
     const selectedNames = Array.from(bulkSel);
     const sources = selectedNames.filter(function(n){ return n !== target; });
-    if (sources.length === 0) { alert('Target is the same as the selected dish. Nothing to merge.'); return; }
+    if (sources.length === 0) { fail('Nothing to merge', 'The target is the same as the dish you picked.'); return; }
     const isRename = selectedNames.length === 1;
     const verb = isRename ? 'Rename "' + sources[0] + '" to "' + target + '"?' : 'Merge ' + sources.length + ' dish(es) into "' + target + '"?';
-    const warn = '\n\nThis will:' +
-      '\n• Replace the merged name(s) in every menu package that references them' +
-      '\n• Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings' +
-      '\n• Keep the target\'s own mappings unchanged';
-    if (!window.confirm(verb + warn)) return;
+    // This one destroys mappings, so the consequences are spelled out rather
+    // than crammed into a window.confirm the browser renders in its own chrome.
+    ask({
+      tone: 'danger', icon: 'alert',
+      title: verb,
+      subhead: 'This replaces the merged name in every menu package that references it, '
+             + 'deletes the merged dish(es) from the library along with their Hindi, SOP and '
+             + 'Inventory mappings, and leaves the target\'s own mappings untouched.',
+      confirmLabel: isRename ? 'Rename' : 'Merge',
+      onConfirm: function(){ setDlg(null); reallyMergeDishes(sources, target, isRename); },
+    });
+  }
+
+  async function reallyMergeDishes(sources, target, isRename) {
     setDishMergeSaving(true);
     // A merge that hung here previously left "Working…" up forever with nothing
     // in the console. Log + cap each half so a stuck step is now visible and
@@ -471,9 +592,11 @@ function DishSectionsEditor(props) {
       setDishMergeTarget('');
       clearBulk();
       await withTimeout(loadData(), 'reload sections after merge');
-      alert((isRename ? 'Renamed. ' : 'Merged ' + sources.length + ' dish(es) into "' + target + '". ') + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
+      say(isRename ? 'Renamed' : 'Merged',
+          (isRename ? 'Now called "' + target + '". ' : sources.length + ' dish(es) merged into "' + target + '". ')
+          + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
     } catch (e) {
-      alert('Merge failed: ' + (e.message || e));
+      fail('Could not merge', e);
     } finally {
       setDishMergeSaving(false);
     }
@@ -514,8 +637,11 @@ function DishSectionsEditor(props) {
       // Optimistic local update
       setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
       clearBulk();
-      if (ok < names.length) alert('Moved ' + ok + '/' + names.length + ' dishes (some rows blocked — check RLS)');
-    } catch (e) { alert('Bulk move failed: ' + e.message); }
+      // A partial move is a warning, not a failure — some rows did land.
+      if (ok < names.length) setToast({ tone: 'warn', title: 'Moved ' + ok + ' of ' + names.length + ' dishes',
+        body: 'The rest were blocked, which is usually a permissions rule.' });
+      else say('Moved ' + ok + ' dish' + (ok === 1 ? '' : 'es'));
+    } catch (e) { fail('Could not move those dishes', e); }
     finally { setSaving(false); }
   }
 
@@ -547,7 +673,7 @@ function DishSectionsEditor(props) {
       setDishAssignments(function(prev){ return { ...(prev || {}), ...movedUpdates }; });
       setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== mergeModal.sourceId; }); });
       setMergeModal(null); setMergeTargetId('');
-    } catch (e) { alert('Merge failed: ' + e.message); }
+    } catch (e) { fail('Could not merge', e); }
     finally { setSaving(false); }
   }
 
@@ -588,6 +714,24 @@ function DishSectionsEditor(props) {
           )
         )}
         <span style={{ flex: 1, color: C.text }}>{dish.name}</span>
+        {isAdmin && (
+          /* Same control as a section's, against dishes_master.image_url.
+             Note this one does NOT appear in the printed menu — that has no
+             per-dish photograph — it is the picture on the dish card in Menu
+             Builder. */
+          <label title={dish.image_url ? 'Replace dish photo' : 'Upload dish photo'}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 22, height: 22, borderRadius: 4, flexShrink: 0, overflow: 'hidden',
+              border: '1px solid ' + (dish.image_url ? 'transparent' : C.border),
+              cursor: photoBusy === dish.name ? 'wait' : 'pointer',
+              opacity: photoBusy === dish.name ? 0.5 : 1 }}>
+            <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === dish.name}
+              onChange={function(e){ uploadDishPhoto(dish.name, e.target.files && e.target.files[0]); e.target.value = ''; }} />
+            {dish.image_url
+              ? <img src={dish.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontSize: 10, color: C.muted, lineHeight: 1 }}>⬒</span>}
+          </label>
+        )}
         {isAdmin && (
           <select value=""
             onChange={function(e){ const v = e.target.value; if (v === '__unassign__') unassignDish(dish.name); else if (v) assignDishToSection(dish.name, v); e.target.value = ''; }}
@@ -651,7 +795,26 @@ function DishSectionsEditor(props) {
               )}
               <span style={{ fontSize: 11, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
               {isAdmin && (
-                <div style={{ display: 'flex', gap: 2 }}>
+                <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  {/* The photograph, as a label wrapping a hidden input: the
+                      thumbnail IS the button, so a section that already has one
+                      shows it rather than just claiming to. */}
+                  <label title={sec.image_url ? 'Replace section photo' : 'Upload section photo'}
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 26, height: 26, borderRadius: 5, cursor: photoBusy === sec.id ? 'wait' : 'pointer',
+                      border: '1px solid ' + (sec.image_url ? 'transparent' : C.border),
+                      background: sec.image_url ? 'transparent' : 'transparent',
+                      overflow: 'hidden', flexShrink: 0, opacity: photoBusy === sec.id ? 0.5 : 1 }}>
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === sec.id}
+                      onChange={function(e){ uploadSectionPhoto(sec, e.target.files && e.target.files[0]); e.target.value = ''; }} />
+                    {sec.image_url
+                      ? <img src={sec.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: 12, color: C.muted, lineHeight: 1 }}>⬒</span>}
+                  </label>
+                  {sec.image_url && (
+                    <button onClick={function(){ clearSectionPhoto(sec); }} title="Remove section photo"
+                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 4px', fontSize: 11, color: C.muted, borderRadius: 4 }}>⌫</button>
+                  )}
                   {!isSub && (
                     <button onClick={function(){ setAddingSubFor(addingSub ? null : sec.id); setNewSubName(''); }} title="Add subsection"
                       style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, borderRadius: 4 }}>⊞</button>
@@ -734,10 +897,22 @@ function DishSectionsEditor(props) {
             <input value={newSectionName} onChange={function(e){ setNewSectionName(e.target.value); }} placeholder="Section name…" autoFocus
               onKeyDown={function(e){ if (e.key === 'Enter') addSection(); if (e.key === 'Escape') { setAddingSection(false); setNewSectionName(''); } }}
               style={{ padding: '5px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, minWidth: 200 }} />
-            <button onClick={addSection} disabled={saving || !newSectionName.trim()}
-              style={{ padding: '5px 12px', background: C.green, color: '#fff', border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: saving || !newSectionName.trim() ? 'not-allowed' : 'pointer' }}>Save</button>
-            <button onClick={function(){ setAddingSection(false); setNewSectionName(''); }}
+            {/* Wrapped, not passed by reference: onClick hands the handler a
+                click event, which arrives as parentId and makes addSection
+                treat a top-level section as a subsection.
+                The disabled state is painted, not just declared — it used to
+                keep the full green fill and only change the cursor, so an empty
+                field left a button that looked live and did nothing. */}
+            <button onClick={function(){ addSection(); }} disabled={saving || !newSectionName.trim()}
+              style={{ padding: '5px 12px', color: '#fff', border: 0, borderRadius: 6, fontSize: 12, fontWeight: 500,
+                background: saving || !newSectionName.trim() ? C.border : C.green,
+                opacity: saving || !newSectionName.trim() ? 0.75 : 1,
+                cursor: saving || !newSectionName.trim() ? 'not-allowed' : 'pointer' }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={function(){ setAddingSection(false); setNewSectionName(''); setAddError(''); }}
               style={{ padding: '5px 12px', background: 'transparent', color: C.muted, border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+            {addError && <span style={{ color: C.red, fontSize: 11.5 }}>{addError}</span>}
           </>
         )}
       </div>
@@ -903,6 +1078,27 @@ function DishSectionsEditor(props) {
           </div>
         </div>
       )}
+
+      {/* Both portal to <body>, so they sit above this screen's own modals
+          rather than behind them. */}
+      <KToast
+        open={!!toast}
+        toneName={toast && toast.tone}
+        title={toast && toast.title}
+        body={toast && toast.body}
+        onClose={function(){ setToast(null); }}
+      />
+      <KModal
+        open={!!dlg}
+        toneName={dlg && dlg.tone}
+        icon={dlg && dlg.icon}
+        title={dlg && dlg.title}
+        subhead={dlg && dlg.subhead}
+        confirmLabel={dlg && dlg.confirmLabel}
+        cancelLabel="Cancel"
+        onConfirm={dlg && dlg.onConfirm}
+        onClose={function(){ setDlg(null); }}
+      />
     </div>
   );
 }
