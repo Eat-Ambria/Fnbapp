@@ -419,7 +419,13 @@ function RatioSelector({ cfg, value, onChange, proposal, T2 }) {
               {/* The ratio is the number being chosen, so it takes the display
                   face and the size to go with it. Before, it sat at the same
                   weight as its own label. */}
-              <span style={{ ...type.pageTitle, display: "block", fontSize: 30, color: K.hdrTitle, marginTop: 6 }}>
+              {/* Set in the body face, not the display serif. A ratio is a
+                  figure someone reads and compares, and Cormorant's 1 and 0 are
+                  a serifed I and a narrow O — "1 : 10" came out as "I : IO".
+                  Tabular, so the three cards' ratios line up column to column. */}
+              <span style={{ display: "block", fontFamily: K.fontBody, fontSize: 29, fontWeight: 700,
+                letterSpacing: "-0.5px", lineHeight: 1.1, fontVariantNumeric: "tabular-nums",
+                color: K.hdrTitle, marginTop: 6 }}>
                 {r.num} : {r.den}
               </span>
               {pax > 0 && (
