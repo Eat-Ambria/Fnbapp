@@ -509,7 +509,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return counts;
   }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
 
-  // Section name → its parent's name, from the Dish Library's own nesting.
+  // Resolves any section to where the Dish Library files it.
   //
   // The pills are built from the PACKAGE's section list, which is flat: a
   // package that includes "Tandoori Snacks" lists it at the top level even
@@ -517,18 +517,45 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // strip ran to thirty-odd pills — twenty-five of the fifty catalogue sections
   // are subsections, and every one of them was getting its own pill.
   //
-  // Matched on name rather than id: a package section is its own row with its
-  // own id, so the id never lines up with the catalogue's.
-  var sectionParentMap = useMemo(function(){
-    var byId = {};
-    sections.forEach(function(s){ byId[s.id] = s; });
-    var m = {};
+  // This used to match a package section to the catalogue by NAME, which only
+  // works for the ones spelled identically in both places. Across the packages
+  // that is 57 of 282 sections; 175 carry an explicit catalogue_section_id, and
+  // 73 of those resolve by id but NOT by name — so the sections that most need
+  // grouping were exactly the ones being missed. "Chatori Chaat", "Awadh-E-
+  // Khaas" and "Nawab-E- Hyderabad" each got their own top-level pill instead
+  // of nesting under Chaat Station and Indian Main Course.
+  //
+  // So: read the link id-first and name-second, then walk it up to the
+  // top-level ancestor. Every section resolves the same way, rather than the
+  // grouping working for whichever names happen to agree.
+  var catalogueTree = useMemo(function(){
+    var byId = {}, byName = {};
     sections.forEach(function(s){
-      if (!s.parent_section_id) return;
-      var parent = byId[s.parent_section_id];
-      if (parent) m[(s.name || '').toLowerCase().trim()] = parent.name;
+      byId[s.id] = s;
+      var n = (s.name || '').toLowerCase().trim();
+      if (n && !byName[n]) byName[n] = s;
     });
-    return m;
+    // The depth guard is not paranoia — parent_section_id is a plain
+    // self-referencing column with nothing stopping a row from being dragged
+    // under its own descendant, and a cycle here would hang the render rather
+    // than just misdraw it.
+    function topOf(row) {
+      var cur = row, hops = 0;
+      while (cur && cur.parent_section_id && hops++ < 12) {
+        var next = byId[cur.parent_section_id];
+        if (!next || next.id === cur.id) break;
+        cur = next;
+      }
+      return cur || null;
+    }
+    return {
+      // catSectionId is authoritative (it is what "From catalogue" wrote); the
+      // name is consulted only for sections that carry no link at all.
+      resolveTop: function(catSectionId, name) {
+        var row = (catSectionId && byId[catSectionId]) || byName[(name || '').toLowerCase().trim()];
+        return row ? topOf(row) : null;
+      },
+    };
   }, [sections]);
 
   // Shown both inside the rail and on the closed tab, so it is summed once
@@ -695,7 +722,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         if (subGroups.length === 0) subGroups = null;
       }
       if (pooled.length === 0) return; // skip empty sections
-      out.push({ id: s.id, name: s.name, icon: iconFor(s), dishes: sortWithin(pooled), subGroups: subGroups });
+      // Already a catalogue row, so it is its own link — carried explicitly
+      // anyway so every group shape answers "where does the library file this?"
+      // the same way.
+      out.push({ id: s.id, name: s.name, icon: iconFor(s), catSectionId: s.id, dishes: sortWithin(pooled), subGroups: subGroups });
     });
     if (extras.length > 0) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
@@ -847,7 +877,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
       if (list.length === 0) return;
       list.forEach(function(d){ consumed[d.name] = true; });
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), dishes: list, subGroups: subGroups });
+      // The package section's own id is meaningless to the catalogue; this is
+      // the link the pill grouping reads.
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), catSectionId: sec.catalogue_section_id || null, dishes: list, subGroups: subGroups });
     });
     if (out.length === 0) return null;
 
@@ -938,7 +970,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         var subGroupsNew = subs.length > 0
           ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
           : null;
-        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', dishes: [], subGroups: subGroupsNew, isAdHoc: true };
+        // targetId IS a catalogue section id here, so an ad-hoc section nests
+        // under its library parent like any other.
+        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', catSectionId: targetId, dishes: [], subGroups: subGroupsNew, isAdHoc: true };
       }
       var ng = newGroups[targetId];
       ng.dishes.push(d);
@@ -1186,7 +1220,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
                   groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
-                  sectionParentMap={sectionParentMap}
+                  catalogueTree={catalogueTree}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
@@ -1293,7 +1327,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, sectionParentMap, templateSet, selectedSet, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
   // Kept here rather than deleted so uncommenting that block is a single edit:
@@ -1352,27 +1386,39 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   var visibleGroups = isSearching ? dedupedGroups : dedupedGroups.filter(function(g){ return g.id === activeSectionId; });
 
   // ── Two-level pills ───────────────────────────────────────────────────
-  // Groups that the library files under a parent get pooled into one pill for
-  // that parent; everything else stays its own. Order is taken from
-  // groupedByCat rather than re-sorted, so a parent appears where its first
-  // child did and the strip does not reshuffle itself.
+  // Every section is resolved to its top-level Dish Library ancestor and the
+  // ones sharing an ancestor pool into a single pill, so the strip is the
+  // library's own tree rather than the package's flat list. Order is taken
+  // from groupedByCat rather than re-sorted, so a parent appears where its
+  // first child did and the strip does not reshuffle itself.
   var pillTree = useMemo(function(){
-    var out = [], byParent = {};
+    var out = [], byTop = {};
     dedupedGroups.forEach(function(g){
-      var parentName = (sectionParentMap || {})[(g.name || '').toLowerCase().trim()];
-      if (!parentName) { out.push({ key: g.id, name: g.name, icon: g.icon, children: [g], self: g }); return; }
-      var bucket = byParent[parentName];
+      var top = catalogueTree ? catalogueTree.resolveTop(g.catSectionId, g.name) : null;
+      // Not in the library at all — a hand-built package section, Extras, a
+      // custom dish's bucket. It keeps its own pill rather than being guessed
+      // into somebody else's.
+      if (!top) { out.push({ key: g.id, name: g.name, icon: g.icon, children: [g] }); return; }
+      var bucket = byTop[top.id];
       if (!bucket) {
-        // The parent takes the icon of the first child that lands in it — the
-        // parent itself is usually not one of the package's own sections, so
+        // The pill takes the icon of the first section that lands in it — the
+        // library parent is usually not one of the package's own sections, so
         // there is no row of its own to read one from.
-        bucket = byParent[parentName] = { key: 'p:' + parentName, name: parentName, icon: g.icon, children: [], self: null };
+        bucket = byTop[top.id] = { key: 'p:' + top.id, name: top.name, icon: g.icon, children: [] };
         out.push(bucket);
       }
       bucket.children.push(g);
     });
+    // A pill that collected exactly one section grouped nothing, so it keeps
+    // that section's own name: the package calls it "Chatori Chaat", and with
+    // no second row to explain itself a pill reading "Chaat Station" would just
+    // look like the wrong section. Once two or more land together, the library
+    // name is what they have in common, so that becomes the label.
+    out.forEach(function(p){
+      if (p.children.length === 1) { p.name = p.children[0].name; p.icon = p.children[0].icon; }
+    });
     return out;
-  }, [dedupedGroups, sectionParentMap]);
+  }, [dedupedGroups, catalogueTree]);
 
   var activeParent = useMemo(function(){
     return pillTree.find(function(p){
