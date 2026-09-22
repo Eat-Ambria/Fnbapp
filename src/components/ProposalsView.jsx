@@ -719,14 +719,18 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       {mode === 'list' && (
         <>
           {(function(){
+            // minWidth, because each pill otherwise sizes to its own select and
+            // "All statuses" came out visibly wider than "All reps" — two
+            // controls doing the same job at two different widths.
             var pill = { display: "inline-flex", alignItems: "center", gap: 9, padding: "0 4px 0 16px",
-              borderRadius: K.rPill, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
+              minWidth: 178, borderRadius: K.rPill, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
               boxShadow: K.shadowCard, color: K.textBody, fontSize: 14, fontWeight: 600, flexShrink: 0 };
-            var pillSel = { padding: "14px 10px 14px 0", border: "none", outline: "none", background: "transparent",
-              fontSize: 14, fontWeight: 600, color: K.textBody, cursor: "pointer", fontFamily: K.fontBody };
+            var pillSel = { flex: 1, minWidth: 0, padding: "14px 10px 14px 0", border: "none", outline: "none",
+              background: "transparent", fontSize: 14, fontWeight: 600, color: K.textBody, cursor: "pointer",
+              fontFamily: K.fontBody };
             return (
               <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ position: "relative", flex: "1 1 320px", minWidth: 220 }}>
+                <div style={{ position: "relative", flex: "0 1 420px", minWidth: 220 }}>
                   <span style={{ position: "absolute", left: 18, top: "50%", transform: "translateY(-50%)",
                     color: K.textFaint, display: "flex", pointerEvents: "none" }}>
                     <Icon name="search" size={18} strokeWidth={1.9} />
@@ -756,7 +760,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                     </select>
                   </span>
                 )}
-                <span style={{ fontSize: 14, color: K.hdrMeta, marginLeft: 2 }}>
+                <span style={{ fontSize: 14, color: K.hdrMeta, marginLeft: "auto" }}>
                   {filteredList.length} {filteredList.length === 1 ? T2("proposal") : T2("proposals")}
                 </span>
               </div>
