@@ -1038,7 +1038,7 @@ export default function App() {
               is opaque, so it hides whatever scrolls beneath it. */}
           <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
               <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,
-                padding:"22px 26px",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                padding:"15px 24px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
                 <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
                   style={{position:"absolute",top:-26,right:-18,pointerEvents:"none",opacity:.5}}>
                   <g fill="none" stroke="#D9C08A" strokeWidth="1.6" strokeLinecap="round">
@@ -1049,8 +1049,8 @@ export default function App() {
                   </g>
                 </svg>
 
-                <div style={{width:64,height:64,borderRadius:20,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative"}}>
-                  <Icon name={NAV_ICON[tabletScreen]||"layers"} size={32} strokeWidth={1.6}/>
+                <div style={{width:50,height:50,borderRadius:16,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative"}}>
+                  <Icon name={NAV_ICON[tabletScreen]||"layers"} size={25} strokeWidth={1.6}/>
                 </div>
 
                 <div style={{flex:"1 1 320px",minWidth:0,position:"relative"}}>
@@ -1059,8 +1059,8 @@ export default function App() {
                       screen happens to be open. The screen name moves to the
                       meta line beside the date. */}
                   <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
-                  <div style={{...type.pageTitle,fontSize:38,color:K.hdrTitle,marginTop:2}}>{_title}</div>
-                  <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:10,fontSize:13,color:K.hdrMeta}}>
+                  <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle,marginTop:1}}>{_title}</div>
+                  <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:6,fontSize:13,color:K.hdrMeta}}>
                     <span style={{display:"inline-flex",alignItems:"center",gap:7}}><Icon name="calendar" size={15}/>{TODAY_LABEL}</span>
                     <span style={{color:K.hdrEyebrow}}>·</span>
                     <span style={{display:"inline-flex",alignItems:"center",gap:7}}>
@@ -1491,7 +1491,7 @@ export default function App() {
             work down a long list. Top padding matches the sidebar's 10px margin
             so the plate and the sidebar panel start on the same line. */}
         <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
-          <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"22px 26px",display:"flex",alignItems:"center",gap:22,flexWrap:"wrap"}}>
+          <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
             <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
@@ -1506,15 +1506,15 @@ export default function App() {
 
             {/* Screen badge — icon follows the current screen (same map the sidebar
                 uses), so the chef hat only ever appears on Kitchen Hub. */}
-            <div style={{width:64,height:64,borderRadius:20,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 6px 18px rgba(28,61,43,.28)"}}>
-              <Icon name={NAV_ICON[screen]||"layers"} size={32} strokeWidth={1.6}/>
+            <div style={{width:50,height:50,borderRadius:16,background:K.hdrBadge,color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 6px 18px rgba(28,61,43,.28)"}}>
+              <Icon name={NAV_ICON[screen]||"layers"} size={25} strokeWidth={1.6}/>
             </div>
 
             {/* Eyebrow · title · meta */}
             <div style={{flex:"1 1 320px",minWidth:0,position:"relative"}}>
               <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
-              <div style={{...type.pageTitle,fontSize:38,color:K.hdrTitle,marginTop:2}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
-              <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:10,fontSize:13,color:K.hdrMeta}}>
+              <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle,marginTop:1}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
+              <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:6,fontSize:13,color:K.hdrMeta}}>
                 {/* No department chip. For an admin it always read "Management",
                     which is already stated by the user chip in the top bar and
                     by the sidebar they are looking at. */}
