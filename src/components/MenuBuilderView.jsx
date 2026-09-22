@@ -24,6 +24,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var [activeDept, setActiveDept]   = useState('kit');
   var [activeSubTab, setActiveSubTab] = useState('items'); // 'items' | 'configs' | 'total'
   var [showPreview, setShowPreview] = useState(false);
+  // The live-total rail starts closed on every visit. It is a reference the
+  // user reaches for now and then, not something they read while picking
+  // dishes, and open by default it takes 232px off the grid permanently.
+  var [railOpen, setRailOpen] = useState(false);
   var [dishItems, setDishItems]     = useState([]);        // proposal_items rows
   var [salesMeta, setSalesMeta]     = useState({});        // { [dish_name]: {diet_tag, sales_dept, sales_description, hero_image_url} }
   var [loading, setLoading]         = useState(true);
@@ -504,6 +508,34 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
     return counts;
   }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
+
+  // Section name → its parent's name, from the Dish Library's own nesting.
+  //
+  // The pills are built from the PACKAGE's section list, which is flat: a
+  // package that includes "Tandoori Snacks" lists it at the top level even
+  // though the library files it under "Pass Around Snacks". That is why the
+  // strip ran to thirty-odd pills — twenty-five of the fifty catalogue sections
+  // are subsections, and every one of them was getting its own pill.
+  //
+  // Matched on name rather than id: a package section is its own row with its
+  // own id, so the id never lines up with the catalogue's.
+  var sectionParentMap = useMemo(function(){
+    var byId = {};
+    sections.forEach(function(s){ byId[s.id] = s; });
+    var m = {};
+    sections.forEach(function(s){
+      if (!s.parent_section_id) return;
+      var parent = byId[s.parent_section_id];
+      if (parent) m[(s.name || '').toLowerCase().trim()] = parent.name;
+    });
+    return m;
+  }, [sections]);
+
+  // Shown both inside the rail and on the closed tab, so it is summed once
+  // rather than the same reduce being written in two places.
+  var grandTotal = useMemo(function(){
+    return SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0);
+  }, [deptCounts]);
 
   // ── Dishes for active dept ──
   // V73: effective dept = section's sales_dept override (if dish is in a routed section)
@@ -986,39 +1018,37 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       {/* ── Top bar ──
           A plate, not a flat strip: this view takes over the whole window, so it
           has to carry its own identity the way the shell's header does. */}
-      <div className="kh-plateart kh-rise" style={{ position: "relative", zIndex: 1, flexShrink: 0, margin: "14px 16px 0", padding: "16px 20px",
+      <div className="kh-plateart kh-rise" style={{ position: "relative", zIndex: 1, flexShrink: 0, margin: "12px 16px 0", padding: "13px 18px",
         borderRadius: 20, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
         boxShadow: K.shadowCard, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flex: 1, minWidth: 260 }}>
-          <span style={{ width: 54, height: 54, borderRadius: 16, flexShrink: 0, background: K.brandBg,
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 260 }}>
+          <span style={{ width: 44, height: 44, borderRadius: 14, flexShrink: 0, background: K.brandBg,
             border: "1px solid " + K.brandBorder, color: K.brand,
             display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="utensils" size={25} strokeWidth={1.8} />
+            <Icon name="utensils" size={21} strokeWidth={1.8} />
           </span>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <button onClick={onClose} className="kh-btn kh-backbtn kh-rip" onPointerDown={ripple}
-                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: K.rPill,
-                  background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.textBody,
-                  fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: K.fontBody, whiteSpace: "nowrap" }}>
-                <Icon name="chevronL" size={14} strokeWidth={2.1} />{T2("Back to proposals")}
-              </button>
-            </div>
-            {/* "Menu for" is a label and the guest name is the content; at one
-                size and one weight they read as a single phrase and neither
-                carries. Split into an eyebrow and a title, the name is what the
-                eye lands on - which is the only thing on this plate anyone is
-                actually looking for. type.pageTitle, because this IS the page
-                title; nothing on the screen was using it.
-                700 rather than the scale value of 600: Cormorant is a light face, and at 600
-                on a plate this wide and this busy the name did not hold. */}
-            <div style={{ ...type.label, color: K.hdrMeta, marginTop: 9 }}>{T2("Menu for")}</div>
-            <div style={{ ...type.pageTitle, fontWeight: 700, color: K.hdrTitle, marginTop: 1, overflowWrap: "anywhere" }}>
+            <button onClick={onClose} className="kh-btn kh-backbtn kh-rip" onPointerDown={ripple}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: K.rPill,
+                background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.textBody,
+                fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: K.fontBody, whiteSpace: "nowrap" }}>
+              <Icon name="chevronL" size={13} strokeWidth={2.1} />{T2("Back to proposals")}
+            </button>
+            {/* The "Menu for" eyebrow is gone. It worked when it sat on its own
+                line directly above the name, labelling it; squeezed onto the
+                back button's row to save height it stopped pointing at anything
+                and just crowded the button. The name carries the plate on its
+                own — the utensils tile and the meta row below already say what
+                this screen is. type.pageTitle, because this IS the page title.
+                700 rather than the scale value of 600: Cormorant is a light
+                face, and at 600 on a plate this wide the name did not hold. */}
+            <div style={{ ...type.pageTitle, fontSize: 28, fontWeight: 700, color: K.hdrTitle,
+              marginTop: 8, overflowWrap: "anywhere" }}>
               {proposal.guest_name || T2("Untitled proposal")}
             </div>
             {/* Each fact is its own chip. The old line ran them together with
                 dots, so the template name and the venue read as one string. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7, flexWrap: "wrap", ...type.meta, color: K.hdrMeta }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 11, marginTop: 7, flexWrap: "wrap", ...type.meta, color: K.hdrMeta }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <Icon name="calendar" size={14} strokeWidth={1.9} />{proposal.event_type || T2("Event")}
               </span>
@@ -1051,7 +1081,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         <KButton variant="brand" icon="eye" onClick={function(){ setShowPreview(true); }}
           disabled={dishItems.length === 0}
           title={dishItems.length === 0 ? T2("Add items first before previewing") : T2("Open client preview")}
-          style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, flexShrink: 0 }}>
+          style={{ padding: "11px 20px", borderRadius: K.rPill, fontSize: 14, flexShrink: 0 }}>
           {T2("Preview Menu")}
         </KButton>
       </div>
@@ -1156,6 +1186,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
                   groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
+                  sectionParentMap={sectionParentMap}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
@@ -1190,12 +1221,40 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         {/* ── V77: live totals — one always-visible per-dept count list (mirrors the
             left sidebar's badges), replacing the old per-tab "Total" sub-tab so
             sales don't have to click into every dept just to see what's picked. ── */}
+        {!railOpen && (
+          // Closed: a slim tab on the right edge, label only.
+          <button onClick={function(){ setRailOpen(true); }} className="kh-btn kh-rip" onPointerDown={ripple}
+            title={T2("Show live total")}
+            style={{ flexShrink: 0, alignSelf: "flex-start", width: 42, padding: "14px 0 16px",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
+              borderRadius: 16, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
+              boxShadow: K.shadowCard, cursor: "pointer", fontFamily: K.fontBody }}>
+            <Icon name="chevronL" size={15} strokeWidth={2.2} />
+            {/* Upright text in a 42px column would wrap to one letter a line.
+                flexShrink 0 is load-bearing: turned on its side, the automatic
+                minimum size of a flex item applies to its block axis, which is
+                now horizontal — so its length is free to be squeezed, and the
+                label was being clipped to "LIVE TOT". */}
+            <span style={{ writingMode: "vertical-rl", flexShrink: 0, whiteSpace: "nowrap",
+              ...type.label, fontSize: 10, color: K.hdrMeta }}>
+              {T2("Live total")}
+            </span>
+          </button>
+        )}
+        {railOpen && (
         <div style={{ flexShrink: 0, width: 232, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }} className="kh-thinscroll">
           <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
             border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "16px 16px 12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
               <span style={{ color: K.sbGold, display: "flex" }}><Icon name="chart" size={18} strokeWidth={2} /></span>
-              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle }}>{T2("Live total")}</span>
+              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle, flex: 1, minWidth: 0 }}>{T2("Live total")}</span>
+              <button onClick={function(){ setRailOpen(false); }} className="kh-btn kh-iconbtn kh-rip" onPointerDown={ripple}
+                title={T2("Hide")}
+                style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, padding: 0, cursor: "pointer",
+                  background: "transparent", border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="chevronR" size={14} strokeWidth={2.2} />
+              </button>
             </div>
             {SALES_DEPTS.map(function(d){
               var counts = deptCounts[d.id] || { sel: 0, total: 0 };
@@ -1218,11 +1277,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
               borderTop: "1px solid " + K.cardWarmLine }}>
               <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: K.hdrTitle }}>{T2("Total items")}</span>
               <span style={{ fontSize: 19, fontWeight: 800, color: K.hdrTitle, fontVariantNumeric: "tabular-nums" }}>
-                {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
+                {grandTotal}
               </span>
             </div>
           </div>
         </div>
+        )}
       </div>
       <KToast open={!!toast} toneName={toast && toast.tone} title={toast && toast.title}
         body={toast && toast.body} onClose={function(){ setToast(null); }} />
@@ -1233,11 +1293,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilter, setDietFilter, showAddons, setShowAddons, deptDishes, groupedByCat, templateSet, selectedSet, salesMeta, onToggle, templateInfo, templateDishesInDept, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
-  var totalSel = deptCounts ? deptCounts.sel : 0;
-  var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, sectionParentMap, templateSet, selectedSet, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var deptTotal = deptCounts ? deptCounts.total : 0;
-  var addonsAvailable = Math.max(0, deptTotal - templateCountInDept);
+  // Read only by the template summary bar, which is commented out further down.
+  // Kept here rather than deleted so uncommenting that block is a single edit:
+  //   var totalSel = deptCounts ? deptCounts.sel : 0;
+  //   var templateCountInDept = templateDishesInDept ? templateDishesInDept.length : 0;   // also re-add the templateDishesInDept prop
+  //   var addonsAvailable = Math.max(0, deptTotal - templateCountInDept);
 
   // V77 — section pills instead of one long stacked scroll: pick one section,
   // see only its dishes. A search query bypasses the pill filter (shows every
@@ -1245,12 +1307,78 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
   // regardless of where it lives.
   var [activeSectionId, setActiveSectionId] = useState(null);
   var isSearching = !!(searchQ || '').trim();
+
+  // ── Drop a section whose dishes are all in a bigger one ──────────────
+  // A package can carry both a parent section and one of its children as
+  // separate rows — "Luxury Veg" lists "Pre Dining Live" AND "Labenese
+  // Section", while the catalogue files Lebanses under Pre Dining Live. The
+  // parent pill then pulls in the child's dishes as a subgroup and the child
+  // renders its own pill beside it, showing the same six dishes twice.
+  //
+  // The test is "this section is already on the page as somebody's SUBSECTION",
+  // not "its dishes happen to appear elsewhere". Plain set containment looked
+  // right and was not: a one-dish section like Mineral Water is swallowed by
+  // any larger section that happens to carry that dish, and it would have
+  // vanished even though nothing lists it as a child.
+  var dedupedGroups = useMemo(function(){
+    var all = groupedByCat || [];
+    var namesOf = function(list){
+      var s = {};
+      (list || []).forEach(function(d){ s[d.name] = true; });
+      return s;
+    };
+    return all.filter(function(g, i){
+      var mine = namesOf(g.dishes);
+      var count = Object.keys(mine).length;
+      if (count === 0) return true;
+      for (var j = 0; j < all.length; j++) {
+        if (j === i) continue;
+        var subs = all[j].subGroups || [];
+        for (var k = 0; k < subs.length; k++) {
+          var sub = namesOf(subs[k].dishes);
+          // Covered by that subsection, so it is already reachable there.
+          var covered = Object.keys(mine).every(function(n){ return !!sub[n]; });
+          if (covered) return false;
+        }
+      }
+      return true;
+    });
+  }, [groupedByCat]);
   useEffect(function(){
-    var stillExists = groupedByCat.some(function(g){ return g.id === activeSectionId; });
-    if (!stillExists) setActiveSectionId(groupedByCat.length > 0 ? groupedByCat[0].id : null);
+    var stillExists = dedupedGroups.some(function(g){ return g.id === activeSectionId; });
+    if (!stillExists) setActiveSectionId(dedupedGroups.length > 0 ? dedupedGroups[0].id : null);
   // eslint-disable-next-line
-  }, [activeDept, groupedByCat.map(function(g){ return g.id; }).join(',')]);
-  var visibleGroups = isSearching ? groupedByCat : groupedByCat.filter(function(g){ return g.id === activeSectionId; });
+  }, [activeDept, dedupedGroups.map(function(g){ return g.id; }).join(',')]);
+  var visibleGroups = isSearching ? dedupedGroups : dedupedGroups.filter(function(g){ return g.id === activeSectionId; });
+
+  // ── Two-level pills ───────────────────────────────────────────────────
+  // Groups that the library files under a parent get pooled into one pill for
+  // that parent; everything else stays its own. Order is taken from
+  // groupedByCat rather than re-sorted, so a parent appears where its first
+  // child did and the strip does not reshuffle itself.
+  var pillTree = useMemo(function(){
+    var out = [], byParent = {};
+    dedupedGroups.forEach(function(g){
+      var parentName = (sectionParentMap || {})[(g.name || '').toLowerCase().trim()];
+      if (!parentName) { out.push({ key: g.id, name: g.name, icon: g.icon, children: [g], self: g }); return; }
+      var bucket = byParent[parentName];
+      if (!bucket) {
+        // The parent takes the icon of the first child that lands in it — the
+        // parent itself is usually not one of the package's own sections, so
+        // there is no row of its own to read one from.
+        bucket = byParent[parentName] = { key: 'p:' + parentName, name: parentName, icon: g.icon, children: [], self: null };
+        out.push(bucket);
+      }
+      bucket.children.push(g);
+    });
+    return out;
+  }, [dedupedGroups, sectionParentMap]);
+
+  var activeParent = useMemo(function(){
+    return pillTree.find(function(p){
+      return p.children.some(function(g){ return g.id === activeSectionId; });
+    }) || null;
+  }, [pillTree, activeSectionId]);
 
   // V87 — custom dish add, mirrors Build Menu's MenuEditor.jsx flow: pick an
   // SOP/recipe category (so it's classified from the start, not fuzzy-guessed
@@ -1327,60 +1455,89 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
             {T2("Explore and select dishes for this department")}
           </span>
         </span>
-        <div style={{ position: "relative", flex: "1 1 260px", minWidth: 200, marginLeft: "auto" }}>
-          <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)",
+        {/* Carries the marginLeft:auto that used to sit on the search field, so
+            this whole group still pushes right as one block. Guarded on the
+            template as well as the handler — without a package there are no
+            defaults to load, and it used to live inside the package strip where
+            that check was implicit. */}
+        {templateInfo.name && onLoadDefaults && (
+          <KButton size="sm" icon="refresh" onClick={onLoadDefaults} disabled={!!seeding}
+            title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
+            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, marginLeft: "auto",
+              background: "#FFFFFF", borderColor: K.sageBorder, color: K.sageText }}>
+            {seeding ? T2("Loading…") : T2("Load defaults")}
+          </KButton>
+        )}
+        {/* Sized to what a dish name needs, not to whatever is left over: at
+            flex 1 it stretched across half the page for a field that takes a
+            word or two. */}
+        <div style={{ position: "relative", flex: "0 1 320px", minWidth: 190 }}>
+          <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
             color: K.textFaint, display: "flex", pointerEvents: "none" }}>
-            <Icon name="search" size={17} strokeWidth={1.9} />
+            <Icon name="search" size={16} strokeWidth={1.9} />
           </span>
           <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
-            placeholder={T2("Search dishes, cuisines or keywords…")}
-            style={{ width: "100%", padding: "13px 16px 13px 46px", borderRadius: K.rPill,
-              border: "1px solid " + K.cardWarmLine, fontSize: 14, color: K.text, background: "#FFFFFF",
+            placeholder={T2("Search dishes…")}
+            style={{ width: "100%", padding: "10px 14px 10px 40px", borderRadius: K.rPill,
+              border: "1px solid " + K.cardWarmLine, fontSize: 13.5, color: K.text, background: "#FFFFFF",
               boxSizing: "border-box", fontFamily: K.fontBody, outline: "none" }} />
         </div>
-      </div>
-
-      {/* Filter bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <DietChip active={dietFilter === 'all'} onClick={function(){ setDietFilter('all'); }} color={K.brand} label={T2("All")} />
-          {DIET_TAGS.map(function(dt){
-            return <DietChip key={dt.id} active={dietFilter === dt.id} onClick={function(){ setDietFilter(dietFilter === dt.id ? 'all' : dt.id); }} color={dt.color} label={dt.label} />;
-          })}
-        </div>
+        {/* Moved up onto the search row. On a row of their own they cost the
+            page a full button's height for two controls used once a session. */}
+        {onAddCustomDish && (
+          <KButton size="sm" icon="plus" onClick={openCustomModal}
+            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+            {T2("Add dish")}
+          </KButton>
+        )}
+        {onAddSectionFromLibrary && (
+          <KButton size="sm" icon="layers" onClick={openSectionModal}
+            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+            {T2("Add section")}
+          </KButton>
+        )}
 
         {/* A switch, not a checkbox: it turns a view mode on and off, and the
-            old bare checkbox read as one more filter to tick. */}
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 10, cursor: "pointer",
-          fontSize: 13.5, fontWeight: 600, color: K.textBody, marginLeft: 4 }}>
+            old bare checkbox read as one more filter to tick.
+            It sits on this row now too — the filter bar it used to live on had
+            nothing else left in it once the diet chips were hidden, so keeping
+            it was a whole row of page height for one toggle. */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 9, cursor: "pointer", flexShrink: 0,
+          fontSize: 13, fontWeight: 600, color: K.textBody }}>
           <input type="checkbox" checked={showAddons} onChange={function(e){ setShowAddons(e.target.checked); }}
             style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-          <span style={{ width: 42, height: 24, borderRadius: K.rPill, flexShrink: 0, position: "relative",
+          <span style={{ width: 38, height: 22, borderRadius: K.rPill, flexShrink: 0, position: "relative",
             background: showAddons ? K.brand : K.lineStrong, transition: "background .16s ease" }}>
-            <span style={{ position: "absolute", top: 3, left: showAddons ? 21 : 3, width: 18, height: 18,
+            <span style={{ position: "absolute", top: 3, left: showAddons ? 19 : 3, width: 16, height: 16,
               borderRadius: "50%", background: "#FFFFFF", transition: "left .16s ease",
               boxShadow: "0 1px 3px rgba(17,28,51,.28)" }} />
           </span>
           {T2("Show add-ons only")}
         </label>
-
-        <span style={{ display: "flex", gap: 10, marginLeft: "auto", flexWrap: "wrap" }}>
-          {onAddCustomDish && (
-            <KButton size="sm" icon="plus" onClick={openCustomModal}
-              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
-              {T2("Add dish")}
-            </KButton>
-          )}
-          {onAddSectionFromLibrary && (
-            <KButton size="sm" icon="layers" onClick={openSectionModal}
-              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
-              {T2("Add section")}
-            </KButton>
-          )}
-        </span>
       </div>
 
-      {/* Template summary bar (per-dept scoped counts) */}
+      {/* Diet chips — hidden, not deleted. The parent still owns dietFilter and
+          it stays at 'all', so every dish keeps showing and the filtering code
+          there is untouched. To bring these back, uncomment this block, wrap it
+          in a row of its own, AND put `dietFilter, setDietFilter` back in the
+          props above — they came out of the signature only because nothing
+          reads them while the chips are hidden.
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <DietChip active={dietFilter === 'all'} onClick={function(){ setDietFilter('all'); }} color={K.brand} label={T2("All")} />
+        {DIET_TAGS.map(function(dt){
+          return <DietChip key={dt.id} active={dietFilter === dt.id} onClick={function(){ setDietFilter(dietFilter === dt.id ? 'all' : dt.id); }} color={dt.color} label={dt.label} />;
+        })}
+      </div>
+      */}
+
+      {/* Template summary bar (per-dept scoped counts) — hidden, not deleted.
+          Three of the five things it showed are on the page already: the
+          package name is in the header plate's meta row, the dept total is in
+          the heading pill beside "Kitchen", and the selected count is in both
+          the left rail and the Live total rail. Only "N template dishes" and
+          "N add-ons available" were unique to it, and they did not justify the
+          80px. Uncomment to bring it back — the three vars it reads are kept
+          below for exactly that.
       {templateInfo.name && (
         <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", marginBottom: 16,
           borderRadius: 16, background: K.sageBg, border: "1px solid " + K.sageBorder, flexWrap: "wrap" }}>
@@ -1397,14 +1554,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
               {templateCountInDept} {T2("template dishes in this dept")} ({deptTotal} {T2("total")})
             </span>
           </span>
-          {onLoadDefaults && (
-            <KButton size="sm" icon="refresh" onClick={onLoadDefaults} disabled={!!seeding}
-              title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
-              style={{ padding: "11px 17px", borderRadius: K.rPill, fontSize: 13.5, background: "#FFFFFF", borderColor: K.sageBorder, color: K.sageText }}>
-              {seeding ? T2("Loading…") : T2("Load package defaults")}
-            </KButton>
-          )}
-          <span style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginLeft: "auto" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 600, color: K.ok }}>
               <Icon name="check" size={15} strokeWidth={2.2} />{totalSel} {T2("selected")}
             </span>
@@ -1414,6 +1564,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
           </span>
         </div>
       )}
+      */}
 
       {/* Category groups */}
       {groupedByCat.length === 0 && (function(){
@@ -1460,9 +1611,43 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, dietFilt
 
       {/* Section pills — pick one section instead of scrolling through all of them.
           Hidden while searching, since search already spans every section. */}
-      {!isSearching && groupedByCat.length > 1 && (
-        <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16 }}>
-          {groupedByCat.map(function(g){
+      {!isSearching && pillTree.length > 1 && (
+        <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 8 }}>
+          {pillTree.map(function(p){
+            var isActive = activeParent === p;
+            var dishCount = p.children.reduce(function(n, g){ return n + g.dishes.length; }, 0);
+            var selCount = p.children.reduce(function(n, g){
+              return n + g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
+            }, 0);
+            return (
+              <button key={p.key} onClick={function(){ setActiveSectionId(p.children[0].id); }}
+                className={"kh-secpill" + (isActive ? " is-on" : "")}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
+                  padding: "11px 18px", borderRadius: 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                  background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
+                  border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), cursor: "pointer",
+                }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>{p.icon}</span>{p.name}
+                <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>
+                  {selCount > 0 ? selCount + "/" : ""}{dishCount}
+                </span>
+                {/* Says the pill opens into more without spelling out how many
+                    — the second row answers that the moment it is clicked. */}
+                {p.children.length > 1 && (
+                  <span style={{ fontSize: 11, opacity: .75 }}>▾</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Second row: the active parent's subsections. Only when there is more
+          than one — a parent with a single child is already the pill above. */}
+      {!isSearching && activeParent && activeParent.children.length > 1 && (
+        <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16, paddingLeft: 14 }}>
+          {activeParent.children.map(function(g){
             var isActive = g.id === activeSectionId;
             var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
             return (
@@ -1696,9 +1881,13 @@ function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
   //   in template, not picked → available, plain
   //   off template + picked → an add-on, sage, so it is visibly a deliberate extra
   //   off template, not picked → available add-on, dashed
-  var accent = isSel ? (inT ? K.brand : K.sage) : K.cardWarmLine;
-  var face   = isSel ? (inT ? K.brandBg : K.sageBg) : "#FFFFFF";
   var dashed = !inT && !isSel;
+  // An available add-on wears the same sage as a taken one; outline versus fill
+  // is what separates them. It used to be drawn in cardWarmLine — the same
+  // near-white as an unpicked template dish — so the dash was the only thing
+  // telling the two states apart, at a colour too pale for the dash to read.
+  var accent = isSel ? (inT ? K.brand : K.sage) : (dashed ? K.sage : K.cardWarmLine);
+  var face   = isSel ? (inT ? K.brandBg : K.sageBg) : "#FFFFFF";
 
   return (
     <button onClick={function(){ onToggle(d.name); }} className="kh-dishcard kh-rip" onPointerDown={ripple}
@@ -1752,10 +1941,14 @@ function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
         {/* The state in words. A coloured border alone is not a label, and this
             row is what tells you whether a dish is actually on the menu. */}
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+          {/* The words follow the border. An available add-on says so in sage,
+              so the card reads the same whether you look at its edge or its
+              caption; an unpicked template dish stays neutral. */}
           <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-            background: isSel ? (inT ? K.ok : K.sage) : K.lineStrong }} />
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: isSel ? (inT ? K.ok : K.sageText) : K.textFaint }}>
-            {isSel ? (inT ? "Included" : "Add-on") : "Select to add"}
+            background: isSel ? (inT ? K.ok : K.sage) : (dashed ? K.sage : K.lineStrong) }} />
+          <span style={{ fontSize: 12.5, fontWeight: 600,
+            color: isSel ? (inT ? K.ok : K.sageText) : (dashed ? K.sageText : K.textFaint) }}>
+            {isSel ? (inT ? "Included" : "Add-on") : (dashed ? "Add as extra" : "Select to add")}
           </span>
           {dietMeta && (
             <span title={dietMeta.label} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
