@@ -162,8 +162,36 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       confirmLabel: it.isSection ? T2("Remove section") : T2("Remove ingredient"),
       onConfirm:()=>{ setResetModal(null); rm(); }});
   }
+  // kg<->gm and L<->ml are the only pairs worth auto-converting here — the
+  // rest of this file's unit list (tsp/tbsp/pcs/slice/Bot/tin/bunch/dozen)
+  // has no unambiguous numeric ratio between members, so those are left as a
+  // plain relabel same as before.
+  const ING_ROW_WEIGHT_G = { kg: 1000, gm: 1, g: 1 };
+  const ING_ROW_VOLUME_ML = { L: 1000, l: 1000, ml: 1 };
+  function convertIngRowQty(qty, fromUnit, toUnit) {
+    if (ING_ROW_WEIGHT_G[fromUnit] != null && ING_ROW_WEIGHT_G[toUnit] != null) {
+      return Math.round(qty * ING_ROW_WEIGHT_G[fromUnit] / ING_ROW_WEIGHT_G[toUnit] * 1e6) / 1e6;
+    }
+    if (ING_ROW_VOLUME_ML[fromUnit] != null && ING_ROW_VOLUME_ML[toUnit] != null) {
+      return Math.round(qty * ING_ROW_VOLUME_ML[fromUnit] / ING_ROW_VOLUME_ML[toUnit] * 1e6) / 1e6;
+    }
+    return null;
+  }
   function ingUpdateItem(idx, field, val) {
-    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],[field]:val};return{...f,items};});
+    setIngForm(f=>{
+      const items=[...f.items];
+      const cur = items[idx];
+      // Changing the unit alone used to just relabel qty in place — 0.05 "kg"
+      // switched to "gm" stayed 0.05, silently meaning 0.05g instead of 50g,
+      // a 1000x error. Rescale qty to match whenever the pair is convertible.
+      if (field === "unit" && cur && cur.unit !== val) {
+        const converted = convertIngRowQty(Number(cur.qty) || 0, cur.unit, val);
+        items[idx] = converted != null ? { ...cur, unit: val, qty: converted } : { ...cur, unit: val };
+      } else {
+        items[idx] = { ...cur, [field]: val };
+      }
+      return {...f, items};
+    });
     setIngDirty(true);
   }
   function ingUpdateQty(idx, val) {
