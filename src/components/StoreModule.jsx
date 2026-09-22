@@ -34,6 +34,7 @@ function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#61708C"; }
 function transformOpsItem(it) {
   return {
     _opsId: it.id,
+    _categoryId: it.category_id || null,
     id: "ops-" + it.id,
     inventoryId: it.inventory_id || "",
     name: it.name || "",
@@ -134,6 +135,135 @@ async function fetchOpsEquipmentItems() {
   return all.map(transformOpsEquipment);
 }
 
+// ═══ Ingredient duplicate-finder — same approach as DishLibrary.jsx's
+// "Find duplicates", adapted to ingredient entries ({name, hindi, dishes}
+// instead of {dish_name, hindi, packages}). Kept as a separate copy rather
+// than importing DishLibrary's (unexported) helpers — small, pure, and this
+// keeps StoreModule free of a cross-feature dependency for four functions. ══
+// Same canonical unit list the SOP recipe editor (KitchenHub.jsx) offers,
+// so "Edit unit" here can never write a unit the recipe editor wouldn't.
+const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
+
+// Requirements tab's "Add to Order list" destinations — keys match store_order_lists.list_key.
+const ORDER_LIST_META = {
+  dairy:     { label: "Dairy",     icon: "🥛", bg: "#E4F5FE", color: "#0EA5E9", border: "#B6E5FB" },
+  grocery:   { label: "Grocery",   icon: "🛒", bg: "#FDF3E2", color: "#C4790C", border: "#F5DBA6" },
+  vegetable: { label: "Vegetable", icon: "🥕", bg: "#E6F7F0", color: "#129A6C", border: "#B4E8D3" },
+};
+
+function normalizeIngName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9ऀ-ॿ\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function tokenSetKeyIng(s) {
+  var n = normalizeIngName(s);
+  if (!n) return '';
+  return n.split(' ').filter(Boolean).sort().join(' ');
+}
+function levenshteinIng(a, b) {
+  if (a === b) return 0;
+  var m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  var prev = new Array(n + 1);
+  var curr = new Array(n + 1);
+  for (var j = 0; j <= n; j++) prev[j] = j;
+  for (var i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (var jj = 1; jj <= n; jj++) {
+      var cost = a.charCodeAt(i - 1) === b.charCodeAt(jj - 1) ? 0 : 1;
+      curr[jj] = Math.min(curr[jj - 1] + 1, prev[jj] + 1, prev[jj - 1] + cost);
+    }
+    var tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[n];
+}
+// Clusters ingredients by four signals, highest confidence first. Each
+// ingredient appears in at most one cluster (first-hit wins).
+function findIngredientDuplicateClusters(ingredients) {
+  var clusters = [];
+  var assigned = {}; // name -> true
+
+  var byNorm = {};
+  ingredients.forEach(function(d) {
+    var k = normalizeIngName(d.name);
+    if (!k) return;
+    (byNorm[k] = byNorm[k] || []).push(d);
+  });
+  Object.keys(byNorm).forEach(function(k) {
+    if (byNorm[k].length < 2) return;
+    clusters.push({ reason: 'Same after normalization', confidence: 'high', items: byNorm[k].slice() });
+    byNorm[k].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byTok = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var k = tokenSetKeyIng(d.name);
+    if (!k) return;
+    (byTok[k] = byTok[k] || []).push(d);
+  });
+  Object.keys(byTok).forEach(function(k) {
+    if (byTok[k].length < 2) return;
+    clusters.push({ reason: 'Same words, reordered', confidence: 'high', items: byTok[k].slice() });
+    byTok[k].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byHi = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var h = String(d.hindi || '').trim().toLowerCase();
+    if (!h) return;
+    (byHi[h] = byHi[h] || []).push(d);
+  });
+  Object.keys(byHi).forEach(function(h) {
+    if (byHi[h].length < 2) return;
+    clusters.push({ reason: 'Same Hindi (' + byHi[h][0].hindi + ')', confidence: 'high', items: byHi[h].slice() });
+    byHi[h].forEach(function(d) { assigned[d.name] = true; });
+  });
+
+  var byFirst = {};
+  ingredients.forEach(function(d) {
+    if (assigned[d.name]) return;
+    var n = normalizeIngName(d.name);
+    if (!n) return;
+    var f = n[0];
+    (byFirst[f] = byFirst[f] || []).push({ orig: d, norm: n });
+  });
+  Object.keys(byFirst).forEach(function(f) {
+    var bucket = byFirst[f];
+    for (var i = 0; i < bucket.length; i++) {
+      if (assigned[bucket[i].orig.name]) continue;
+      var group = [bucket[i].orig];
+      for (var j = i + 1; j < bucket.length; j++) {
+        if (assigned[bucket[j].orig.name]) continue;
+        if (Math.abs(bucket[i].norm.length - bucket[j].norm.length) > 2) continue;
+        var dist = levenshteinIng(bucket[i].norm, bucket[j].norm);
+        if (dist > 0 && dist <= 2) group.push(bucket[j].orig);
+      }
+      if (group.length >= 2) {
+        clusters.push({ reason: '1–2 letters apart', confidence: 'medium', items: group });
+        group.forEach(function(d) { assigned[d.name] = true; });
+      }
+    }
+  });
+
+  return clusters;
+}
+// Default target = highest recipe-usage count, tie-broken alphabetically.
+function pickDefaultIngTarget(cluster) {
+  var sorted = cluster.items.slice().sort(function(a, b) {
+    var au = (a.dishes || []).length;
+    var bu = (b.dishes || []).length;
+    if (au !== bu) return bu - au;
+    return a.name.localeCompare(b.name);
+  });
+  return sorted[0].name;
+}
+
 function StoreModule({events, lang="en", currentUser=null}) {
   const T2 = s => T(s, lang||"en");
   const safeEvs = (Array.isArray(events)?events:[]).filter(e=>e&&e.date);
@@ -151,11 +281,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [showAdd,  setShowAdd]  = useState(false);
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
-  const [issueDate, setIssueDate] = useState("all");
-  const [issueMode, setIssueMode] = useState("event"); // "event" | "collective"
-  const [issueExpEv, setIssueExpEv] = useState(null); // expanded event id
-  const [issueExpGroup, setIssueExpGroup] = useState(null); // expanded dept-group key "evId::grp::kitchen|beverages|fruits"
-  const [issueExpSec, setIssueExpSec] = useState(null); // expanded section key "evId::secName"
+  const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
+  const [reqPicker, setReqPicker] = useState(null); // ingredient name currently showing its inline Dairy/Grocery/Veg picker
+  const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
+  const [orderListLoading, setOrderListLoading] = useState(false);
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
@@ -169,8 +298,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [mapTabPage, setMapTabPage] = useState(0); // pagination offset
   
   const [convModal, setConvModal] = useState(null); // {ingName, ingHindi, opsItem, recipeUnit, storeUnit, convValue, editMode}
-  const [expandedShortage, setExpandedShortage] = useState(null);
+  const [ingSelected, setIngSelected] = useState({}); // {ingredientName: true} — Ingredient Map merge selection
+  const [ingMergeModal, setIngMergeModal] = useState(null); // {sources:[name,...], target, unit} | null
+  const [ingMerging, setIngMerging] = useState(false);
+  const [ingRefreshTick, setIngRefreshTick] = useState(0); // bumped after a merge/unit edit to re-derive allRecipeIngredients from the now-mutated RECIPE_DB
+  const [ingDedupOpen, setIngDedupOpen] = useState(false);
+  const [ingDedupClusters, setIngDedupClusters] = useState([]);
+  const [ingDedupTargets, setIngDedupTargets] = useState({});   // {idx: name}
+  const [ingDedupUnits, setIngDedupUnits] = useState({});       // {idx: unit}
+  const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
+  const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
+  const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
+  const [addingItem, setAddingItem] = useState(false);
 
   
 
@@ -333,6 +473,33 @@ function StoreModule({events, lang="en", currentUser=null}) {
     };
   }, []);
 
+  /* ── Load Order Lists (Requirements tab "Add to Order list") + subscribe ── */
+  useEffect(() => {
+    if (!supabase) return;
+    async function loadOrderLists() {
+      setOrderListLoading(true);
+      try {
+        const rows = await fetchAllRows(() => supabase.from('store_order_lists').select('*'));
+        setOrderListItems(rows || []);
+      } catch (e) { console.error("Order lists load failed:", e); }
+      setOrderListLoading(false);
+    }
+    loadOrderLists();
+    const ch = supabase.channel('sol-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_order_lists' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setOrderListItems(prev => prev.filter(r => !(r.order_date === p.old.order_date && r.ingredient_name === p.old.ingredient_name)));
+      } else {
+        const r = p.new;
+        setOrderListItems(prev => {
+          const idx = prev.findIndex(x => x.order_date === r.order_date && x.ingredient_name === r.ingredient_name);
+          if (idx >= 0) { const n = [...prev]; n[idx] = r; return n; }
+          return [...prev, r];
+        });
+      }
+    }).subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
   /* ── Smart Issue helpers ── */
   const VENUE_CODES = ["AP", "AE", "AM", "AR"];
 
@@ -398,7 +565,48 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (error) console.error("Assignment save failed:", error);
   }
 
-  /* ── Extract all unique ingredient names from recipe DB ── */
+  /* ── Order Lists (Requirements tab "Add to Order list") ── */
+  async function addToOrderList(row, listKey) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const rec = {
+      order_date: reqDay,
+      ingredient_name: row.name,
+      ingredient_hindi: row.hindi || null,
+      unit: row.unit,
+      qty: row.total,
+      list_key: listKey,
+      source: [...new Set(row.evBreak.map(b => b.evName))].join(', '),
+      ordered: false,
+      added_by: staffId,
+      added_at: new Date().toISOString(),
+    };
+    setOrderListItems(prev => {
+      const idx = prev.findIndex(r => r.order_date === reqDay && r.ingredient_name === row.name);
+      if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...rec }; return n; }
+      return [...prev, rec];
+    });
+    setReqPicker(null);
+    const { error } = await supabase.from('store_order_lists').upsert(rec, { onConflict: 'order_date,ingredient_name' });
+    if (error) console.error("Add to order list failed:", error);
+  }
+  async function removeFromOrderList(row) {
+    setOrderListItems(prev => prev.filter(r => !(r.order_date === reqDay && r.ingredient_name === row.name)));
+    const { error } = await supabase.from('store_order_lists').delete().eq('order_date', reqDay).eq('ingredient_name', row.name);
+    if (error) console.error("Remove from order list failed:", error);
+  }
+  async function toggleOrdered(item) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const next = !item.ordered;
+    const patch = { ordered: next, ordered_by: next ? staffId : null, ordered_at: next ? new Date().toISOString() : null };
+    setOrderListItems(prev => prev.map(r => (r.order_date === item.order_date && r.ingredient_name === item.ingredient_name) ? { ...r, ...patch } : r));
+    const { error } = await supabase.from('store_order_lists').update(patch).eq('order_date', item.order_date).eq('ingredient_name', item.ingredient_name);
+    if (error) console.error("Toggle ordered failed:", error);
+  }
+
+  /* ── Extract all unique ingredient names from recipe DB ──
+     ingRefreshTick is a dependency on purpose: after a merge/unit-edit
+     mutates RECIPE_DB in place (see performIngredientMerge), nothing else
+     would tell this memo to re-derive — RECIPE_DB itself isn't React state. */
   const allRecipeIngredients = useMemo(() => {
     const seen = {};
     for (const catId of Object.keys(RECIPE_DB.recipes || {})) {
@@ -408,19 +616,181 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if (it.isSection) return;
             if (it.type === 'bg') return;                          // 9D — bg refs aren't shopped for
             const n = it.name;
-            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || it.hi || "", unit: it.unit || "", dishes: [], hasInv: false, ops_inventory_id: null };
+            if (!seen[n]) seen[n] = { name: n, hindi: it.hindi || it.hi || "", unit: it.unit || "", dishes: [], usages: [], hasInv: false, ops_inventory_id: null };
             // 9D — mark inv-mapped when any usage carries embedded ops_inventory_id
             if (it.type === 'inv') {
               seen[n].hasInv = true;
               if (!seen[n].ops_inventory_id && it.ops_inventory_id) seen[n].ops_inventory_id = it.ops_inventory_id;
             }
             seen[n].dishes.push(recipe.n);
+            // catId+dishName pair, so a merge/unit-edit can find and rewrite
+            // the exact recipes.ingredients row this usage came from.
+            seen[n].usages.push({ dishName: recipe.n, catId });
           });
         }
       }
     }
     return Object.values(seen).sort((a, b) => a.name.localeCompare(b.name));
-  }, []);
+  }, [ingRefreshTick]);
+
+  // Weight/volume unit conversion so a merge that changes an item's unit
+  // rescales its qty instead of silently relabeling it (200 "gm" becoming
+  // 200 "kg" would be a 1000x data error). Returns null when the two units
+  // aren't a known convertible pair (e.g. "pcs" -> "kg") — callers must
+  // then leave qty untouched and flag it for manual review.
+  const ING_UNIT_RATE_TO_BASE = { kg: 1000, gm: 1, g: 1, l: 1000, ltr: 1000, ml: 1 };
+  const ING_UNIT_FAMILY = { kg: 'wt', gm: 'wt', g: 'wt', l: 'vol', ltr: 'vol', ml: 'vol' };
+  function convertIngQty(qty, fromUnit, toUnit) {
+    const f = (fromUnit || '').trim().toLowerCase();
+    const t = (toUnit || '').trim().toLowerCase();
+    if (!f || !t || f === t) return qty;
+    if (ING_UNIT_FAMILY[f] && ING_UNIT_FAMILY[f] === ING_UNIT_FAMILY[t]) {
+      return qty * (ING_UNIT_RATE_TO_BASE[f] / ING_UNIT_RATE_TO_BASE[t]);
+    }
+    return null;
+  }
+
+  /* ── Merge/rename N ingredient names into one, with one shared unit ──
+     Models the existing dish-merge feature (DishLibrary.jsx): pick a
+     canonical name, rewrite every place the string is referenced (there:
+     menu_packages; here: every recipes row's ingredients.items[]), drop the
+     merged-away names' own side-table rows, keep the canonical's. A
+     standalone "edit this ingredient's unit" is just this same function
+     called with sources=[name], target=name — it still rewrites every
+     recipe's ingredients.items[].unit for that name, which is the whole
+     point (unit lives inline per recipe, not normalized anywhere).
+     When a source row's unit differs from the target unit, qty is rescaled
+     (kg<->gm, l<->ml) so the merge never silently relabels a quantity into
+     the wrong magnitude; unconvertible pairs (e.g. "pcs" -> "kg") are left
+     as-is and reported back for manual review. */
+  async function performIngredientMerge(sourceNames, targetName, targetUnit) {
+    const target = (targetName || "").trim();
+    const unit = (targetUnit || "").trim();
+    if (!target || !unit) { alert(T2("Name and unit are both required.")); return; }
+    setIngMerging(true);
+    try {
+      const allNames = new Set(sourceNames);
+      allNames.add(target);
+      const touched = [];
+      allNames.forEach(n => {
+        const entry = allRecipeIngredients.find(i => i.name === n);
+        if (entry) entry.usages.forEach(u => touched.push(u));
+      });
+      const seenKey = new Set();
+      const uniqueTouched = touched.filter(u => {
+        const k = u.catId + "|" + u.dishName;
+        if (seenKey.has(k)) return false;
+        seenKey.add(k); return true;
+      });
+      const unconvertible = []; // [{dishName, name, fromUnit}] — qty left as-is, needs manual review
+      for (const { catId, dishName } of uniqueTouched) {
+        const catRecipes = RECIPE_DB.recipes[catId] || [];
+        const recipe = catRecipes.find(r => r.n === dishName);
+        if (!recipe || !recipe.ingredients?.items) continue;
+        let changed = false;
+        const nextItems = recipe.ingredients.items.map(it => {
+          if (!it.isSection && allNames.has(it.name) && (it.name !== target || it.unit !== unit)) {
+            changed = true;
+            if (it.unit === unit) return { ...it, name: target, unit };
+            const convertedQty = convertIngQty(Number(it.qty) || 0, it.unit, unit);
+            if (convertedQty == null) {
+              unconvertible.push({ dishName, name: it.name, fromUnit: it.unit });
+              return { ...it, name: target, unit };
+            }
+            return { ...it, name: target, unit, qty: convertedQty };
+          }
+          return it;
+        });
+        if (!changed) continue;
+        const payload = { ...recipe.ingredients, items: nextItems };
+        recipe.ingredients = payload; // local mutation — mirrors the pattern in KitchenHub.jsx's own ingredient saves
+        const { error } = await supabase.from('recipes').update({ ingredients: payload }).eq('dish_name', dishName).eq('category_id', catId);
+        if (error) { console.error('[ingredient merge] recipe update failed', dishName, error); throw error; }
+      }
+
+      // Carry the surviving mapping forward: keep target's own if it has
+      // one, else adopt the first merged-away source's; drop the rest —
+      // same "keep canonical's, drop duplicates'" rule dish-merge uses for
+      // dish_store_map.
+      const sourcesToDrop = [...allNames].filter(n => n !== target);
+      if (!ingredientMap[target]) {
+        const donorName = sourcesToDrop.find(n => ingredientMap[n]);
+        if (donorName) {
+          const donor = ingredientMap[donorName];
+          await saveIngredientMapping(target, donor.ingredient_hindi, { _opsId: donor.ops_item_id, inventoryId: donor.ops_inventory_id, name: donor.ops_item_name, unit: donor.ops_item_unit }, donor.unit_conversion || 1);
+        }
+      }
+      for (const n of sourcesToDrop) {
+        if (ingredientMap[n]) await removeIngredientMapping(n);
+      }
+
+      setIngSelected({});
+      setIngMergeModal(null);
+      setIngRefreshTick(t => t + 1);
+      if (unconvertible.length) {
+        const lines = unconvertible.map(u => `• ${u.dishName}: ${u.name} (${u.fromUnit} → ${unit}, qty left unchanged)`);
+        alert(T2('Merged, but these couldn\'t be auto-converted to ') + unit + T2(' — check the quantities manually:') + '\n\n' + lines.join('\n'));
+      }
+    } catch (e) {
+      console.error('[performIngredientMerge]', e);
+      alert(T2('Merge failed: ') + (e.message || e));
+    } finally {
+      setIngMerging(false);
+    }
+  }
+
+  /* ── Ingredient duplicate finder — "🔍 Find duplicates", same flow as
+     Dish Library's: scan once on open, review clusters, pick a target per
+     group, merge or skip. ── */
+  function openIngDedup() {
+    const clusters = findIngredientDuplicateClusters(allRecipeIngredients);
+    const targets = {}, units = {};
+    clusters.forEach((c, i) => {
+      const t = pickDefaultIngTarget(c);
+      targets[i] = t;
+      units[i] = (c.items.find(x => x.name === t) || {}).unit || '';
+    });
+    setIngDedupClusters(clusters);
+    setIngDedupTargets(targets);
+    setIngDedupUnits(units);
+    setIngDedupSkipped({});
+    setIngDedupResolved({});
+    setIngDedupOpen(true);
+  }
+  function closeIngDedup() {
+    if (ingDedupSavingIdx != null) return;
+    setIngDedupOpen(false);
+  }
+  function pickIngDedupTarget(idx, name) {
+    setIngDedupTargets(prev => ({ ...prev, [idx]: name }));
+    const cluster = ingDedupClusters[idx];
+    const found = cluster && cluster.items.find(x => x.name === name);
+    if (found) setIngDedupUnits(prev => ({ ...prev, [idx]: found.unit || '' }));
+  }
+  function skipIngDedupCluster(idx) {
+    setIngDedupSkipped(prev => ({ ...prev, [idx]: true }));
+  }
+  function resetIngDedupSkipped() {
+    setIngDedupSkipped({});
+  }
+  async function mergeIngDedupCluster(idx) {
+    const cluster = ingDedupClusters[idx];
+    if (!cluster) return;
+    const target = (ingDedupTargets[idx] || '').trim();
+    const unit = (ingDedupUnits[idx] || '').trim();
+    if (!target || !unit) { alert(T2('Pick a target and unit for this group.')); return; }
+    const sources = cluster.items.map(d => d.name).filter(n => n !== target);
+    if (sources.length === 0) { alert(T2('Nothing to merge — target is the only ingredient.')); return; }
+    setIngDedupSavingIdx(idx);
+    try {
+      await performIngredientMerge(sources, target, unit);
+      setIngDedupResolved(prev => ({ ...prev, [idx]: 'merged' }));
+    } catch (e) {
+      alert(T2('Merge failed: ') + (e.message || e));
+    } finally {
+      setIngDedupSavingIdx(null);
+    }
+  }
 
   /* ── Fuzzy match: find best Ops store item for an ingredient name ── */
   function fuzzyMatchStoreItem(ingName) {
@@ -664,12 +1034,40 @@ function StoreModule({events, lang="en", currentUser=null}) {
   /* ── Derived: unique categories & venues from live data ── */
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
   const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
+  // Add-item form only writes to catering_store_items, so its category picker is
+  // scoped to categories that already have a source:"store" item — that's the only
+  // way we can resolve a valid category_id without a separate categories-table fetch.
+  const storeItemCategories = useMemo(() => [...new Set(items.filter(i => i.source === "store" && i._categoryId).map(i => i.cat))].filter(Boolean).sort(), [items]);
 
-  function addItem(){
+  async function addItem(){
+    if(addingItem) return; // Btn doesn't support a disabled prop — guard re-entrancy here instead
     if(!newItem.name.trim()) return;
-    setItems(p=>[...p,{...newItem,id:"it-"+Date.now(),inStock:+newItem.inStock||0,minStock:+newItem.minStock||0,perPax:+newItem.perPax||0}]);
-    setNewItem({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
-    setShowAdd(false);
+    if(!opsSupabase){ alert(T2("Inventory system not connected.")); return; }
+    const donor = items.find(i => i.source === "store" && i.cat === newItem.cat && i._categoryId);
+    if(!donor){ alert(T2('Pick a different category — could not resolve a category id for "')+newItem.cat+'".'); return; }
+    setAddingItem(true);
+    try {
+      const payload = {
+        name: newItem.name.trim(),
+        name_hindi: null,
+        brand: newItem.brand || null,
+        unit: newItem.unit || "pcs",
+        category_id: donor._categoryId,
+        qty: +newItem.inStock || 0,
+        season_reorder_qty: +newItem.minStock || 0,
+        off_season_reorder_qty: +newItem.minStock || 0,
+        status: "approved",
+      };
+      const { error } = await opsSupabase.from("catering_store_items").insert(payload);
+      if (error) throw error;
+      setNewItem({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
+      setShowAdd(false);
+    } catch (e) {
+      console.error("[addItem] insert failed", e);
+      alert(T2("Could not add item: ") + (e.message || e));
+    } finally {
+      setAddingItem(false);
+    }
   }
 
   const upcoming  = safeEvs.filter(e=>e.date>=TODAY);
@@ -725,10 +1123,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <div>
               <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
               <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={fld}>
-                {itemCategories.map(ct=><option key={ct}>{ct}</option>)}
+                {storeItemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
-            {[{l:"Unit",k:"unit",ph:"pcs"},{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
+            <div>
+              <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Unit</div>
+              <select value={newItem.unit||"pcs"} onChange={e=>setNewItem(p=>({...p,unit:e.target.value}))} style={fld}>
+                {ING_UNIT_CHOICES.map(u=><option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            {[{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
               <div key={f.k}>
                 <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
                 <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={fld}/>
@@ -736,15 +1140,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>{setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12}}>Cancel</Btn>
-            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px"}}>✓ Add to Inventory</Btn>}
+            <Btn onClick={()=>{if(!addingItem)setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12,opacity:addingItem?0.6:1}}>Cancel</Btn>
+            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px",opacity:addingItem?0.6:1,cursor:addingItem?"not-allowed":"pointer"}}>{addingItem?"Adding...":"✓ Add to Inventory"}</Btn>}
           </div>
         </div>
       )}
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"orderlists",l:T2("🧺 Order Lists")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
           <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
             background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
             boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
@@ -940,408 +1344,278 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* ── REQUIREMENTS — event-first with collective toggle ── */}
       {tab==="requirements"&&(()=>{
-        const issueEvs = safeEvs.filter(e=>e.date===TODAY||e.date===TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-        const filtEvs = issueDate==="all"?issueEvs:issueEvs.filter(e=>e.date===issueDate);
-        const evBags = buildEventBags(filtEvs);
+        const dayEvs = safeEvs.filter(e=>e.date===reqDay).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+        const evBags = buildEventBags(dayEvs);
 
-        /* helpers for counting */
-        function secIngList(secObj) { return Object.values(secObj.items).sort((a,b)=>b.totalQty-a.totalQty); }
         function isIssued(evId, sec, ingName) { const r=issueRecords[evId+"::"+sec+"::"+ingName]; return r&&r.issued; }
-        function secIssuedCount(evId, sec, list) { return list.filter(ing=>isIssued(evId,sec,ing.name)).length; }
 
-        /* collective bags — merge across events */
-        const collBags = {};
+        /* Reshape evBags (per-event, per-section) into ingredient rows with one
+           column per category/station, mirroring Kitchen Hub's Ingredient
+           Ordering Sheet — minus the yield-adjust slider, which is a Kitchen
+           planning concept the Store team has no use for. */
+        const catSeen = new Set();
+        const rowMap = {};
         Object.values(evBags).forEach(({ev, sections})=>{
           Object.entries(sections).forEach(([sec, secObj])=>{
-            if(!collBags[sec]) collBags[sec]={items:{},events:[],meta:secObj.meta};
-            if(!collBags[sec].events.find(e=>e.id===ev.id)) collBags[sec].events.push(ev);
+            catSeen.add(sec);
             Object.values(secObj.items).forEach(ing=>{
-              // Carry the direct inv-link through the merge too — otherwise a
-              // fruit pick (or any dish_store_map-only dish) loses its
-              // ops_inventory_id here and reads as "Unlinked" in Collective
-              // even though it's linked, same bug as the per-event IngRow.
-              if(!collBags[sec].items[ing.name]) collBags[sec].items[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:0,evBreak:[],_type:ing._type||null,ops_inventory_id:ing.ops_inventory_id||null};
-              var collMerged=addQtyWithUnitNorm(collBags[sec].items[ing.name],ing.totalQty,ing.unit);
-              collBags[sec].items[ing.name].totalQty=collMerged.totalQty;
-              collBags[sec].items[ing.name].unit=collMerged.unit;
-              collBags[sec].items[ing.name].evBreak.push({evId:ev.id,evName:ev.guest,qty:ing.totalQty});
+              if(!rowMap[ing.name]) rowMap[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,total:0,byCat:{},evBreak:[],_type:null,ops_inventory_id:null};
+              const row=rowMap[ing.name];
+              const cellPrev = row.byCat[sec] || {totalQty:0,unit:ing.unit};
+              row.byCat[sec] = addQtyWithUnitNorm(cellPrev, ing.totalQty, ing.unit);
+              const totMerged = addQtyWithUnitNorm({totalQty:row.total,unit:row.unit}, ing.totalQty, ing.unit);
+              row.total = totMerged.totalQty; row.unit = totMerged.unit;
+              row.evBreak.push({evId:ev.id, evName:ev.guest, sec, qty:ing.totalQty, unit:ing.unit});
+              if(!row._type && ing._type==='inv'){ row._type='inv'; row.ops_inventory_id = ing.ops_inventory_id||null; }
             });
           });
         });
-        function collIssuedCount(sec, list) {
-          return list.filter(ing=>{
-            const bag=collBags[sec];
-            return bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
-          }).length;
+        const stations = RECIPE_DB.cats.filter(c=>catSeen.has(c.name));
+        const rows = Object.values(rowMap).sort((a,b)=>a.name.localeCompare(b.name));
+
+        /* Stock resolution — same 3-tier unit-conversion chain the old
+           Shortages table used (grams, then ml, then a configured conversion
+           factor for anything else), so "short" here means the same thing it
+           always has. */
+        function resolveStock(row){
+          const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
+          const stock = isDirectInv ? getStockByInventoryId(row.ops_inventory_id) : getStockForIngredient(row.name);
+          const isMapped = isDirectInv || !!ingredientMap[row.name];
+          if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null};
+          let requiredSU;
+          const recG=toGrams(row.total,row.unit), stoG=toGrams(1,stock.unit);
+          if(recG!=null && stoG!=null){ requiredSU = recG/stoG; }
+          else{
+            const recM=toMl(row.total,row.unit), stoM=toMl(1,stock.unit);
+            if(recM!=null && stoM!=null){ requiredSU = recM/stoM; }
+            else{
+              const oF=getUnitFamily(row.unit), aF=getUnitFamily(stock.unit);
+              const adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;
+              requiredSU = row.total*adj*(stock.conversion||1);
+            }
+          }
+          return {isMapped:true, stock, requiredSU};
         }
 
-        /* venue color helper */
-        const vcMap={"AP":{bg:C.goldBg,color:C.gold},"AE":{bg:C.amberBg,color:"#854F0B"},"AM":{bg:"#EEF4FD",color:"#185FA5"},"AR":{bg:C.greenBg,color:"#0F6E56"}};
-        function venueStyle(code){return vcMap[code]||{bg:C.bg,color:C.muted};}
-
-        /* shared ingredient row renderer */
-        function IngRow({ing, evId, sec, idx, total}){
-          const done = isIssued(evId,sec,ing.name);
-          // A fruit pick (or any dish resolved via a direct dish_store_map,
-          // see buildEventBags) already carries a real ops_inventory_id and
-          // was never meant to go through the name-based ingredient_item_map
-          // at all — checking only ingredientMap[ing.name] flagged it
-          // "Unlinked" even though it's linked, just via the other path.
-          const isDirectInv = ing._type === 'inv' && !!ing.ops_inventory_id;
-          const stock = isDirectInv ? getStockByInventoryId(ing.ops_inventory_id) : getStockForIngredient(ing.name);
-          const isMapped = isDirectInv || !!ingredientMap[ing.name];
-          var reqSU = stock ? ing.totalQty * (stock.conversion || 1) : 0;
-          return(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:idx<total-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:12,fontWeight:done?400:600,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
-                {isMapped&&stock&&<div style={{fontSize:10,color:stock.available>=reqSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>
-                  {T2("Stock")}: {stock.available} {stock.unit}{reqSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(reqSU-stock.available,stock.unit):""}
-                  {stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}
-                </div>}
-                {!isMapped&&<div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>}
-              </div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:done?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
-              <div onClick={()=>toggleIssueItem(evId,sec,ing,done)}
-                style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
-                {done&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
-              </div>
-            </div>
-          );
+        function rowIssued(row){ return row.evBreak.every(b=>isIssued(b.evId,b.sec,row.name)); }
+        async function toggleRowIssue(row){
+          const done = rowIssued(row);
+          for(const b of row.evBreak){
+            await toggleIssueItem(b.evId, b.sec, {name:row.name, hindi:row.hindi, unit:b.unit, totalQty:b.qty}, done);
+          }
         }
 
-        /* venue assignment dropdown */
-        function VenueTag({evId, sec}){
-          const code=issueAssignments[evId+"::"+sec];
-          if(!code) return(
-            <select value="" onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.value)setVenueAssignment(evId,sec,e.target.value);}}
-              style={{fontSize:10,padding:"2px 6px",borderRadius:10,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
-              <option value="" disabled>⚠ assign</option>
-              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
-            </select>
-          );
-          const vs=venueStyle(code);
-          return(
-            <select value={code} onClick={e=>e.stopPropagation()} onChange={e=>setVenueAssignment(evId,sec,e.target.value)}
-              style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:vs.bg,color:vs.color,border:"1px solid transparent",cursor:"pointer",fontWeight:600}}>
-              {VENUE_CODES.map(v=><option key={v} value={v}>{v}</option>)}
-            </select>
-          );
-        }
+        const orderListsForDay = orderListItems.filter(r=>r.order_date===reqDay);
+        function orderListFor(name){ return orderListsForDay.find(r=>r.ingredient_name===name); }
 
-        const todayCount = issueEvs.filter(e=>e.date===TODAY).length;
-        const tmrwCount = issueEvs.filter(e=>e.date===TOMORROW).length;
+        const todayFnCount = safeEvs.filter(e=>e.date===TODAY).length;
+        const tmrwFnCount = safeEvs.filter(e=>e.date===TOMORROW).length;
+
+        let shortCount=0, issuedCount=0, orderedRowCount=0;
+        rows.forEach(row=>{
+          const {isMapped, stock, requiredSU} = resolveStock(row);
+          if(isMapped && stock && requiredSU!=null && requiredSU>stock.available) shortCount++;
+          if(rowIssued(row)) issuedCount++;
+          if(orderListFor(row.name)) orderedRowCount++;
+        });
 
         return(
           <div>
-            {/* Header + mode toggle */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements")}</div>
-              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
-                <button onClick={()=>setIssueMode("event")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="event"?C.gold:"transparent",color:issueMode==="event"?C.goldBg:C.muted}}>📅 {T2("By Event")}</button>
-                <button onClick={()=>setIssueMode("collective")} style={{padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",border:"none",background:issueMode==="collective"?C.gold:"transparent",color:issueMode==="collective"?C.goldBg:C.muted}}>📦 {T2("Collective")}</button>
+            {/* Header + day picker */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements — Day Sheet")}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("One ordering sheet per day — every function on that day, combined.")}</div>
               </div>
-            </div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{issueMode==="event"?T2("Aggregate ingredient needs per event"):T2("Merged quantities across events")}</div>
-
-            {/* Date filter */}
-            <div style={{display:"flex",gap:6,marginBottom:14}}>
-              {[{v:"all",l:T2("All")},{v:TODAY,l:T2("Today")+" ("+todayCount+")"},{v:TOMORROW,l:T2("Tomorrow")+" ("+tmrwCount+")"}].map(d=>(
-                <button key={d.v} onClick={()=>setIssueDate(d.v)} style={{padding:"7px 14px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36,
-                  background:issueDate===d.v?C.gold:C.bg,color:issueDate===d.v?C.goldBg:C.muted,border:`1px solid ${issueDate===d.v?C.gold:C.border}`}}>{d.l}</button>
-              ))}
+              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
+                <button onClick={()=>setReqDay(TODAY)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TODAY?C.gold:"transparent",color:reqDay===TODAY?C.goldBg:C.muted}}>{T2("Today")} ({todayFnCount})</button>
+                <button onClick={()=>setReqDay(TOMORROW)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TOMORROW?C.gold:"transparent",color:reqDay===TOMORROW?C.goldBg:C.muted}}>{T2("Tomorrow")} ({tmrwFnCount})</button>
+              </div>
             </div>
 
             {issueLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading issue state…")}</div>}
 
-            {filtEvs.length===0&&!issueLoading&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events with recipe data for this period.")}</div>}
-
-            {/* ── EVENT VIEW ── */}
-            {issueMode==="event"&&Object.entries(evBags).map(([evId,{ev,sections}])=>{
-              const secEntries=Object.entries(sections).sort((a,b)=>a[0].localeCompare(b[0]));
-              const totalSec=secEntries.length;
-              const doneSec=secEntries.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
-              const isExpanded=issueExpEv===evId;
-              const evVs=venueStyle((ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||"");
-              const evCode=(ev.venue||"").replace(/ambria\s*/i,"").replace(/pushpanjali/i,"AP").replace(/exotica/i,"AE").replace(/manaktala|farm/i,"AM").replace(/restro/i,"AR").trim().split(" ")[0]||ev.venue||"";
-              const pct=totalSec>0?Math.round(doneSec/totalSec*100):0;
-
-              return(
-                <Card key={evId} style={{marginBottom:10,padding:0,overflow:"hidden",border:doneSec===totalSec&&totalSec>0?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
-                  {/* Event header */}
-                  <div onClick={()=>setIssueExpEv(isExpanded?null:evId)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:14,fontWeight:700,color:C.text}}>{ev.guest}</div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                        <span>{ev.pax} pax</span>
-                        <span style={{color:C.borderLight}}>|</span>
-                        <span>{ev.time||"TBD"}</span>
-                        {evCode&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:evVs.bg,color:evVs.color,fontWeight:600}}>{evCode}</span>}
-                      </div>
-                    </div>
-                    <div style={{textAlign:"center",flexShrink:0,marginLeft:12}}>
-                      <div style={{fontSize:15,fontWeight:700,color:doneSec===totalSec&&totalSec>0?C.green:C.amber}}>{doneSec}<span style={{fontSize:11,color:C.muted,fontWeight:400}}> / {totalSec}</span></div>
-                      <div style={{fontSize:10,color:C.muted}}>{T2("sections")}</div>
-                      <div style={{height:3,borderRadius:2,background:C.borderLight,marginTop:4,width:48}}>
-                        <div style={{height:3,borderRadius:2,background:doneSec===totalSec&&totalSec>0?C.green:C.amber,width:pct+"%",transition:"width .3s"}}/>
-                      </div>
-                    </div>
+            {/* Functions-combined strip */}
+            {dayEvs.length>0 ? (
+              <div style={{margin:"14px 0",padding:"12px 16px",borderRadius:14,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.gold,background:C.goldBg,padding:"5px 12px",borderRadius:20}}>🔗 {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} {T2("combined")}</div>
+                {dayEvs.map(ev=>(
+                  <div key={ev.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:20,background:C.bg,border:`1px solid ${C.border}`}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>{ev.guest}</span>
+                    <span style={{fontSize:11,color:C.faint}}>{ev.pax} {T2("pax")} · {ev.time||"TBD"}</span>
                   </div>
+                ))}
+                <div style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{dayEvs.reduce((s,e)=>s+(+e.pax||0),0)} {T2("pax total")}</div>
+              </div>
+            ) : (
+              <div style={{margin:"14px 0",padding:"36px 20px",borderRadius:14,background:C.surface,border:`1px dashed ${C.border}`,textAlign:"center",color:C.muted,fontSize:13}}>
+                {T2("No functions scheduled — nothing to prep or order yet.")}
+              </div>
+            )}
 
-                  {/* Sections inside event — grouped by which team actually
-                      issues/preps them. Store issues to three separate teams
-                      (Kitchen, Beverages, Fruits), not just Kitchen, so each
-                      gets its own collapsible group instead of one flat list. */}
-                  {isExpanded&&(()=>{
-                    const DEPT_GROUPS=[
-                      {key:"kitchen",label:T2("Kitchen"),icon:"👨‍🍳",match:s=>s!=="Beverages"&&s!=="Fruits"},
-                      {key:"beverages",label:T2("Beverages"),icon:"🥤",match:s=>s==="Beverages"},
-                      {key:"fruits",label:T2("Fruits"),icon:"🍓",match:s=>s==="Fruits"},
-                    ];
-                    const grouped=DEPT_GROUPS.map(g=>({...g,secs:secEntries.filter(([sec])=>g.match(sec))})).filter(g=>g.secs.length>0);
-                    return grouped.map(g=>{
-                      const gKey=evId+"::grp::"+g.key;
-                      const gExpanded=issueExpGroup===gKey;
-                      const gTotal=g.secs.length;
-                      const gDone=g.secs.filter(([sec,sObj])=>{const l=secIngList(sObj);return l.length>0&&secIssuedCount(evId,sec,l)===l.length;}).length;
-                      return(
-                        <div key={g.key} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                          {/* Dept-group header */}
-                          <div onClick={()=>setIssueExpGroup(gExpanded?null:gKey)} style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:C.bg}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8}}>
-                              <span style={{fontSize:15}}>{g.icon}</span>
-                              <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g.label}</span>
-                              <span style={{fontSize:11,color:C.muted}}>({g.secs.length} {T2("sections")})</span>
-                            </div>
-                            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                              <span style={{fontSize:12,fontWeight:600,color:gDone===gTotal&&gTotal>0?C.green:C.muted}}>{gDone}/{gTotal}</span>
-                              <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:gExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                            </div>
-                          </div>
+            {dayEvs.length>0 && rows.length===0 && (
+              <div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
+            )}
 
-                          {gExpanded&&g.secs.map(([sec,secObj])=>{
-                            const m=secObj.meta;
-                            const list=secIngList(secObj);
-                            const cnt=secIssuedCount(evId,sec,list);
-                            const allDone=cnt===list.length&&list.length>0;
-                            const secKey=evId+"::"+sec;
-                            const secExpanded=issueExpSec===secKey;
-
-                            return(
-                              <div key={sec} style={{borderTop:`1px solid ${C.borderLight}`}}>
-                                {/* Section header */}
-                                <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"11px 16px 11px 30px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                                  <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                                    <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                                    <span style={{fontSize:13,fontWeight:600,color:m.color}}>{T2(sec)}</span>
-                                    <VenueTag evId={evId} sec={sec}/>
-                                    {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                                  </div>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                    <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                                    <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                                  </div>
-                                </div>
-
-                                {/* Ingredient rows */}
-                                {secExpanded&&<div style={{padding:"0 16px"}}>
-                                  {list.map((ing,ii)=><IngRow key={ing.name} ing={ing} evId={evId} sec={sec} idx={ii} total={list.length}/>)}
-                                  {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                                    <div style={{padding:"6px 0 10px"}}>
-                                      <button onClick={()=>issueAllForSection(evId,sec,list)}
-                                        style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                        ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    });
-                  })()}
-                </Card>
-              );
-            })}
-
-            {/* ── COLLECTIVE VIEW ── */}
-            {issueMode==="collective"&&(()=>{
-              const collKeys=Object.keys(collBags).sort();
-              if(collKeys.length===0) return null;
-              return(
-                <div>
-                  <div style={{padding:"10px 14px",background:C.goldBg,borderRadius:10,border:`1px solid ${C.goldBorder}`,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:12,color:C.gold}}>ℹ {T2("Quantities merged across events. Issue marks apply to all contributing events.")}</span>
-                  </div>
-                  {collKeys.map(sec=>{
-                    const bag=collBags[sec];
-                    const m=bag.meta;
-                    const list=Object.values(bag.items).sort((a,b)=>b.totalQty-a.totalQty);
-                    const cnt=collIssuedCount(sec,list);
-                    const allDone=cnt===list.length&&list.length>0;
-                    const secKey="coll::"+sec;
-                    const secExpanded=issueExpSec===secKey;
-
-                    return(
-                      <Card key={sec} style={{marginBottom:10,padding:0,overflow:"hidden",border:allDone?`2px solid ${C.green}`:`1px solid ${C.border}`}}>
-                        <div onClick={()=>setIssueExpSec(secExpanded?null:secKey)} style={{padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:allDone?C.greenBg+"40":"transparent"}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                              <div style={{width:8,height:8,borderRadius:4,background:m.color,flexShrink:0}}/>
-                              <span style={{fontSize:13,fontWeight:700,color:m.color}}>{T2(sec)}</span>
-                              <span style={{fontSize:11,color:C.muted}}>{list.length} {T2("items")}</span>
-                              {(()=>{
-                                const codes=[...new Set(bag.events.map(ev=>issueAssignments[ev.id+"::"+sec]).filter(Boolean))];
-                                if(codes.length>0) return codes.map(c=>{const vs=venueStyle(c);return <span key={c} style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:vs.bg,color:vs.color,fontWeight:600}}>{c}</span>;});
-                                return <span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.amberBg,color:"#854F0B",fontWeight:600}}>⚠ {T2("assign")}</span>;
-                              })()}
-                              {allDone&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:10,background:C.greenBg,color:C.green,fontWeight:600}}>✓ {T2("done")}</span>}
-                            </div>
-                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>
-                              {bag.events.map(e=><span key={e.id} style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:C.bg,color:C.muted,border:`1px solid ${C.borderLight}`}}>{e.guest} ({e.pax}p)</span>)}
-                            </div>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8}}>
-                            <span style={{fontSize:12,fontWeight:600,color:allDone?C.green:C.muted}}>{cnt}/{list.length}</span>
-                            <span style={{fontSize:12,color:C.faint,transition:"transform .2s",transform:secExpanded?"rotate(90deg)":"rotate(0)"}}>▸</span>
-                          </div>
-                        </div>
-
-                        {secExpanded&&<div style={{padding:"0 16px",borderTop:`1px solid ${C.borderLight}`}}>
-                          {list.map((ing,ii)=>{
-                            /* In collective, issue across all events at once */
-                            const allEvIssued=bag.events.every(ev=>isIssued(ev.id,sec,ing.name));
-                            return(
-                              <div key={ing.name} style={{display:"grid",gridTemplateColumns:"1fr 72px 32px",gap:4,padding:"10px 0",borderBottom:ii<list.length-1?`1px solid ${C.borderLight}`:"none",alignItems:"center"}}>
-                                <div>
-                                  <div style={{fontSize:12,fontWeight:allEvIssued?400:600,color:allEvIssued?C.green:C.text,textDecoration:allEvIssued?"line-through":"none"}}>{ing.name}{ing.hindi?<span style={{fontSize:10,color:C.muted,marginLeft:4}}>({ing.hindi})</span>:""}</div>
-                                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{ing.evBreak.map(b=>b.evName+"("+fmtIssueQty(b.qty,ing.unit)+")").join(" + ")}</div>
-                                  {(()=>{
-                                    const isDirectInv=ing._type==='inv'&&!!ing.ops_inventory_id;
-                                    const stock=isDirectInv?getStockByInventoryId(ing.ops_inventory_id):getStockForIngredient(ing.name);
-                                    const isMapped=isDirectInv||!!ingredientMap[ing.name];
-                                    if(isMapped&&stock){var rSU=ing.totalQty*(stock.conversion||1);return <div style={{fontSize:10,color:stock.available>=rSU?C.green:stock.available>0?C.amber:C.red,marginTop:1}}>{T2("Stock")}: {stock.available} {stock.unit}{rSU>stock.available?" — "+T2("short")+" "+fmtIssueQty(rSU-stock.available,stock.unit):""}{stock.conversion!==1&&<span style={{fontSize:9,color:C.faint,marginLeft:4}}>(×{stock.conversion})</span>}</div>;}
-                                    if(!isMapped) return <div onClick={(e)=>{e.stopPropagation();setMapModalIng({name:ing.name,hindi:ing.hindi||"",unit:ing.unit});}} style={{fontSize:10,color:C.amber,cursor:"pointer",marginTop:1}}>⚠ {T2("Unlinked")} — <span style={{textDecoration:"underline"}}>{T2("link to store")}</span></div>;
-                                    return null;
-                                  })()}
-                                </div>
-                                <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:allEvIssued?C.green:C.text}}>{fmtIssueQty(ing.totalQty,ing.unit)}</div>
-                                <div onClick={async()=>{
-                                  for(const ev of bag.events){
-                                    await toggleIssueItem(ev.id,sec,{name:ing.name,hindi:ing.hindi,unit:ing.unit,totalQty:ing.evBreak.find(b=>b.evId===ev.id)?.qty||ing.totalQty},allEvIssued);
-                                  }
-                                }}
-                                  style={{width:26,height:26,borderRadius:8,border:`1.5px solid ${allEvIssued?C.green:C.border}`,background:allEvIssued?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}>
-                                  {allEvIssued&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {!allDone&&hasPerm(currentUser,"store.smart_issue")&&(
-                            <div style={{padding:"6px 0 10px"}}>
-                              <button onClick={async()=>{for(const ev of bag.events){await issueAllForSection(ev.id,sec,Object.values(bag.items).map(i=>({...i,totalQty:i.evBreak.find(b=>b.evId===ev.id)?.qty||i.totalQty})));}}}
-                                style={{width:"100%",padding:"10px",borderRadius:10,background:m.color,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>
-                                ✓ {T2("Issue All")} — {T2(sec)} ({list.length-cnt} {T2("remaining")})
-                              </button>
-                            </div>
-                          )}
-                        </div>}
-                      </Card>
-                    );
-                  })}
+            {dayEvs.length>0 && rows.length>0 && (
+              <>
+                {/* Summary chips */}
+                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.goldBg,color:C.gold}}>{rows.length} {T2("ingredient lines")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.redBg,color:C.red}}>⚠ {shortCount} {T2("short of stock")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.greenBg,color:C.green}}>{issuedCount} {T2("issued")}</div>
+                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.purpleBg,color:C.purple}}>{orderedRowCount} {T2("on order lists")}</div>
+                  <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
+                    style={{fontSize:12,fontWeight:700,color:C.text,background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer"}}>
+                    🔍 {T2("Find duplicates")}
+                  </button>
+                  <button onClick={()=>setTab("orderlists")} style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.gold,background:"transparent",border:"none",cursor:"pointer"}}>{T2("View Order Lists")} →</button>
                 </div>
-              );
-            })()}
 
-            {/* ── SHORTAGE SUMMARY ── */}
-            {(()=>{
-              const shortages = [];
-              const seenIng = {};
-              Object.values(evBags).forEach(({ev, sections})=>{
-                Object.entries(sections).forEach(([sec, secObj])=>{
-                  Object.values(secObj.items).forEach(ing=>{
-                    // 9D — inv-typed rows bypass ingredient_item_map, use their embedded ops_inventory_id directly
-                    let stock = null, opsItemId = null, opsItemName = null, invIdDirect = null;
-                    if (ing._type === 'inv' && ing.ops_inventory_id) {
-                      stock = getStockByInventoryId(ing.ops_inventory_id);
-                      if (!stock) return;
-                      opsItemId = stock.item._opsId || null;
-                      opsItemName = stock.item.name || ing.name;
-                      invIdDirect = ing.ops_inventory_id;
-                    } else {
-                      const mapping = ingredientMap[ing.name];
-                      if(!mapping) return;
-                      stock = getStockForIngredient(ing.name);
-                      if(!stock) return;
-                      opsItemId = mapping.ops_item_id;
-                      opsItemName = mapping.ops_item_name;
-                      invIdDirect = mapping.ops_inventory_id || null;
-                    }
-                    if(!seenIng[ing.name]){var _oi=allRecipeIngredients.find(function(a){return a.name===ing.name;});seenIng[ing.name]={name:ing.name,unit:ing.unit,origUnit:_oi?_oi.unit:ing.unit,storeUnit:stock.unit,opsItemId:opsItemId,opsItemName:opsItemName,ops_inventory_id:invIdDirect,required:0,available:stock.available,conversion:stock.conversion||1,eventIds:[],eventNames:[]};}
-                    var sMerged=addQtyWithUnitNorm({totalQty:seenIng[ing.name].required,unit:seenIng[ing.name].unit},ing.totalQty,ing.unit);
-                    seenIng[ing.name].required=sMerged.totalQty;
-                    seenIng[ing.name].unit=sMerged.unit;
-                    if(!seenIng[ing.name].eventIds.includes(ev.id)){seenIng[ing.name].eventIds.push(ev.id);seenIng[ing.name].eventNames.push(ev.guest);}
-                  });
-                });
-              });
-              Object.values(seenIng).forEach(s=>{
-                var recG=toGrams(s.required,s.unit);var stoG=toGrams(1,s.storeUnit);
-                if(recG!==null&&stoG!==null){s.required=recG/stoG;s.unit=s.storeUnit;}
-                else{var recM=toMl(s.required,s.unit);var stoM=toMl(1,s.storeUnit);
-                if(recM!==null&&stoM!==null){s.required=recM/stoM;s.unit=s.storeUnit;}
-                else{var oF=getUnitFamily(s.origUnit),aF=getUnitFamily(s.unit),adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;s.required=s.required*adj*(s.conversion||1);s.unit=s.storeUnit;}}
-                s.shortfall=Math.ceil(Math.max(0,s.required-s.available));
-                if(s.shortfall > 0) shortages.push(s);
-              });
-              shortages.sort((a,b)=>b.shortfall-a.shortfall);
-              if(!shortages.length) return null;
-              return(
-                <Card style={{padding:"14px 16px",marginTop:16,border:`1.5px solid ${C.redBorder}`,background:C.redBg}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700,color:C.red}}>⚠ {T2("Shortages")} — {shortages.length} {T2("items")}</div>
-                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Stock below required for")} {filtEvs.length} {T2("events")}</div>
-                    </div>
-                    
+                {/* Merge selection bar — same flow as Ingredient Map: tick 2+ rows' checkboxes to
+                    merge duplicate/similar ingredient names into one, across every recipe that uses them. */}
+                {Object.keys(ingSelected).length>0&&(
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.gold}`,marginBottom:12,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:600,color:"#854F0B"}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                    <div style={{flex:1}}/>
+                    <button onClick={()=>setIngSelected({})} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"transparent",color:"#854F0B",border:`1px solid ${C.gold}`,cursor:"pointer",fontWeight:600}}>{T2("Clear")}</button>
+                    <button disabled={Object.keys(ingSelected).length<2}
+                      onClick={()=>{
+                        const names = Object.keys(ingSelected);
+                        const first = allRecipeIngredients.find(i=>i.name===names[0]);
+                        setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
+                      }}
+                      style={{fontSize:11,padding:"6px 14px",borderRadius:8,background:Object.keys(ingSelected).length<2?C.border:C.gold,color:Object.keys(ingSelected).length<2?C.muted:C.goldBg,border:"none",cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer",fontWeight:700}}>
+                      🔗 {T2("Merge into one")}
+                    </button>
                   </div>
-                  <div style={{border:`1px solid ${C.redBorder}`,borderRadius:10,overflow:"hidden"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",background:C.red+"15",borderBottom:`1px solid ${C.redBorder}`}}>
-                      {[T2("Ingredient"),T2("Required"),T2("Stock"),T2("Short")].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase"}}>{h}</div>)}
-                    </div>
-                    {shortages.slice(0,20).map((s,idx)=>{
-                      const isExp=expandedShortage===s.name;
-                      const sopMatch=allRecipeIngredients.find(i=>i.name===s.name);
-                      const recipes=sopMatch?sopMatch.dishes:[];
-                      return(
-                      <div key={s.name}>
-                      <div onClick={()=>setExpandedShortage(isExp?null:s.name)} style={{display:"grid",gridTemplateColumns:"2fr 70px 70px 70px",padding:"6px 12px",borderBottom:(!isExp&&idx<Math.min(shortages.length,20)-1)?`1px solid ${C.redBorder}22`:"none",alignItems:"center",cursor:"pointer",background:isExp?C.red+"08":"transparent"}}>
-                        <div><div style={{fontSize:12,fontWeight:500,color:C.text}}>{isExp?"▾":"▸"} {s.name}</div><div style={{fontSize:10,color:C.muted}}>{s.eventNames.join(", ")}</div></div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtIssueQty(s.required,s.unit)}</div>
-                        <div style={{fontSize:12,fontWeight:600,color:C.amber}}>{fmtIssueQty(s.available,s.unit)}</div>
-                        <div style={{fontSize:12,fontWeight:700,color:C.red}}>−{fmtIssueQty(s.shortfall,s.unit)}</div>
+                )}
+
+                {/* Table */}
+                <div style={{border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",background:C.surface}}>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                      <thead>
+                        <tr style={{background:C.bg}}>
+                          <th style={{position:"sticky",left:0,background:C.bg,zIndex:2,textAlign:"left",padding:"6px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,minWidth:160,maxWidth:160}}>{T2("Item")}</th>
+                          <th style={{textAlign:"center",padding:"6px 6px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("UM")}</th>
+                          {stations.map(st=><th key={st.id} style={{textAlign:"right",padding:"6px 6px",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.2,borderBottom:`2px solid ${C.border}`,minWidth:50,whiteSpace:"normal",lineHeight:1.15}} title={st.name}>{st.icon} {st.name}</th>)}
+                          <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.text,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Total")}</th>
+                          <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Stock")}</th>
+                          <th style={{textAlign:"center",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`,borderLeft:`1px solid ${C.border}`,minWidth:110}}>{T2("Actions")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(row=>{
+                          const {isMapped, stock, requiredSU} = resolveStock(row);
+                          const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                          const done = rowIssued(row);
+                          const list = orderListFor(row.name);
+                          const pickerOpen = reqPicker===row.name;
+                          const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
+                          return (
+                            <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+                              <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160}} title={fullTitle}>
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <input type="checkbox" checked={!!ingSelected[row.name]}
+                                    onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
+                                    title={T2("Select to merge with other ingredients")}
+                                    style={{width:13,height:13,flexShrink:0,cursor:"pointer",accentColor:C.gold}}/>
+                                  <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
+                                </div>
+                              </td>
+                              <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
+                              {stations.map(st=>{
+                                const cell = row.byCat[st.name];
+                                return <td key={st.id} style={{textAlign:"right",padding:"3px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
+                              })}
+                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
+                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
+                                {!isMapped
+                                  ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:9.5,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
+                                  : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
+                              </td>
+                              <td style={{padding:"3px 8px",verticalAlign:"middle",borderLeft:`1px solid ${C.borderLight}`}}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
+                                  {done ? (
+                                    <div title={T2("Issued from store")} style={{width:24,height:24,borderRadius:7,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
+                                  ) : (
+                                    hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
+                                  )}
+                                  {list ? (
+                                    <span title={ORDER_LIST_META[list.list_key].label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:ORDER_LIST_META[list.list_key].bg,color:ORDER_LIST_META[list.list_key].color,whiteSpace:"nowrap",flexShrink:0}}>
+                                      {ORDER_LIST_META[list.list_key].icon}
+                                      <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
+                                    </span>
+                                  ) : pickerOpen ? (
+                                    <div style={{display:"flex",alignItems:"center",gap:2}}>
+                                      {Object.entries(ORDER_LIST_META).map(([key,meta])=>(
+                                        <button key={key} onClick={()=>addToOrderList(row,key)} title={meta.label} style={{width:22,height:22,borderRadius:6,cursor:"pointer",background:meta.bg,border:`1px solid ${meta.border}`,fontSize:11,lineHeight:1,padding:0}}>{meta.icon}</button>
+                                      ))}
+                                      <button onClick={()=>setReqPicker(null)} aria-label={T2("Cancel")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"0 1px"}}>×</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={()=>setReqPicker(row.name)} title={T2("Add to an order list")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── ORDER LISTS (Dairy / Grocery / Vegetable) ── */}
+      {tab==="orderlists"&&(()=>{
+        const grouped = {dairy:[],grocery:[],vegetable:[]};
+        orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
+          if(grouped[r.list_key]) grouped[r.list_key].push(r);
+        });
+        return(
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧺 {T2("Order Lists")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Items sent here from the Requirements sheet — split by what the buyer actually orders from.")}</div>
+
+            {orderListLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading…")}</div>}
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start"}}>
+              {Object.entries(ORDER_LIST_META).map(([key,meta])=>{
+                const list = grouped[key];
+                return (
+                  <Card key={key} style={{padding:0,overflow:"hidden"}}>
+                    <div style={{padding:"14px 16px",background:meta.bg,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:meta.color}}>
+                        <span>{meta.icon}</span><span>{T2(meta.label)}</span>
                       </div>
-                      {isExp&&<div style={{padding:"6px 12px 10px",background:C.red+"06",borderBottom:`1px solid ${C.redBorder}22`}}>
-                        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:4}}>Used in {recipes.length} SOP recipe{recipes.length!==1?"s":""}</div>
-                        {recipes.length?<div style={{display:"flex",flexWrap:"wrap",gap:4}}>{recipes.map(r=><span key={r} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:C.surface,border:`1px solid ${C.border}`,color:C.text}}>{r}</span>)}</div>
-                        :<div style={{fontSize:11,color:C.muted}}>No SOP recipe match found</div>}
-                      </div>}
-                      </div>);
-                    })}
-                    {shortages.length>20&&<div style={{padding:"6px 12px",fontSize:11,color:C.muted,textAlign:"center"}}>+{shortages.length-20} {T2("more")}</div>}
-                  </div>
-                </Card>
-              );
-            })()}
-
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
+                    </div>
+                    {list.length===0 && <div style={{padding:"30px 16px",textAlign:"center",color:C.muted,fontSize:12}}>{T2("Nothing added to this list yet.")}</div>}
+                    {list.map(item=>(
+                      <div key={item.order_date+item.ingredient_name} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,display:"flex",alignItems:"flex-start",gap:10}}>
+                        <button onClick={()=>toggleOrdered(item)} aria-label={T2("Mark ordered")} style={{width:20,height:20,flexShrink:0,marginTop:1,borderRadius:6,border:`1.5px solid ${item.ordered?meta.color:C.border}`,background:item.ordered?meta.color:"transparent",color:"#fff",fontSize:12,lineHeight:"17px",textAlign:"center",cursor:"pointer",padding:0}}>{item.ordered?"✓":""}</button>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:item.ordered?C.faint:C.text,textDecoration:item.ordered?"line-through":"none"}}>{item.ingredient_name} · {fmtIssueQty(item.qty,item.unit)}</div>
+                          <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("for")} {item.source||"—"} · {item.order_date}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                );
+              })}
             </div>
+          </div>
         );
       })()}
 
       {/* ── EVENT REQUIREMENTS ── */}
-      
+
 
       {/* ── INGREDIENT MAP (admin) ── */}
       {tab==="ingmap"&&(()=>{
@@ -1383,8 +1657,32 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   background:mapTabFilter===f.v?C.gold:C.bg,color:mapTabFilter===f.v?C.goldBg:C.muted,border:`1px solid ${mapTabFilter===f.v?C.gold:C.border}`}}>{f.l}</button>
               ))}
             </div>
-            <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
-              style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
+                style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
+                style={{padding:"10px 14px",borderRadius:10,background:C.surface,color:C.text,border:`1px solid ${C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                🔍 {T2("Find duplicates")}
+              </button>
+            </div>
+
+            {/* Merge selection bar — pick 2+ cards' checkboxes to merge duplicate/similar ingredient names into one, same idea as the dish-merge feature */}
+            {Object.keys(ingSelected).length>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.gold}`,marginBottom:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,fontWeight:600,color:"#854F0B"}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                <div style={{flex:1}}/>
+                <button onClick={()=>setIngSelected({})} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"transparent",color:"#854F0B",border:`1px solid ${C.gold}`,cursor:"pointer",fontWeight:600}}>{T2("Clear")}</button>
+                <button disabled={Object.keys(ingSelected).length<2}
+                  onClick={()=>{
+                    const names = Object.keys(ingSelected);
+                    const first = allRecipeIngredients.find(i=>i.name===names[0]);
+                    setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
+                  }}
+                  style={{fontSize:11,padding:"6px 14px",borderRadius:8,background:Object.keys(ingSelected).length<2?C.border:C.gold,color:Object.keys(ingSelected).length<2?C.muted:C.goldBg,border:"none",cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer",fontWeight:700}}>
+                  🔗 {T2("Merge into one")}
+                </button>
+              </div>
+            )}
 
             {/* Auto-link all suggestions button */}
             {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
@@ -1427,12 +1725,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ing.name}</div>
                       {ing.hindi&&<div style={{fontSize:11,color:C.muted}}>{ing.hindi}</div>}
-                      <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                      <div style={{fontSize:10,color:C.faint,marginTop:2,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
                         <span onClick={e=>{e.stopPropagation();setRecipesModalIng(ing);}}
                           style={{cursor:"pointer",color:C.gold,textDecoration:"underline",fontWeight:600}}
                           title={T2("Click to see which recipes use this ingredient")}>
                           {T2("Used in")} {ing.dishes.length} {T2("recipes")}
                         </span> · {T2("unit")}: {ing.unit}
+                        <button onClick={()=>setIngMergeModal({sources:[ing.name],target:ing.name,unit:ing.unit})}
+                          title={T2("Edit unit — updates every recipe using this ingredient")}
+                          style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"transparent",color:C.faint,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
                       </div>
 
                       {/* Mapped — show linked item */}
@@ -1486,10 +1787,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       )}
                     </div>
 
-                    {/* Right side — status indicator */}
-                    <div style={{flexShrink:0,width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
-                      background:isMapped?C.greenBg:C.amberBg}}>
-                      <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                    {/* Right side — merge checkbox + status indicator */}
+                    <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                      <input type="checkbox" checked={!!ingSelected[ing.name]}
+                        onChange={()=>setIngSelected(p=>{const n={...p};if(n[ing.name])delete n[ing.name];else n[ing.name]=true;return n;})}
+                        title={T2("Select to merge with other ingredients")}
+                        style={{width:16,height:16,cursor:"pointer",accentColor:C.gold}}/>
+                      <div style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
+                        background:isMapped?C.greenBg:C.amberBg}}>
+                        <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -1549,6 +1856,181 @@ function StoreModule({events, lang="en", currentUser=null}) {
           </div>
         </div>
       )}
+
+      {/* ── Merge ingredients modal — pick a canonical name + unit; rewrites every
+           recipes row's ingredients.items[] that used any selected name, and
+           carries the surviving store-item mapping forward. Also doubles as the
+           single-ingredient "edit unit" flow when sources.length===1. ── */}
+      {ingMergeModal&&(()=>{
+        const isSingle = ingMergeModal.sources.length===1;
+        const sourceUnits = Array.from(new Set(
+          ingMergeModal.sources.map(n=>(allRecipeIngredients.find(i=>i.name===n)?.unit||"").trim()).filter(Boolean)
+        ));
+        const unitOptions = Array.from(new Set([
+          ...(isSingle?ING_UNIT_CHOICES:sourceUnits),
+          (ingMergeModal.unit||"").trim(),
+        ].filter(Boolean)));
+        return(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>{if(!ingMerging)setIngMergeModal(null);}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:420,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{isSingle?T2("Edit Ingredient Unit"):T2("Merge Ingredients")}</div>
+              <div style={{fontSize:12,color:C.muted}}>
+                {isSingle
+                  ? T2("Changes the unit everywhere this ingredient is used across every SOP recipe.")
+                  : T2("Pick which name survives — every recipe using any of the others switches to it, with the unit below.")}
+              </div>
+            </div>
+            <div style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:12}}>
+              {!isSingle&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Merging")}</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {ingMergeModal.sources.map(n=>(
+                      <button key={n} onClick={()=>setIngMergeModal(m=>({...m,target:n,unit:(allRecipeIngredients.find(i=>i.name===n)?.unit)||m.unit}))}
+                        style={{fontSize:11,padding:"6px 10px",borderRadius:20,cursor:"pointer",fontWeight:600,
+                          background:ingMergeModal.target===n?C.gold:C.bg,color:ingMergeModal.target===n?C.goldBg:C.text,border:`1px solid ${ingMergeModal.target===n?C.gold:C.border}`}}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Canonical name")}</div>
+                <input value={ingMergeModal.target} onChange={e=>setIngMergeModal(m=>({...m,target:e.target.value}))}
+                  style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>{T2("Unit")}</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {unitOptions.map(u=>(
+                    <button key={u} onClick={()=>setIngMergeModal(m=>({...m,unit:u}))}
+                      style={{fontSize:11,padding:"6px 12px",borderRadius:20,cursor:"pointer",fontWeight:600,
+                        background:ingMergeModal.unit===u?C.gold:C.bg,color:ingMergeModal.unit===u?C.goldBg:C.text,border:`1px solid ${ingMergeModal.unit===u?C.gold:C.border}`}}>
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {!isSingle&&<div style={{fontSize:10,color:C.faint}}>{T2("The kept store-item link (if any) carries over; the others are dropped.")}</div>}
+            </div>
+            <div style={{padding:"10px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+              <button onClick={()=>setIngMergeModal(null)} disabled={ingMerging}
+                style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:ingMerging?"not-allowed":"pointer"}}>{T2("Cancel")}</button>
+              <button onClick={()=>performIngredientMerge(ingMergeModal.sources, ingMergeModal.target, ingMergeModal.unit)} disabled={ingMerging}
+                style={{flex:1,padding:"10px",borderRadius:10,background:ingMerging?C.border:C.gold,border:"none",color:ingMerging?C.muted:C.goldBg,fontSize:12,fontWeight:700,cursor:ingMerging?"not-allowed":"pointer"}}>
+                {ingMerging?T2("Saving..."):(isSingle?T2("Save unit"):T2("Merge"))}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ── Ingredient duplicate finder — same UX as Dish Library's "Find duplicates":
+           grouped by confidence, radio-pick a target per group, merge or skip. ── */}
+      {ingDedupOpen && (()=>{
+        const totalGroups = ingDedupClusters.length;
+        const resolvedCount = Object.keys(ingDedupResolved).length;
+        const skippedCount = Object.keys(ingDedupSkipped).length;
+        const remainingIdx = ingDedupClusters.map((_,i)=>i).filter(i=>!ingDedupResolved[i]&&!ingDedupSkipped[i]);
+        const highIdx = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='high');
+        const medIdx  = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='medium');
+        const allDone = totalGroups>0 && remainingIdx.length===0;
+        const nothingFound = totalGroups===0;
+
+        function renderIngCard(idx){
+          const c = ingDedupClusters[idx];
+          const target = ingDedupTargets[idx]||'';
+          const unit = ingDedupUnits[idx]||'';
+          const clusterUnits = c.items.map(d=>(d.unit||'').trim()).filter(Boolean);
+          const unitOptions = Array.from(new Set(clusterUnits.concat(ING_UNIT_CHOICES).concat(unit?[unit]:[])));
+          const saving = ingDedupSavingIdx===idx;
+          const disabled = ingDedupSavingIdx!=null && !saving;
+          return (
+            <div key={idx} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:10,background:C.bg}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>{T2(c.reason)}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+                {c.items.slice().sort((a,b)=>(b.dishes||[]).length-(a.dishes||[]).length).map(d=>{
+                  const isT = d.name===target;
+                  const uses = (d.dishes||[]).length;
+                  const isMapped = d.hasInv || !!ingredientMap[d.name];
+                  return (
+                    <label key={d.name} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:5,background:isT?C.greenBg:C.surface,border:`1px solid ${isT?C.greenBorder:C.border}`,cursor:disabled?"not-allowed":"pointer"}}>
+                      <input type="radio" name={"ingdedup-target-"+idx} checked={isT} disabled={disabled||saving}
+                        onChange={()=>pickIngDedupTarget(idx,d.name)} style={{margin:0,cursor:disabled?"not-allowed":"pointer"}}/>
+                      <span style={{fontSize:13,fontWeight:isT?700:500,color:C.text,flex:1}}>{d.name}</span>
+                      <span style={{fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:3,background:isMapped?C.greenBg:C.amberBg,color:isMapped?C.green:"#854F0B"}}>{isMapped?T2("MAPPED"):T2("UNMAPPED")}</span>
+                      {d.hindi&&<span style={{fontSize:11,color:C.muted}}>{d.hindi}</span>}
+                      <span style={{fontSize:11,color:uses===0?C.muted:C.text,minWidth:70,textAlign:"right"}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}>
+                <span style={{fontSize:10,color:C.muted}}>{T2("Unit")}:</span>
+                <select value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
+                  style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                  {!unitOptions.includes(unit)&&<option value={unit}>{unit||"—"}</option>}
+                  {unitOptions.map(u=><option key={u} value={u}>{u}</option>)}
+                </select>
+                <div style={{flex:1}}/>
+                <button onClick={()=>skipIngDedupCluster(idx)} disabled={saving||disabled}
+                  style={{padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
+                <button onClick={()=>mergeIngDedupCluster(idx)} disabled={saving||disabled||!target||!unit}
+                  style={{padding:"5px 12px",borderRadius:5,background:C.gold,border:"none",color:C.goldBg,fontSize:11,fontWeight:600,cursor:(saving||disabled||!target||!unit)?"not-allowed":"pointer",opacity:(saving||disabled||!target||!unit)?0.5:1}}>
+                  {saving?T2("Merging…"):T2('Merge into "')+target+'"'}
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div onClick={closeIngDedup} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:12,padding:20,maxWidth:720,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14,gap:10}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🔍 {T2("Find duplicates")}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>{totalGroups} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {skippedCount} {T2("skipped")} · {remainingIdx.length} {T2("remaining")}</div>
+                </div>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer",padding:4}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:"auto",marginBottom:14}}>
+                {nothingFound&&<div style={{textAlign:"center",padding:"40px 20px",color:C.muted,fontSize:13}}>{T2("No duplicate candidates found in the current ingredient list.")}</div>}
+                {allDone&&(
+                  <div style={{textAlign:"center",padding:"30px 20px"}}>
+                    <div style={{fontSize:40,marginBottom:8}}>✓</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{T2("All done")}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{resolvedCount} {T2("merged")} · {skippedCount} {T2("skipped")}</div>
+                    {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:12,padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
+                  </div>
+                )}
+                {!allDone&&highIdx.length>0&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("High confidence")} ({highIdx.length})</div>
+                    {highIdx.map(renderIngCard)}
+                  </div>
+                )}
+                {!allDone&&medIdx.length>0&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("Medium confidence")} ({medIdx.length})</div>
+                    {medIdx.map(renderIngCard)}
+                  </div>
+                )}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11,color:C.muted}}>
+                  {skippedCount>0&&!allDone&&<button onClick={resetIngDedupSkipped} style={{padding:"4px 10px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Reset skipped")} ({skippedCount})</button>}
+                </div>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{padding:"6px 14px",borderRadius:6,background:C.gold,border:"none",color:C.goldBg,fontSize:12,fontWeight:600,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>{T2("Close")}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Recipe list modal — shows which SOP recipes use this ingredient ── */}
       {recipesModalIng&&(

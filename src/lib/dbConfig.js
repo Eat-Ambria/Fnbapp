@@ -42,7 +42,13 @@ async function loadTable(table, fallback = [], transform = null) {
     const result = transform ? transform(data) : data;
     try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
     return result;
-  } catch {
+  } catch (e) {
+    // A silent fallback here means the app keeps running on a snapshot that
+    // can be arbitrarily stale — e.g. missing a dish added since the cache
+    // was last written — with zero visible sign anything is wrong. A hard
+    // refresh doesn't clear this: it's app-level localStorage, not HTTP
+    // cache, so the same stale snapshot just gets served again.
+    console.error(`[dbConfig] loadTable('${table}') fell back to cached snapshot:`, e);
     try {
       const cached = localStorage.getItem(cacheKey);
       return cached ? JSON.parse(cached) : fallback;
@@ -68,7 +74,11 @@ function transformMenuPackages(rows) {
   rows.filter(r => r.is_active !== false)
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .forEach(r => {
-        pkg[r.name] = typeof r.dishes === 'string' ? JSON.parse(r.dishes) : r.dishes;
+        try {
+          pkg[r.name] = typeof r.dishes === 'string' ? JSON.parse(r.dishes) : r.dishes;
+        } catch (e) {
+          console.error(`[dbConfig] menu_packages row skipped (name=${r.name}):`, e);
+        }
       });
   return pkg;
 }
@@ -87,19 +97,30 @@ function transformRecipes(rows) {
   // Components expect RECIPE_DB shape:
   //   { cats: [...], recipes: { halwai: [{n, sub, steps}], ... } }
   // We rebuild this from flat rows + recipe_categories
+  //
+  // One row's malformed steps/ingredients/yield JSON used to throw out of the
+  // whole forEach, aborting the ENTIRE table — every row not yet processed
+  // (including any dish added after whatever row was actually broken) never
+  // made it into byCat, and loadTable's catch then silently served the last
+  // good cached RECIPE_DB from before that dish existed. A single bad row
+  // must only cost that one row.
   const byCat = {};
   rows.forEach(r => {
-    if (!byCat[r.category_id]) byCat[r.category_id] = [];
-    byCat[r.category_id].push({
-      id: r.id,
-      n: r.dish_name,
-      n_hi: r.dish_name_hi || '',
-      sub: r.sub || '',
-      steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
-      ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),
-      yield: r.yield && typeof r.yield === 'string' ? JSON.parse(r.yield) : (r.yield || null),
-      bg: !!r.bg,
-    });
+    try {
+      if (!byCat[r.category_id]) byCat[r.category_id] = [];
+      byCat[r.category_id].push({
+        id: r.id,
+        n: r.dish_name,
+        n_hi: r.dish_name_hi || '',
+        sub: r.sub || '',
+        steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
+        ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),
+        yield: r.yield && typeof r.yield === 'string' ? JSON.parse(r.yield) : (r.yield || null),
+        bg: !!r.bg,
+      });
+    } catch (e) {
+      console.error(`[dbConfig] recipes row skipped (id=${r.id}, dish_name=${r.dish_name}):`, e);
+    }
   });
   return byCat;
 }
@@ -136,12 +157,16 @@ function transformAllocRules(rows) {
   // Components expect: { "Magnum Veg": {ref:[...], per100, per50}, ... }
   const rules = {};
   rows.forEach(r => {
-    const refData = typeof r.ref_data === 'string' ? JSON.parse(r.ref_data) : r.ref_data;
-    rules[r.menu_package] = {
-      ref: refData,
-      per100: r.per_100,
-      per50: r.per_50,
-    };
+    try {
+      const refData = typeof r.ref_data === 'string' ? JSON.parse(r.ref_data) : r.ref_data;
+      rules[r.menu_package] = {
+        ref: refData,
+        per100: r.per_100,
+        per50: r.per_50,
+      };
+    } catch (e) {
+      console.error(`[dbConfig] alloc_rules row skipped (menu_package=${r.menu_package}):`, e);
+    }
   });
   return rules;
 }

@@ -741,9 +741,12 @@ const KITCHEN_CSS = `
 .kh-stepkey:hover:not(:disabled) { background: ${K.sageBgHover} !important; }
 
 /* Menu-builder dish cards. Unscoped: that view takes over the window and is
-   not wrapped in .kh-scope. */
-.kh-dishcard { transition: transform .12s ease, box-shadow .12s ease; }
-.kh-dishcard:hover { transform: translateY(-2px); box-shadow: ${K.shadowLift} !important; }
+   not wrapped in .kh-scope. Same translateY-flicker risk as .kh-sopcard
+   (see its comment) — a cursor resting near the card's top edge moves out
+   from under it the instant the lift applies, dropping :hover and looping.
+   Shadow alone still reads as "lifted" without moving the box. */
+.kh-dishcard { transition: box-shadow .12s ease; }
+.kh-dishcard:hover { box-shadow: ${K.shadowLift} !important; }
 
 /* Proposal rows. Unscoped: this screen is not inside .kh-scope. */
 .kh-proprow { transition: background .14s ease; }
@@ -813,9 +816,14 @@ const KITCHEN_CSS = `
   align-items: start;
 }
 /* The card's own colours are inline, so every hover rule that repaints one
-   needs !important to win. Not on transform - nothing sets that inline. */
-.kh-scope .kh-sopcard { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-.kh-scope .kh-sopcard:hover { transform: translateY(-3px); border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
+   needs !important to win. Not on transform - nothing sets that inline.
+   translateY(-3px) used to be here too, but in this tightly-packed grid
+   (10px gap) lifting the card moved it out from under a stationary cursor,
+   dropping :hover, snapping it back down, and re-triggering :hover — an
+   infinite flicker as long as the mouse stayed still over a card. The
+   shadow/border change alone still reads as "lifted" without moving the box. */
+.kh-scope .kh-sopcard { transition: box-shadow .16s ease, border-color .16s ease; }
+.kh-scope .kh-sopcard:hover { border-color: ${K.brandBorder} !important; box-shadow: ${K.shadowLift} !important; }
 .kh-scope .kh-sopcard:hover .kh-sopgo { background: ${K.brand} !important; border-color: ${K.brand} !important; color: #FFFFFF !important; }
 /* The "..." button only appears on hover or focus, so 13 cards do not read as
    13 menus. Focus-within keeps it reachable from the keyboard. */
@@ -871,9 +879,11 @@ const KITCHEN_CSS = `
   gap: 12px;
 }
 
-/* Cards that respond to the pointer. Add .kh-lift to any card. */
-.kh-scope .kh-lift { transition: transform .18s var(--ease-luxury), box-shadow .18s var(--ease-luxury), border-color .18s ease; }
-.kh-scope .kh-lift:hover { transform: translateY(-2px); box-shadow: ${K.shadowLift} !important; border-color: ${K.lineStrong} !important; }
+/* Cards that respond to the pointer. Add .kh-lift to any card. Same
+   translateY-flicker risk as .kh-sopcard (see its comment above) — dropped
+   the position shift, kept shadow/border as the "lifted" cue. */
+.kh-scope .kh-lift { transition: box-shadow .18s var(--ease-luxury), border-color .18s ease; }
+.kh-scope .kh-lift:hover { box-shadow: ${K.shadowLift} !important; border-color: ${K.lineStrong} !important; }
 
 /* Stat tiles: a plain grey border change is invisible on a white card, so the
    hover picks up the accent border + an accent-tinted shadow. */

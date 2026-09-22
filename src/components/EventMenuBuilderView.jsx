@@ -354,9 +354,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   async function mirrorKitchenMenu(items) {
     var kitchenNames = items.filter(function(x){ return effectiveDeptForDish(x.dish_name) === 'kit'; }).map(function(x){ return x.dish_name; });
     try {
-      await supabase.from('events').update({ menu: kitchenNames }).eq('id', event.id);
+      var res = await supabase.from('events').update({ menu: kitchenNames }).eq('id', event.id);
+      if (res.error) throw res.error;
     } catch (e) {
       console.error('[EventMenuBuilder] mirrorKitchenMenu failed:', e);
+      alert(T2('Kitchen Hub menu sync failed — this dish list may not reach Kitchen Hub:') + ' ' + (e.message || e));
     }
   }
 
@@ -636,20 +638,28 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     // already knows its real department — it showed correctly under its
     // real dept AND bled into Kitchen's Extras as an unclaimed leftover
     // (see MenuBuilderView.jsx for the matching fix).
+    // V91 — this precedence must match effectiveDeptForDish/mirrorKitchenMenu
+    // exactly. It used to omit sectionOverrideDept: a dish tagged via a
+    // per-event section pill to e.g. a Fruits-dept section would still show
+    // (and be checkable) here under Kitchen by dishNameToPkgDept's catalogue
+    // mapping, while mirrorKitchenMenu — which DOES consult sectionOverrideDept
+    // first — routed it to Fruits and silently dropped it from events.menu.
+    // The dish looked correctly checked in Sales but never reached Kitchen
+    // Hub's production list.
     var base = allDishes.filter(function(d){
       var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
       var meta = salesMeta[d.name];
-      var dept = dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
     // Phantom (catalogue-missing) dishes used to always surface in Kitchen
     // regardless of which dept they actually belong to — now routed the
     // same way, so e.g. a missing Beverage dish's ⚠ warning shows under
     // Beverage, not Kitchen.
-    var phantomsForDept = phantomDishes.filter(function(p){ return (dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
+    var phantomsForDept = phantomDishes.filter(function(p){ return (sectionOverrideDept[p.name] || dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
     if (phantomsForDept.length > 0) return base.concat(phantomsForDept);
     return base;
-  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept]);
+  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept, sectionOverrideDept]);
 
   var templateDishesInDept = useMemo(function(){
     return templateInfo.dishes.filter(function(name){
@@ -1079,7 +1089,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               <div style={{ fontSize: 13 }}>{T2("Loading…")}</div>
             </div>
           ) : (
-            <FunctionPlanTab T2={T2} fp={fp} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
+            <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
           )}
         </div>
       )}

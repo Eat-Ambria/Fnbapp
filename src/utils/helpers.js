@@ -14,6 +14,22 @@ const DAY_AFTER = relDate(2);
 
 const LIVE_EVENTS_INIT = [];
 
+// TEMP policy filter — hide small Ambria Restro bookings app-wide, everywhere
+// events are read, until this is lifted. Applied at App.jsx's single source
+// of truth for the shared `events` array (initial load + realtime insert/
+// update), so every screen that reads it is covered without touching each
+// one individually — and removing this one predicate later reverses it
+// everywhere at once.
+// Some bookings carry the venue as the short code "AR" instead of the full
+// "Ambria Restro" name — match both (case/whitespace-insensitive) so neither
+// form slips through.
+var RESTRO_VENUE_VALUES = new Set(["ambria restro", "ar"]);
+function isHiddenSmallRestroBooking(ev) {
+  if (!ev) return false;
+  var v = String(ev.venue || "").trim().toLowerCase();
+  return RESTRO_VENUE_VALUES.has(v) && (Number(ev.pax) || 0) < 50;
+}
+
 function safeArr(v) { return Array.isArray(v) ? v : []; }
 function safeObj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
 function safeStr(v) { return typeof v === "string" ? v : String(v || ""); }
@@ -350,4 +366,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };

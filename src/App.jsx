@@ -18,7 +18,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr, mergeDishState } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr, mergeDishState, isHiddenSmallRestroBooking } from './utils/helpers.js';
 
 // Components
 import { K, type } from './utils/theme.js';
@@ -229,7 +229,11 @@ export default function App() {
             .catch(e=>console.error("ev soft-del:",e));
         }
       });
-      return next;
+      // TEMP: a manually-created/edited event that now matches the hidden
+      // criteria (see isHiddenSmallRestroBooking) still gets synced to
+      // Supabase above — just not kept in local state, same as the initial
+      // load and realtime paths.
+      return next.filter(function(e){ return !isHiddenSmallRestroBooking(e); });
     });
   };
 
@@ -419,7 +423,7 @@ export default function App() {
       // Use whatever Supabase returns (empty is fine — LMS sync will populate)
       // V72 soft-delete: filter tombstones on hydration so deleted events don't
       // flash back into the UI on refresh.
-      const finalEvents = (eventsData || []).filter(function(e){ return !e.is_deleted; });
+      const finalEvents = (eventsData || []).filter(function(e){ return !e.is_deleted && !isHiddenSmallRestroBooking(e); });
       setEvents_raw(finalEvents.map(e=>{
         let menu = e.menu;
         if (!Array.isArray(menu)) {
@@ -558,12 +562,15 @@ export default function App() {
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
         return {...raw,menuPackage:pkg,menu,extras:raw.extras||[],odc_location:raw.odc_location||null,odc_address:raw.odc_address||null,odc_contact_phone:raw.odc_contact_phone||null,odc_transport_cost:raw.odc_transport_cost||null,odc_lead:raw.odc_lead||null,site_recce:raw.site_recce||null,odc_menu_confirmed:raw.odc_menu_confirmed??false,custom_menu_confirmed:raw.custom_menu_confirmed??false,yield_multiplier:Number(raw.yield_multiplier)||1.0};
       }
-      // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state
+      // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state.
+      // TEMP: a small Ambria Restro booking (or one edited down below the pax
+      // threshold) is dropped from local state the same way a tombstone is —
+      // see isHiddenSmallRestroBooking.
       if(payload.eventType==='INSERT'&&payload.new){
         setEvents_raw(p=>{
           const existing=p.find(e=>e.id===payload.new.id);
           const ev=buildEv(existing);
-          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          if(ev.is_deleted||isHiddenSmallRestroBooking(ev)) return p.filter(e=>e.id!==ev.id);
           return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
         });
       }
@@ -571,7 +578,7 @@ export default function App() {
         setEvents_raw(p=>{
           const existing=p.find(e=>e.id===payload.new.id);
           const ev=buildEv(existing);
-          if(ev.is_deleted) return p.filter(e=>e.id!==ev.id);
+          if(ev.is_deleted||isHiddenSmallRestroBooking(ev)) return p.filter(e=>e.id!==ev.id);
           return existing?p.map(e=>e.id===ev.id?ev:e):[...p,ev];
         });
       }

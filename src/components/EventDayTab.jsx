@@ -224,6 +224,45 @@ function EventDayTab({
       return o;
     });
   }
+  // A dish shared by multiple functions on the same day only ever has ONE
+  // fEvId — the byDish build loop pins it to whichever function's menu added
+  // the dish first, never updating it when a second function shares it. Every
+  // call site below that re-derived kg from `todayEvs.find(dish.fEvId)` alone
+  // therefore silently dropped every other function's share (e.g. 26kg from
+  // function A + 11kg from function B read as 26kg). Sum each contributing
+  // function's own effKg from dish.fns instead — mirrors the fix already
+  // applied to the bg-demand injection loop lower in this file.
+  function sumEffKgAcrossFns(dishName, fns) {
+    const rec = findRecipeForDish(dishName);
+    const baseKg = rec?.ingredients?.base_yield?.kg || null;
+    if (!baseKg || !fns || !fns.length) return null;
+    const basePax = rec.ingredients.base_pax || 300;
+    let total = 0;
+    fns.forEach(fn => {
+      const ev = todayEvs.find(e => e.id === fn.evId);
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      const planned = Number(evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg) || null;
+      const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
+      total += (planned != null ? planned : defaultYield) * mult;
+    });
+    return total > 0 ? total : null;
+  }
+
+  // Same idea, for recipes with no base_yield.kg — the legacy pax-based scaling
+  // path has the identical single-fEvId bug. Sums each function's own pax*multiplier.
+  function sumAdjPaxAcrossFns(fns) {
+    if (!fns || !fns.length) return null;
+    let total = 0;
+    fns.forEach(fn => {
+      const ev = todayEvs.find(e => e.id === fn.evId);
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      total += Math.round(evPax * mult);
+    });
+    return total > 0 ? total : null;
+  }
+
   // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
   function aggSecIngredients(dishes) {
     const bucket = {}; let totalKg = 0;
@@ -242,14 +281,20 @@ function EventDayTab({
       const mult = Number(evObj.yield_multiplier) || 1.0;
       let ing = null, effKg = null;
       if (baseKg) {
-        const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
-        const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-        // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-        effKg = plannedKg ? plannedKg : defaultYield * mult;
+        const summedKg = sumEffKgAcrossFns(dish.name, dish.fns);
+        if (summedKg != null) {
+          effKg = summedKg;
+        } else {
+          const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+          const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+          // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+          effKg = plannedKg ? plannedKg : defaultYield * mult;
+        }
         ing = getIngrForYield(dish.name, effKg);
       }
       if (!ing || ing.length === 0) {
-        const adjPax = Math.round(pax * mult);
+        const summedPax = sumAdjPaxAcrossFns(dish.fns);
+        const adjPax = summedPax!=null ? summedPax : Math.round(pax * mult);
         ing = getIngrForDish(dish.name, adjPax || pax);
         effKg = null;
       }
@@ -397,27 +442,34 @@ function EventDayTab({
     secDishes.forEach(d => {
       const rec = findRecipeForDish(d.name);
       if (!rec?.ingredients?.items?.length) return;
-      const evObj = todayEvs.find(e => e.id === d.fEvId);
-      if (!evObj) return;
-      const pax = +evObj.pax || 0;
       const baseKg = rec.ingredients.base_yield?.kg || null;
       const basePax = rec.ingredients.base_pax || 300;
-      const mult = Number(evObj.yield_multiplier) || 1.0;
-      let bgs = [];
-      if (baseKg) {
-        const plannedKg = Number(evPlanRows?.[evObj.id]?.[d.name]?.target_yield_kg) || null;
-        const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-        const effKg = plannedKg ? plannedKg : defaultYield * mult;
-        bgs = getBgDemandForYield(d.name, effKg);
-      } else {
-        const adjPax = Math.round(pax * mult);
-        bgs = getBgDemandForDish(d.name, adjPax || pax);
-      }
-      bgs.forEach(b => {
-        if (!b.bgName || b.qty <= 0) return;
-        if (!bgDemand[b.bgName]) bgDemand[b.bgName] = { totalKg: 0, fns: [] };
-        bgDemand[b.bgName].totalKg += toKgEquiv(Number(b.qty) || 0, b.unit, b.bgName);
-        (d.fns || []).forEach(fn => {
+      // When 2+ functions share this dish today, d.fEvId only ever points at
+      // the FIRST one encountered while building byDish above — computing
+      // demand off that single event silently dropped every other
+      // function's contribution. d.fns already lists every contributing
+      // function; sum each one's own demand instead of reading just the
+      // anchor event's. Mirrors the same fix in KitchenHub.jsx's D-1 tab.
+      const contributingFns = (d.fns && d.fns.length > 0) ? d.fns : [{ evId: d.fEvId }];
+      contributingFns.forEach(fn => {
+        const evObj = todayEvs.find(e => e.id === fn.evId);
+        if (!evObj) return;
+        const pax = +evObj.pax || 0;
+        const mult = Number(evObj.yield_multiplier) || 1.0;
+        let bgs = [];
+        if (baseKg) {
+          const plannedKg = Number(evPlanRows?.[evObj.id]?.[d.name]?.target_yield_kg) || null;
+          const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+          const effKg = plannedKg ? plannedKg : defaultYield * mult;
+          bgs = getBgDemandForYield(d.name, effKg);
+        } else {
+          const adjPax = Math.round(pax * mult);
+          bgs = getBgDemandForDish(d.name, adjPax || pax);
+        }
+        bgs.forEach(b => {
+          if (!b.bgName || b.qty <= 0) return;
+          if (!bgDemand[b.bgName]) bgDemand[b.bgName] = { totalKg: 0, fns: [] };
+          bgDemand[b.bgName].totalKg += toKgEquiv(Number(b.qty) || 0, b.unit, b.bgName);
           if (!bgDemand[b.bgName].fns.some(x => x.evId === fn.evId)) bgDemand[b.bgName].fns.push(fn);
         });
       });
@@ -1157,15 +1209,22 @@ function EventDayTab({
                             const mult = Number(evObj.yield_multiplier) || 1.0;
 
                             if (baseKg) {
-                              const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
-                              const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-                              // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-                              effKg = plannedKg ? plannedKg : defaultYield * mult;
+                              const summedKg = sumEffKgAcrossFns(dish.name, dish.fns);
+                              let plannedKg = null;
+                              if (summedKg != null) {
+                                effKg = summedKg;
+                              } else {
+                                plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+                                const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
+                                // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
+                                effKg = plannedKg ? plannedKg : defaultYield * mult;
+                              }
                               ing = getIngrForYield(dish.name, effKg);
                               planned = !!plannedKg;
                             }
                             if (!ing || ing.length === 0) {
-                              const adjPax = Math.round(pax * mult);
+                              const summedPax = sumAdjPaxAcrossFns(dish.fns);
+                              const adjPax = summedPax!=null ? summedPax : Math.round(pax * mult);
                               ing = getIngrForDish(dish.name, adjPax || pax);
                               if (!baseKg) warn = 'no_base_yield';
                               effKg = null;

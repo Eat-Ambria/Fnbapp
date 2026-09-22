@@ -678,9 +678,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
   const [d1SecSort,     setD1SecSort]     = useState({});   // { [catId]: 'qty'|'name' }
 
-  // Load production_plans whenever the selected event changes
+  // Load production_plans whenever the selected event changes. Combined mode
+  // has no single event_id — it derives its own view from evPlanRows instead
+  // (already loaded for every event below), so skip this fetch entirely.
   useEffect(()=>{
-    if(!planEvId){ setPlanRows({}); setPlanDrafts({}); return; }
+    if(!planEvId || planEvId.startsWith('__combined__:')){ setPlanRows({}); setPlanDrafts({}); return; }
     let cancelled = false;
     setPlanLoading(true);
     supabase.from('production_plans').select('*').eq('event_id', planEvId).then(({data,error})=>{
@@ -700,6 +702,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // -- Sync yieldAdjustPct + yieldSavedPct UI from event.yield_multiplier when a Planning event is selected (Phase 3) --
   useEffect(()=>{
     if(!planEvId) return;
+    if(planEvId.startsWith('__combined__:')){
+      // No single event's multiplier applies to a combined day — start at
+      // 100% each time; Apply then writes it uniformly to every function.
+      setYieldAdjustPct(100);
+      setYieldSavedPct(100);
+      return;
+    }
     const ev = evList.find(e=>e.id===planEvId);
     if(!ev) return;
     const pct = Math.round((Number(ev.yield_multiplier)||1.0) * 100);
@@ -876,6 +885,43 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       alert('Failed to save yield for '+dish+(section?` (${section})`:'')+': '+(e.message||e));
     } finally {
       setPlanSaving(p=>{const s=new Set(p);s.delete(savingKey);return s;});
+    }
+  }
+
+  // Upsert/delete one production_plans row for a specific event — the write
+  // primitive combined-mode planning (Planning tab, saveYield) fans out into
+  // per-function, keeping evPlanRows (not the single-event planRows state) as
+  // the source of truth it updates, since a combined write can touch any
+  // number of events, not just whichever one planEvId currently points at.
+  async function saveProductionPlanRow(evObj, dish, num, recipe){
+    try{
+      if(num===null || num===undefined || isNaN(num) || num<=0){
+        const existing = evPlanRows?.[evObj.id]?.[dish];
+        if(existing){
+          const {error} = await supabase.from('production_plans').delete().eq('event_id',evObj.id).eq('dish_name',dish);
+          if(error) throw error;
+          setEvPlanRows(p=>{
+            if(!p[evObj.id]) return p;
+            const nextForEv = {...p[evObj.id]};
+            delete nextForEv[dish];
+            return {...p,[evObj.id]:nextForEv};
+          });
+        }
+        return;
+      }
+      const payload = {
+        event_id: evObj.id, event_date: evObj.date, venue: evObj.venue||"",
+        dish_name: dish, recipe_id: recipe?.id || null,
+        target_yield_kg: num, section_yields: null,
+        planned_by: currentUser?.name || currentUser?.id || 'Unknown',
+        status: 'draft'
+      };
+      const {data, error} = await supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
+      if(error) throw error;
+      if(data && data[0]) setEvPlanRows(p=>({...p, [evObj.id]:{...(p[evObj.id]||{}), [dish]: data[0]}}));
+    } catch(e){
+      console.error('[saveProductionPlanRow]', evObj.id, dish, e);
+      alert('Failed to save yield for '+dish+': '+(e.message||e));
     }
   }
 
@@ -1365,11 +1411,54 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       const ing = getIngrForYield(dishName, effKg, sectionFactors);
       if(ing && ing.length) return {ing, effKg, warn:null, planned:!!planned};
     }
-    // Fallback: no base_yield configured — legacy pax-based scaling, multiplier applied as pax bump
-    const adjPax = Math.round(evPax * mult);
+    // Fallback: no base_yield configured — legacy pax-based scaling, multiplier applied as pax bump.
+    // opts.overridePax carries the multi-function-summed pax when the caller has one (same idea as
+    // overrideKg above, just for recipes that were never given a base_yield.kg).
+    const adjPax = opts.overridePax!=null ? opts.overridePax : Math.round(evPax * mult);
     const ing = getIngrForDish(dishName, adjPax || evPax);
     if(ing && ing.length) return {ing, effKg:null, warn: baseKg ? null : 'no_base_yield', planned:false};
     return {ing:null, effKg:null, warn:null, planned:false};
+  }
+
+  // A regular (non-bg) dish shared by multiple functions on the same day only
+  // ever gets ONE fEvId — the byDish/byDishD1 build loop pins it to whichever
+  // function's menu added the dish first, and never updates it when a second
+  // function shares it. getScaledIngredients(dishName, dish.fEvId) therefore
+  // silently computed kg off that one function only, dropping every other
+  // function's share — the same bug already fixed for base-gravy pseudo-dishes
+  // (which carry their pre-summed demand via totalKg/overrideKg instead), just
+  // never applied to ordinary dishes. Sum each contributing function's own
+  // effKg here so callers can feed it through that same overrideKg path.
+  function sumEffKgAcrossFns(dishName, fns){
+    const rec = findRecipeForDish(dishName);
+    const baseKg = rec?.ingredients?.base_yield?.kg || null;
+    if(!baseKg || !fns || !fns.length) return null;
+    const basePax = rec.ingredients.base_pax || 300;
+    let total = 0;
+    fns.forEach(fn=>{
+      const ev = evById[fn.evId];
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      const planned = Number(evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg) || null;
+      const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
+      total += (planned!=null ? planned : defaultYield) * mult;
+    });
+    return total>0 ? total : null;
+  }
+
+  // Same idea as sumEffKgAcrossFns, for recipes that have no base_yield.kg —
+  // getScaledIngredients falls back to plain pax-based scaling for those, which
+  // had the identical single-fEvId bug. Sums each function's own pax*multiplier.
+  function sumAdjPaxAcrossFns(fns){
+    if(!fns || !fns.length) return null;
+    let total = 0;
+    fns.forEach(fn=>{
+      const ev = evById[fn.evId];
+      const mult = Number(ev?.yield_multiplier) || 1.0;
+      const evPax = Number(ev?.pax ?? fn.p) || 0;
+      total += Math.round(evPax * mult);
+    });
+    return total>0 ? total : null;
   }
 
   // `icon` names map to the inline-SVG set in KitchenUI.jsx — see PATHS there.
@@ -2307,7 +2396,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
           dishes.forEach(dish => {
             if (dish.eventDayOnly) return;
-            const {ing, effKg} = getScaledIngredients(dish.name, dish.fEvId);
+            // Base-gravy pseudo-dishes already carry the correctly-summed
+            // demand (across every function sharing them) as totalKg —
+            // re-deriving from a single fEvId here would undo that and go
+            // back to one function's worth. See getScaledIngredients's
+            // overrideKg path.
+            const {ing, effKg} = dish.isBaseGravy
+              ? getScaledIngredients(dish.name, dish.fEvId, { overrideKg: dish.totalKg })
+              : getScaledIngredients(dish.name, dish.fEvId, { overrideKg: sumEffKgAcrossFns(dish.name, dish.fns), overridePax: sumAdjPaxAcrossFns(dish.fns) });
             if (effKg) totalKg += effKg;
             if (!ing) return;
             ing.filter(i => i.q > 0).forEach(i => {
@@ -2491,52 +2587,60 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             const rec = findRecipeForDish(d.name);
             if (!rec?.ingredients?.items?.length) return;
             const baseKg = rec.ingredients.base_yield?.kg || null;
-            const ev = evById[d.fEvId];
-            const mult = Number(ev?.yield_multiplier) || 1.0;
-            const evPax = Number(ev?.pax) || 0;
-            let bgs = [];
-            if (baseKg) {
-              const planRow = evPlanRows?.[ev?.id]?.[d.name] || null;
-              const planned = Number(planRow?.target_yield_kg) || null;
-              const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
-              const effKg = (planned || defaultYield) * mult;
-              const sectionYieldsPlan = planRow?.section_yields || null;
-              let sectionFactors = null;
-              if (sectionYieldsPlan) {
-                const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
-                const acc = {};
-                recSections.forEach(sec=>{
-                  const planKg = Number(sectionYieldsPlan[sec.name]);
-                  if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
-                });
-                if (Object.keys(acc).length>0) sectionFactors = acc;
-              }
-              bgs = getBgDemandForYield(d.name, effKg, sectionFactors);
-            } else {
-              const adjPax = Math.round(evPax * mult);
-              bgs = getBgDemandForDish(d.name, adjPax || evPax);
-            }
-            bgs.forEach(b=>{
-              if (!b.bgName || b.qty <= 0) return;
-              const key = b.bgName;
-              if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
-              // V72: unit-aware conversion. kg/L → 1:1 (density assumption for chef
-              // signal); gm → /1000; ml → /1000. Non-mass/volume units (pcs, slice,
-              // tsp, tbsp, Bot, tin, bunch, dozen) are skipped from totalKg with
-              // a one-time console warning per key.
-              const bu = String(b.unit || 'kg').toLowerCase();
-              const bq = Number(b.qty) || 0;
-              let deltaKg = 0;
-              if (bu === 'kg' || bu === 'l')       deltaKg = bq;
-              else if (bu === 'gm' || bu === 'ml') deltaKg = bq / 1000;
-              else {
-                if (!bgDemand[key]._warned) {
-                  console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
-                  bgDemand[key]._warned = true;
+            // V92 — when 2+ functions share this dish on the same prep day,
+            // d.fEvId only ever points at the FIRST one encountered while
+            // building byDishD1 above; computing demand off that single event
+            // silently dropped every other function's contribution (Combined
+            // could show LESS gravy than one of its own component functions).
+            // d.fns already lists every contributing function — sum each
+            // one's own demand instead of reading just the anchor event's.
+            const contributingFns = (d.fns && d.fns.length > 0) ? d.fns : [{ evId: d.fEvId }];
+            contributingFns.forEach(fn=>{
+              const ev = evById[fn.evId];
+              const mult = Number(ev?.yield_multiplier) || 1.0;
+              const evPax = Number(ev?.pax ?? fn.p) || 0;
+              let bgs = [];
+              if (baseKg) {
+                const planRow = evPlanRows?.[fn.evId]?.[d.name] || null;
+                const planned = Number(planRow?.target_yield_kg) || null;
+                const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
+                const effKg = (planned || defaultYield) * mult;
+                const sectionYieldsPlan = planRow?.section_yields || null;
+                let sectionFactors = null;
+                if (sectionYieldsPlan) {
+                  const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+                  const acc = {};
+                  recSections.forEach(sec=>{
+                    const planKg = Number(sectionYieldsPlan[sec.name]);
+                    if(planKg>0 && sec.yield.kg>0) acc[sec.name] = (planKg * mult) / sec.yield.kg;
+                  });
+                  if (Object.keys(acc).length>0) sectionFactors = acc;
                 }
+                bgs = getBgDemandForYield(d.name, effKg, sectionFactors);
+              } else {
+                const adjPax = Math.round(evPax * mult);
+                bgs = getBgDemandForDish(d.name, adjPax || evPax);
               }
-              bgDemand[key].totalKg += deltaKg;
-              (d.fns||[]).forEach(fn=>{
+              bgs.forEach(b=>{
+                if (!b.bgName || b.qty <= 0) return;
+                const key = b.bgName;
+                if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, unit: b.unit || 'kg', fns: [] };
+                // V72: unit-aware conversion. kg/L → 1:1 (density assumption for chef
+                // signal); gm → /1000; ml → /1000. Non-mass/volume units (pcs, slice,
+                // tsp, tbsp, Bot, tin, bunch, dozen) are skipped from totalKg with
+                // a one-time console warning per key.
+                const bu = String(b.unit || 'kg').toLowerCase();
+                const bq = Number(b.qty) || 0;
+                let deltaKg = 0;
+                if (bu === 'kg' || bu === 'l')       deltaKg = bq;
+                else if (bu === 'gm' || bu === 'ml') deltaKg = bq / 1000;
+                else {
+                  if (!bgDemand[key]._warned) {
+                    console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
+                    bgDemand[key]._warned = true;
+                  }
+                }
+                bgDemand[key].totalKg += deltaKg;
                 if (!bgDemand[key].fns.some(x=>x.evId===fn.evId)) bgDemand[key].fns.push(fn);
               });
             });
@@ -2586,8 +2690,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 el.appendChild(s);
                 s.addEventListener("animationend", () => s.remove());
               };
-              const Seg = ({ segKey, sel, icon, title, meta, first, warn, externalCaterer }) => (
-                <button className={"kh-btn kh-seg"+(sel?" is-active":"")}
+              // Same fix as RecipeCard above: called as a plain function, not
+              // <Seg/> as a JSX element type — this whole component re-renders
+              // every second (the global tick), and an inline-defined
+              // component used as a JSX element gets a fresh type each render,
+              // forcing React to unmount/remount it every tick.
+              function Seg({ segKey, sel, icon, title, meta, first, warn, externalCaterer }){ return (
+                <button key={segKey} className={"kh-btn kh-seg"+(sel?" is-active":"")}
                   onClick={(e)=>{ fillUp(e); setD1FnFilter(segKey); }}
                   style={{
                     flex:"1 1 230px", minWidth:0, display:"flex", alignItems:"center", gap:14,
@@ -2609,19 +2718,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meta}</span>
                   </span>
                 </button>
-              );
+              );}
               return (
                 <div style={{display:"flex",flexWrap:"wrap",borderRadius:14,overflow:"hidden",border:`1px solid ${K.line}`,marginBottom:14,background:K.surface,boxShadow:K.shadowCard}}>
-                  <Seg segKey="combined" sel={isCombined} first icon="layers"
-                    title={T2("Combined")}
-                    meta={`${combinedPax} pax · ${d1Evs.length} ${T2("functions")}`}/>
-                  {d1Evs.map(ev=>(
-                    <Seg key={ev.id} segKey={ev.id} sel={d1FnFilter===ev.id} icon="users"
-                      warn={ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed}
-                      externalCaterer={!!ev.external_caterer}
-                      title={ev.guest||T2("Function")}
-                      meta={`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"} · ${describeEventMenu(ev)}`}/>
-                  ))}
+                  {Seg({segKey:"combined", sel:isCombined, first:true, icon:"layers",
+                    title:T2("Combined"),
+                    meta:`${combinedPax} pax · ${d1Evs.length} ${T2("functions")}`})}
+                  {d1Evs.map(ev=>Seg({segKey:ev.id, sel:d1FnFilter===ev.id, icon:"users",
+                      warn:ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed,
+                      externalCaterer:!!ev.external_caterer,
+                      title:ev.guest||T2("Function"),
+                      meta:`${ev.pax} pax · ${ev.odc_location||ev.venue||""} · ${ev.time||"TBD"} · ${describeEventMenu(ev)}`}))}
                 </div>
               );
             })()}
@@ -2738,7 +2845,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
                               return(
                                 <div style={{padding:"12px 20px 20px",borderTop:`1.5px solid ${C.border}`}}>
-                                  {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=getScaledIngredients(dish.name,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
+                                  {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=dish.isBaseGravy?getScaledIngredients(dish.name,dish.fEvId,{overrideKg:dish.totalKg}):getScaledIngredients(dish.name,dish.fEvId,{overrideKg:sumEffKgAcrossFns(dish.name,dish.fns),overridePax:sumAdjPaxAcrossFns(dish.fns)});if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
                                     <div style={{background:C.bg,borderRadius:10,padding:"12px 16px",marginBottom:14,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                       {warn==='no_base_yield'&&<div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:8,padding:"6px 10px",background:C.redBg,borderRadius:8,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Recipe missing base_yield — using legacy pax scaling. Chef must set base_yield in SOP.")}</div>}
                                       <div style={{fontSize:14,fontWeight:700,color:C.muted,marginBottom:8}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
@@ -2871,7 +2978,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           {isExp&&(()=>{
                             return(
                               <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
-                                {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=getScaledIngredients(dishName,dish.fEvId);if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
+                                {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=dish.isBaseGravy?getScaledIngredients(dishName,dish.fEvId,{overrideKg:dish.totalKg}):getScaledIngredients(dishName,dish.fEvId,{overrideKg:sumEffKgAcrossFns(dishName,dish.fns),overridePax:sumAdjPaxAcrossFns(dish.fns)});if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                     {warn==='no_base_yield'&&<div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:5,padding:"3px 6px",background:C.redBg,borderRadius:5,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Missing base_yield in SOP")}</div>}
                                     <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:5}}>📋 {T2("Ingredients for this dish")} — {yieldLbl}{planned?` — ${T2("planned")}`:effKg?` — ${T2("auto")}`:""}</div>
@@ -3226,7 +3333,18 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               };
               const isSelected=(recipe)=>sopSelected.has(recipe.n);
               const toggleSelected=(recipe)=>setSopSelected(p=>{const n=new Set(p);n.has(recipe.n)?n.delete(recipe.n):n.add(recipe.n);return n;});
-              const RecipeCard=({recipe,ri,isBg})=>{
+              // A plain function, called directly — NOT <RecipeCard/> as a JSX
+              // element type. Defining a component inline in a render body and
+              // using it as <RecipeCard/> gives React a brand-new component
+              // TYPE every render (a new function reference), so the global
+              // 1-second tick (line ~1299) that re-renders all of KitchenHub
+              // was force-unmounting and remounting every single recipe card
+              // once a second — visible as the whole card "blinking" whenever
+              // its hover styling (lost and re-applied on each remount) was
+              // on screen. Calling it as a function instead makes its JSX
+              // part of the parent's own tree, so identity is stable across
+              // re-renders and only the map's own key controls reconciliation.
+              function RecipeCard({recipe,ri,isBg}){
                 const ys=yieldStatus(recipe);
                 const pills=[];
                 if(ys){
@@ -3242,7 +3360,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const tint=isBg?K.warnBg:SOP_TINTS[ri%SOP_TINTS.length];
                 const steps=safeArr(recipe.steps).length;
                 return(
-                <div key={ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
+                <div key={(isBg?"bg":"n")+ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
                   backgroundColor:sel?K.brandBg:K.cardWarm,
                   border:`1px solid ${sel?K.brand:(isBg?K.warnBorder:K.cardWarmLine)}`,
                   borderRadius:16,boxShadow:K.shadowCard,boxSizing:"border-box"}}>
@@ -3334,7 +3452,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </div>
                   )}
                 </div>);
-              };
+              }
               return(
               <div>
                 {/* Toolbar — Back and Select on the left, Sort on the right. */}
@@ -3401,7 +3519,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>
                   <div className="kh-soprows" style={{marginBottom:20}}>
-                    {bgR.map((r,ri)=><RecipeCard key={"bg"+ri} recipe={r} ri={ri} isBg={true}/>)}
+                    {bgR.map((r,ri)=>RecipeCard({recipe:r, ri, isBg:true}))}
                   </div>
                 </>}
                 {nrmR.length>0&&<>
@@ -3411,7 +3529,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <span style={{flex:1,height:1,background:K.cardWarmLine,minWidth:10}}/>
                   </div>}
                   <div className="kh-soprows">
-                    {nrmR.map((r,ri)=><RecipeCard key={"n"+ri} recipe={r} ri={ri} isBg={false}/>)}
+                    {nrmR.map((r,ri)=>RecipeCard({recipe:r, ri, isBg:false}))}
                   </div>
                 </>}
                 {allR.length===0&&(
@@ -4879,11 +4997,53 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if(a.date!==b.date) return a.date.localeCompare(b.date);
             return (a.time||"").localeCompare(b.time||"");
           });
-        const selEv = planEvId ? upcomingEvs.find(e=>e.id===planEvId) : null;
+        // V93 — day-level combined planning: a day with several functions used
+        // to force the chef to plan each one separately with no shared view.
+        // planEvId can now also hold a "__combined__:<date>" sentinel, meaning
+        // "every function on this date" rather than one real event — selEv
+        // becomes a synthetic pax/menu-union stand-in, and writes fan out
+        // proportionally (by pax share) across the real contributing events
+        // instead of hitting one event_id. Everything downstream that reads
+        // selEv/dishes/planRows generically (bgDemand, stats, the dish list,
+        // the ingredient modal) works unchanged either way.
+        const COMBINED_PREFIX = '__combined__:';
+        const isCombinedId = id => typeof id==='string' && id.startsWith(COMBINED_PREFIX);
+        const combinedDateOf = id => id.slice(COMBINED_PREFIX.length);
+        const makeCombinedId = d => COMBINED_PREFIX+d;
+
+        const dateEvs = planEvId && isCombinedId(planEvId)
+          ? upcomingEvs.filter(e=>e.date===combinedDateOf(planEvId))
+          : (planSelDate ? upcomingEvs.filter(e=>e.date===planSelDate) : []);
+        const isCombinedMode = !!planEvId && isCombinedId(planEvId) && dateEvs.length>0;
+        const realSelEv = (planEvId && !isCombinedId(planEvId)) ? upcomingEvs.find(e=>e.id===planEvId) : null;
+        const combinedEv = isCombinedMode ? {
+          id: planEvId,
+          guest: dateEvs.length>1 ? dateEvs.length+" "+T2("functions combined") : (dateEvs[0].guest||T2("Function")),
+          pax: dateEvs.reduce((s,e)=>s+(+e.pax||0),0),
+          date: combinedDateOf(planEvId),
+          time: null,
+          venue: dateEvs.length>1 ? T2("Multiple venues") : (dateEvs[0].venue||""),
+          menu: Array.from(new Set(dateEvs.flatMap(e=>menuArr(e)))),
+        } : null;
+        const selEv = combinedEv || realSelEv;
         const dishes = selEv ? menuArr(selEv) : [];
         const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
         const fmtTime = t => (t||"").slice(0,5);
         const ctx = selEv ? {evId:selEv.id, evDate:selEv.date, venue:selEv.venue||""} : null;
+
+        // Which real events actually feed a given dish's combined number —
+        // menu-membership for a real dish, every function on the day for a
+        // base-gravy pseudo-dish (it isn't a literal menu item on anyone's menu).
+        function contributingEvsForDish(dish, isBg){
+          if(!isCombinedMode) return realSelEv ? [realSelEv] : [];
+          if(isBg) return dateEvs;
+          return dateEvs.filter(ev => menuArr(ev).includes(dish));
+        }
+        function autoKgForEv(dish, ev, st){
+          if(!st || !st.baseYield) return 0;
+          const bp = st.recipe?.ingredients?.base_pax || 300;
+          return (ev.pax||0)/bp * st.baseYield;
+        }
 
         // Group upcoming events by date for the <select> optgroups
         const evsByDate = upcomingEvs.reduce((acc,ev)=>{
@@ -4904,26 +5064,111 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
           return { state:baseYield?"ready":"noyield", color:baseYield?C.green:C.amber, recipe:found, catId, baseYield };
         }
 
+        // planRows (the hook state) is single-event-scoped, loaded for
+        // whichever real event planEvId last pointed at. In combined mode it
+        // doesn't apply — build an equivalent map instead, summing each
+        // contributing function's own override-or-auto share per dish, from
+        // evPlanRows (already loaded for every event — no extra fetch). Every
+        // dish gets an entry (__auto:true when nothing is pinned) so the auto
+        // suggestion shown is the correct day-aware total, not one function's.
+        //
+        // NOTE: deliberately named viewPlanRows, NOT planRows — a same-named
+        // local const here would shadow the hook state for this entire
+        // function scope (including above this line, in the TDZ), throwing
+        // "Cannot access 'planRows' before initialization" the moment this
+        // tab renders. Every read below that means "the current view's rows"
+        // must go through viewPlanRows; the bare hook state `planRows` is
+        // only ever read directly by savePlanYield/the load effect elsewhere.
+        const combinedPlanRows = {};
+        if(isCombinedMode){
+          const seen = new Set();
+          dishes.forEach(dish=>{
+            if(seen.has(dish)) return; seen.add(dish);
+            const st = dishStatus(dish);
+            const fns = contributingEvsForDish(dish, false);
+            if(fns.length===0) return;
+            let anyOverride=false, total=0;
+            fns.forEach(ev=>{
+              const row = evPlanRows?.[ev.id]?.[dish];
+              const overrideKg = Number(row?.target_yield_kg);
+              if(row && overrideKg>0){ anyOverride=true; total+=overrideKg; }
+              else total += autoKgForEv(dish, ev, st);
+            });
+            combinedPlanRows[dish] = { target_yield_kg: Math.round(total*10)/10, section_yields:null, __auto:!anyOverride };
+          });
+        }
+        const viewPlanRows = isCombinedMode ? combinedPlanRows : planRows;
+        // Combined mode's day-aware auto suggestion (falls back to the raw
+        // single-event formula's result when not in combined mode, or when a
+        // dish has no combined entry at all — e.g. nothing on the day's menus
+        // resolves it, which the raw formula also can't help with).
+        function daySuggested(dish, rawSuggested){
+          if(isCombinedMode && viewPlanRows[dish]?.__auto) return viewPlanRows[dish].target_yield_kg;
+          return rawSuggested;
+        }
+        function isRealOverride(dish){
+          return !!viewPlanRows[dish] && !viewPlanRows[dish].__auto;
+        }
+        // Same day-aware sum as daySuggested, for a recipe's per-section
+        // auto yield. Section-level overrides stay single-function-only
+        // (saveYield refuses a combined section write), but the AUTO number
+        // shown must still reflect only the functions that actually ordered
+        // this dish, not the whole day's pax.
+        function daySectionAutoKg(dish, basePax, secYieldKg){
+          const fns = contributingEvsForDish(dish, false);
+          if(fns.length===0) return 0;
+          return fns.reduce((s,ev)=>s+((ev.pax||0)/basePax*secYieldKg),0);
+        }
+
         // On-blur handler: save only if changed. Also skip if typed value equals auto suggestion (would create a redundant override).
         function onYieldBlur(dish, rowCtx){
           const draft = planDrafts[dish];
           if(draft===undefined) return;
           const draftStr = String(draft).trim();
-          const savedStr = String(planRows[dish]?.target_yield_kg ?? "");
+          const savedStr = String(isRealOverride(dish) ? (viewPlanRows[dish]?.target_yield_kg ?? "") : "");
           if(draftStr === savedStr) return;
           // If chef typed the exact auto suggestion and dish isn't already an override, don't create a redundant pin
-          if(!planRows[dish] && draftStr !== ""){
+          if(!isRealOverride(dish) && draftStr !== ""){
             const st = dishStatus(dish);
             if(st.baseYield){
               const bp = st.recipe?.ingredients?.base_pax || 300;
-              const autoKg = Math.round(selEv.pax/bp * st.baseYield * 10)/10;
+              const autoKg = Math.round(daySuggested(dish, selEv.pax/bp * st.baseYield) * 10)/10;
               if(draftStr === String(autoKg)){
                 setPlanDrafts(p=>{const c={...p};delete c[dish];return c;});
                 return;
               }
             }
           }
-          savePlanYield(dish, draft, rowCtx);
+          saveYield(dish, draft, rowCtx);
+        }
+
+        // Unified save: single-function mode behaves exactly as before
+        // (delegates straight to savePlanYield). Combined mode has no one
+        // event_id to write to — it distributes the entered total across
+        // every contributing function's OWN production_plans row, by that
+        // function's share of the combined pax for this dish, then each
+        // write updates evPlanRows (which combinedPlanRows is derived from)
+        // so the UI reflects it immediately. Per-section overrides aren't
+        // distributable this way — point the chef at a single function's tab.
+        async function saveYield(dish, rawVal, rowCtx, section){
+          if(!isCombinedMode) return savePlanYield(dish, rawVal, rowCtx, section);
+          if(section){ alert(T2("Switch to a single function's tab to set a per-section amount.")); return; }
+          const isBg = !!rowCtx?.isBaseGravy;
+          const fns = contributingEvsForDish(dish, isBg);
+          if(fns.length===0) return;
+          const totalFnsPax = fns.reduce((s,e)=>s+(+e.pax||0),0) || 1;
+          const trimmed = (rawVal==null?"":String(rawVal)).trim();
+          const num = trimmed==="" ? null : parseFloat(trimmed);
+          setPlanSaving(p=>{const s=new Set(p);s.add(dish);return s;});
+          try{
+            await Promise.all(fns.map(fn=>{
+              const share = (num===null||isNaN(num)) ? null : Math.round(num*(fn.pax/totalFnsPax)*10)/10;
+              return saveProductionPlanRow(fn, dish, share, rowCtx?.recipe);
+            }));
+            setPlanDrafts(p=>{const c={...p};delete c[dish];return c;});
+          } finally {
+            setPlanSaving(p=>{const s=new Set(p);s.delete(dish);return s;});
+          }
         }
 
         // Group dishes by section (RECIPE_DB.cats order). Store-mapped dishes are excluded (they're issued from store, not prepped).
@@ -4953,46 +5198,52 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // each gravy this event's whole menu needs and show it as its own
         // pseudo-dish, same mechanism Event Day / Prep Day already use, so
         // chefs can see (and pin) a target kg for it here too.
+        // Day-aware: sums each contributing function's own share instead of
+        // reading one flat selEv.pax — in single-function mode
+        // contributingEvsForDish returns just [selEv], so this collapses back
+        // to the original single-event math unchanged.
         const bgDemand = {};
         dishes.forEach(dishName=>{
           const rec = findRecipeForDish(dishName);
           if (!rec?.ingredients?.items?.length) return;
           const baseKg = rec.ingredients.base_yield?.kg || null;
-          let bgs = [];
-          if (baseKg) {
-            const planRow = planRows[dishName] || null;
-            const planned = Number(planRow?.target_yield_kg) || null;
-            const defaultYield = selEv.pax>0 ? (baseKg*selEv.pax/(rec.ingredients.base_pax||300)) : baseKg;
-            const effKg = planned || defaultYield;
-            const sectionYieldsPlan = planRow?.section_yields || null;
-            let sectionFactors = null;
-            if (sectionYieldsPlan) {
-              const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
-              const acc = {};
-              recSections.forEach(sec=>{
-                const planKg = Number(sectionYieldsPlan[sec.name]);
-                if(planKg>0 && sec.yield.kg>0) acc[sec.name]=planKg/sec.yield.kg;
-              });
-              if (Object.keys(acc).length>0) sectionFactors=acc;
+          contributingEvsForDish(dishName, false).forEach(ev=>{
+            let bgs = [];
+            if (baseKg) {
+              const planRow = evPlanRows?.[ev.id]?.[dishName] || null;
+              const planned = Number(planRow?.target_yield_kg) || null;
+              const defaultYield = ev.pax>0 ? (baseKg*ev.pax/(rec.ingredients.base_pax||300)) : baseKg;
+              const effKg = planned || defaultYield;
+              const sectionYieldsPlan = planRow?.section_yields || null;
+              let sectionFactors = null;
+              if (sectionYieldsPlan) {
+                const recSections = (rec.ingredients.items||[]).filter(i=>i.isSection && i.yield?.kg>0);
+                const acc = {};
+                recSections.forEach(sec=>{
+                  const planKg = Number(sectionYieldsPlan[sec.name]);
+                  if(planKg>0 && sec.yield.kg>0) acc[sec.name]=planKg/sec.yield.kg;
+                });
+                if (Object.keys(acc).length>0) sectionFactors=acc;
+              }
+              bgs = getBgDemandForYield(dishName, effKg, sectionFactors);
+            } else {
+              bgs = getBgDemandForDish(dishName, ev.pax);
             }
-            bgs = getBgDemandForYield(dishName, effKg, sectionFactors);
-          } else {
-            bgs = getBgDemandForDish(dishName, selEv.pax);
-          }
-          bgs.forEach(b=>{
-            if (!b.bgName || b.qty<=0) return;
-            const key = b.bgName;
-            if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, _warned:false };
-            const bu = String(b.unit||'kg').toLowerCase();
-            const bq = Number(b.qty)||0;
-            let deltaKg = 0;
-            if (bu==='kg'||bu==='l') deltaKg = bq;
-            else if (bu==='gm'||bu==='ml') deltaKg = bq/1000;
-            else if (!bgDemand[key]._warned) {
-              console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
-              bgDemand[key]._warned = true;
-            }
-            bgDemand[key].totalKg += deltaKg;
+            bgs.forEach(b=>{
+              if (!b.bgName || b.qty<=0) return;
+              const key = b.bgName;
+              if (!bgDemand[key]) bgDemand[key] = { totalKg: 0, _warned:false };
+              const bu = String(b.unit||'kg').toLowerCase();
+              const bq = Number(b.qty)||0;
+              let deltaKg = 0;
+              if (bu==='kg'||bu==='l') deltaKg = bq;
+              else if (bu==='gm'||bu==='ml') deltaKg = bq/1000;
+              else if (!bgDemand[key]._warned) {
+                console.warn(`[bg-demand] BG '${key}' uses non-mass/volume unit '${b.unit}' — skipped from totalKg`);
+                bgDemand[key]._warned = true;
+              }
+              bgDemand[key].totalKg += deltaKg;
+            });
           });
         });
         const bgItems = [];
@@ -5015,7 +5266,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if(resolveDishStore(d)) acc.fromStore++;
             else acc.unmapped++;
           }
-          else if(planRows[d]) acc.override++;
+          else if(isRealOverride(d)) acc.override++;
           else acc.auto++;
           return acc;
         },{auto:0,override:0,unmapped:0,fromStore:0});
@@ -5025,7 +5276,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             {/* Header */}
             <div style={{marginBottom:12}}>
               <div style={{fontSize:15,fontWeight:600,color:C.text}}>📋 {T2("Production Planning")}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick a date, then an event. Enter target yield (kg) per dish. Auto-saves as draft on blur.")}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick a date — every function that day plans together by default. Enter target yield (kg) per dish; it splits across functions by pax when saved. Switch to one function's tab only for a per-function override.")}</div>
             </div>
 
             {/* Calendar + selected-date event list, side by side */}
@@ -5055,7 +5306,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       <div style={{fontSize:13,fontWeight:600,color:C.text,minWidth:120,textAlign:"center"}}>{MO_FULL[planCalMo]} {planCalYr}</div>
                       <button onClick={nextMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
                     </div>
-                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(null);}} style={{padding:"4px 10px",borderRadius:7,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:10,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
+                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}} style={{padding:"4px 10px",borderRadius:7,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:10,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                     {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:600,color:C.muted,padding:"4px 0",background:C.bg}}>{d}</div>)}
@@ -5068,7 +5319,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const isSel = dt === planSelDate;
                       const vCols = [...new Set(evs2.map(e=>anaGp(e.venue).c))];
                       return(
-                        <div key={i} onClick={()=>{if(!dt)return;setPlanSelDate(isSel?null:dt);setPlanEvId(null);}}
+                        <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanEvId(makeCombinedId(dt));}}}
                           style={{height:40,padding:"3px 4px",cursor:dt?"pointer":"default",
                             borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
                             background:isSel?C.goldBg:isToday?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
@@ -5087,18 +5338,36 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
             {/* Selected date ? event cards — sits to the right of the calendar now that there's room */}
             {planSelDate && (()=>{
-              const dateEvs = upcomingEvs.filter(e=>e.date===planSelDate);
               if(dateEvs.length===0) return(
                 <div style={{flex:"1 1 320px",minWidth:280,padding:"14px 16px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.bg,fontSize:12,color:C.faint,textAlign:"center"}}>
                   {T2("No upcoming events on")} {fmtDate(planSelDate)}
                 </div>
               );
+              const combinedPax = dateEvs.reduce((s,e)=>s+(+e.pax||0),0);
+              const combinedDishCount = new Set(dateEvs.flatMap(e=>menuArr(e))).size;
+              const isCombinedSel = planEvId===makeCombinedId(planSelDate);
               return(
                 <div style={{flex:"1 1 320px",minWidth:280}}>
                   <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>
                     {fmtDate(planSelDate)} — {dateEvs.length} {T2("event")}{dateEvs.length!==1?"s":""}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {dateEvs.length>1 && (
+                      <button onClick={()=>setPlanEvId(isCombinedSel?null:makeCombinedId(planSelDate))}
+                        style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,padding:"14px 18px",borderRadius:12,cursor:"pointer",
+                          background:isCombinedSel?C.purple:C.purpleBg,color:isCombinedSel?"#fff":C.purple,
+                          border:`1.5px solid ${C.purple}`,minHeight:64,textAlign:"left",borderLeft:`4px solid ${C.purple}`}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{fontSize:15,fontWeight:700}}>🔗 {T2("Combined — all functions")}</div>
+                          <div style={{fontSize:12,opacity:.85,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+                            <span>📅 {dateEvs.length} {T2("functions")}</span>
+                            <span>👥 {combinedPax} {T2("pax")}</span>
+                            <span>🍽 {combinedDishCount} {T2("dishes")}</span>
+                          </div>
+                          <div style={{fontSize:11,opacity:.75,marginTop:3}}>{T2("Plan the whole day's output together, split by pax when saved")}</div>
+                        </div>
+                      </button>
+                    )}
                     {dateEvs.map(ev=>{
                       const isSel = planEvId===ev.id;
                       const vc = anaGp(ev.venue);
@@ -5153,7 +5422,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {dishes.length>0 && (()=>{
                   // Total = overrides + auto suggestions for every mapped dish (mirrors what ingredient calc uses)
                   const plannedKgTotal = dishes.reduce((s,d)=>{
-                    const override = Number(planRows[d]?.target_yield_kg);
+                    const override = Number(viewPlanRows[d]?.target_yield_kg);
                     if(override>0) return s+override;
                     const st = dishStatus(d);
                     if(!st.baseYield) return s;
@@ -5167,7 +5436,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     if(!planEvId || yieldSaving || !isDirty) return;
                     setYieldSaving(true);
                     const uiMult = yieldAdjustPct/100;
-                    supabase.from('events').update({yield_multiplier: uiMult}).eq('id', planEvId).then(({error})=>{
+                    // Combined mode has no single event to write to — apply the
+                    // same multiplier uniformly to every function on the day.
+                    const targetIds = isCombinedMode ? dateEvs.map(e=>e.id) : [planEvId];
+                    supabase.from('events').update({yield_multiplier: uiMult}).in('id', targetIds).then(({error})=>{
                       setYieldSaving(false);
                       if(error){ console.error('[yield_multiplier save]', error); alert((T2?T2("Failed to save yield: "):"Failed to save yield: ")+error.message); return; }
                       setYieldSavedPct(yieldAdjustPct);
@@ -5256,9 +5528,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const secFactors = {};
                         let sectionsTotalKg = 0;
                         recSections.forEach(sec=>{
-                          const secAutoRaw = Math.round(selEv.pax/basePax*sec.yield.kg*10)/10;
+                          const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg)*10)/10;
                           const secAutoScaled = Math.round(secAutoRaw*mult*10)/10;
-                          const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                          const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                           const isSecOverride = savedVal!=null && savedVal!=="";
                           const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                           sectionsTotalKg += (effKgSec||0);
@@ -5266,9 +5538,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         });
                         ingrList = getIngrForYield(it.dish, Math.round(sectionsTotalKg*10)/10, secFactors);
                       } else {
-                        const suggestedRaw = st.baseYield ? Math.round(selEv.pax/basePax*st.baseYield*10)/10 : null;
-                        const isOverride = !!planRows[it.dish];
-                        const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                        const suggestedRaw = st.baseYield ? daySuggested(it.dish, selEv.pax/basePax*st.baseYield) : null;
+                        const isOverride = isRealOverride(it.dish);
+                        const overrideKgRaw = isOverride ? viewPlanRows[it.dish]?.target_yield_kg : null;
                         const effKg = isOverride
                           ? (overrideKgRaw!=null ? Math.round(overrideKgRaw*mult*10)/10 : null)
                           : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
@@ -5377,23 +5649,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {dishes.length>0 && (
                   <div style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",background:C.bg,borderRadius:8,marginBottom:12,flexWrap:"wrap"}}>
                     <button onClick={async()=>{
-                      const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !planRows[d];});
+                      const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !isRealOverride(d);});
                       if(targets.length===0){ alert(T2("Nothing to accept — all mapped dishes are already pinned.")); return; }
                       if(!confirm(T2("Lock in auto values as explicit overrides for ")+targets.length+T2(" dish(es)?"))) return;
                       for(const d of targets){
                         const st = dishStatus(d);
                         const bp = st.recipe?.ingredients?.base_pax || 300;
-                        const suggested = Math.round(selEv.pax/bp * st.baseYield * 10)/10;
-                        await savePlanYield(d, suggested, {...ctx, recipe:st.recipe});
+                        const suggested = Math.round(daySuggested(d, selEv.pax/bp * st.baseYield) * 10)/10;
+                        await saveYield(d, suggested, {...ctx, recipe:st.recipe});
                       }
                     }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:C.surface,color:C.text,border:`1px solid ${C.border}`}}>✨ {T2("Accept all suggestions")}</button>
                     <button onClick={async()=>{
-                      const targets = dishes.filter(d=>planRows[d]);
+                      const targets = dishes.filter(d=>isRealOverride(d));
                       if(targets.length===0){ alert(T2("No overrides to clear.")); return; }
                       if(!confirm(T2("Clear all ")+targets.length+T2(" pinned override(s)? Dishes revert to auto values."))) return;
                       for(const d of targets){
                         const st = dishStatus(d);
-                        await savePlanYield(d, "", {...ctx, recipe:st.recipe});
+                        await saveYield(d, "", {...ctx, recipe:st.recipe});
                       }
                     }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:"transparent",color:C.muted,border:`1px solid ${C.border}`}}>↺ {T2("Clear overrides")}</button>
                     <div style={{flex:1}}></div>
@@ -5403,7 +5675,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
                 {/* Grouped sections */}
                 {orderedGroups.map(g=>{
-                  const overrideInGroup = g.items.filter(it=>planRows[it.dish]).length;
+                  const overrideInGroup = g.items.filter(it=>isRealOverride(it.dish)).length;
                   const autoInGroup = g.items.length - overrideInGroup;
                   return(
                     <div key={g.cat.id} style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
@@ -5435,9 +5707,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           if(useSections){
                             sectionFactors = {};
                             recSections.forEach(sec=>{
-                              const secAutoRaw = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg) * 10)/10;
                               const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
-                              const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                              const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                               const isSecOverride = savedVal!=null && savedVal!=="";
                               const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                               sectionsTotalKg += (effKgSec || 0);
@@ -5450,11 +5722,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const openIngrSectioned = () => { if(canOpenSectioned) setPlanIngrModal({dish: it.dish, effKg: sectionsTotalKg, mult: secMult, isOverride: anySectionOverridden, yieldAdjustPct: yieldAdjustPct, pax: selEv.pax, sectionFactors: sectionFactors}); };
                           if(useSections){
                             // Expand into N sub-rows, one per section. Same auto/pinned model as single-row.
+                            // Combined mode shows the day-aware auto number per section but the input is
+                            // read-only there — saveYield refuses a section write with no single event_id
+                            // to fan out against, so don't offer an edit that would silently no-op.
                             return recSections.map((sec,si)=>{
-                              const secAutoRaw = Math.round(selEv.pax/basePax * sec.yield.kg * 10)/10;
+                              const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg) * 10)/10;
                               const secAutoScaled = Math.round(secAutoRaw * secMult * 10)/10;
                               const draftKey = it.dish+"|"+sec.name;
-                              const savedVal = planRows[it.dish]?.section_yields?.[sec.name];
+                              const savedVal = isCombinedMode ? null : viewPlanRows[it.dish]?.section_yields?.[sec.name];
                               const isSecOverride = savedVal!=null && savedVal!=="";
                               const currentVal = planDrafts[draftKey] ?? (isSecOverride ? String(savedVal) : "");
                               const isSaving = planSaving.has(draftKey);
@@ -5467,18 +5742,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                       {mappedName && si===0 && <span>📖 {mappedName}</span>}
                                       {isSecOverride && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {secAutoScaled} kg</span>}
-                                      {!isSecOverride && <span>{selEv.pax} pax{secMult!==1?` · ${yieldAdjustPct}%`:""}</span>}
+                                      {!isSecOverride && <span>{isCombinedMode ? contributingEvsForDish(it.dish,false).reduce((s,e)=>s+(+e.pax||0),0) : selEv.pax} pax{secMult!==1?` · ${yieldAdjustPct}%`:""}</span>}
+                                      {isCombinedMode && <span style={{color:C.faint,fontStyle:"italic"}}>{T2("switch to one function to pin a section")}</span>}
                                     </div>
                                   </div>
                                   <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                                     <input type="number" step="any" inputMode="decimal" min="0"
                                       value={currentVal}
                                       onChange={e=>setPlanDrafts(p=>({...p,[draftKey]:e.target.value}))}
-                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}savePlanYield(it.dish, d, rowCtx, sec.name);}}
+                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}saveYield(it.dish, d, rowCtx, sec.name);}}
                                       onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                       placeholder={String(secAutoScaled)}
-                                      disabled={isSaving}
-                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:isSecOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isSecOverride?600:400,textAlign:"right",background:isSecOverride?C.surface:"transparent",color:C.text,opacity:isSaving?0.6:1}} />
+                                      disabled={isSaving||isCombinedMode}
+                                      title={isCombinedMode ? T2("Switch to one function to pin a section") : undefined}
+                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:isSecOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isSecOverride?600:400,textAlign:"right",background:isSecOverride?C.surface:"transparent",color:C.text,opacity:(isSaving||isCombinedMode)?0.6:1}} />
                                     <span style={{fontSize:10,color:C.muted}}>kg</span>
                                     {isSaving ? (
                                       <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:64}}>{T2("Saving")}...</span>
@@ -5494,18 +5771,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           }
                           // Single row: input is empty by default; placeholder shows auto suggestion (scaled by yield slider). Typing pins as override.
                           const mult = yieldAdjustPct/100;
-                          const suggestedRaw = it.isBaseGravy ? Math.round(it.demandKg * 10)/10 : (st.baseYield ? Math.round(selEv.pax/basePax * st.baseYield * 10)/10 : null);
+                          const suggestedRaw = it.isBaseGravy ? Math.round(it.demandKg * 10)/10 : (st.baseYield ? daySuggested(it.dish, selEv.pax/basePax * st.baseYield) : null);
                           const suggested = suggestedRaw!=null ? Math.round(suggestedRaw * mult * 10)/10 : null;
-                          const isOverride = !!planRows[it.dish];
-                          const overrideKgRaw = isOverride ? planRows[it.dish]?.target_yield_kg : null;
+                          const isOverride = isRealOverride(it.dish);
+                          const overrideKgRaw = isOverride ? viewPlanRows[it.dish]?.target_yield_kg : null;
                           const overrideEff = overrideKgRaw!=null ? Math.round(overrideKgRaw * mult * 10)/10 : null;
                           const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKgRaw ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
-                          const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); savePlanYield(it.dish, "", rowCtx); };
+                          const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); saveYield(it.dish, "", rowCtx); };
                           // V74: click dish name → open scaled ingredient modal
                           const effKg = isOverride ? overrideEff : suggested;
                           const canOpen = st.recipe && !!st.recipe?.ingredients?.items?.length && effKg != null;
                           const openIngr = () => { if (canOpen) setPlanIngrModal({dish: it.dish, effKg: effKg, mult: mult, isOverride: isOverride, yieldAdjustPct: yieldAdjustPct, pax: selEv.pax}); };
+                          const rowPax = isCombinedMode ? contributingEvsForDish(it.dish, it.isBaseGravy).reduce((s,e)=>s+(+e.pax||0),0) : selEv.pax;
                           return [(
                             <div key={i} style={{...rowStyle(isLastGroupRow),background:isOverride?C.purpleBg+"60":"transparent"}}>
                               <div onClick={openIngr} title={canOpen ? T2("View scaled ingredients") : undefined} style={{flex:"1 1 200px",minWidth:0,cursor:canOpen?"pointer":"default"}}>
@@ -5513,7 +5791,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
                                   {mappedName && <span>📖 {mappedName}</span>}
                                   {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
-                                  {!isOverride && suggested!=null && <span>{it.isBaseGravy ? T2("demand across this menu") : `${selEv.pax} ${T2("pax")}`}{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
+                                  {!isOverride && suggested!=null && <span>{it.isBaseGravy ? T2("demand across this menu") : `${rowPax} ${T2("pax")}`}{isCombinedMode && !it.isBaseGravy?` (${T2("of this dish's functions")})`:""}{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
                                   {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
                                 </div>
                               </div>

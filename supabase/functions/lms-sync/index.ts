@@ -475,15 +475,32 @@ Deno.serve(async (req) => {
       const batchIds = batch.map(e => e.id);
       const { data: existing, error: exErr } = await sb
         .from("events")
-        .select("id, menu, menu_package")
+        .select("id, menu, menu_package, custom_menu_confirmed")
         .in("id", batchIds);
       if (exErr) console.error(`Preserve fetch batch ${i} error:`, exErr);
       const customizedIds = new Set<string>();
       (existing || []).forEach((ex: any) => {
-        const hasCustomMenu =
-          (ex.menu_package === null || ex.menu_package === "") &&
-          Array.isArray(ex.menu) && ex.menu.length > 0;
-        if (hasCustomMenu) customizedIds.add(ex.id);
+        // V84: a row an admin has explicitly confirmed (KitchenHub's "Mark
+        // menu as built", sets custom_menu_confirmed=true) must stay
+        // protected forever, independent of what menu/menu_package happen
+        // to look like right now — the old heuristic below only inferred
+        // "customized" from menu_package being null/"" AND menu being
+        // non-empty, so a confirmed row with a still-empty menu (admin
+        // confirmed before finishing in Menu Editor, or menu_package was
+        // stamped "Custom"/"(Custom)" instead of "") fell through the gate
+        // on the very next sync: menu got reset to [] and, since nothing
+        // ever re-sets custom_menu_confirmed once it's true, the row LOOKED
+        // untouched but was actually blank again — exactly the "I confirmed
+        // this and it came back unconfirmed" report. custom_menu_confirmed
+        // is the authoritative "hands off" signal; check it first.
+        // Also broaden the package-name check to match Dashboard's own
+        // isCustom() definition (null/""/"(Custom)"/"Custom"), not just
+        // null/"" — Menu Editor can stamp any of those on a custom build.
+        const isConfirmed = ex.custom_menu_confirmed === true;
+        const pkg = ex.menu_package;
+        const isCustomPkgName = pkg === null || pkg === "" || pkg === "(Custom)" || pkg === "Custom";
+        const hasCustomMenu = isCustomPkgName && Array.isArray(ex.menu) && ex.menu.length > 0;
+        if (isConfirmed || hasCustomMenu) customizedIds.add(ex.id);
       });
 
       const safeRows = batch.filter((ev) => !customizedIds.has(ev.id));
