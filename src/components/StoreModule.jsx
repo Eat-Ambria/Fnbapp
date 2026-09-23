@@ -309,6 +309,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
   const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
   const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
+  const [ingDedupHoverKey, setIngDedupHoverKey] = useState(null); // "idx::name" of the "N recipes" label currently hovered — shows which recipes use it
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
   const [addingItem, setAddingItem] = useState(false);
 
@@ -1964,7 +1965,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       <span style={{fontSize:13,fontWeight:isT?700:500,color:C.text,flex:1}}>{d.name}</span>
                       <span style={{fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:3,background:isMapped?C.greenBg:C.amberBg,color:isMapped?C.green:"#854F0B"}}>{isMapped?T2("MAPPED"):T2("UNMAPPED")}</span>
                       {d.hindi&&<span style={{fontSize:11,color:C.muted}}>{d.hindi}</span>}
-                      <span style={{fontSize:11,color:uses===0?C.muted:C.text,minWidth:70,textAlign:"right"}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
+                      <span style={{position:"relative",display:"inline-block"}}
+                        onMouseEnter={()=>uses>0&&setIngDedupHoverKey(idx+"::"+d.name)}
+                        onMouseLeave={()=>setIngDedupHoverKey(null)}>
+                        <span style={{fontSize:11,color:uses===0?C.muted:C.text,minWidth:70,textAlign:"right",display:"inline-block",cursor:uses>0?"default":undefined,textDecoration:uses>0?"underline dotted":"none",textUnderlineOffset:2}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
+                        {ingDedupHoverKey===(idx+"::"+d.name)&&uses>0&&(
+                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",right:0,marginTop:4,zIndex:20,minWidth:180,maxWidth:260,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.15)",padding:"8px 10px"}}>
+                            <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
+                            {(d.dishes||[]).map((dn,dni)=>(
+                              <div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0"}}>{dn}</div>
+                            ))}
+                          </div>
+                        )}
+                      </span>
                     </label>
                   );
                 })}
