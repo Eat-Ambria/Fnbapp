@@ -581,6 +581,48 @@ const KITCHEN_CSS = `
   .kh-evrow > .kh-evwide { grid-column: 2; }
 }
 
+/* Menus-needing-confirmation table. Heads and rows share one template so a
+   column cannot drift from the heading that names it.
+   Tablet (1250px) drops Type and Package - they are the two a confirmer does
+   not need to see to decide, and the row is opened to fix them anyway. Below
+   900px the table stops being a table: five columns in that width leaves the
+   guest name about eight characters, so each row becomes a stacked block. */
+.kh-mchead, .kh-mcrow {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1.4fr) minmax(0, 1.1fr) minmax(0, .8fr) minmax(0, 1.2fr) 74px 66px 132px;
+  align-items: center;
+  gap: 14px;
+}
+@media (max-width: 1250px) {
+  .kh-mchead > :nth-child(4), .kh-mcrow > :nth-child(5),
+  .kh-mchead > :nth-child(5), .kh-mcrow > :nth-child(6) { display: none; }
+  .kh-mchead, .kh-mcrow {
+    grid-template-columns: 54px minmax(0, 1.5fr) minmax(0, 1.2fr) 74px 66px 132px;
+  }
+}
+@media (max-width: 900px) {
+  .kh-mchead { display: none; }
+  .kh-mcrow {
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+  /* Venue, pax and days wrap under the name rather than each taking a column
+     of their own; Actions keeps the right edge of the first row. */
+  .kh-mcrow > :nth-child(3) { grid-column: 2 / -1; }
+  .kh-mcrow > :nth-child(7) { grid-column: 2; text-align: left !important; }
+  .kh-mcrow > :nth-child(8) { grid-column: 3; }
+}
+
+/* The day's totals in the shell header. They drop out below 1150px rather than
+   wrapping: the header plate is one row, and a second row of tiles inside it
+   pushes the page title off the top of a tablet screen. */
+.kh-hdrkpi { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 1150px) { .kh-hdrkpi { display: none; } }
+
+/* A sortable column head is a button, so it needs to say so before it is
+   clicked - the caret alone is easy to miss at 10px. */
+.kh-sorth:hover { color: ${K.brand} !important; }
+
 /* The function form. Three columns, not two: eleven fields two-up ran past the
    bottom of the window and the dialog had to scroll, which on a form this short
    means half of it is always out of sight. Three fits the whole thing in one

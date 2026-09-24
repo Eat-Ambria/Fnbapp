@@ -1,5 +1,6 @@
 ﻿// Ambria FnB — Dashboard (light mode redesign)
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { C, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
@@ -127,7 +128,26 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
-  const [menuAlertGroups, setMenuAlertGroups] = useState({week:true, month:false, later:false});
+  // The unconfirmed-menu list is a sortable, filterable, paged table now, so it
+  // carries the state a table needs. Timeframe replaces the three collapsible
+  // buckets: they hid most of the list behind two closed headers.
+  const [mcSort, setMcSort] = useState({k:"date", dir:1});
+  const [mcFrame, setMcFrame] = useState("all");   // all | week | month | later
+  const [mcVenue, setMcVenue] = useState("All");
+  const [mcQuery, setMcQuery] = useState("");
+  const [mcPage, setMcPage] = useState(1);
+  const MC_PER_PAGE = 7;
+  // Clicking the column you are already sorting by flips the direction;
+  // clicking a different one starts that column ascending.
+  const setSortKey = k => setMcSort(p=>p.k===k?{k,dir:-p.dir}:{k,dir:1});
+  // The shell's header slot, where the day's totals sit. Looked up after mount
+  // because the shell has not committed the node on our first render.
+  // The set-state-in-effect rule exempts reading from an external system, which
+  // a DOM node owned by another component is; this is the same lookup
+  // KitchenHub and ProposalsView use for the same slot.
+  const [hdrSlot, setHdrSlot] = useState(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  React.useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, []);
   // "+237 more" used to be plain grey text that did nothing. Eight is two full
   // rows of the four-up grid, which is the right amount for a glance; this is
   // what makes the rest reachable.
@@ -138,6 +158,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const filtered = venFil==="All"?safeEvs:safeEvs.filter(e=>e.venue===venFil);
   const todayEvs = safeEvs.filter(e=>e.date===todayStr);
   const upcoming = filtered.filter(e=>e.date>todayStr).sort((a,b)=>a.date.localeCompare(b.date));
+  const upcomingShown = showAllUpcoming?upcoming:upcoming.slice(0,8);
+  // Largest headcount currently on screen, so each card's bar has a scale to be
+  // read against. Max with 1 so a list of zero-pax rows cannot divide by nothing.
+  const upcomingPeakPax = Math.max(1,...upcomingShown.map(e=>+e.pax||0));
   // The summary strip reads safeEvs, not `filtered`. "This month" used to be
   // venue-filtered while "FY total" was not, so picking AE moved one number and
   // left the other — two figures side by side counting different things.
@@ -363,6 +387,34 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
         </div>
       )}
 
+      {/* ── The day's totals, in the shell's header plate ──
+          Portalled into #kh-hdr-slot, the same slot Kitchen Hub uses for its
+          back button, so the figures sit on the title row rather than taking a
+          band of their own above the work. These are TODAY, unlike the strip
+          below which is the month and the financial year. */}
+      {hdrSlot&&createPortal((
+        <div className="kh-hdrkpi">
+          {[{n:todayEvs.length,l:T2("Functions today"),icon:"plate"},
+            {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),icon:"users"},
+            {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),icon:"utensils"}
+           ].map(s=>(
+            <div key={s.l} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
+              borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard}}>
+              <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
+                border:`1px solid ${K.sageBorder}`,color:K.brand,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name={s.icon} size={16} strokeWidth={1.8}/>
+              </span>
+              <div>
+                <div style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:K.hdrTitle,
+                  lineHeight:1,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
+                <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.l}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ), hdrSlot)}
+
       {/* ══ QUICK STATS ══
           First thing on the page: it is the context everything under it is
           read against, and at the foot nobody scrolled to it.
@@ -419,86 +471,214 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           return true;
         }).sort((a,b)=>a.date.localeCompare(b.date));
         if(unconfirmed.length===0) return null;
-        // Bucket by urgency
-        const buckets={week:[],month:[],later:[]};
-        unconfirmed.forEach(ev=>{
+
+        // ── filter → sort → page ──────────────────────────────────────────
+        // The three collapsible urgency buckets are gone. Two of them were
+        // closed by default, so most of the list was invisible and the counts
+        // in the headers were the only thing anyone read.
+        const q=mcQuery.trim().toLowerCase();
+        const rows=unconfirmed.filter(ev=>{
           const dd=daysDiff(ev.date);
-          if(dd<=7) buckets.week.push(ev);
-          else if(dd<=21) buckets.month.push(ev);
-          else buckets.later.push(ev);
+          if(mcFrame==="week"&&dd>7) return false;
+          if(mcFrame==="month"&&(dd<=7||dd>21)) return false;
+          if(mcFrame==="later"&&dd<=21) return false;
+          if(mcVenue!=="All"&&ev.venue!==mcVenue) return false;
+          if(q&&!(`${ev.guest||""} ${ev.venue||""} ${ev.odc_location||""}`.toLowerCase().includes(q))) return false;
+          return true;
         });
-        // Urgency is the only thing separating these three groups, so it is
-        // carried by one tone each rather than a dot in one palette and a
-        // button border in another.
-        const groupDef=[
-          {k:"week", label:"This week", fg:K.danger, bg:K.dangerBg, border:K.dangerBorder},
-          {k:"month", label:"Next 2 weeks", fg:K.warn, bg:K.warnBg, border:K.warnBorder},
-          {k:"later", label:"Later", fg:K.hdrMeta, bg:"#FFFFFF", border:K.cardWarmLine},
-        ];
+        const val=(ev,k)=>k==="guest"?String(ev.guest||"").toLowerCase()
+          :k==="venue"?String(ev.venue||"").toLowerCase()
+          :k==="pax"?(+ev.pax||0)
+          // "in" and "date" order identically — days-away is a function of the
+          // date — so both sort on the date and stay consistent with each other.
+          :String(ev.date||"");
+        const sorted=[...rows].sort((a,b)=>{
+          const x=val(a,mcSort.k), y=val(b,mcSort.k);
+          return (x<y?-1:x>y?1:0)*mcSort.dir;
+        });
+        const pages=Math.max(1,Math.ceil(sorted.length/MC_PER_PAGE));
+        // Filtering can strand the viewer past the end of a shorter list, so
+        // the page is clamped on read rather than reset by an effect.
+        const page=Math.min(mcPage,pages);
+        const from=(page-1)*MC_PER_PAGE;
+        const pageRows=sorted.slice(from,from+MC_PER_PAGE);
+        const sortBtn=(k,label,align)=>(
+          <button onClick={()=>setSortKey(k)} className="kh-sorth"
+            style={{display:"inline-flex",alignItems:"center",gap:5,background:"none",border:"none",padding:0,
+              cursor:"pointer",font:"inherit",color:"inherit",letterSpacing:"inherit",
+              textTransform:"inherit",justifyContent:align==="right"?"flex-end":"flex-start",width:"100%"}}>
+            {label}
+            <span style={{display:"flex",opacity:mcSort.k===k?1:.32,
+              transform:mcSort.k===k&&mcSort.dir<0?"rotate(180deg)":"none"}}>
+              <Icon name="chevronD" size={11} strokeWidth={2.6}/>
+            </span>
+          </button>
+        );
+        const FRAMES=[{k:"all",l:T2("All dates")},{k:"week",l:T2("This week")},{k:"month",l:T2("Next 2 weeks")},{k:"later",l:T2("Later")}];
         return(
-          <div style={{marginBottom:18}}>
-            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10,paddingLeft:2,color:K.danger}}>
-              <Icon name="alert" size={16} strokeWidth={2}/>
-              <span style={{...type.label,fontSize:11,letterSpacing:.7,color:K.hdrTitle}}>
+          <div style={{marginBottom:18,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+            borderRadius:18,boxShadow:K.shadowCard,overflow:"hidden"}}>
+            {/* ── Section header: what it is, and the controls over it ── */}
+            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"15px 18px"}}>
+              <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.dangerBg,
+                border:`1px solid ${K.dangerBorder}`,color:K.danger,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="alert" size={17} strokeWidth={2}/>
+              </span>
+              <span style={{...type.label,fontSize:11.5,letterSpacing:.7,color:K.hdrTitle,whiteSpace:"nowrap"}}>
                 {unconfirmed.length} {unconfirmed.length===1?T2("menu needs confirmation"):T2("menus need confirmation")}
               </span>
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+                <select value={mcFrame} onChange={e=>{setMcFrame(e.target.value);setMcPage(1);}}
+                  className="kh-planinput"
+                  style={{padding:"8px 12px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,
+                    background:"#FFFFFF",fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,
+                    color:K.textBody,cursor:"pointer"}}>
+                  {FRAMES.map(f=><option key={f.k} value={f.k}>{f.l}</option>)}
+                </select>
+                {["All",...VENUES].map(v=>{
+                  const on=mcVenue===v, c=v==="All"?null:gp(v).c;
+                  return(
+                    <button key={v} onClick={()=>{setMcVenue(v);setMcPage(1);}} className={on?undefined:"kh-calnav"}
+                      style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:999,
+                        fontFamily:K.fontBody,fontSize:12.5,fontWeight:on?700:600,cursor:"pointer",
+                        background:on?K.brand:"#FFFFFF",color:on?"#FFFFFF":K.textBody,
+                        border:`1px solid ${on?K.brand:K.cardWarmLine}`,whiteSpace:"nowrap"}}>
+                      {c&&<span style={{width:7,height:7,borderRadius:"50%",background:c,flexShrink:0}}/>}
+                      {v==="All"?T2("All"):(VP[v]||{}).code||v.slice(0,3)}
+                    </button>
+                  );
+                })}
+                <span style={{position:"relative",display:"inline-flex",alignItems:"center"}}>
+                  <span style={{position:"absolute",left:13,display:"flex",color:K.textFaint,pointerEvents:"none"}}>
+                    <Icon name="search" size={14} strokeWidth={1.9}/>
+                  </span>
+                  <input value={mcQuery} onChange={e=>{setMcQuery(e.target.value);setMcPage(1);}}
+                    placeholder={T2("Search guest or venue…")} className="kh-planinput"
+                    style={{width:210,padding:"8px 13px 8px 34px",borderRadius:999,
+                      border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                      fontFamily:K.fontBody,fontSize:12.5,color:K.hdrTitle}}/>
+                </span>
+              </div>
             </div>
-            {groupDef.map(g=>{
-              const list=buckets[g.k];
-              if(list.length===0) return null;
-              const open=!!menuAlertGroups[g.k];
+
+            {/* ── Column heads ── */}
+            <div className="kh-mchead" style={{background:"#F4F2EC",
+              borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,
+              padding:"10px 18px 10px 22px",...type.label,fontSize:10,color:K.hdrMeta}}>
+              {sortBtn("date",T2("Date"))}
+              {sortBtn("guest",T2("Guest name"))}
+              {sortBtn("venue",T2("Venue"))}
+              <span>{T2("Type")}</span>
+              <span>{T2("Package")}</span>
+              {sortBtn("pax",T2("Pax"),"right")}
+              {sortBtn("in",T2("In"),"right")}
+              <span style={{textAlign:"right"}}>{T2("Actions")}</span>
+            </div>
+
+            {/* ── Rows ── */}
+            {pageRows.length===0&&(
+              <div style={{padding:"28px 18px",textAlign:"center",fontFamily:K.fontBody,
+                fontSize:13,color:K.hdrMeta,background:"#FFFFFF"}}>
+                {T2("No menus match these filters.")}
+              </div>
+            )}
+            {pageRows.map(ev=>{
+              const isODC=ev.venue==="Outdoor Catering (ODC)";
+              const dd=daysDiff(ev.date);
+              const p=gp(ev.venue);
+              // The urgency that used to be a bucket heading is now a spine on
+              // the row itself, so it travels with the function instead of
+              // living in a header two rows up.
+              const spine=dd<=7?K.danger:dd<=21?K.warn:K.ok;
               return(
-                <div key={g.k} style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
-                  borderRadius:16,marginBottom:8,overflow:"hidden",boxShadow:K.shadowCard}}>
-                  <div onClick={()=>setMenuAlertGroups(p=>({...p,[g.k]:!p[g.k]}))}
-                       className="kh-secrow"
-                       style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                         padding:"13px 18px",cursor:"pointer",userSelect:"none",gap:12}}>
-                    <div style={{display:"flex",gap:11,alignItems:"center",minWidth:0}}>
-                      <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,
-                        fontWeight:700,background:g.bg,color:g.fg,border:`1px solid ${g.border}`,whiteSpace:"nowrap"}}>{T2(g.label)}</span>
-                      <span style={{fontFamily:K.fontBody,fontSize:13,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
-                        {list.length} {list.length===1?T2("menu"):T2("menus")}
-                      </span>
+                <div key={ev.id||`${ev.guest}-${ev.date}`} className="kh-mcrow"
+                  style={{borderTop:`1px solid ${K.lineSoft}`,background:"#FFFFFF",
+                    padding:"11px 18px 11px 22px",position:"relative"}}>
+                  <span style={{position:"absolute",left:0,top:0,bottom:0,width:4,background:spine}}/>
+                  {evDateTile(ev.date,p)}
+                  <div style={{minWidth:0}}>
+                    <div style={{fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:K.hdrTitle,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</div>
+                    <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:3,
+                      fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta}}>
+                      <Icon name="clock" size={12} strokeWidth={1.9}/>{(VP[ev.venue]||{}).code||"EV"} · {ev.time}
                     </div>
-                    <span style={{color:K.textFaint,display:"flex",flexShrink:0,
-                      transform:open?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
-                      <Icon name="chevronD" size={16} strokeWidth={2.1}/>
+                  </div>
+                  <div style={{minWidth:0,display:"inline-flex",alignItems:"center",gap:6,
+                    fontFamily:K.fontBody,fontSize:12.5,color:K.textBody}}>
+                    <span style={{color:p.c,display:"flex",flexShrink:0}}><Icon name="building" size={13} strokeWidth={1.9}/></span>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {isODC?(ev.odc_location||T2("Location TBD")):ev.venue}
                     </span>
                   </div>
-                  {open&&list.map(ev=>{
-                    const isODC=ev.venue==="Outdoor Catering (ODC)";
-                    const dd=daysDiff(ev.date);
-                    const locLine=isODC?(ev.odc_location||"Location TBD"):ev.venue;
-                    const urgent=dd<=1;
-                    return(
-                      <div key={ev.id||`${ev.guest}-${ev.date}`}
-                        style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,
-                          padding:"11px 18px",borderTop:`1px solid ${K.lineSoft}`,background:"#FFFFFF"}}>
-                        <div style={{display:"flex",gap:12,alignItems:"center",minWidth:0,flex:1}}>
-                          <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,minWidth:52,
-                            flexShrink:0,fontVariantNumeric:"tabular-nums"}}>{ev.date.slice(5)}</span>
-                          <span style={{fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:K.hdrTitle,
-                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isODC?"🏕 ":""}{ev.guest}</span>
-                          <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,
-                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{locLine} · {ev.pax} {T2("pax")}</span>
-                          {urgent&&<span style={{padding:"3px 9px",borderRadius:999,fontFamily:K.fontBody,fontSize:11,
-                            fontWeight:700,background:K.dangerBg,color:K.danger,border:`1px solid ${K.dangerBorder}`,
-                            whiteSpace:"nowrap",flexShrink:0}}>{daysLabel(dd)}</span>}
-                        </div>
-                        <button onClick={()=>openEdit(ev)} className="kh-calnav"
-                          style={{display:"inline-flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:999,
-                            background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,
-                            fontFamily:K.fontBody,fontSize:12,fontWeight:600,cursor:"pointer",
-                            whiteSpace:"nowrap",flexShrink:0}}>
-                          {T2("Confirm")}<Icon name="chevronR" size={13} strokeWidth={2.2}/>
-                        </button>
-                      </div>
-                    );
-                  })}
+                  <div style={{fontFamily:K.fontBody,fontSize:12.5,color:K.textBody,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.type||"—"}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontFamily:K.fontBody,fontSize:12.5,color:K.textBody,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{describeEventMenu(ev)}</div>
+                    {ev.lms_source&&<span style={{...badgeStyle(K.hdrMeta,"#FFFFFF",K.cardWarmLine),marginTop:5}}>LMS</span>}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:K.fontBody,fontSize:18,fontWeight:700,color:K.hdrTitle,
+                      lineHeight:1.1,letterSpacing:"-0.4px",fontVariantNumeric:"tabular-nums"}}>{ev.pax}</div>
+                    <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta}}>{T2("pax")}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <span style={dd<=1
+                      ? badgeStyle(K.danger,K.dangerBg,K.dangerBorder)
+                      : {fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
+                      {daysLabel(dd)}
+                    </span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+                    <button onClick={()=>openEdit(ev)} className="kh-calnav"
+                      style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 15px",borderRadius:999,
+                        background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,
+                        fontFamily:K.fontBody,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {T2("Confirm")}<Icon name="chevronR" size={13} strokeWidth={2.2}/>
+                    </button>
+                  </div>
                 </div>
               );
             })}
+
+            {/* ── Pagination ── */}
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
+              padding:"12px 18px",borderTop:`1px solid ${K.cardWarmLine}`}}>
+              <span style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
+                {sorted.length===0
+                  ? T2("Nothing to show")
+                  : `${T2("Showing")} ${from+1}–${Math.min(from+MC_PER_PAGE,sorted.length)} ${T2("of")} ${sorted.length}`}
+              </span>
+              {pages>1&&(
+                <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+                  <button onClick={()=>setMcPage(Math.max(1,page-1))} disabled={page===1}
+                    aria-label={T2("Previous page")} className={page===1?undefined:"kh-calnav"}
+                    style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",
+                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                      color:page===1?K.textFaint:K.textBody,cursor:page===1?"not-allowed":"pointer"}}>
+                    <Icon name="chevronL" size={14} strokeWidth={2.2}/>
+                  </button>
+                  {Array.from({length:pages},(_,i)=>i+1).map(n=>(
+                    <button key={n} onClick={()=>setMcPage(n)} className={n===page?undefined:"kh-calnav"}
+                      style={{minWidth:30,height:30,padding:"0 9px",borderRadius:999,
+                        fontFamily:K.fontBody,fontSize:12.5,fontWeight:n===page?700:600,cursor:"pointer",
+                        background:n===page?K.brand:"#FFFFFF",color:n===page?"#FFFFFF":K.textBody,
+                        border:`1px solid ${n===page?K.brand:K.cardWarmLine}`,fontVariantNumeric:"tabular-nums"}}>
+                      {n}
+                    </button>
+                  ))}
+                  <button onClick={()=>setMcPage(Math.min(pages,page+1))} disabled={page===pages}
+                    aria-label={T2("Next page")} className={page===pages?undefined:"kh-calnav"}
+                    style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",
+                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                      color:page===pages?K.textFaint:K.textBody,cursor:page===pages?"not-allowed":"pointer"}}>
+                    <Icon name="chevronR" size={14} strokeWidth={2.2}/>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -679,7 +859,7 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           })}
         </div>
         <div className="kh-evgrid">
-          {(showAllUpcoming?upcoming:upcoming.slice(0,8)).map(ev=>{
+          {upcomingShown.map(ev=>{
             const p=gp(ev.venue);const dd=daysDiff(ev.date);
             // D-1 status for tomorrow's events
             const isD1 = dd===1;
@@ -757,6 +937,15 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                     : {fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
                     {daysLabel(dd)}
                   </span>
+                </div>
+                {/* Headcount against the largest on screen. The number alone
+                    tells you 325 is bigger than 60 but not by how much at a
+                    glance; scanning a row of cards for the big ones is the
+                    reason to look at this list at all. */}
+                <div style={{height:5,background:K.lineSoft,borderRadius:999,overflow:"hidden",marginTop:-4}}
+                  title={`${ev.pax} ${T2("pax")}`}>
+                  <div style={{height:"100%",borderRadius:999,background:p.c,
+                    width:Math.max(4,Math.round((+ev.pax||0)/upcomingPeakPax*100))+"%"}}/>
                 </div>
               </div>
             );
