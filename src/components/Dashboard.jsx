@@ -159,10 +159,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   });
   // The date tile. Tinted by venue, which is the only place the venue's colour
   // appears in a row other than its spine.
-  const evDateTile = (dateStr,p) => {
+  const evDateTile = (dateStr,p,cls) => {
     const d = new Date(dateStr+"T00:00");
     return(
-      <div style={{width:54,height:54,borderRadius:14,background:p.bg,flexShrink:0,
+      <div className={cls} style={{width:54,height:54,borderRadius:14,background:p.bg,flexShrink:0,
         display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
         <div style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:p.c,lineHeight:1,
           fontVariantNumeric:"tabular-nums"}}>{d.getDate()}</div>
@@ -296,18 +296,74 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   return (
     <div>
       {/* ── Delete modal ── */}
-      {deleteId&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"#fff",borderRadius:14,padding:"22px 26px",maxWidth:320,textAlign:"center",boxShadow:"0 8px 32px rgba(0,0,0,.12)"}}>
-            <div style={{fontSize:16,fontWeight:500,color:C.text,marginBottom:14}}>Delete this function?</div>
-            <div style={{fontSize:13,color:C.muted,marginBottom:16}}>{(safeEvs.find(e=>e.id===deleteId)||{}).guest}</div>
-            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-              <button onClick={()=>delEv(deleteId)} style={{padding:"8px 20px",borderRadius:8,background:"#D64040",color:"#fff",border:"none",fontSize:13,fontWeight:500,cursor:"pointer"}}>Delete</button>
-              <button onClick={()=>setDeleteId(null)} style={{padding:"8px 20px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>Cancel</button>
+      {deleteId&&(()=>{
+        // This dialog was still on the old cool-grey tokens while the Edit
+        // modal right below it had moved to the warm system — two dialogs a
+        // line apart in the same file looking like two different apps.
+        const del = safeEvs.find(e=>e.id===deleteId) || {};
+        const dp = gp(del.venue);
+        return(
+        <div style={{position:"fixed",inset:0,background:K.modalScrim,zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{position:"relative",background:K.modalBg,borderRadius:K.modalRadius,
+            border:`1px solid ${K.modalLine}`,width:"100%",maxWidth:420,overflow:"hidden",
+            boxShadow:K.shadowLift,padding:"24px 26px"}}>
+            <ModalWatermark/>
+            <div style={{position:"relative",zIndex:1}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:15}}>
+                <span style={{width:46,height:46,borderRadius:14,flexShrink:0,background:K.dangerBg,
+                  border:`1px solid ${K.dangerBorder}`,color:K.danger,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="trash" size={21} strokeWidth={1.9}/>
+                </span>
+                <div style={{minWidth:0}}>
+                  <div style={{...type.sectionHead,fontSize:23,fontWeight:700,color:K.hdrTitle}}>
+                    {T2("Delete this function?")}
+                  </div>
+                  <div style={{...type.body,fontSize:13,color:K.hdrMeta,marginTop:3}}>
+                    {T2("This cannot be undone.")}
+                  </div>
+                </div>
+              </div>
+              {/* Which function, spelled out. A name on its own is not enough
+                  to act on when two guests share one — deleting the wrong
+                  booking is not something a second click can take back. */}
+              <div style={{marginTop:16,padding:"13px 15px",borderRadius:14,background:"#FFFFFF",
+                border:`1px solid ${K.cardWarmLine}`,display:"flex",alignItems:"center",gap:13}}>
+                {del.date&&evDateTile(del.date,dp)}
+                <div style={{minWidth:0}}>
+                  <div style={{fontFamily:K.fontBody,fontSize:14.5,fontWeight:700,color:K.hdrTitle,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {del.guest||T2("Function")}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,
+                    fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,minWidth:0}}>
+                    <span style={{width:7,height:7,borderRadius:"50%",background:dp.c,flexShrink:0}}/>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {del.venue||"—"}{del.time?` · ${del.time}`:""}{del.pax?` · ${del.pax} ${T2("pax")}`:""}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              {/* Cancel first and Delete last, so the destructive one is not
+                  where the thumb lands by reflex. */}
+              <div style={{display:"flex",gap:11,justifyContent:"flex-end",marginTop:20}}>
+                <button onClick={()=>setDeleteId(null)} className="kh-calnav"
+                  style={{padding:"11px 22px",borderRadius:999,background:"#FFFFFF",
+                    border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                    fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>
+                <button onClick={()=>delEv(deleteId)} className="kh-rip" onPointerDown={ripple}
+                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"11px 22px",borderRadius:999,
+                    background:K.danger,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,
+                    fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                  <Icon name="trash" size={15} strokeWidth={2}/>{T2("Delete")}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Add/Edit modal ── */}
       {showForm&&(
@@ -960,12 +1016,25 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
               // clicking a card did nothing at all. Editing is where that
               // expand led, so the card goes straight there.
               <div key={ev.id} onClick={()=>openEdit(ev)} title={T2("Edit function")}
-                className="kh-fncard kh-cardart-sm"
+                className="kh-evcard kh-cardart-sm"
                 style={{position:"relative",backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
                   borderRadius:16,cursor:"pointer",overflow:"hidden",boxShadow:K.shadowCard,
                   padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-                  {evDateTile(ev.date,p)}
+                {/* Delete. stopPropagation because the whole card opens Edit —
+                    without it, removing a function would open the editor for
+                    the one being removed on the way out.
+                    It opens the same confirm dialog the delete in Today's
+                    events uses; nothing is removed on this click alone. */}
+                <button onClick={e=>{e.stopPropagation();setDeleteId(ev.id);}}
+                  className="kh-cardx" aria-label={T2("Delete")} title={T2("Delete function")}
+                  style={{position:"absolute",top:9,right:9,zIndex:2,width:26,height:26,borderRadius:999,
+                    display:"flex",alignItems:"center",justifyContent:"center",padding:0,cursor:"pointer",
+                    background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textFaint}}>
+                  <Icon name="close" size={13} strokeWidth={2.4}/>
+                </button>
+                {/* Right padding keeps a long name off the delete button. */}
+                <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0,paddingRight:26}}>
+                  {evDateTile(ev.date,p,"kh-evtile")}
                   <div style={{minWidth:0,flex:1}}>
                     {/* Body face, matching the guest name in Today's events.
                         Cormorant was tried here and is wrong: it left the same
@@ -987,8 +1056,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                 </div>
                 {/* A short gold rule, the app's own divider on the header
                     plates — it separates the name from the detail without
-                    spending a full-width line on it. */}
-                <div style={{height:1.5,width:38,background:K.gold,borderRadius:2,flexShrink:0}}/>
+                    spending a full-width line on it. Its width and colour live
+                    in CSS, not here: on hover the card draws it out to full
+                    width, and an inline width would outrank that. */}
+                <div className="kh-evrule"/>
                 <div style={{minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,color:K.textBody}}>
                     <Icon name="plate" size={14} strokeWidth={1.9}/>

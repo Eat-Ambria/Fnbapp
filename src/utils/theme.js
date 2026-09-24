@@ -690,6 +690,66 @@ const KITCHEN_CSS = `
    it says so until the pointer is over it. */
 .kh-secrow:hover { background: ${K.sageBg}; }
 
+/* An upcoming-function card. The whole card opens the editor, so hovering it
+   lifts rather than just tinting: a flat colour change says "selected", a lift
+   says "press me", and these are buttons.
+   background-COLOR, never the shorthand - the shorthand resets background-image
+   and would wipe the .kh-cardart-sm leaf off mid-hover.
+   The transition sits on the card, not the :hover rule, so it eases back out
+   as well as in. */
+.kh-evcard {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background-color .18s ease;
+}
+.kh-evcard:hover {
+  transform: translateY(-3px);
+  box-shadow: ${K.shadowLift};
+  /* Brand, not sage: sage is this app's "picked" colour and these cards are not
+     selectable, they are openable. */
+  border-color: ${K.brandBorder} !important;
+  background-color: #FFFDF8 !important;
+}
+.kh-evcard:active { transform: translateY(-1px); }
+
+/* The divider inside the card. Short at rest, drawn out to the full width on
+   hover - the one piece of movement that belongs to this app rather than to
+   card hovers in general, since the gold rule is already its signature on the
+   header plates. */
+.kh-evrule {
+  height: 1.5px;
+  width: 38px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  background: ${K.gold};
+  transition: width .24s cubic-bezier(.4,0,.2,1);
+}
+.kh-evcard:hover .kh-evrule { width: 100%; }
+
+/* The date tile leans in very slightly, so the eye has something to land on
+   besides the card edge. Its own class, not a positional selector - the card's
+   children are a delete button, three blocks and a rule, and "first div" picked
+   up three of them. */
+.kh-evtile { transition: transform .18s ease; }
+.kh-evcard:hover .kh-evtile { transform: scale(1.05); }
+
+/* All of the above is motion. Someone who asked for less of it keeps the tint,
+   the border and the shadow, which are what say the card is live. */
+@media (prefers-reduced-motion: reduce) {
+  .kh-evcard, .kh-evcard:hover, .kh-evcard:active,
+  .kh-evtile, .kh-evcard:hover .kh-evtile { transform: none !important; }
+  .kh-evrule, .kh-evcard:hover .kh-evrule { transition: none !important; }
+}
+
+/* The delete cross on a function card. Quiet until pointed at, so eight of
+   them across a grid do not read as eight warnings; the card's own hover tints
+   it sage, and this rule has to outrank that, hence !important.
+   It stays visible rather than appearing on hover - most of this app's use is
+   on a tablet, where there is no hover to reveal it with. */
+.kh-cardx:hover {
+  background: ${K.dangerBg} !important;
+  border-color: ${K.dangerBorder} !important;
+  color: ${K.danger} !important;
+}
+
 /* Function rows in the day rail. !important because the face colour is inline
    and carries the selected state, which a plain selector cannot outrank. */
 /* background-COLOR, not the background shorthand: the shorthand resets
