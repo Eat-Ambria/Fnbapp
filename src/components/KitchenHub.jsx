@@ -3483,15 +3483,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               }
               return(
               <div>
-                {/* Toolbar — Back and Select on the left, Sort on the right. */}
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                {/* "All Categories" goes in the page header plate, the same
+                    slot "Back to Recipes" uses one level deeper — the way out
+                    of a screen belongs on the screen's title row, not mixed in
+                    with the tools that act on what is inside it. The two are
+                    mutually exclusive (this branch runs only when no recipe is
+                    open), so the slot never holds both. */}
+                {hdrSlot&&createPortal((
                   <button className="kh-btn kh-rip" onPointerDown={ripple}
                     onClick={()=>{setSopCat(null);setSopSearch("");setSopBulkMode(false);setSopSelected(new Set());}}
-                    style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
-                      background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
-                      color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
+                    style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:K.rPill,
+                      background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard,
+                      color:K.hdrMetaStrong,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
                     <Icon name="chevronL" size={16} strokeWidth={2.1}/>{T2("All Categories")}
                   </button>
+                ), hdrSlot)}
+                {/* Toolbar — Select on the left, Sort on the right. */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                   {currentUser?.role==='admin'&&allR.length>0&&(
                     <button className="kh-btn kh-rip" onPointerDown={ripple}
                       onClick={()=>{setSopBulkMode(p=>!p);setSopSelected(new Set());}}
@@ -5301,14 +5309,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
         return(
           <div>
-            {/* Header */}
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:15,fontWeight:600,color:C.text}}>📋 {T2("Production Planning")}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Pick a date — every function that day plans together by default. Enter target yield (kg) per dish; it splits across functions by pax when saved. Switch to one function's tab only for a per-function override.")}</div>
-            </div>
-
-            {/* Calendar + selected-date event list, side by side */}
+            {/* ── Calendar view: the day picker, beside the day's functions ──
+                The heading lives INSIDE the calendar card rather than on a
+                plate of its own above it. The calendar is what this screen is,
+                so a separate title band only spent a row saying so twice. */}
             <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap",marginBottom:16}}>
+
+            <div style={{flex:"1 1 620px",minWidth:340,display:"flex",flexDirection:"column",gap:14}}>
 
             {/* Calendar */}
             {(()=>{
@@ -5327,17 +5334,70 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               const prevMo = ()=>{if(planCalMo===0){setPlanCalMo(11);setPlanCalYr(y=>y-1);}else setPlanCalMo(m=>m-1);};
               const nextMo = ()=>{if(planCalMo===11){setPlanCalMo(0);setPlanCalYr(y=>y+1);}else setPlanCalMo(m=>m+1);};
               return(
-                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",flex:"0 0 400px",maxWidth:400}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <button onClick={prevMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
-                      <div style={{fontSize:13,fontWeight:600,color:C.text,minWidth:120,textAlign:"center"}}>{MO_FULL[planCalMo]} {planCalYr}</div>
-                      <button onClick={nextMo} style={{width:26,height:26,borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:13,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>—</button>
+                <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
+                  overflow:"hidden",boxShadow:K.shadowCard}}>
+                  {/* Heading */}
+                  <div style={{padding:"22px 24px 4px"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:16,minWidth:0}}>
+                      <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.sageBg,
+                        border:`1px solid ${K.sageBorder}`,color:K.brand,
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="calendarDays" size={25} strokeWidth={1.7} />
+                      </span>
+                      <div style={{minWidth:0}}>
+                        {/* 700, not the scale's 600: Cormorant is a light face,
+                            and at this size on ivory the title needs the extra
+                            weight to hold against the artwork behind the card. */}
+                        <div style={{...type.pageTitle,fontSize:30,fontWeight:700,color:K.hdrTitle}}>
+                          {T2("Production Planning")}
+                        </div>
+                        <div style={{...type.body,fontSize:13,color:K.hdrMeta,marginTop:4}}>
+                          {T2("Plan, balance and deliver exceptional food experiences.")}
+                        </div>
+                      </div>
                     </div>
-                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}} style={{padding:"4px 10px",borderRadius:7,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:10,fontWeight:500,cursor:"pointer"}}>{T2("Today")}</button>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-                    {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:600,color:C.muted,padding:"4px 0",background:C.bg}}>{d}</div>)}
+                  {/* The venue legend moved up here from the card's foot. It is
+                      the key to the dots inside the grid, and read AFTER them
+                      it explains something the eye has already given up on. */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,
+                    padding:"16px 20px",flexWrap:"wrap"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {/* Both of these used to render an em dash, so back and
+                          forward were the same glyph and neither said which way
+                          it went. */}
+                      <button onClick={prevMo} className="kh-calnav" aria-label={T2("Previous month")}
+                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="chevronL" size={15} strokeWidth={2.1} />
+                      </button>
+                      <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle,minWidth:168,textAlign:"center"}}>
+                        {T2(MO_FULL[planCalMo])} {planCalYr}
+                      </div>
+                      <button onClick={nextMo} className="kh-calnav" aria-label={T2("Next month")}
+                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="chevronR" size={15} strokeWidth={2.1} />
+                      </button>
+                      <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}}
+                        className="kh-calnav"
+                        style={{marginLeft:8,padding:"7px 18px",borderRadius:999,background:"#FFFFFF",
+                          border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                          fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Today")}</button>
+                    </div>
+                    <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                      {Object.entries(ANA_VP).map(([v,p])=>(
+                        <div key={v} style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:p.c,flexShrink:0}}/>
+                          <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{p.code}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F4F2EC",
+                    borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                    {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
+                      fontWeight:600,color:K.hdrMeta,padding:"9px 0"}}>{T2(d)}</div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                     {cells.map((cell,i)=>{
@@ -5348,51 +5408,155 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const vCols = [...new Set(evs2.map(e=>anaGp(e.venue).c))];
                       return(
                         <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanEvId(makeCombinedId(dt));}}}
-                          style={{height:40,padding:"3px 4px",cursor:dt?"pointer":"default",
-                            borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
-                            background:isSel?C.goldBg:isToday?"#FAEEDA":"transparent",opacity:cell.c?1:.2}}>
-                          <div style={{fontSize:11,fontWeight:isToday||isSel?600:400,color:isSel?C.gold:isToday?"#BA7517":C.text}}>{cell.d}</div>
-                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:5,height:5,borderRadius:"50%",background:col}}/>)}</div>}
+                          className={dt?"kh-calcell":undefined}
+                          style={{height:58,padding:4,cursor:dt?"pointer":"default",
+                            borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                            opacity:cell.c?1:.28}}>
+                          {/* The selection is an inset tile, not a flooded cell:
+                              filled edge to edge it merges with its neighbours
+                              across the hairlines and stops looking like one day. */}
+                          <div style={{height:"100%",borderRadius:10,padding:"5px 8px",overflow:"hidden",
+                            background:isSel?K.sageSel:isToday?"#F6EFDD":"transparent",
+                            border:isToday&&!isSel?`1px solid ${K.goldSoft}`:"1px solid transparent"}}>
+                            <div style={{fontFamily:K.fontBody,fontSize:14,fontVariantNumeric:"tabular-nums",
+                              fontWeight:isToday||isSel?700:500,
+                              color:isSel?K.sageText:isToday?K.gold:K.textBody}}>{cell.d}</div>
+                            {vCols.length>0&&<div style={{display:"flex",gap:3,marginTop:4}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                            {/* The count only appears on the picked day: on all
+                                42 cells at once it turned the grid into a wall
+                                of text and the dots stopped being scannable. */}
+                            {isSel&&evs2.length>0&&(
+                              <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3,
+                                fontFamily:K.fontBody,fontSize:10.5,fontWeight:600,color:K.sageText,whiteSpace:"nowrap"}}>
+                                {evs2.length} {evs2.length===1?T2("event"):T2("events")}
+                                <Icon name="chevronR" size={10} strokeWidth={2.3} />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
-                  </div>
-                  <div style={{display:"flex",gap:10,padding:"6px 12px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:9,color:C.muted}}>{p.code}</span></div>)}
                   </div>
                 </div>
               );
             })()}
 
-            {/* Selected date ? event cards — sits to the right of the calendar now that there's room */}
+            {/* ── Plan status bar ──
+                The same four numbers the summary row above the dish list
+                carries. They live here too because this is the screen you are
+                on while deciding whether the day is ready to cook from, and
+                "29 unmapped" is the one fact that should reach you before you
+                scroll. Only rendered once a plan is actually loaded — with no
+                event picked every count is a meaningless zero. */}
+            {selEv && (
+              <div style={{padding:"16px 20px",borderRadius:18,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+                display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",minWidth:180}}>
+                  <div style={{...type.cardTitle,color:K.hdrTitle}}>{T2("Plan Efficiently")}</div>
+                  <div style={{...type.body,fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
+                    {T2("Sync your kitchen, team and resources for a seamless service.")}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:22,flexWrap:"wrap",alignItems:"center"}}>
+                  {[{n:stats.auto,l:T2("Auto-planned"),c:K.ok,i:"check"},
+                    {n:stats.override,l:T2("Overrides"),c:K.brand,i:"sliders"},
+                    {n:stats.fromStore,l:T2("From store"),c:K.hdrMeta,i:"box"},
+                    {n:stats.unmapped,l:T2("Unmapped"),c:K.danger,i:"alert"}].map(s=>(
+                    <div key={s.l} style={{display:"flex",alignItems:"center",gap:9}}>
+                      <span style={{color:s.c,display:"flex",flexShrink:0}}><Icon name={s.i} size={17} strokeWidth={1.9}/></span>
+                      <div>
+                        <div style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,lineHeight:1.1,
+                          fontVariantNumeric:"tabular-nums",color:s.n>0?s.c:K.textFaint}}>{s.n}</div>
+                        <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{s.l}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={()=>setShowOrderingSheet(true)} className="kh-rip" onPointerDown={ripple}
+                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"11px 20px",borderRadius:999,
+                    background:K.brand,color:"#FFFFFF",border:"none",cursor:"pointer",
+                    fontFamily:K.fontBody,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>
+                  {T2("View Breakdown")}<Icon name="chevronR" size={14} strokeWidth={2.2}/>
+                </button>
+              </div>
+            )}
+
+            </div>{/* end left column */}
+
+            {/* ── Selected date: summary, then the functions on it ── */}
             {planSelDate && (()=>{
-              if(dateEvs.length===0) return(
-                <div style={{flex:"1 1 320px",minWidth:280,padding:"14px 16px",borderRadius:10,border:`1px dashed ${C.border}`,background:C.bg,fontSize:12,color:C.faint,textAlign:"center"}}>
-                  {T2("No upcoming events on")} {fmtDate(planSelDate)}
+              // Split rather than new Date(planSelDate): the string form parses
+              // as UTC midnight, and every date in this app is a local calendar
+              // day. Same reason localDateStr exists.
+              const dp = String(planSelDate).split("-");
+              const dObj = new Date(+dp[0], (+dp[1])-1, +dp[2]);
+              const WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+              const MO_L = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+              const nEv = dateEvs.length;
+              const dateCard = (
+                <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
+                  border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                  <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2(WD[dObj.getDay()])}</div>
+                  <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:3}}>
+                    {dObj.getDate()} {T2(MO_L[dObj.getMonth()])} {dObj.getFullYear()}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,color:K.hdrMeta}}>
+                    <Icon name="calendar" size={15} strokeWidth={1.9}/>
+                    <span style={{fontFamily:K.fontBody,fontSize:13}}>
+                      {nEv} {nEv===1?T2("function scheduled"):T2("functions scheduled")}
+                    </span>
+                  </div>
+                </div>
+              );
+              if(nEv===0) return(
+                <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+                  {dateCard}
+                  <div style={{padding:"18px 20px",borderRadius:18,border:`1px dashed ${K.cardWarmLine}`,
+                    background:"rgba(251,250,245,.72)",textAlign:"center",
+                    fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                    {T2("Nothing booked on this day. Pick another date to start planning.")}
+                  </div>
                 </div>
               );
               const combinedPax = dateEvs.reduce((s,e)=>s+(+e.pax||0),0);
               const combinedDishCount = new Set(dateEvs.flatMap(e=>menuArr(e))).size;
               const isCombinedSel = planEvId===makeCombinedId(planSelDate);
               return(
-                <div style={{flex:"1 1 320px",minWidth:280}}>
-                  <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>
-                    {fmtDate(planSelDate)} — {dateEvs.length} {T2("event")}{dateEvs.length!==1?"s":""}
-                  </div>
+                <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+                  {dateCard}
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {/* Combined is the default way to plan a day, so it is the
+                        solid brand card at the top of the list rather than
+                        another option among the functions under it. */}
                     {dateEvs.length>1 && (
                       <button onClick={()=>setPlanEvId(isCombinedSel?null:makeCombinedId(planSelDate))}
-                        style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,padding:"14px 18px",borderRadius:12,cursor:"pointer",
-                          background:isCombinedSel?C.purple:C.purpleBg,color:isCombinedSel?"#fff":C.purple,
-                          border:`1.5px solid ${C.purple}`,minHeight:64,textAlign:"left",borderLeft:`4px solid ${C.purple}`}}>
-                        <div style={{minWidth:0,flex:1}}>
-                          <div style={{fontSize:15,fontWeight:700}}>🔗 {T2("Combined — all functions")}</div>
-                          <div style={{fontSize:12,opacity:.85,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
-                            <span>📅 {dateEvs.length} {T2("functions")}</span>
-                            <span>👥 {combinedPax} {T2("pax")}</span>
-                            <span>🍽 {combinedDishCount} {T2("dishes")}</span>
-                          </div>
-                          <div style={{fontSize:11,opacity:.75,marginTop:3}}>{T2("Plan the whole day's output together, split by pax when saved")}</div>
+                        className="kh-rip" onPointerDown={ripple}
+                        style={{display:"block",width:"100%",padding:"16px 20px",borderRadius:16,cursor:"pointer",textAlign:"left",
+                          background:K.brand,color:"#FFFFFF",boxShadow:K.shadowCard,
+                          border:`2px solid ${isCombinedSel?K.gold:"transparent"}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <Icon name="layers" size={18} strokeWidth={1.9}/>
+                          <span style={{fontFamily:K.fontBody,fontSize:14.5,fontWeight:700}}>{T2("Combined — all functions")}</span>
+                        </div>
+                        <div style={{display:"flex",gap:20,flexWrap:"wrap",marginTop:13}}>
+                          {[{n:dateEvs.length,l:nEv===1?T2("function"):T2("functions"),i:"utensils"},
+                            {n:combinedPax.toLocaleString(),l:T2("pax"),i:"users"},
+                            {n:combinedDishCount,l:T2("dishes"),i:"plate"}].map(s=>(
+                            <div key={s.l} style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{color:K.hdrBadgeIcon,display:"flex",flexShrink:0}}><Icon name={s.i} size={16} strokeWidth={1.9}/></span>
+                              <div>
+                                <div style={{fontFamily:K.fontBody,fontSize:18,fontWeight:700,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{s.n}</div>
+                                <div style={{fontFamily:K.fontBody,fontSize:11,opacity:.78,marginTop:1}}>{s.l}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* The one line that explains what "combined" actually
+                            does to the numbers. It used to sit in the page
+                            header; it belongs on the control it describes. */}
+                        <div style={{fontFamily:K.fontBody,fontSize:11.5,opacity:.8,marginTop:13,lineHeight:1.45}}>
+                          {T2("Plan the whole day's output together, split by pax when saved")}
                         </div>
                       </button>
                     )}
@@ -5402,20 +5566,31 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const mc = menuArr(ev).length;
                       return(
                         <button key={ev.id} onClick={()=>setPlanEvId(isSel?null:ev.id)}
-                          style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,padding:"14px 18px",borderRadius:12,cursor:"pointer",
-                            background:isSel?vc.c:C.surface,color:isSel?"#fff":C.text,
-                            border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:64,textAlign:"left",borderLeft:`4px solid ${vc.c}`}}>
-                          <div style={{minWidth:0,flex:1}}>
-                            <div style={{fontSize:15,fontWeight:700}}>{ev.guest||T2("Function")}</div>
-                            <div style={{fontSize:12,opacity:.85,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
-                              <span>🕐 {fmtTime(ev.time)||"—"}</span>
-                              <span>👥 {ev.pax} {T2("pax")}</span>
-                              <span>🍽 {mc} {T2("dishes")}</span>
+                          className="kh-fncard kh-rip" onPointerDown={ripple}
+                          style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
+                            borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
+                            background:isSel?K.sageSel:"#FFFFFF",color:K.textBody,
+                            border:`1px solid ${isSel?K.sageBorder:K.cardWarmLine}`}}>
+                          {/* The venue's colour as a spine down the left edge —
+                              the same key the calendar dots use. */}
+                          <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
+                          <div style={{minWidth:0,flex:1,paddingLeft:4}}>
+                            <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
+                            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
+                              fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{fmtTime(ev.time)||"—"}</span>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="plate" size={13} strokeWidth={1.9}/>{mc} {T2("dishes")}</span>
                             </div>
-                            <div style={{fontSize:11,opacity:.75,marginTop:3}}>📍 {ev.venue||"—"}</div>
+                            <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:5,
+                              fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>
+                              <Icon name="building" size={12} strokeWidth={1.9}/>{ev.venue||"—"}
+                            </div>
                           </div>
-                          <div style={{flexShrink:0,padding:"3px 9px",borderRadius:8,fontSize:10,fontWeight:700,letterSpacing:.4,
-                            background:isSel?"rgba(255,255,255,.25)":vc.c+"1A",color:isSel?"#fff":vc.c}}>{vc.code}</div>
+                          <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
+                            fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{vc.code}</span>
+                          <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
                         </button>
                       );
                     })}
@@ -5428,22 +5603,68 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
             {/* Selected event summary + grouped dish list */}
             {selEv && (()=>{
-              const vc = anaGp(selEv.venue);
               return(
               <div>
-                {/* Event summary card */}
-                <div style={{padding:"12px 14px",borderRadius:10,background:C.surface,border:`1px solid ${C.border}`,borderLeft:`4px solid ${vc.c}`,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" — "+fmtTime(selEv.time):""} — {selEv.venue||""} — {selEv.pax} pax — {dishes.length} dishes</div>
+                {/* ── What is being planned, and how ready it is ──
+                    The four counts were chips reading "✨ 229 auto-planned".
+                    As tiles the number leads and the label explains it, which
+                    is the order you read them in: the thing that matters is
+                    that 29 are unmapped, not the word "unmapped". */}
+                <div style={{padding:"16px 20px",borderRadius:18,backgroundColor:K.cardWarm,
+                  border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,marginBottom:14,
+                  display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                  <span style={{width:46,height:46,borderRadius:14,flexShrink:0,background:K.brand,
+                    color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <Icon name={isCombinedMode?"layers":"utensils"} size={21} strokeWidth={1.8}/>
+                  </span>
+                  <div style={{flex:"1 1 230px",minWidth:200}}>
+                    <div style={{...type.cardTitle,fontSize:17,color:K.hdrTitle}}>
+                      {isCombinedMode
+                        ? dateEvs.length+" "+T2("functions combined")
+                        : (selEv.guest||T2("Function"))}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:4,
+                      fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                      <span>{fmtDate(selEv.date)}</span>
+                      {!isCombinedMode && selEv.time && (<><span style={{color:K.textFaint}}>·</span><span>{fmtTime(selEv.time)}</span></>)}
+                      <span style={{color:K.textFaint}}>·</span>
+                      <span>{isCombinedMode
+                        ? (new Set(dateEvs.map(e=>e.venue).filter(Boolean)).size>1 ? T2("Multiple venues") : (selEv.venue||"—"))
+                        : (selEv.venue||"—")}</span>
+                      <span style={{color:K.textFaint}}>·</span>
+                      <span>{selEv.pax} {T2("pax")}</span>
+                      <span style={{color:K.textFaint}}>·</span>
+                      <span>{dishes.length} {T2("dishes")}</span>
+                      {planLoading && <span style={{color:K.textFaint,fontStyle:"italic"}}>· {T2("Loading...")}</span>}
+                    </div>
                   </div>
-                  <div style={{display:"flex",gap:10,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{color:C.green,background:C.greenBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>✨ {stats.auto} {T2("auto-planned")}</span>
-                    <span style={{color:C.purple,background:C.purpleBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>📌 {stats.override} {T2("override")}</span>
-                    {stats.fromStore>0 && <span style={{color:C.muted,background:C.bg,padding:"3px 10px",borderRadius:12,fontWeight:600,border:`1px solid ${C.border}`}}>📦 {stats.fromStore} {T2("from store")}</span>}
-                    {stats.unmapped>0 && <span style={{color:C.red,background:C.redBg,padding:"3px 10px",borderRadius:12,fontWeight:600}}>⚠ {stats.unmapped} {T2("unmapped")}</span>}
-                    {planLoading && <span style={{color:C.muted,fontStyle:"italic",fontSize:10}}>{T2("Loading...")}</span>}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {[{n:stats.auto,l:T2("auto-planned"),t:"ok",i:"check"},
+                      {n:stats.override,l:T2("overrides"),t:"brand",i:"sliders"},
+                      {n:stats.fromStore,l:T2("from store"),t:"idle",i:"box"},
+                      {n:stats.unmapped,l:T2("unmapped"),t:"danger",i:"alert"}].map(s=>{
+                      // A zero is not news. Painted in its tone it competes with
+                      // the count that does need attention, so it goes grey.
+                      const tn = s.n>0 ? tone(s.t) : tone("idle");
+                      return(
+                        <div key={s.l} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",
+                          borderRadius:13,background:s.n>0?tn.bg:"#FFFFFF",border:`1px solid ${s.n>0?tn.border:K.cardWarmLine}`}}>
+                          <span style={{color:s.n>0?tn.fg:K.textFaint,display:"flex",flexShrink:0}}><Icon name={s.i} size={16} strokeWidth={1.9}/></span>
+                          <div>
+                            <div style={{fontFamily:K.fontBody,fontSize:18,fontWeight:700,lineHeight:1.1,
+                              fontVariantNumeric:"tabular-nums",color:s.n>0?tn.fg:K.textFaint}}>{s.n}</div>
+                            <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:1,whiteSpace:"nowrap"}}>{s.l}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                  <button onClick={()=>setShowOrderingSheet(true)} className="kh-rip" onPointerDown={ripple}
+                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"11px 20px",borderRadius:999,
+                      background:K.brand,color:"#FFFFFF",border:"none",cursor:"pointer",
+                      fontFamily:K.fontBody,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>
+                    {T2("View breakdown")}<Icon name="chevronR" size={14} strokeWidth={2.2}/>
+                  </button>
                 </div>
 
                 {/* Global yield adjustment slider (Phase 3: merged from Scaling tab; saves to events.yield_multiplier per event on Apply click) */}
@@ -5474,70 +5695,113 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     });
                   };
                   return(
-                  <Card style={{marginBottom:12,padding:"14px 16px",border:`1px solid ${isDirty?C.purple:C.purpleBorder}`,background:C.purpleBg,boxShadow:isDirty?`0 0 0 2px ${C.purple}22`:"none",position:"sticky",top:0,zIndex:5}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
-                      <div>
-                        <div style={{fontSize:12,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.6}}>⚖️ {T2("Yield adjustment")}</div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Scales every dish (auto + override). Overrides stay pinned at their custom values.")}</div>
+                  <div style={{marginBottom:14,padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
+                    border:`1px solid ${isDirty?K.brandBorder:K.cardWarmLine}`,
+                    boxShadow:isDirty?`${K.shadowCard}, 0 0 0 2px ${K.brandBg}`:K.shadowCard,
+                    position:"sticky",top:0,zIndex:5}}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap",marginBottom:14}}>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:13,minWidth:0}}>
+                        <span style={{width:40,height:40,borderRadius:13,flexShrink:0,background:K.sageBg,
+                          border:`1px solid ${K.sageBorder}`,color:K.brand,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <Icon name="sliders" size={19} strokeWidth={1.9}/>
+                        </span>
+                        <div style={{minWidth:0}}>
+                          {/* A card title, not an all-caps eyebrow. This is the
+                              loudest control on the screen and it was labelled
+                              like a footnote. */}
+                          <div style={{...type.cardTitle,fontSize:16,color:K.hdrTitle}}>{T2("Yield Adjustment")}</div>
+                          <div style={{...type.body,fontSize:12.5,color:K.hdrMeta,marginTop:2}}>{T2("Scales every dish (auto + override). Overrides stay pinned at their custom values.")}</div>
+                        </div>
                       </div>
-                      <div style={{display:"flex",alignItems:"center",gap:12}}>
-                        <button onClick={()=>setShowOrderingSheet(true)} style={{padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.surface,color:C.purple,border:`1.5px solid ${C.purple}`,whiteSpace:"nowrap"}}>📋 {T2("Show Ingredients")}</button>
-                        <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                          <div style={{fontSize:28,fontWeight:800,color:C.purple,lineHeight:1}}>{yieldAdjustPct}</div>
-                          <div style={{fontSize:14,fontWeight:700,color:C.purple}}>%</div>
+                      <div style={{display:"flex",alignItems:"center",gap:16}}>
+                        <button onClick={()=>setShowOrderingSheet(true)} className="kh-calnav"
+                          style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 16px",borderRadius:999,
+                            fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",background:"#FFFFFF",
+                            color:K.textBody,border:`1px solid ${K.cardWarmLine}`,whiteSpace:"nowrap"}}>
+                          <Icon name="listCheck" size={15} strokeWidth={1.9}/>{T2("Show ingredients")}
+                        </button>
+                        <div style={{display:"flex",alignItems:"baseline",gap:3}}>
+                          {/* Body face, not Cormorant: its "1" is a serifed I
+                              and its "0" a narrow O, so "100" read as "IOO". */}
+                          <div style={{fontFamily:K.fontBody,fontSize:34,fontWeight:700,color:K.hdrTitle,lineHeight:1,
+                            letterSpacing:"-1px",fontVariantNumeric:"tabular-nums"}}>{yieldAdjustPct}</div>
+                          <div style={{fontFamily:K.fontBody,fontSize:15,fontWeight:600,color:K.hdrMeta}}>%</div>
                         </div>
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-                      {[90,100,110,120,130,150].map(p=>(
-                        <button key={p} onClick={()=>setYieldAdjustPct(p)}
-                          style={{padding:"6px 12px",borderRadius:8,fontSize:12,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`,minHeight:34}}>
-                          {p}%
-                        </button>
-                      ))}
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+                      {[90,100,110,120,130,150].map(p=>{
+                        const on = yieldAdjustPct===p;
+                        return(
+                          <button key={p} onClick={()=>setYieldAdjustPct(p)} className={on?undefined:"kh-calnav"}
+                            style={{padding:"8px 17px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
+                              fontWeight:on?700:600,cursor:"pointer",
+                              background:on?K.brand:"#FFFFFF",color:on?"#FFFFFF":K.textBody,
+                              border:`1px solid ${on?K.brand:K.cardWarmLine}`}}>
+                            {p}%
+                          </button>
+                        );
+                      })}
                       <input type="number" value={yieldAdjustPct} onChange={e=>setYieldAdjustPct(Math.max(10,Math.min(300,+e.target.value||100)))} min={10} max={300}
-                        style={{width:64,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.purple}`,fontSize:13,fontWeight:700,color:C.purple,background:C.bg,textAlign:"center",minHeight:34}}/>
-                      <button onClick={()=>setYieldAdjustPct(100)} style={{padding:"6px 10px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,minHeight:34}}>{T2("Reset")}</button>
+                        className="kh-planinput"
+                        style={{width:74,padding:"8px 10px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,
+                          fontFamily:K.fontBody,fontSize:12.5,fontWeight:700,color:K.hdrTitle,background:"#FFFFFF",
+                          textAlign:"center",fontVariantNumeric:"tabular-nums"}}/>
+                      <button onClick={()=>setYieldAdjustPct(100)} className="kh-calnav"
+                        style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 15px",borderRadius:999,
+                          fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",background:"#FFFFFF",
+                          color:K.hdrMeta,border:`1px solid ${K.cardWarmLine}`}}>
+                        <Icon name="undo" size={14} strokeWidth={1.9}/>{T2("Reset")}
+                      </button>
                     </div>
                     <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
                       onChange={e=>setYieldAdjustPct(+e.target.value)}
-                      style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer",display:"block"}}/>
-                    <div style={{position:"relative",height:6,marginTop:1}}>
-                      {[50,100,150,200].map(v=>(
-                        <div key={v} style={{position:"absolute",left:`${(v-50)/150*100}%`,top:0,width:1,height:5,background:C.border,transform:"translateX(-50%)"}}/>
-                      ))}
-                    </div>
-                    <div style={{position:"relative",height:14,marginTop:2}}>
+                      className="kh-yieldrange"
+                      style={{width:"100%",accentColor:K.brand,cursor:"pointer",display:"block"}}/>
+                    <div style={{position:"relative",height:16,marginTop:6}}>
                       {[50,100,150,200].map(v=>{
                         const pos=(v-50)/150*100;
                         return (
-                          <span key={v} style={{position:"absolute",left:`${pos}%`,transform:pos===0?"none":pos===100?"translateX(-100%)":"translateX(-50%)",fontSize:9,color:v===100?C.purple:C.faint,fontWeight:v===100?700:400,whiteSpace:"nowrap"}}>{v}%</span>
+                          <span key={v} style={{position:"absolute",left:`${pos}%`,
+                            transform:pos===0?"none":pos===100?"translateX(-100%)":"translateX(-50%)",
+                            fontFamily:K.fontBody,fontSize:11,fontVariantNumeric:"tabular-nums",
+                            color:v===100?K.brand:K.textFaint,fontWeight:v===100?700:500,whiteSpace:"nowrap"}}>{v}%</span>
                         );
                       })}
                     </div>
                     {plannedKgTotal>0 && (
-                      <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:C.bg,fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <div style={{marginTop:14,padding:"11px 16px",borderRadius:12,background:"#FFFFFF",
+                        border:`1px solid ${K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,
+                        display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
                         <span>{T2("Total planned:")}</span>
-                        <b style={{color:C.text}}>{fmtKg(plannedKgTotal)} kg</b>
+                        <b style={{color:K.hdrTitle,fontSize:14,fontVariantNumeric:"tabular-nums"}}>{fmtKg(plannedKgTotal)} kg</b>
                         {yieldAdjustPct!==100 && (<>
-                          <span style={{color:C.faint}}>→</span>
-                          <b style={{color:C.purple}}>{fmtKg(adjustedTotal)} kg</b>
-                          <span style={{fontSize:10,color:C.faint}}>({yieldAdjustPct}%)</span>
+                          <Icon name="chevronR" size={13} strokeWidth={2.1}/>
+                          <b style={{color:K.brand,fontSize:14,fontVariantNumeric:"tabular-nums"}}>{fmtKg(adjustedTotal)} kg</b>
+                          <span style={{color:K.textFaint}}>({yieldAdjustPct}%)</span>
                         </>)}
                       </div>
                     )}
-                    <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-                      <div style={{fontSize:10,color:isDirty?C.purple:C.faint,fontWeight:isDirty?600:400,flex:"1 1 200px"}}>
+                    <div style={{marginTop:14,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                      <div style={{fontFamily:K.fontBody,fontSize:11.5,color:isDirty?K.brandText:K.textFaint,
+                        fontWeight:isDirty?600:400,flex:"1 1 220px"}}>
                         {isDirty
                           ? T2("Unsaved — click Apply to scale ingredients for this event.")
                           : T2("Saved. Applies to Event Day and Prep Day ingredient calculations.")}
                       </div>
                       <button onClick={onApplyYield} disabled={!isDirty||yieldSaving}
-                        style={{padding:"9px 20px",borderRadius:8,fontSize:12,fontWeight:700,cursor:(!isDirty||yieldSaving)?"not-allowed":"pointer",background:(!isDirty||yieldSaving)?C.bg:C.purple,color:(!isDirty||yieldSaving)?C.faint:"#fff",border:`1.5px solid ${(!isDirty||yieldSaving)?C.border:C.purple}`,minHeight:38,opacity:(!isDirty||yieldSaving)?0.65:1,whiteSpace:"nowrap"}}>
-                        {yieldSaving ? T2("Saving…") : (isDirty ? T2("✓ Apply yield") : T2("✓ Applied"))}
+                        className={(!isDirty||yieldSaving)?undefined:"kh-rip"} onPointerDown={ripple}
+                        style={{display:"inline-flex",alignItems:"center",gap:7,padding:"11px 22px",borderRadius:999,
+                          fontFamily:K.fontBody,fontSize:13,fontWeight:600,
+                          cursor:(!isDirty||yieldSaving)?"not-allowed":"pointer",
+                          background:(!isDirty||yieldSaving)?"#F0EEE7":K.brand,
+                          color:(!isDirty||yieldSaving)?K.textFaint:"#FFFFFF",
+                          border:`1px solid ${(!isDirty||yieldSaving)?K.cardWarmLine:K.brand}`,whiteSpace:"nowrap"}}>
+                        <Icon name="check" size={15} strokeWidth={2.2}/>
+                        {yieldSaving ? T2("Saving…") : (isDirty ? T2("Apply yield") : T2("Applied"))}
                       </button>
                     </div>
-                  </Card>);
+                  </div>);
                 })()}
 
                 {/* Section-wise ingredient ordering sheet — one spot to see per-section (cuisine) ingredient quantities for this event, with a live yield slider */}
@@ -5675,7 +5939,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
                 {/* Bulk action bar */}
                 {dishes.length>0 && (
-                  <div style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",background:C.bg,borderRadius:8,marginBottom:12,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,borderRadius:16,marginBottom:14,flexWrap:"wrap"}}>
                     <button onClick={async()=>{
                       const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !isRealOverride(d);});
                       if(targets.length===0){ alert(T2("Nothing to accept — all mapped dishes are already pinned.")); return; }
@@ -5686,7 +5951,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const suggested = Math.round(daySuggested(d, selEv.pax/bp * st.baseYield) * 10)/10;
                         await saveYield(d, suggested, {...ctx, recipe:st.recipe});
                       }
-                    }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:C.surface,color:C.text,border:`1px solid ${C.border}`}}>✨ {T2("Accept all suggestions")}</button>
+                    }} className="kh-rip" onPointerDown={ripple}
+                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
+                      fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",
+                      background:K.brand,color:"#FFFFFF",border:"none"}}>
+                    <Icon name="check" size={15} strokeWidth={2.2}/>{T2("Accept all suggestions")}</button>
                     <button onClick={async()=>{
                       const targets = dishes.filter(d=>isRealOverride(d));
                       if(targets.length===0){ alert(T2("No overrides to clear.")); return; }
@@ -5695,9 +5964,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         const st = dishStatus(d);
                         await saveYield(d, "", {...ctx, recipe:st.recipe});
                       }
-                    }} style={{padding:"6px 12px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:"transparent",color:C.muted,border:`1px solid ${C.border}`}}>↺ {T2("Clear overrides")}</button>
+                    }} className="kh-calnav"
+                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
+                      fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",
+                      background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
+                    <Icon name="undo" size={15} strokeWidth={1.9}/>{T2("Clear overrides")}</button>
                     <div style={{flex:1}}></div>
-                    <span style={{fontSize:10,color:C.faint}}>{T2("Auto-saves on blur")}</span>
+                    <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>{T2("Auto-saves on blur")}</span>
                   </div>
                 )}
 
@@ -5706,18 +5979,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const overrideInGroup = g.items.filter(it=>isRealOverride(it.dish)).length;
                   const autoInGroup = g.items.length - overrideInGroup;
                   return(
-                    <div key={g.cat.id} style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}>
-                      <div style={{padding:"8px 12px",background:C.bg,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <div style={{fontSize:12,fontWeight:600,color:C.text,display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:14}}>{g.cat.icon}</span>
-                          <span>{g.cat.name}</span>
-                          <span style={{fontSize:10,color:C.muted,fontWeight:400}}>({g.items.length})</span>
+                    <div key={g.cat.id} style={{marginBottom:14,borderRadius:18,border:`1px solid ${K.cardWarmLine}`,
+                      backgroundColor:K.cardWarm,overflow:"hidden",boxShadow:K.shadowCard}}>
+                      <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:11,minWidth:0}}>
+                          <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
+                            border:`1px solid ${K.sageBorder}`,fontSize:16,lineHeight:1,
+                            display:"flex",alignItems:"center",justifyContent:"center"}}>{g.cat.icon}</span>
+                          <span style={{...type.sectionHead,fontSize:17,color:K.hdrTitle}}>{g.cat.name}</span>
+                          <span style={{fontFamily:K.fontBody,fontSize:13,color:K.textFaint,fontVariantNumeric:"tabular-nums"}}>({g.items.length})</span>
                         </div>
-                        <div style={{fontSize:10,fontWeight:500,display:"flex",gap:6}}>
-                          {autoInGroup>0 && <span style={{color:C.green}}>{autoInGroup} {T2("auto")}</span>}
-                          {autoInGroup>0 && overrideInGroup>0 && <span style={{color:C.faint}}>·</span>}
-                          {overrideInGroup>0 && <span style={{color:C.purple}}>{overrideInGroup} {T2("pinned")}</span>}
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                          {autoInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
+                            background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`}}>{autoInGroup} {T2("auto")}</span>}
+                          {overrideInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
+                            background:K.brandBg,color:K.brandText,border:`1px solid ${K.brandBorder}`}}>{overrideInGroup} {T2("pinned")}</span>}
                         </div>
+                      </div>
+                      {/* Column heads. The rows already carried a name, a
+                          number, a unit and a status; nothing said which was
+                          which, so every row had to be decoded on its own. */}
+                      <div className="kh-planhead" style={{background:"#F4F2EC",
+                        borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,
+                        padding:"9px 18px",...type.label,fontSize:10.5,color:K.hdrMeta}}>
+                        <span>{T2("Dish")}</span>
+                        <span style={{textAlign:"right"}}>{T2("Planned quantity")}</span>
+                        <span>{T2("Unit")}</span>
+                        <span>{T2("Status")}</span>
                       </div>
                       <div>
                         {g.items.flatMap((it,i)=>{
@@ -5727,7 +6015,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const basePax = st.recipe?.ingredients?.base_pax || 300;
                           const recSections = (st.recipe?.ingredients?.items||[]).filter(x=>x.isSection && x.yield?.kg>0);
                           const useSections = recSections.length>0;
-                          const rowStyle = (isLast)=>({padding:"10px 12px",borderBottom:!isLast?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"});
+                          // The grid itself lives in .kh-planrow, which shares
+                          // its template with .kh-planhead — one definition, so
+                          // the columns cannot drift apart from their headings.
+                          const rowStyle = (isLast)=>({padding:"11px 18px",borderBottom:!isLast?`1px solid ${K.lineSoft}`:"none"});
                           const isLastGroupRow = i===g.items.length-1;
                           const secMult = yieldAdjustPct/100;
                           // V74: click dish name on any section row → one combined ingredient modal for all sections
@@ -5764,33 +6055,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const isLast = isLastGroupRow && si===recSections.length-1;
                               const revertSecToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;}); savePlanYield(it.dish, "", rowCtx, sec.name); };
                               return(
-                                <div key={i+"-"+si} style={{...rowStyle(isLast),background:isSecOverride?C.purpleBg+"60":"transparent"}}>
-                                  <div onClick={openIngrSectioned} title={canOpenSectioned ? T2("View scaled ingredients") : undefined} style={{flex:"1 1 200px",minWidth:0,cursor:canOpenSectioned?"pointer":"default"}}>
-                                    <div style={{fontSize:12,color:C.text,fontWeight:500}}><span style={{textDecoration:canOpenSectioned?"underline":"none",textDecorationColor:canOpenSectioned?C.faint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</span> <span style={{color:C.gold,fontWeight:600}}>→ {sec.name}</span></div>
-                                    <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
-                                      {mappedName && si===0 && <span>📖 {mappedName}</span>}
-                                      {isSecOverride && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {secAutoScaled} kg</span>}
+                                <div key={i+"-"+si} className="kh-planrow" style={{...rowStyle(isLast),background:isSecOverride?K.brandBg:"transparent"}}>
+                                  <div onClick={openIngrSectioned} title={canOpenSectioned ? T2("View scaled ingredients") : undefined} style={{minWidth:0,cursor:canOpenSectioned?"pointer":"default"}}>
+                                    <div style={{fontFamily:K.fontBody,fontSize:13.5,color:K.hdrTitle,fontWeight:600}}><span style={{textDecoration:canOpenSectioned?"underline":"none",textDecorationColor:canOpenSectioned?K.textFaint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</span> <span style={{color:K.sageText}}>→ {sec.name}</span></div>
+                                    <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:3,display:"flex",gap:9,flexWrap:"wrap"}}>
+                                      {mappedName && si===0 && <span>{mappedName}</span>}
+                                      {isSecOverride && <span style={{color:K.brandText}}>{T2("pinned — slider ignored")} · {T2("auto was")} {secAutoScaled} kg</span>}
                                       {!isSecOverride && <span>{isCombinedMode ? contributingEvsForDish(it.dish,false).reduce((s,e)=>s+(+e.pax||0),0) : selEv.pax} pax{secMult!==1?` · ${yieldAdjustPct}%`:""}</span>}
-                                      {isCombinedMode && <span style={{color:C.faint,fontStyle:"italic"}}>{T2("switch to one function to pin a section")}</span>}
+                                      {isCombinedMode && <span style={{color:K.textFaint,fontStyle:"italic"}}>{T2("switch to one function to pin a section")}</span>}
                                     </div>
                                   </div>
-                                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                    <input type="number" step="any" inputMode="decimal" min="0"
-                                      value={currentVal}
-                                      onChange={e=>setPlanDrafts(p=>({...p,[draftKey]:e.target.value}))}
-                                      onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}saveYield(it.dish, d, rowCtx, sec.name);}}
-                                      onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
-                                      placeholder={String(secAutoScaled)}
-                                      disabled={isSaving||isCombinedMode}
-                                      title={isCombinedMode ? T2("Switch to one function to pin a section") : undefined}
-                                      style={{width:72,padding:"6px 8px",borderRadius:6,border:isSecOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isSecOverride?600:400,textAlign:"right",background:isSecOverride?C.surface:"transparent",color:C.text,opacity:(isSaving||isCombinedMode)?0.6:1}} />
-                                    <span style={{fontSize:10,color:C.muted}}>kg</span>
+                                  <input type="number" step="any" inputMode="decimal" min="0"
+                                    className="kh-planinput"
+                                    value={currentVal}
+                                    onChange={e=>setPlanDrafts(p=>({...p,[draftKey]:e.target.value}))}
+                                    onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}saveYield(it.dish, d, rowCtx, sec.name);}}
+                                    onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                                    placeholder={String(secAutoScaled)}
+                                    disabled={isSaving||isCombinedMode}
+                                    title={isCombinedMode ? T2("Switch to one function to pin a section") : undefined}
+                                    style={{width:"100%",padding:"8px 11px",borderRadius:10,border:`1px solid ${isSecOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:13,fontWeight:isSecOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:(isSaving||isCombinedMode)?0.6:1}} />
+                                  <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>kg</span>
+                                  <div>
                                     {isSaving ? (
-                                      <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:64}}>{T2("Saving")}...</span>
+                                      <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint,fontStyle:"italic"}}>{T2("Saving")}…</span>
                                     ) : isSecOverride ? (
-                                      <button onClick={revertSecToAuto} title={T2("Revert to auto")} style={{padding:"3px 6px",borderRadius:6,fontSize:10,fontWeight:600,color:C.purple,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>📌 {T2("pinned")} <span style={{fontSize:12,marginLeft:1,lineHeight:1}}>×</span></button>
+                                      <button onClick={revertSecToAuto} title={T2("Revert to auto")} style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>{T2("Pinned")} <span style={{fontSize:13,lineHeight:1}}>×</span></button>
                                     ) : (
-                                      <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.green,background:C.greenBg,border:`1px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("auto")}</div>
+                                      <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.ok,background:K.okBg,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Auto")}</span>
                                     )}
                                   </div>
                                 </div>
@@ -5813,32 +6105,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const openIngr = () => { if (canOpen) setPlanIngrModal({dish: it.dish, effKg: effKg, mult: mult, isOverride: isOverride, yieldAdjustPct: yieldAdjustPct, pax: selEv.pax}); };
                           const rowPax = isCombinedMode ? contributingEvsForDish(it.dish, it.isBaseGravy).reduce((s,e)=>s+(+e.pax||0),0) : selEv.pax;
                           return [(
-                            <div key={i} style={{...rowStyle(isLastGroupRow),background:isOverride?C.purpleBg+"60":"transparent"}}>
-                              <div onClick={openIngr} title={canOpen ? T2("View scaled ingredients") : undefined} style={{flex:"1 1 200px",minWidth:0,cursor:canOpen?"pointer":"default"}}>
-                                <div style={{fontSize:12,color:C.text,fontWeight:500,textDecoration:canOpen?"underline":"none",textDecorationColor:canOpen?C.faint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</div>
-                                <div style={{fontSize:10,color:C.muted,marginTop:2,display:"flex",gap:8,flexWrap:"wrap"}}>
-                                  {mappedName && <span>📖 {mappedName}</span>}
-                                  {isOverride && suggested!=null && <span style={{color:C.purple}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
+                            <div key={i} className="kh-planrow" style={{...rowStyle(isLastGroupRow),background:isOverride?K.brandBg:"transparent"}}>
+                              <div onClick={openIngr} title={canOpen ? T2("View scaled ingredients") : undefined} style={{minWidth:0,cursor:canOpen?"pointer":"default"}}>
+                                <div style={{fontFamily:K.fontBody,fontSize:13.5,color:K.hdrTitle,fontWeight:600,textDecoration:canOpen?"underline":"none",textDecorationColor:canOpen?K.textFaint:"transparent",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{it.dish}</div>
+                                <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:3,display:"flex",gap:9,flexWrap:"wrap"}}>
+                                  {mappedName && <span>{mappedName}</span>}
+                                  {isOverride && suggested!=null && <span style={{color:K.brandText}}>{T2("pinned — slider ignored")} · {T2("auto was")} {suggested} kg</span>}
                                   {!isOverride && suggested!=null && <span>{it.isBaseGravy ? T2("demand across this menu") : `${rowPax} ${T2("pax")}`}{isCombinedMode && !it.isBaseGravy?` (${T2("of this dish's functions")})`:""}{mult!==1?` · ${yieldAdjustPct}%`:""}</span>}
-                                  {!suggested && <span style={{color:C.amber}}>⚠ {T2("no base yield in recipe")}</span>}
+                                  {!suggested && <span style={{color:K.warn}}>⚠ {T2("no base yield in recipe")}</span>}
                                 </div>
                               </div>
-                              <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                                <input type="number" step="any" inputMode="decimal" min="0"
-                                  value={currentVal}
-                                  onChange={e=>setPlanDrafts(p=>({...p,[it.dish]:e.target.value}))}
-                                  onBlur={()=>onYieldBlur(it.dish, rowCtx)}
-                                  onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
-                                  placeholder={suggested!=null?String(suggested):"—"}
-                                  disabled={isSaving}
-                                  style={{width:72,padding:"6px 8px",borderRadius:6,border:isOverride?`1.5px solid ${C.purple}`:`1px dashed ${C.border}`,fontSize:12,fontWeight:isOverride?600:400,textAlign:"right",background:isOverride?C.surface:"transparent",color:C.text,opacity:isSaving?0.6:1}} />
-                                <span style={{fontSize:10,color:C.muted}}>kg</span>
+                              <input type="number" step="any" inputMode="decimal" min="0"
+                                className="kh-planinput"
+                                value={currentVal}
+                                onChange={e=>setPlanDrafts(p=>({...p,[it.dish]:e.target.value}))}
+                                onBlur={()=>onYieldBlur(it.dish, rowCtx)}
+                                onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                                placeholder={suggested!=null?String(suggested):"—"}
+                                disabled={isSaving}
+                                style={{width:"100%",padding:"8px 11px",borderRadius:10,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:13,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
+                              <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>kg</span>
+                              <div>
                                 {isSaving ? (
-                                  <span style={{fontSize:10,color:C.muted,fontStyle:"italic",width:64}}>{T2("Saving")}...</span>
+                                  <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint,fontStyle:"italic"}}>{T2("Saving")}…</span>
                                 ) : isOverride ? (
-                                  <button onClick={revertToAuto} title={T2("Revert to auto")} style={{padding:"3px 6px",borderRadius:6,fontSize:10,fontWeight:600,color:C.purple,background:C.purpleBg,border:`1px solid ${C.purpleBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>📌 {T2("pinned")} <span style={{fontSize:12,marginLeft:1,lineHeight:1}}>×</span></button>
+                                  <button onClick={revertToAuto} title={T2("Revert to auto")} style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>{T2("Pinned")} <span style={{fontSize:13,lineHeight:1}}>×</span></button>
                                 ) : (
-                                  <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.green,background:C.greenBg,border:`1px solid ${C.greenBorder}`,whiteSpace:"nowrap"}}>{T2("auto")}</div>
+                                  <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.ok,background:K.okBg,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Auto")}</span>
                                 )}
                               </div>
                             </div>
@@ -5883,7 +6176,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const combKey="__combined_"+selDate;
         const hasCombined=kt[combKey]&&Object.keys(kt[combKey]).length>0;
         const dateEvs=allEvs.filter(e=>e.date===selDate);
-        const fmtDate=d=>{try{return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"});}catch(e){return d;}};
         const selId=analyticsEvId||(dateEvs[0]?.id||null);
         function buildPerf(dishName,d2s){
           const allSt=getStepsForDish(dishName);const d1St=allSt.filter(s=>s.d1);
@@ -5934,10 +6226,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const selEv=selId&&selId!=="__combined"?allEvs.find(e=>e.id===selId):null;
         return(
           <div>
-            <div style={{fontSize:18,fontWeight:500,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>📊 {T2("Kitchen Analytics")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Performance analysis — timing, efficiency, ingredient variance")}</div>
-            {/* —— Calendar Date Picker —— */}
-            <div style={{marginBottom:16}}>
+            {/* —— Calendar Date Picker ——
+                Same two-column shape as Planning: the calendar on the left and
+                the picked day's functions in a rail beside it. Full-bleed, the
+                seven columns came out around 230px each and the tracked days
+                stretched into slabs — the same styling read as a different
+                control purely because of its proportions. */}
+            <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap",marginBottom:16}}>
+              <div style={{flex:"1 1 620px",minWidth:340}}>
               {(()=>{
                 const pad2=n=>String(n).padStart(2,"0");
                 const MO_N=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -5955,17 +6251,52 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const nextMo=()=>{if(calMo===11){setCalMo(0);setCalYr(y=>y+1);}else setCalMo(m=>m+1);};
                 const todayS=TODAY;
                 return(
-                <div style={{borderRadius:12,border:`1px solid ${C.border}`,background:C.surface,marginBottom:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <button onClick={prevMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-                      <div style={{fontSize:15,fontWeight:600,color:C.text,minWidth:140,textAlign:"center"}}>{MO_N[calMo]} {calYr}</div>
-                      <button onClick={nextMo} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",fontSize:14,color:C.text,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                <div style={{borderRadius:20,border:`1px solid ${K.cardWarmLine}`,backgroundColor:K.cardWarm,
+                  boxShadow:K.shadowCard,overflow:"hidden",marginBottom:14}}>
+                  {/* Same chrome as the Planning calendar — two pickers that do
+                      the same job should not be two different controls. The
+                      legend sits above the grid it is the key to. */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,
+                    padding:"16px 20px",flexWrap:"wrap"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <button onClick={prevMo} className="kh-calnav" aria-label={T2("Previous month")}
+                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="chevronL" size={15} strokeWidth={2.1}/>
+                      </button>
+                      <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle,minWidth:168,textAlign:"center"}}>
+                        {T2(MO_N[calMo])} {calYr}
+                      </div>
+                      <button onClick={nextMo} className="kh-calnav" aria-label={T2("Next month")}
+                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="chevronR" size={15} strokeWidth={2.1}/>
+                      </button>
+                      <button onClick={()=>{setCalYr(new Date().getFullYear());setCalMo(new Date().getMonth());setAnalyticsDate(todayS);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
+                        className="kh-calnav"
+                        style={{marginLeft:8,padding:"7px 18px",borderRadius:999,background:"#FFFFFF",
+                          border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                          fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Today")}</button>
                     </div>
-                    <button onClick={()=>{setCalYr(new Date().getFullYear());setCalMo(new Date().getMonth());setAnalyticsDate(todayS);setAnalyticsEvId(null);setAnalyticsExp(new Set());}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:500,cursor:"pointer"}}>Today</button>
+                    <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
+                      {Object.entries(ANA_VP).map(([v,p])=>(
+                        <div key={v} style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:p.c,flexShrink:0}}/>
+                          <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{p.code}</span>
+                        </div>
+                      ))}
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        {/* Tracked was a superscript em dash on the date — an
+                            artefact, not a mark. A filled swatch says it. */}
+                        <div style={{width:13,height:13,borderRadius:4,background:K.okBg,border:`1px solid ${K.okBorder}`,flexShrink:0}}/>
+                        <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("Tracked")}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-                    {DY.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:C.muted,padding:"6px 0",background:C.bg}}>{d}</div>)}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F4F2EC",
+                    borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                    {DY.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
+                      fontWeight:600,color:K.hdrMeta,padding:"9px 0"}}>{T2(d)}</div>)}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                     {cells2.map((cell,i)=>{const dt=cDate(cell);const evs2=dt?eod2(dt):[];const isT=dt===todayS;const isS=dt===selDate;
@@ -5973,33 +6304,109 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       const hasTracked=evs2.some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);
                       return(
                         <div key={i} onClick={()=>{if(!dt)return;setAnalyticsDate(dt);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
-                          style={{height:52,padding:"5px 6px",cursor:dt?"pointer":"default",
-                            borderBottom:`1px solid ${C.borderLight}`,borderRight:(i%7)<6?`1px solid ${C.borderLight}`:"none",
-                            background:isS?C.goldBg:isT?"#FAEEDA":hasTracked?"rgba(29,158,117,0.07)":"transparent",opacity:cell.c?1:.2}}>
-                          <div style={{fontSize:12,fontWeight:isT||isS?600:400,color:isS?C.gold:isT?"#BA7517":hasTracked?C.green:C.text}}>{cell.d}{hasTracked&&<span style={{fontSize:8,marginLeft:1,verticalAlign:"super"}}>—</span>}</div>
-                          {vCols.length>0&&<div style={{display:"flex",gap:2,marginTop:2}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                          className={dt?"kh-calcell":undefined}
+                          style={{height:58,padding:4,cursor:dt?"pointer":"default",
+                            borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                            opacity:cell.c?1:.28}}>
+                          {/* Inset tile, not a flooded cell: tracked days run in
+                              blocks, and edge-to-edge they merged across the
+                              hairlines into one green slab. */}
+                          <div style={{height:"100%",borderRadius:10,padding:"5px 8px",overflow:"hidden",
+                            background:isS?K.sageSel:isT?"#F6EFDD":hasTracked?K.okBg:"transparent",
+                            border:`1px solid ${isT&&!isS?K.goldSoft:hasTracked&&!isS?K.okBorder:"transparent"}`}}>
+                            <div style={{fontFamily:K.fontBody,fontSize:14,fontVariantNumeric:"tabular-nums",
+                              fontWeight:isT||isS?700:500,
+                              color:isS?K.sageText:isT?K.gold:hasTracked?K.ok:K.textBody}}>{cell.d}</div>
+                            {vCols.length>0&&<div style={{display:"flex",gap:3,marginTop:4}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{display:"flex",gap:10,padding:"6px 14px",borderTop:`1px solid ${C.border}`,flexWrap:"wrap"}}>
-                    {Object.entries(ANA_VP).map(([v,p])=><div key={v} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:"50%",background:p.c}}/><span style={{fontSize:10,color:C.muted}}>{p.code}</span></div>)}
-                    <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:14,height:14,borderRadius:3,background:"rgba(29,158,117,0.08)",border:"1px solid rgba(29,158,117,0.18)"}}><span style={{fontSize:7,color:C.green,display:"flex",alignItems:"center",justifyContent:"center",height:"100%"}}>—</span></div><span style={{fontSize:10,color:C.muted}}>Tracked</span></div>
+                </div>);
+              })()}
+              </div>{/* end calendar column */}
+
+              {/* —— The picked day's functions, in a rail beside the calendar —— */}
+              {(()=>{
+                const dp=String(selDate||"").split("-");
+                const dObj=dp.length===3?new Date(+dp[0],(+dp[1])-1,+dp[2]):null;
+                const WD=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+                const MO_L=["January","February","March","April","May","June","July","August","September","October","November","December"];
+                const nEv=dateEvs.length;
+                return(
+                <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+                  {dObj&&(
+                    <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
+                      border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                      <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2(WD[dObj.getDay()])}</div>
+                      <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:3}}>
+                        {dObj.getDate()} {T2(MO_L[dObj.getMonth()])} {dObj.getFullYear()}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,color:K.hdrMeta}}>
+                        <Icon name="calendar" size={15} strokeWidth={1.9}/>
+                        <span style={{fontFamily:K.fontBody,fontSize:13}}>
+                          {nEv} {nEv===1?T2("function"):T2("functions")}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {nEv===0&&(
+                    <div style={{padding:"18px 20px",borderRadius:18,border:`1px dashed ${K.cardWarmLine}`,
+                      background:"rgba(251,250,245,.72)",textAlign:"center",
+                      fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                      {T2("No events on this date")}
+                    </div>
+                  )}
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {hasCombined&&(
+                      <button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}}
+                        className="kh-rip" onPointerDown={ripple}
+                        style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"14px 18px",borderRadius:16,
+                          cursor:"pointer",textAlign:"left",background:K.brand,color:"#FFFFFF",boxShadow:K.shadowCard,
+                          border:`2px solid ${selId==="__combined"?K.gold:"transparent"}`}}>
+                        <Icon name="layers" size={18} strokeWidth={1.9}/>
+                        <span style={{fontFamily:K.fontBody,fontSize:14.5,fontWeight:700}}>{T2("Combined — all functions")}</span>
+                      </button>
+                    )}
+                    {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
+                      <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}}
+                        className="kh-fncard kh-rip" onPointerDown={ripple}
+                        style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
+                          borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
+                          background:isSel?K.sageSel:"#FFFFFF",color:K.textBody,
+                          border:`1px solid ${isSel?K.sageBorder:K.cardWarmLine}`}}>
+                        <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
+                        <div style={{minWidth:0,flex:1,paddingLeft:4}}>
+                          <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
+                          <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
+                            fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="plate" size={13} strokeWidth={1.9}/>{mc} {T2("dishes")}</span>
+                          </div>
+                          {/* How much of this function has data is the whole
+                              point of the Analytics picker, so it gets its own
+                              line rather than a tail on the dish count. */}
+                          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:5}}>
+                            {tracked>0
+                              ? <span style={{padding:"3px 9px",borderRadius:999,fontFamily:K.fontBody,fontSize:11,fontWeight:600,
+                                  background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`}}>{tracked} {T2("tracked")}</span>
+                              : <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>{T2("nothing tracked yet")}</span>}
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5,
+                              fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>
+                              <Icon name="building" size={12} strokeWidth={1.9}/>{ev.venue||"—"}
+                            </span>
+                          </div>
+                        </div>
+                        <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
+                          fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{vc.code}</span>
+                        <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
+                      </button>
+                    );})}
                   </div>
                 </div>);
               })()}
-              {/* —— Event cards for selected date —— */}
-              <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{fmtDate(selDate)} · {dateEvs.length} event{dateEvs.length!==1?"s":""}</div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                {hasCombined&&<button onClick={()=>{setAnalyticsEvId("__combined");setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:selId==="__combined"?700:400,cursor:"pointer",background:selId==="__combined"?C.gold+"20":"transparent",color:selId==="__combined"?C.gold:C.muted,border:`1.5px solid ${selId==="__combined"?C.gold:C.border}`,minHeight:40}}>👥 Combined</button>}
-                {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
-                  <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}} style={{padding:"8px 14px",borderRadius:10,fontSize:12,fontWeight:isSel?700:400,cursor:"pointer",background:isSel?vc.c:"transparent",color:isSel?"#fff":C.muted,border:`1.5px solid ${isSel?vc.c:C.border}`,minHeight:40,textAlign:"left",borderLeft:`3px solid ${vc.c}`}}>
-                    <div style={{fontWeight:600}}>{ev.guest||"Function"}</div>
-                    <div style={{fontSize:10,opacity:.8}}>{ev.pax} pax · {mc} dishes{tracked>0?" · "+tracked+" tracked":""} · {ev.venue||""}</div>
-                  </button>
-                );})}
-                {dateEvs.length===0&&<div style={{padding:"12px",fontSize:12,color:C.faint}}>No events on this date</div>}
-              </div>
             </div>
             {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>📊</div><div style={{fontSize:14,color:C.muted}}>{T2("Select an event above. Complete dishes in Prep Day or Event Day to see full analytics.")}</div></div>}
             {perfs.length>0&&(<>
@@ -6025,20 +6432,48 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               </div>}
             </div>
             {/* —— Section Breakdown —— */}
-            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Dishes by Section</div>
+            <div style={{...type.label,fontSize:11,color:K.hdrMeta,marginBottom:10,letterSpacing:.7}}>{T2("Dishes by Section")}</div>
             <div style={{marginBottom:20}}>
               {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;const secOpen=analyticsExp.has("sec_"+cid);return(
-                <div key={cid} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
-                  <div onClick={()=>{setAnalyticsExp(p=>{const s=new Set(p);s.has("sec_"+cid)?s.delete("sec_"+cid):s.add("sec_"+cid);return s;});}} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:20}}>{sec.ic}</span>
-                      <div><div style={{fontSize:13,fontWeight:600,color:sec.co}}>{sec.n}</div><div style={{fontSize:11,color:C.muted}}>{dn}/{sec.ds.length} done</div></div>
+                <div key={cid} style={{marginBottom:10,borderRadius:16,border:`1px solid ${K.cardWarmLine}`,
+                  backgroundColor:K.cardWarm,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                  <div onClick={()=>{setAnalyticsExp(p=>{const s=new Set(p);s.has("sec_"+cid)?s.delete("sec_"+cid):s.add("sec_"+cid);return s;});}}
+                    className="kh-secrow"
+                    style={{padding:"14px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+                      <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.sageBg,
+                        border:`1px solid ${K.sageBorder}`,fontSize:17,lineHeight:1,
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>{sec.ic}</span>
+                      <div style={{minWidth:0}}>
+                        {/* The section's own tint went on the NAME, which made
+                            ten headings in ten different colours and no way to
+                            tell which mattered. It belongs on the progress bar,
+                            where it labels a quantity. */}
+                        <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle}}>{sec.n}</div>
+                        <div style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>
+                          {dn}/{sec.ds.length} {T2("done")}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                      <div style={{width:60,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:3}}/></div>
-                      <span style={{fontSize:11,color:C.green,fontWeight:600}}>—{un}</span>
-                      <span style={{fontSize:11,color:C.red,fontWeight:600}}>—{ov}</span>
-                      <span style={{fontSize:14,color:C.faint}}>{secOpen?"+":"—"}</span>
+                    <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:9}}>
+                        <div style={{width:92,height:7,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:999}}/>
+                        </div>
+                        <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:700,color:K.hdrMeta,
+                          fontVariantNumeric:"tabular-nums",minWidth:34,textAlign:"right"}}>{pct}%</span>
+                      </div>
+                      {/* These printed "—0 —0" on every row: an em dash where an
+                          arrow was meant, and a zero that is not news. Shown
+                          only when there is something to report. */}
+                      {un>0&&<span style={{padding:"4px 10px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,
+                        fontWeight:600,background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap"}}>{un} {T2("under")}</span>}
+                      {ov>0&&<span style={{padding:"4px 10px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,
+                        fontWeight:600,background:K.dangerBg,color:K.danger,border:`1px solid ${K.dangerBorder}`,whiteSpace:"nowrap"}}>{ov} {T2("over")}</span>}
+                      <span style={{color:K.textFaint,display:"flex",flexShrink:0,
+                        transform:secOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                        <Icon name="chevronD" size={16} strokeWidth={2.1}/>
+                      </span>
                     </div>
                   </div>
                   {secOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${C.borderLight}`}}>

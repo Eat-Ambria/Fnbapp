@@ -140,6 +140,13 @@ const K = {
   cardWarmLine:"#E8E3D6",
   hdrBadge:    "#1C3D2B",
   hdrBadgeIcon:"#D9C08A",
+  // Gold for hairline rules and the script tagline on the header plate.
+  // NOT C.gold — that key is historical and actually holds the blue accent.
+  // And not hdrBadgeIcon either: #D9C08A is sized for an icon on deep green,
+  // and on ivory a 1px rule in it all but disappears. Same hue, taken down to
+  // where it still reads at one pixel and as small italic text.
+  gold:        "#A8852F",
+  goldSoft:    "#DFD3B4",
   hdrEyebrow:  "#8C8C83",
   hdrTitle:    "#14171A",
   hdrMeta:     "#4A5560",
@@ -485,6 +492,149 @@ const KITCHEN_CSS = `
 .kh-plateart::after {
   content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background-image: linear-gradient(90deg, rgba(251,250,245,.90) 0%, rgba(251,250,245,.58) 24%, rgba(251,250,245,0) 55%);
+}
+
+/* Calendar chrome: month arrows and the Today pill. !important because these
+   carry their colours inline, and an inline style beats a plain selector. */
+.kh-calnav:hover {
+  background: ${K.brandBg} !important;
+  border-color: ${K.brandBorder} !important;
+  color: ${K.brand} !important;
+}
+/* A day cell is a click target with no border of its own, so hover is the only
+   thing that says so before you press it. The selected and today tiles paint
+   their own background on the child, which sits above this. */
+.kh-calcell:hover { background: ${K.sageBg}; }
+
+/* Production planning: the column heads and the dish rows under them share one
+   grid template, so a column cannot drift away from the heading that names it.
+   Below 720px the heads go and the row stacks - four columns in a phone's
+   width leaves the dish name about eight characters. */
+.kh-planhead, .kh-planrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 54px 126px;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .kh-planhead { display: none; }
+  .kh-planrow { grid-template-columns: 1fr; gap: 8px; }
+}
+
+/* The yield slider. accent-color alone gives Chrome the brand fill but leaves a
+   2px hairline of a track and a small thumb; at the width this spans, that was
+   a scrollbar with a dot on it rather than a control worth dragging. */
+.kh-yieldrange {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: ${K.cardWarmLine};
+  accent-color: ${K.brand};
+}
+.kh-yieldrange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: ${K.brand};
+  border: 3px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(17,28,51,.32);
+  cursor: pointer;
+}
+.kh-yieldrange::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: ${K.brand};
+  border: 3px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(17,28,51,.32);
+  cursor: pointer;
+}
+.kh-yieldrange::-moz-range-track {
+  height: 6px; border-radius: 999px; background: ${K.cardWarmLine};
+}
+
+/* The yield input in a planning row. An empty one shows the auto suggestion as
+   a placeholder, so it has to read as editable BEFORE it is focused - a bare
+   number on ivory looked like printed output nobody could change. */
+.kh-planinput:hover:not(:disabled) { border-color: ${K.sageBorder} !important; }
+.kh-planinput:focus {
+  outline: none;
+  border-color: ${K.brand} !important;
+  box-shadow: 0 0 0 3px ${K.brandBg};
+}
+
+/* Today's events stay full-width rows: there are only ever a handful, they are
+   the ones being cooked right now, and they expand in place for edit/delete.
+   The columns give the middle something to hold - as a name at the left edge
+   and a headcount at the right, most of the row was empty.
+   Below 900px it drops to the date tile plus a stacked block, because five
+   columns in a phone's width leaves each one a few characters. */
+.kh-evrow {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1.5fr) minmax(0, 1.1fr) 108px 88px;
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .kh-evrow { grid-template-columns: 54px minmax(0, 1fr); gap: 12px; }
+  .kh-evrow > .kh-evwide { grid-column: 2; }
+}
+
+/* The function form. Three columns, not two: eleven fields two-up ran past the
+   bottom of the window and the dialog had to scroll, which on a form this short
+   means half of it is always out of sight. Three fits the whole thing in one
+   view on a laptop. */
+.kh-formgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 780px) { .kh-formgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .kh-formgrid { grid-template-columns: 1fr; } }
+
+/* The summary strip at the foot of the dashboard: equal halves divided by a
+   hairline, stacking rather than squeezing once there is no room for two. */
+.kh-statstrip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 760px) {
+  .kh-statstrip { grid-template-columns: 1fr; }
+  /* The divider has to move with the stack or it draws down the middle of
+     nothing. :not(:first-child) rather than a nth-child guess. */
+  .kh-statstrip > *:not(:first-child) {
+    border-left: none !important;
+    border-top: 1px solid ${K.cardWarmLine};
+  }
+}
+
+/* Upcoming functions, four across. As full-width rows each one spent most of
+   its width on nothing - a name at the left edge and a headcount at the right
+   with a clear third of the screen between them. Four to a row, the card is
+   about as wide as its longest line actually needs.
+   It steps down rather than letting minmax squeeze four columns onto a phone. */
+.kh-evgrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1500px) { .kh-evgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .kh-evgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px)  { .kh-evgrid { grid-template-columns: 1fr; } }
+
+/* An expandable section row. The whole row is the click target but nothing on
+   it says so until the pointer is over it. */
+.kh-secrow:hover { background: ${K.sageBg}; }
+
+/* Function rows in the day rail. !important because the face colour is inline
+   and carries the selected state, which a plain selector cannot outrank. */
+/* background-COLOR, not the background shorthand: the shorthand resets
+   background-image, so hovering a card that carries .kh-cardart-sm would wipe
+   its artwork off and put it back on mouse-out. */
+.kh-fncard:hover {
+  background-color: ${K.sageBg} !important;
+  border-color: ${K.sageBorder} !important;
 }
 
 /* Smaller cards get one motif at a smaller size — the full pair reads as
