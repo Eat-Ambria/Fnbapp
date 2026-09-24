@@ -42,6 +42,67 @@ function FieldCard({icon,label,required,full,children}) {
   );
 }
 
+// Shared by the menus table and the upcoming cards. Written once because two
+// pagers that behave differently on the same screen is worse than either.
+//
+// The page numbers are windowed: upcoming runs to 243 functions, which is 31
+// pages, and printing 31 buttons is not a control — it is a second problem.
+// First, last, and the current page with one either side; gaps become an
+// ellipsis. The menus table has 4 pages and simply never hits the windowing.
+function pageWindow(page, pages) {
+  if (pages <= 7) return Array.from({length:pages},(_,i)=>i+1);
+  const out = [1];
+  const lo = Math.max(2, page-1), hi = Math.min(pages-1, page+1);
+  if (lo > 2) out.push("…");
+  for (let n = lo; n <= hi; n++) out.push(n);
+  if (hi < pages-1) out.push("…");
+  out.push(pages);
+  return out;
+}
+
+function Pager({page,pages,onPage,from,shown,total,T2}) {
+  const btn = (extra) => ({
+    minWidth:30, height:30, padding:"0 9px", borderRadius:999, cursor:"pointer",
+    fontFamily:K.fontBody, fontSize:12.5, fontWeight:600,
+    background:"#FFFFFF", color:K.textBody, border:`1px solid ${K.cardWarmLine}`,
+    fontVariantNumeric:"tabular-nums", display:"flex", alignItems:"center", justifyContent:"center",
+    ...extra,
+  });
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",width:"100%"}}>
+      <span style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
+        {total===0
+          ? T2("Nothing to show")
+          : `${T2("Showing")} ${from+1}–${Math.min(from+shown,total)} ${T2("of")} ${total}`}
+      </span>
+      {pages>1&&(
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>onPage(Math.max(1,page-1))} disabled={page===1}
+            aria-label={T2("Previous page")} className={page===1?undefined:"kh-calnav"}
+            style={btn({width:30,padding:0,color:page===1?K.textFaint:K.textBody,
+              cursor:page===1?"not-allowed":"pointer"})}>
+            <Icon name="chevronL" size={14} strokeWidth={2.2}/>
+          </button>
+          {pageWindow(page,pages).map((n,i)=> n==="…"
+            ? <span key={"g"+i} style={{fontFamily:K.fontBody,fontSize:12.5,color:K.textFaint,padding:"0 2px"}}>…</span>
+            : <button key={n} onClick={()=>onPage(n)} className={n===page?undefined:"kh-calnav"}
+                aria-current={n===page?"page":undefined}
+                style={btn(n===page?{background:K.brand,color:"#FFFFFF",border:`1px solid ${K.brand}`,fontWeight:700}:{})}>
+                {n}
+              </button>
+          )}
+          <button onClick={()=>onPage(Math.min(pages,page+1))} disabled={page===pages}
+            aria-label={T2("Next page")} className={page===pages?undefined:"kh-calnav"}
+            style={btn({width:30,padding:0,color:page===pages?K.textFaint:K.textBody,
+              cursor:page===pages?"not-allowed":"pointer"})}>
+            <Icon name="chevronR" size={14} strokeWidth={2.2}/>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const [lmsSyncing, setLmsSyncing] = useState(false);
@@ -148,20 +209,23 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const [hdrSlot, setHdrSlot] = useState(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   React.useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, []);
-  // "+237 more" used to be plain grey text that did nothing. Eight is two full
-  // rows of the four-up grid, which is the right amount for a glance; this is
-  // what makes the rest reachable.
-  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+  // "+237 more" was plain grey text that did nothing; "Show all" after it meant
+  // dumping 243 cards into the page. Paged, like the menus table above it.
+  const [upPage, setUpPage] = useState(1);
   const isODC = form.venue === "Outdoor Catering (ODC)";
 
   // Computed
   const filtered = venFil==="All"?safeEvs:safeEvs.filter(e=>e.venue===venFil);
   const todayEvs = safeEvs.filter(e=>e.date===todayStr);
   const upcoming = filtered.filter(e=>e.date>todayStr).sort((a,b)=>a.date.localeCompare(b.date));
-  const upcomingShown = showAllUpcoming?upcoming:upcoming.slice(0,8);
-  // Largest headcount currently on screen, so each card's bar has a scale to be
-  // read against. Max with 1 so a list of zero-pax rows cannot divide by nothing.
-  const upcomingPeakPax = Math.max(1,...upcomingShown.map(e=>+e.pax||0));
+  // Eight to a page: two full rows of the four-up grid.
+  const UP_PER_PAGE = 8;
+  const upPages = Math.max(1,Math.ceil(upcoming.length/UP_PER_PAGE));
+  // Clamped on read, not reset by an effect — changing the venue filter to a
+  // shorter list would otherwise strand the viewer on an empty page.
+  const upPageNow = Math.min(upPage,upPages);
+  const upFrom = (upPageNow-1)*UP_PER_PAGE;
+  const upcomingShown = upcoming.slice(upFrom,upFrom+UP_PER_PAGE);
   // The summary strip reads safeEvs, not `filtered`. "This month" used to be
   // venue-filtered while "FY total" was not, so picking AE moved one number and
   // left the other — two figures side by side counting different things.
@@ -398,17 +462,18 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
             {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),icon:"users"},
             {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),icon:"utensils"}
            ].map(s=>(
-            <div key={s.l} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
-              borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard}}>
-              <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
+            <div key={s.l} className="kh-hdrkpi-tile" title={`${s.n.toLocaleString()} ${s.l}`}
+              style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
+                borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard}}>
+              <span className="kh-hdrkpi-ic" style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
                 border:`1px solid ${K.sageBorder}`,color:K.brand,
                 display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <Icon name={s.icon} size={16} strokeWidth={1.8}/>
               </span>
               <div>
-                <div style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:K.hdrTitle,
+                <div className="kh-hdrkpi-n" style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:K.hdrTitle,
                   lineHeight:1,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
-                <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.l}</div>
+                <div className="kh-hdrkpi-l" style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.l}</div>
               </div>
             </div>
           ))}
@@ -643,41 +708,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
               );
             })}
 
-            {/* ── Pagination ── */}
-            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
-              padding:"12px 18px",borderTop:`1px solid ${K.cardWarmLine}`}}>
-              <span style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
-                {sorted.length===0
-                  ? T2("Nothing to show")
-                  : `${T2("Showing")} ${from+1}–${Math.min(from+MC_PER_PAGE,sorted.length)} ${T2("of")} ${sorted.length}`}
-              </span>
-              {pages>1&&(
-                <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-                  <button onClick={()=>setMcPage(Math.max(1,page-1))} disabled={page===1}
-                    aria-label={T2("Previous page")} className={page===1?undefined:"kh-calnav"}
-                    style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",
-                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
-                      color:page===1?K.textFaint:K.textBody,cursor:page===1?"not-allowed":"pointer"}}>
-                    <Icon name="chevronL" size={14} strokeWidth={2.2}/>
-                  </button>
-                  {Array.from({length:pages},(_,i)=>i+1).map(n=>(
-                    <button key={n} onClick={()=>setMcPage(n)} className={n===page?undefined:"kh-calnav"}
-                      style={{minWidth:30,height:30,padding:"0 9px",borderRadius:999,
-                        fontFamily:K.fontBody,fontSize:12.5,fontWeight:n===page?700:600,cursor:"pointer",
-                        background:n===page?K.brand:"#FFFFFF",color:n===page?"#FFFFFF":K.textBody,
-                        border:`1px solid ${n===page?K.brand:K.cardWarmLine}`,fontVariantNumeric:"tabular-nums"}}>
-                      {n}
-                    </button>
-                  ))}
-                  <button onClick={()=>setMcPage(Math.min(pages,page+1))} disabled={page===pages}
-                    aria-label={T2("Next page")} className={page===pages?undefined:"kh-calnav"}
-                    style={{width:30,height:30,borderRadius:999,display:"flex",alignItems:"center",justifyContent:"center",
-                      background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
-                      color:page===pages?K.textFaint:K.textBody,cursor:page===pages?"not-allowed":"pointer"}}>
-                    <Icon name="chevronR" size={14} strokeWidth={2.2}/>
-                  </button>
-                </div>
-              )}
+            {/* ── Pagination — the same Pager the upcoming cards use ── */}
+            <div style={{display:"flex",padding:"12px 18px",borderTop:`1px solid ${K.cardWarmLine}`}}>
+              <Pager page={page} pages={pages} onPage={setMcPage}
+                from={from} shown={MC_PER_PAGE} total={sorted.length} T2={T2}/>
             </div>
           </div>
         );
@@ -686,11 +720,20 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
       {/* ══ TODAY'S EVENTS ══ */}
       {todayEvs.length>0&&(
         <div style={{marginBottom:26}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:12}}>
-            <span style={{...type.sectionHead,fontSize:26,fontWeight:700,color:K.hdrTitle}}>{T2("Today's events")}</span>
-            <span style={{padding:"4px 12px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
-              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.sageBg,
-              color:K.sageText,border:`1px solid ${K.sageBorder}`,whiteSpace:"nowrap"}}>
+          {/* Same anchor as Upcoming below it — two section headings a screen
+              apart in different weights read as two different kinds of thing.
+              Danger tone on the tile, because this one is happening now. */}
+          <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",marginBottom:12,minWidth:0}}>
+            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.danger,
+              color:"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="flame" size={20} strokeWidth={1.8}/>
+            </span>
+            <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
+              {T2("Today's events")}
+            </span>
+            <span style={{padding:"5px 13px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
+              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.danger,
+              color:"#FFFFFF",whiteSpace:"nowrap"}}>
               {todayEvs.length} {todayEvs.length===1?T2("function"):T2("functions")} · {todayEvs.reduce((s,e)=>s+(+e.pax||0),0).toLocaleString()} {T2("pax")}
             </span>
           </div>
@@ -787,19 +830,43 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
       {/* ══ UPCOMING EVENTS ══ */}
       <div style={{marginBottom:24}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-            {/* 700 and a size up: Cormorant is a light face, and at the scale's
-                600 on ivory the heading was fainter than the rows under it. */}
-            <span style={{...type.sectionHead,fontSize:26,fontWeight:700,color:K.hdrTitle}}>{T2("Upcoming")}</span>
-            {/* The count was grey body text floating beside the title. As a
-                chip it reads as a value belonging to the heading. */}
-            <span style={{padding:"4px 12px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
-              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.sageBg,
-              color:K.sageText,border:`1px solid ${K.sageBorder}`,whiteSpace:"nowrap"}}>
+          {/* The heading was Cormorant on ivory over the page artwork, with a
+              pale sage chip and the sync time on a line of its own below —
+              three quiet things stacked, none of which caught the eye. An icon
+              tile anchors it the way the menus table above is anchored, the
+              count goes solid brand so it reads as a figure and not a label,
+              and the sync time moves up beside the button it describes. */}
+          <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",minWidth:0}}>
+            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,
+              color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="calendarDays" size={20} strokeWidth={1.8}/>
+            </span>
+            <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
+              {T2("Upcoming")}
+            </span>
+            <span style={{padding:"5px 13px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
+              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.brand,
+              color:"#FFFFFF",whiteSpace:"nowrap"}}>
               {upcoming.length} {upcoming.length===1?T2("function"):T2("functions")}
             </span>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            {/* When the last sync ran decides whether the list in front of you
+                is current, so it sits beside the button that changes it rather
+                than on a grey line of its own under the title. */}
+            {lmsLastSync&&currentUser?.role==='admin'&&(
+              // A chip, not loose text: it sits in a row of pill buttons, and
+              // bare words between them read as something that fell out of one.
+              // The label lives in the tooltip — next to a button that says
+              // "Sync LMS", a timestamp needs no second explanation.
+              <span title={`${T2("Last LMS sync")}: ${lmsLastSync}`}
+                style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 15px",
+                  borderRadius:999,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
+                  fontFamily:K.fontBody,fontSize:12,color:K.sageText,whiteSpace:"nowrap"}}>
+                <Icon name="clock" size={13} strokeWidth={2}/>
+                <span style={{fontWeight:700}}>{lmsLastSync}</span>
+              </span>
+            )}
             {currentUser?.role==='admin'&&(
               <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
                 style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
@@ -820,24 +887,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
             </button>
           </div>
         </div>
-        {/* The sync result is a toast, not a panel — see the KToast near the
-            foot of this component. It used to be a full-width bar wedged
-            between the heading and the filters, which pushed the whole list
-            down for a message that is over in a moment and is only ever read
-            once. */}
-        {/* No longer gated on !lmsResult: the toast is a portal now, so the two
-            cannot collide, and hiding this line while it showed made the sync
-            time blink out at the exact moment a sync had refreshed it. */}
-        {lmsLastSync&&(
-          // textFaint on ivory is the tone for a hint nobody needs to read.
-          // When the last sync ran is how you decide whether the list in front
-          // of you is current, so it gets the body tone and a clock.
-          <div style={{display:"inline-flex",alignItems:"center",gap:7,marginBottom:12,
-            fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
-            <Icon name="clock" size={14} strokeWidth={1.9}/>
-            {T2("Last LMS sync")}: <b style={{color:K.hdrTitle,fontWeight:600}}>{lmsLastSync}</b>
-          </div>
-        )}
+        {/* The sync result itself is a toast — see the KToast near the foot of
+            this component. It used to be a full-width bar wedged between the
+            heading and the filters, pushing the whole list down for a message
+            that is over in a moment and read once. */}
         <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
         {/* Venue filter — each pill carries its venue's colour as a dot, the
             same key the rows' spines and date tiles use. Reading "AE" told you
@@ -938,33 +991,17 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                     {daysLabel(dd)}
                   </span>
                 </div>
-                {/* Headcount against the largest on screen. The number alone
-                    tells you 325 is bigger than 60 but not by how much at a
-                    glance; scanning a row of cards for the big ones is the
-                    reason to look at this list at all. */}
-                <div style={{height:5,background:K.lineSoft,borderRadius:999,overflow:"hidden",marginTop:-4}}
-                  title={`${ev.pax} ${T2("pax")}`}>
-                  <div style={{height:"100%",borderRadius:999,background:p.c,
-                    width:Math.max(4,Math.round((+ev.pax||0)/upcomingPeakPax*100))+"%"}}/>
-                </div>
               </div>
             );
           })}
         </div>
-        <div style={{display:"flex",flexDirection:"column"}}>
-          {upcoming.length>8&&(
-            <button onClick={()=>setShowAllUpcoming(v=>!v)} className="kh-calnav"
-              style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,alignSelf:"center",
-                marginTop:4,padding:"10px 22px",borderRadius:999,background:"#FFFFFF",
-                border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
-                fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-              {showAllUpcoming?T2("Show less"):`${T2("Show all")} ${upcoming.length}`}
-              <span style={{display:"flex",transform:showAllUpcoming?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
-                <Icon name="chevronD" size={14} strokeWidth={2.1}/>
-              </span>
-            </button>
-          )}
-        </div>
+        {upcoming.length>0&&(
+          <div style={{marginTop:14,padding:"12px 18px",borderRadius:16,backgroundColor:K.cardWarm,
+            border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,display:"flex"}}>
+            <Pager page={upPageNow} pages={upPages} onPage={setUpPage}
+              from={upFrom} shown={UP_PER_PAGE} total={upcoming.length} T2={T2}/>
+          </div>
+        )}
       </div>
 
       {/* Sync result. Kept short on purpose — the counts are the whole message,

@@ -613,11 +613,25 @@ const KITCHEN_CSS = `
   .kh-mcrow > :nth-child(8) { grid-column: 3; }
 }
 
-/* The day's totals in the shell header. They drop out below 1150px rather than
-   wrapping: the header plate is one row, and a second row of tiles inside it
-   pushes the page title off the top of a tablet screen. */
-.kh-hdrkpi { display: flex; align-items: center; gap: 10px; }
-@media (max-width: 1150px) { .kh-hdrkpi { display: none; } }
+/* The day's totals in the shell header.
+   The plate they sit in wraps, so at tablet widths all three dropped onto a
+   second line inside it and the header grew a whole row taller — for three
+   numbers. A width media query alone could not fix that: the breakpoint is not
+   the viewport, it is whether they fit beside a page title of unknown length.
+   So they shrink first and only then go away: full tiles on a desktop, then
+   icon-and-number once the labels are what is costing the room, then nothing.
+   nowrap on the strip itself, so the three never break amongst themselves. */
+.kh-hdrkpi { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+@media (max-width: 1400px) {
+  .kh-hdrkpi { gap: 7px; }
+  .kh-hdrkpi-tile { padding: 7px 11px !important; gap: 8px !important; border-radius: 12px !important; }
+  .kh-hdrkpi-ic { width: 28px !important; height: 28px !important; border-radius: 9px !important; }
+  .kh-hdrkpi-n { font-size: 16px !important; }
+  /* The label is the widest part of each tile and the icon already says which
+     figure it is; the tile keeps the full wording in its title attribute. */
+  .kh-hdrkpi-l { display: none; }
+}
+@media (max-width: 1050px) { .kh-hdrkpi { display: none; } }
 
 /* A sortable column head is a button, so it needs to say so before it is
    clicked - the caret alone is easy to miss at 10px. */
