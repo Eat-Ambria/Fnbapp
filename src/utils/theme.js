@@ -622,14 +622,21 @@ const KITCHEN_CSS = `
    icon-and-number once the labels are what is costing the room, then nothing.
    nowrap on the strip itself, so the three never break amongst themselves. */
 .kh-hdrkpi { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+/* The short label is the tablet one, so it is off until the layout asks for it. */
+.kh-hdrkpi-s { display: none; }
 @media (max-width: 1400px) {
   .kh-hdrkpi { gap: 7px; }
   .kh-hdrkpi-tile { padding: 7px 11px !important; gap: 8px !important; border-radius: 12px !important; }
-  .kh-hdrkpi-ic { width: 28px !important; height: 28px !important; border-radius: 9px !important; }
+  .kh-hdrkpi-ic { width: 26px !important; height: 26px !important; border-radius: 8px !important; }
   .kh-hdrkpi-n { font-size: 16px !important; }
-  /* The label is the widest part of each tile and the icon already says which
-     figure it is; the tile keeps the full wording in its title attribute. */
+  /* Number and label go side by side instead of stacked. "25 functions" on one
+     line is narrower than "25" over "Functions today", which is what made the
+     stacked form too wide here in the first place - and dropping the label
+     outright left three unexplained numbers, because a tablet cannot hover to
+     reach the tooltip they fell back to. */
+  .kh-hdrkpi-txt { display: flex; align-items: baseline; gap: 5px; }
   .kh-hdrkpi-l { display: none; }
+  .kh-hdrkpi-s { display: block; }
 }
 @media (max-width: 1050px) { .kh-hdrkpi { display: none; } }
 

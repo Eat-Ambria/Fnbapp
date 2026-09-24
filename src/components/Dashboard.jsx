@@ -458,9 +458,9 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           below which is the month and the financial year. */}
       {hdrSlot&&createPortal((
         <div className="kh-hdrkpi">
-          {[{n:todayEvs.length,l:T2("Functions today"),icon:"plate"},
-            {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),icon:"users"},
-            {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),icon:"utensils"}
+          {[{n:todayEvs.length,l:T2("Functions today"),short:T2("functions"),icon:"plate"},
+            {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),short:T2("pax"),icon:"users"},
+            {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),short:T2("dishes"),icon:"utensils"}
            ].map(s=>(
             <div key={s.l} className="kh-hdrkpi-tile" title={`${s.n.toLocaleString()} ${s.l}`}
               style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
@@ -470,10 +470,15 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                 display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <Icon name={s.icon} size={16} strokeWidth={1.8}/>
               </span>
-              <div>
+              <div className="kh-hdrkpi-txt">
                 <div className="kh-hdrkpi-n" style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:K.hdrTitle,
                   lineHeight:1,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
+                {/* Two labels, one shown at a time. A tablet has no hover, so
+                    the tooltip these used to fall back to reached nobody and
+                    the tiles became three numbers with no meaning at all. The
+                    short word costs about forty pixels and says what it is. */}
                 <div className="kh-hdrkpi-l" style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.l}</div>
+                <div className="kh-hdrkpi-s" style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,whiteSpace:"nowrap"}}>{s.short}</div>
               </div>
             </div>
           ))}
