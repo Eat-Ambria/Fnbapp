@@ -861,6 +861,29 @@ const KITCHEN_CSS = `
 .kh-thinscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
 .kh-thinscroll::-webkit-scrollbar-corner { background: transparent; }
 
+/* The shell's scrolling panes — the content area and the sidebar nav — were on
+   the browser's default bar, which on Windows is a wide grey gutter sitting
+   between the sidebar and the cards.
+   Thin on a pointer device, because there the bar is also the only thing that
+   says how far down the page goes. Gone entirely on a tablet, where scrolling
+   is a swipe and the bar is a stripe of chrome across the artwork for nothing.
+   overflow stays auto in both cases: this hides the bar, it does not stop the
+   pane scrolling. */
+.kh-shellscroll { scrollbar-width: thin; scrollbar-color: ${K.lineStrong} transparent; }
+.kh-shellscroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.kh-shellscroll::-webkit-scrollbar-track { background: transparent; }
+.kh-shellscroll::-webkit-scrollbar-thumb {
+  background: ${K.lineStrong};
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.kh-shellscroll::-webkit-scrollbar-thumb:hover { background: ${K.textFaint}; background-clip: padding-box; }
+@media (max-width: 1150px) {
+  .kh-shellscroll { scrollbar-width: none; }
+  .kh-shellscroll::-webkit-scrollbar { width: 0; height: 0; }
+}
+
 /* Big clickable panels — the CSV dialog's download row, its file picker.
    They carry .kh-btn but no .kh-btn-<variant>, so none of the variant hover
    rules above ever matched them and a click produced no visible change at all.

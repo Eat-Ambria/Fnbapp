@@ -349,6 +349,20 @@ export default function App() {
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
   const [dateDrift, setDateDrift]     = useState(false);
+  // The dashboard's header plate stays put the first time this device opens
+  // the dashboard; on every later visit it clears itself after 10s to give
+  // the screen back. Read once up front so StrictMode's double effect run
+  // cannot see the flag the first run just wrote.
+  const [hdrSeenBefore] = useState(()=>{ try { return localStorage.getItem(HDR_SEEN_KEY)==="1"; } catch(e) { return false; } });
+  const [hdrHidden, setHdrHidden] = useState(false);
+  const onDashboard = !!currentUser && screen==="dashboard";
+  useEffect(()=>{
+    if (!onDashboard) return;
+    try { localStorage.setItem(HDR_SEEN_KEY,"1"); } catch(e) {}
+    if (!hdrSeenBefore) return;
+    const t = setTimeout(()=>setHdrHidden(true), 10000);
+    return ()=>clearTimeout(t);
+  }, [onDashboard, hdrSeenBefore]);
 
   // ── Stale-session detector: TODAY is module-load frozen, so a tab open across midnight
   //    silently reads/writes/deletes rows keyed to yesterday. Poll every 5 min and surface a banner.
@@ -948,7 +962,7 @@ export default function App() {
                 child refuses to shrink below its content, so a long nav pushes
                 past the panel instead of scrolling inside it — which is how
                 items ended up hidden behind the footer plate. */}
-            <nav style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:"16px 8px 10px",overflowY:"auto"}}>
+            <nav className="kh-shellscroll" style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:"16px 8px 10px",overflowY:"auto"}}>
               {TABLET_NAV.map(function(item){
                 var active=tabletScreen===item.id;
                 return(
@@ -1058,8 +1072,7 @@ export default function App() {
                       a device is identified by which tablet it is, not by which
                       screen happens to be open. The screen name moves to the
                       meta line beside the date. */}
-                  <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
-                  <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle,marginTop:1}}>{_title}</div>
+                  <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle}}>{_title}</div>
                   <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:6,fontSize:13,color:K.hdrMeta}}>
                     <span style={{display:"inline-flex",alignItems:"center",gap:7}}><Icon name="calendar" size={15}/>{TODAY_LABEL}</span>
                     <span style={{color:K.hdrEyebrow}}>·</span>
@@ -1090,7 +1103,7 @@ export default function App() {
           </div>
 
           {/* Only the screen scrolls. */}
-          <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
+          <div className="kh-shellscroll" style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
             <Suspense fallback={SCREEN_LOADING}>{tabletContent(tabletScreen)}</Suspense>
           </div>
         </div>
@@ -1249,7 +1262,7 @@ export default function App() {
         </div>
 
         {/* ── Nav ── */}
-        <nav style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:sideOpen?"4px 14px 10px":"4px 10px 10px",overflowY:"auto"}}>
+        <nav className="kh-shellscroll" style={{position:"relative",zIndex:1,flex:1,minHeight:0,padding:sideOpen?"4px 14px 10px":"4px 10px 10px",overflowY:"auto"}}>
           {screen==="access"&&sideOpen&&(
             <button className="ash-btn ash-btn-ghost" onClick={()=>{setActiveDept(null);setScreen("dashboard");}}
               style={{width:"100%",padding:"10px 14px",borderRadius:12,marginBottom:10,cursor:"pointer",background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,color:K.sbText,fontSize:12.5,fontWeight:600,display:"flex",alignItems:"center",gap:8,minHeight:42}}>
@@ -1512,8 +1525,7 @@ export default function App() {
 
             {/* Eyebrow · title · meta */}
             <div style={{flex:"1 1 320px",minWidth:0,position:"relative"}}>
-              <div style={{fontSize:11.5,fontWeight:700,color:K.hdrEyebrow,textTransform:"uppercase",letterSpacing:2.2}}>{T2("Kitchen Operations")}</div>
-              <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle,marginTop:1}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
+              <div style={{...type.pageTitle,fontSize:30,color:K.hdrTitle}}>{T(curNav.find(n=>n.id===screen)?.label||"Dashboard",lang)}</div>
               <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"6px 14px",marginTop:6,fontSize:13,color:K.hdrMeta}}>
                 {/* No department chip. For an admin it always read "Management",
                     which is already stated by the user chip in the top bar and
@@ -1557,7 +1569,7 @@ export default function App() {
             inside it (position:fixed, zIndex:9999) was capped at level 1 — so
             the scrim dimmed the screen but stopped short of the header plate and
             the tab bar, which kept painting on top of the dialog. */}
-        <div style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
+        <div className="kh-shellscroll" style={{position:"relative",flex:1,minHeight:0,overflowY:"auto",padding:"18px 32px 32px",scrollBehavior:"smooth"}}>
           <ErrorBoundary key={screen} lang={lang}><Suspense fallback={SCREEN_LOADING}>{renderScreen(screen)}</Suspense></ErrorBoundary>
         </div>
       </div>
