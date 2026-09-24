@@ -214,6 +214,24 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const [hdrSlot, setHdrSlot] = useState(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   React.useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, []);
+
+  // The totals are a greeting, not a readout: they say how today looks the
+  // moment the page opens and then get out of the way, so the header goes back
+  // to being one quiet line.
+  //
+  // Two stages rather than one, because unmounting them outright would make
+  // them vanish mid-frame — "fading" starts the CSS transition, "gone" removes
+  // them once it has finished. Both timers are cleared on unmount so a quick
+  // navigation away cannot set state on a component that is no longer there.
+  // The unmount waits for the LAST tile: 420ms of transition plus the 180ms
+  // stagger on the third one. Cutting it shorter would snap the tail off the
+  // animation, which looks worse than no animation at all.
+  const [kpiPhase, setKpiPhase] = useState("shown");
+  React.useEffect(()=>{
+    const a=setTimeout(()=>setKpiPhase("fading"), 6000);
+    const b=setTimeout(()=>setKpiPhase("gone"), 6000+420+180+60);
+    return ()=>{ clearTimeout(a); clearTimeout(b); };
+  }, []);
   // "+237 more" was plain grey text that did nothing; "Show all" after it meant
   // dumping 243 cards into the page. Paged, like the menus table above it.
   const [upPage, setUpPage] = useState(1);
@@ -461,15 +479,24 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           back button, so the figures sit on the title row rather than taking a
           band of their own above the work. These are TODAY, unlike the strip
           below which is the month and the financial year. */}
-      {hdrSlot&&createPortal((
-        <div className="kh-hdrkpi">
+      {hdrSlot&&kpiPhase!=="gone"&&createPortal((
+        <div className="kh-hdrkpi" aria-hidden={kpiPhase==="fading"}
+          style={{pointerEvents:kpiPhase==="fading"?"none":undefined}}>
           {[{n:todayEvs.length,l:T2("Functions today"),short:T2("functions"),icon:"plate"},
             {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),short:T2("pax"),icon:"users"},
             {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),short:T2("dishes"),icon:"utensils"}
-           ].map(s=>(
+           ].map((s,i)=>(
+            // Staggered, right to left: the three leave as a sequence rather
+            // than blinking out together, which at this size reads as a glitch.
+            // Delay is on the way OUT only — while they are shown there is no
+            // transition to wait on, so a re-render cannot animate them.
             <div key={s.l} className="kh-hdrkpi-tile" title={`${s.n.toLocaleString()} ${s.l}`}
               style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
-                borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard}}>
+                borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard,
+                opacity:kpiPhase==="fading"?0:1,
+                transform:kpiPhase==="fading"?"translateY(-10px) scale(.94)":"none",
+                transition:"opacity .42s ease, transform .42s cubic-bezier(.4,0,.6,1)",
+                transitionDelay:kpiPhase==="fading"?`${(2-i)*90}ms`:"0ms"}}>
               <span className="kh-hdrkpi-ic" style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
                 border:`1px solid ${K.sageBorder}`,color:K.brand,
                 display:"flex",alignItems:"center",justifyContent:"center"}}>

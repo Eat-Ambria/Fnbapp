@@ -79,6 +79,8 @@ const NAV_ICON = {
   access:"lock",           logs:"listCheck",
 };
 
+const HDR_SEEN_KEY = "ambria_hdr_seen";
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -1502,7 +1504,10 @@ export default function App() {
             Outside the scroll container on purpose: it names the screen you are
             on and carries the live event details, which stay useful while you
             work down a long list. Top padding matches the sidebar's 10px margin
-            so the plate and the sidebar panel start on the same line. */}
+            so the plate and the sidebar panel start on the same line.
+            Hidden only on the dashboard: other screens (Kitchen Hub's "Back to
+            Recipes") put controls in its slot. */}
+        {!(hdrHidden&&screen==="dashboard")&&(
         <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
           <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
@@ -1560,6 +1565,7 @@ export default function App() {
             <div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:"auto"}}/>
           </div>
         </div>
+        )}
 
         {/* Only the screen scrolls. minHeight:0 lets this flex child shrink so
             overflowY actually scrolls instead of pushing past the window.
