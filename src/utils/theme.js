@@ -624,12 +624,6 @@ const KITCHEN_CSS = `
 .kh-hdrkpi { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
 /* The short label is the tablet one, so it is off until the layout asks for it. */
 .kh-hdrkpi-s { display: none; }
-/* Someone who has asked their system for less motion gets the same outcome
-   without the staggered slide - the tiles still go, they just stop travelling
-   to get there. !important because the transition is set inline per tile. */
-@media (prefers-reduced-motion: reduce) {
-  .kh-hdrkpi-tile { transition: opacity .2s linear !important; transform: none !important; }
-}
 @media (max-width: 1400px) {
   .kh-hdrkpi { gap: 7px; }
   .kh-hdrkpi-tile { padding: 7px 11px !important; gap: 8px !important; border-radius: 12px !important; }

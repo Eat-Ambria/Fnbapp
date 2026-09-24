@@ -79,8 +79,6 @@ const NAV_ICON = {
   access:"lock",           logs:"listCheck",
 };
 
-const HDR_SEEN_KEY = "ambria_hdr_seen";
-
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -351,20 +349,6 @@ export default function App() {
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
   const [dateDrift, setDateDrift]     = useState(false);
-  // The dashboard's header plate stays put the first time this device opens
-  // the dashboard; on every later visit it clears itself after 10s to give
-  // the screen back. Read once up front so StrictMode's double effect run
-  // cannot see the flag the first run just wrote.
-  const [hdrSeenBefore] = useState(()=>{ try { return localStorage.getItem(HDR_SEEN_KEY)==="1"; } catch(e) { return false; } });
-  const [hdrHidden, setHdrHidden] = useState(false);
-  const onDashboard = !!currentUser && screen==="dashboard";
-  useEffect(()=>{
-    if (!onDashboard) return;
-    try { localStorage.setItem(HDR_SEEN_KEY,"1"); } catch(e) {}
-    if (!hdrSeenBefore) return;
-    const t = setTimeout(()=>setHdrHidden(true), 10000);
-    return ()=>clearTimeout(t);
-  }, [onDashboard, hdrSeenBefore]);
 
   // ── Stale-session detector: TODAY is module-load frozen, so a tab open across midnight
   //    silently reads/writes/deletes rows keyed to yesterday. Poll every 5 min and surface a banner.
@@ -1504,10 +1488,7 @@ export default function App() {
             Outside the scroll container on purpose: it names the screen you are
             on and carries the live event details, which stay useful while you
             work down a long list. Top padding matches the sidebar's 10px margin
-            so the plate and the sidebar panel start on the same line.
-            Hidden only on the dashboard: other screens (Kitchen Hub's "Back to
-            Recipes") put controls in its slot. */}
-        {!(hdrHidden&&screen==="dashboard")&&(
+            so the plate and the sidebar panel start on the same line. */}
         <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
           <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
@@ -1565,7 +1546,6 @@ export default function App() {
             <div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:"auto"}}/>
           </div>
         </div>
-        )}
 
         {/* Only the screen scrolls. minHeight:0 lets this flex child shrink so
             overflowY actually scrolls instead of pushing past the window.
