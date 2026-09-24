@@ -197,6 +197,11 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const [mcVenue, setMcVenue] = useState("All");
   const [mcQuery, setMcQuery] = useState("");
   const [mcPage, setMcPage] = useState(1);
+  // Collapsed when the page opens. It is a backlog, not today's work — the
+  // count in the header is what you check on arrival, and the seven rows plus
+  // filters plus pager pushed today's events and the upcoming list below the
+  // fold before either had been looked at.
+  const [mcOpen, setMcOpen] = useState(false);
   const MC_PER_PAGE = 7;
   // Clicking the column you are already sorting by flips the direction;
   // clicking a different one starts that column ascending.
@@ -588,8 +593,16 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
         return(
           <div style={{marginBottom:18,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
             borderRadius:18,boxShadow:K.shadowCard,overflow:"hidden"}}>
-            {/* ── Section header: what it is, and the controls over it ── */}
-            <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"15px 18px"}}>
+            {/* ── Section header: what it is, and the controls over it ──
+                The whole bar toggles. role/tabIndex/onKeyDown rather than a
+                <button>, because when this is open it contains the filter
+                buttons and a button cannot be nested inside a button. */}
+            <div onClick={()=>setMcOpen(v=>!v)}
+              role="button" tabIndex={0} aria-expanded={mcOpen}
+              onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setMcOpen(v=>!v);}}}
+              className="kh-secrow"
+              style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"15px 18px",
+                cursor:"pointer",userSelect:"none"}}>
               <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.dangerBg,
                 border:`1px solid ${K.dangerBorder}`,color:K.danger,
                 display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -598,7 +611,15 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
               <span style={{...type.label,fontSize:11.5,letterSpacing:.7,color:K.hdrTitle,whiteSpace:"nowrap"}}>
                 {unconfirmed.length} {unconfirmed.length===1?T2("menu needs confirmation"):T2("menus need confirmation")}
               </span>
-              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+              <span style={{display:"flex",flexShrink:0,color:K.textFaint,
+                transform:mcOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                <Icon name="chevronD" size={16} strokeWidth={2.2}/>
+              </span>
+              {/* The filters sit inside the toggle, so they have to swallow
+                  their own clicks — otherwise picking a venue would fold the
+                  table it was filtering. */}
+              {mcOpen&&<div onClick={e=>e.stopPropagation()}
+                style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",cursor:"default"}}>
                 <select value={mcFrame} onChange={e=>{setMcFrame(e.target.value);setMcPage(1);}}
                   className="kh-planinput"
                   style={{padding:"8px 12px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,
@@ -629,9 +650,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                       border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
                       fontFamily:K.fontBody,fontSize:12.5,color:K.hdrTitle}}/>
                 </span>
-              </div>
+              </div>}
             </div>
 
+            {mcOpen&&(<>
             {/* ── Column heads ── */}
             <div className="kh-mchead" style={{background:"#F4F2EC",
               borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,
@@ -718,6 +740,7 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
               <Pager page={page} pages={pages} onPage={setMcPage}
                 from={from} shown={MC_PER_PAGE} total={sorted.length} T2={T2}/>
             </div>
+            </>)}
           </div>
         );
       })()}
