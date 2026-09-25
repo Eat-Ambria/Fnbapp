@@ -172,11 +172,16 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
     );
   };
 
-  // The month shown by "This month" in the stats row. Plain constants, not
-  // state: the calendar that used to page through months is gone, so there is
-  // nothing left that can move them off the current month.
+  // The real current month. The stats strip's "This month" reads these, so they
+  // stay constants — the calendar below has its OWN month, and paging it to
+  // December must not leave a figure labelled "This month" counting December.
   const yr = today.getFullYear();
   const mo = today.getMonth();
+
+  // The month the calendar is showing, and the day picked in it.
+  const [calYr, setCalYr] = useState(today.getFullYear());
+  const [calMo, setCalMo] = useState(today.getMonth());
+  const [sel, setSel] = useState(todayStr);
 
   // State
   const [venFil, setVenFil] = useState("All");
@@ -232,6 +237,25 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const upPageNow = Math.min(upPage,upPages);
   const upFrom = (upPageNow-1)*UP_PER_PAGE;
   const upcomingShown = upcoming.slice(upFrom,upFrom+UP_PER_PAGE);
+
+  // ── Calendar grid ──
+  // Six weeks always, so the card does not change height as you page between a
+  // month that needs five rows and one that needs six.
+  const MO_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DY = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const calFirst = new Date(calYr,calMo,1).getDay();
+  const calDim = new Date(calYr,calMo+1,0).getDate();
+  const calPrevDim = new Date(calYr,calMo,0).getDate();
+  const calCells = [];
+  for(let i=calFirst-1;i>=0;i--) calCells.push({d:calPrevDim-i,c:false});
+  for(let i=1;i<=calDim;i++) calCells.push({d:i,c:true});
+  while(calCells.length<42) calCells.push({d:calCells.length-calFirst-calDim+1,c:false});
+  const calDate = cell=>cell.c?`${calYr}-${pad(calMo+1)}-${pad(cell.d)}`:null;
+  // Reads `filtered`, so the venue pills above the calendar thin its dots too.
+  const evsOn = d=>filtered.filter(e=>e.date===d);
+  const calPrev = ()=>{if(calMo===0){setCalMo(11);setCalYr(y=>y-1);}else setCalMo(m=>m-1);};
+  const calNext = ()=>{if(calMo===11){setCalMo(0);setCalYr(y=>y+1);}else setCalMo(m=>m+1);};
+  const selEvs = sel?evsOn(sel):[];
   // The summary strip reads safeEvs, not `filtered`. "This month" used to be
   // venue-filtered while "FY total" was not, so picking AE moved one number and
   // left the other — two figures side by side counting different things.
@@ -579,6 +603,159 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
             </span>
           </div>
         ))}
+      </div>
+
+      {/* ══ CALENDAR ══
+          Back after being taken out, but on the warm palette and in the same
+          shape Planning and Analytics use — calendar on the left, the picked
+          day's functions in a rail beside it. The old one was the blue
+          C.* build and would now be the only cool-grey thing on this screen. */}
+      <div style={{marginBottom:24}}>
+        <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",marginBottom:14,minWidth:0}}>
+          <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,
+            color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon name="calendarDays" size={20} strokeWidth={1.8}/>
+          </span>
+          <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
+            {T2("Calendar")}
+          </span>
+        </div>
+
+        <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 620px",minWidth:340,backgroundColor:K.cardWarm,
+            border:`1px solid ${K.cardWarmLine}`,borderRadius:20,overflow:"hidden",boxShadow:K.shadowCard}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,
+              padding:"16px 20px",flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <button onClick={calPrev} className="kh-calnav" aria-label={T2("Previous month")}
+                  style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                    cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="chevronL" size={15} strokeWidth={2.1}/>
+                </button>
+                <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle,minWidth:168,textAlign:"center"}}>
+                  {T2(MO_FULL[calMo])} {calYr}
+                </div>
+                <button onClick={calNext} className="kh-calnav" aria-label={T2("Next month")}
+                  style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                    cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="chevronR" size={15} strokeWidth={2.1}/>
+                </button>
+                <button onClick={()=>{setCalYr(today.getFullYear());setCalMo(today.getMonth());setSel(todayStr);}}
+                  className="kh-calnav"
+                  style={{marginLeft:8,padding:"7px 18px",borderRadius:999,background:"#FFFFFF",
+                    border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                    fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Today")}</button>
+              </div>
+              {/* The key to the dots in the grid, above the grid rather than
+                  under it — read afterwards it explains something the eye has
+                  already given up on. */}
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                {VENUES.map(v=>(
+                  <div key={v} style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:gp(v).c,flexShrink:0}}/>
+                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{(VP[v]||{}).code||v.slice(0,3)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F4F2EC",
+              borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+              {DY.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
+                fontWeight:600,color:K.hdrMeta,padding:"9px 0"}}>{T2(d)}</div>)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+              {calCells.map((cell,i)=>{
+                const dt=calDate(cell);
+                const evs2=dt?evsOn(dt):[];
+                const isT=dt===todayStr, isS=dt===sel;
+                const vCols=[...new Set(evs2.map(e=>gp(e.venue).c))];
+                return(
+                  <div key={i} onClick={()=>{if(dt)setSel(isS?null:dt);}}
+                    onDoubleClick={()=>{if(dt)openAdd(dt);}}
+                    className={dt?"kh-calcell":undefined}
+                    title={dt?T2("Double-click to add a function"):undefined}
+                    style={{height:58,padding:4,cursor:dt?"pointer":"default",
+                      borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                      opacity:cell.c?1:.28}}>
+                    {/* Inset tile, not a flooded cell — filled edge to edge the
+                        picked day merges with its neighbours across the
+                        hairlines and stops looking like one day. */}
+                    <div style={{height:"100%",borderRadius:10,padding:"5px 8px",overflow:"hidden",
+                      background:isS?K.sageSel:isT?"#F6EFDD":"transparent",
+                      border:`1px solid ${isT&&!isS?K.goldSoft:"transparent"}`}}>
+                      <div style={{fontFamily:K.fontBody,fontSize:14,fontVariantNumeric:"tabular-nums",
+                        fontWeight:isT||isS?700:500,
+                        color:isS?K.sageText:isT?K.gold:K.textBody}}>{cell.d}</div>
+                      {vCols.length>0&&<div style={{display:"flex",gap:3,marginTop:4}}>
+                        {vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}
+                      </div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* The picked day */}
+          {sel&&(()=>{
+            const dp=String(sel).split("-");
+            const dObj=new Date(+dp[0],(+dp[1])-1,+dp[2]);
+            const WD=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+            return(
+            <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
+                border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2(WD[dObj.getDay()])}</div>
+                <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:3}}>
+                  {dObj.getDate()} {T2(MO_FULL[dObj.getMonth()])} {dObj.getFullYear()}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,color:K.hdrMeta}}>
+                  <Icon name="calendar" size={15} strokeWidth={1.9}/>
+                  <span style={{fontFamily:K.fontBody,fontSize:13}}>
+                    {selEvs.length} {selEvs.length===1?T2("function"):T2("functions")}
+                  </span>
+                </div>
+              </div>
+              {selEvs.length===0
+                ? <div style={{padding:"18px 20px",borderRadius:18,border:`1px dashed ${K.cardWarmLine}`,
+                    background:"rgba(251,250,245,.72)",textAlign:"center",
+                    fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                    {T2("Nothing booked on this day.")}
+                  </div>
+                : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {selEvs.map(ev=>{
+                      const vc=gp(ev.venue);
+                      return(
+                        <button key={ev.id} onClick={()=>openEdit(ev)}
+                          className="kh-fncard kh-rip" onPointerDown={ripple}
+                          style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
+                            borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
+                            background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
+                          <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
+                          <div style={{minWidth:0,flex:1,paddingLeft:4}}>
+                            <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
+                            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
+                              fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{ev.time||"—"}</span>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
+                            </div>
+                            <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:5,
+                              fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>
+                              <Icon name="building" size={12} strokeWidth={1.9}/>{ev.venue||"—"}
+                            </div>
+                          </div>
+                          <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
+                            fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{(VP[ev.venue]||{}).code||"EV"}</span>
+                          <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
+                        </button>
+                      );
+                    })}
+                  </div>}
+            </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* ══ UNCONFIRMED MENU ALERTS (grouped by timeframe) ══ */}
@@ -1110,6 +1287,7 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           </div>
         )}
       </div>
+
 
       {/* Sync result. Kept short on purpose — the counts are the whole message,
           and KToast clears itself (4.5s, 7s for a failure so it can be read). */}
