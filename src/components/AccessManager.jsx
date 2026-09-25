@@ -231,6 +231,31 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     });
     setSelected(new Set());
   }
+  function exportCSV() {
+    const rows = staff;
+    const headers = ["Staff ID","Name","Role","Section","Department","Home Venue","Status","SOP Categories","Joining Date"];
+    const esc = v => { const s = (v==null?"":String(v)); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+    const lines = [headers.join(",")];
+    rows.forEach(s=>{
+      const sid = s.staffListId||s.staff_id||s.id;
+      const roleLabel = ROLE_MAP[s.role]||s.role||"";
+      const isActive = s.is_active!==false&&s.active!==false;
+      const deptLabel = ((TEAM_DEPTS||[]).find(d=>d.id===(s.dept||"kitchen"))||{}).label||s.dept||"";
+      const cats = Array.isArray(s.sop_categories)?s.sop_categories.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(" + "):"";
+      lines.push([sid,s.name||"",roleLabel,s.section||"",deptLabel,s.venue||"",isActive?"Active":"Inactive",cats,s.joining||""].map(esc).join(","));
+    });
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ambria_staff_export_"+TODAY+".csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    logActivity('access','Exported staff list CSV ('+rows.length+' rows)','staff_export',{count:rows.length},currentUser?.id);
+  }
   function bulkDelete() {
     if (!window.confirm('PERMANENTLY DELETE ' + selected.size + ' staff?')) return;
     const ids = [...selected];
@@ -376,10 +401,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {staff.length>0&&(
-            selected.size===staff.length
-              ? <button onClick={()=>setSelected(new Set())} style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Deselect All</button>
-              : <button onClick={()=>setSelected(new Set(staff.map(getSID)))} style={{padding:"8px 14px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer"}}>Select All</button>
+            <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,color:C.muted,padding:"8px 12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`}}>
+              <input type="checkbox" checked={selected.size===staff.length&&staff.length>0}
+                onChange={()=>setSelected(selected.size===staff.length?new Set():new Set(staff.map(getSID)))}
+                style={{width:15,height:15,cursor:"pointer"}}/>
+              {T2("Select All")} ({staff.length})
+            </label>
           )}
+          <button onClick={exportCSV} disabled={staff.length===0} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:staff.length===0?C.faint:C.muted,fontSize:13,fontWeight:600,cursor:staff.length===0?"not-allowed":"pointer"}}>⬇ {T2("Export CSV")}</button>
           {canAdd&&<button onClick={()=>setShowMasterData(true)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🗂 {T2("Manage Sections & Venues")}</button>}
           {canAdd&&<button onClick={openAdd} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ {T2("Add Staff")}</button>}
         </div>
