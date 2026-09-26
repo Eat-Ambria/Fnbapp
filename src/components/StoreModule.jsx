@@ -608,7 +608,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
      ingRefreshTick is a dependency on purpose: after a merge/unit-edit
      mutates RECIPE_DB in place (see performIngredientMerge), nothing else
      would tell this memo to re-derive — RECIPE_DB itself isn't React state. */
-  const allRecipeIngredients = useMemo(() => {
+  // Pure snapshot of RECIPE_DB's ingredient usages. RECIPE_DB mutates in place
+  // (not React state) and is also edited from KitchenHub's SOP recipe editor,
+  // so a memoized value can go stale the moment someone corrects a recipe
+  // there without touching this component. Anything that needs the CURRENT
+  // truth at the moment it runs (e.g. Find Duplicates, so a just-corrected
+  // ingredient doesn't reappear as a duplicate) must call this directly
+  // instead of reading the memoized allRecipeIngredients below.
+  function buildRecipeIngredientList() {
     const seen = {};
     for (const catId of Object.keys(RECIPE_DB.recipes || {})) {
       for (const recipe of (RECIPE_DB.recipes[catId] || [])) {
@@ -632,7 +639,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
       }
     }
     return Object.values(seen).sort((a, b) => a.name.localeCompare(b.name));
-  }, [ingRefreshTick]);
+  }
+  const allRecipeIngredients = useMemo(() => buildRecipeIngredientList(), [ingRefreshTick]);
 
   // Weight/volume unit conversion so a merge that changes an item's unit
   // rescales its qty instead of silently relabeling it (200 "gm" becoming
@@ -672,9 +680,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
     try {
       const allNames = new Set(sourceNames);
       allNames.add(target);
+      const freshIngredients = buildRecipeIngredientList(); // current RECIPE_DB state, not this component's possibly-stale memo
       const touched = [];
       allNames.forEach(n => {
-        const entry = allRecipeIngredients.find(i => i.name === n);
+        const entry = freshIngredients.find(i => i.name === n);
         if (entry) entry.usages.forEach(u => touched.push(u));
       });
       const seenKey = new Set();
@@ -744,7 +753,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
      Dish Library's: scan once on open, review clusters, pick a target per
      group, merge or skip. ── */
   function openIngDedup() {
-    const clusters = findIngredientDuplicateClusters(allRecipeIngredients);
+    // Fresh snapshot on every click — not the memoized allRecipeIngredients,
+    // which only recomputes on this component's own merges and can miss a
+    // recipe someone just fixed in the SOP editor.
+    const clusters = findIngredientDuplicateClusters(buildRecipeIngredientList());
     const targets = {}, units = {};
     clusters.forEach((c, i) => {
       const t = pickDefaultIngTarget(c);
