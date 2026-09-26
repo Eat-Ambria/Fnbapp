@@ -467,7 +467,46 @@ function StoreModule({events, lang="en", currentUser=null}) {
         setIngredientMap(prev => ({ ...prev, [r.ingredient_name]: r }));
       }
     }).subscribe();
-    subs = [ch1, ch2, ch3];
+    // RECIPE_DB is a plain mutable object, not React state — a recipe edited
+    // anywhere (KitchenHub's SOP editor, another device/user) mutates it
+    // in place with no re-render signal to this component, so "606/752
+    // linked" and Find Duplicates would only ever pick it up after a full
+    // reload. Patch RECIPE_DB from the live row here and bump ingRefreshTick
+    // so this screen recomputes immediately, same-session or not.
+    const ch4 = supabase.channel('recipes-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'recipes' }, (p) => {
+      try {
+        if (p.eventType === 'DELETE') {
+          const oldId = p.old && p.old.id;
+          Object.keys(RECIPE_DB.recipes || {}).forEach(catId => {
+            RECIPE_DB.recipes[catId] = (RECIPE_DB.recipes[catId] || []).filter(r => r.id !== oldId);
+          });
+        } else {
+          const r = p.new;
+          if (!r) return;
+          const row = {
+            id: r.id,
+            n: r.dish_name,
+            n_hi: r.dish_name_hi || '',
+            sub: r.sub || '',
+            steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
+            ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),
+            yield: r.yield && typeof r.yield === 'string' ? JSON.parse(r.yield) : (r.yield || null),
+            bg: !!r.bg,
+          };
+          const catId = String(r.category_id);
+          // Drop from any other category first, in case this was a category move
+          Object.keys(RECIPE_DB.recipes || {}).forEach(cid => {
+            if (cid !== catId) RECIPE_DB.recipes[cid] = (RECIPE_DB.recipes[cid] || []).filter(x => x.id !== r.id);
+          });
+          if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+          const list = RECIPE_DB.recipes[catId];
+          const idx = list.findIndex(x => x.id === r.id);
+          if (idx >= 0) list[idx] = row; else list.push(row);
+        }
+        setIngRefreshTick(t => t + 1);
+      } catch (e) { console.error("Recipe realtime patch failed:", e); }
+    }).subscribe();
+    subs = [ch1, ch2, ch3, ch4];
 
     return () => {
       subs.forEach(ch => supabase.removeChannel(ch));
