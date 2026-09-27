@@ -150,6 +150,10 @@ function EventDayTab({
   // Quantities are held per cell, keyed "<evId>|<dishName>" — a shared dish is
   // one cooked batch that the chef splits between functions, so the amount is a
   // property of the pairing, not of the dish.
+  // Ready/Cooking/Pending/Dishes/Pax. Closed on arrival — five tiles is a band
+  // of the screen above the stations you actually work in, and the counts are
+  // a summary of what is listed below rather than something acted on.
+  const [statsOpen, setStatsOpen] = useState(false);
   const [transportPick, setTransportPick] = useState(null);
   const [transportQty,  setTransportQty]  = useState({});   // { cellKey: "2.5" }
   const [transportToast, setTransportToast] = useState(null);
@@ -555,8 +559,12 @@ function EventDayTab({
           s.addEventListener("animationend", () => s.remove());
         };
         const Seg = ({ segKey, sel, icon, title, meta, first }) => (
+          // Picking a function opens its counts underneath; clicking the one
+          // already picked closes them again. So the arrow belongs on the
+          // segment rather than on a control of its own.
           <button key={segKey} className={"kh-btn kh-seg"+(sel?" is-active":"")}
-            onClick={(e)=>{ fillUp(e); setEvFnFilter(segKey); }}
+            aria-expanded={sel&&statsOpen}
+            onClick={(e)=>{ fillUp(e); if(sel){ setStatsOpen(o=>!o); } else { setEvFnFilter(segKey); setStatsOpen(true); } }}
             style={{
               flex:"1 1 230px", minWidth:0, display:"flex", alignItems:"center", gap:14,
               padding:"16px 20px", border:"none", borderLeft:first?"none":`1px solid ${K.lineSoft}`,
@@ -569,9 +577,15 @@ function EventDayTab({
               background:sel?K.segChipSelBg:K.segChipBg, color:sel?K.segSelBar:K.hdrMeta}}>
               <Icon name={icon} size={20} strokeWidth={1.8}/>
             </span>
-            <span style={{position:"relative",zIndex:1,minWidth:0}}>
+            <span style={{position:"relative",zIndex:1,minWidth:0,flex:1}}>
               <span style={{display:"block",fontSize:16,fontWeight:700,color:K.hdrTitle,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{title}</span>
               <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{meta}</span>
+            </span>
+            {/* Only turns on the segment whose counts are actually open. */}
+            <span style={{position:"relative",zIndex:1,flexShrink:0,display:"flex",
+              color:sel?K.segSelBar:K.textFaint,
+              transform:(sel&&statsOpen)?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+              <Icon name="chevronD" size={17} strokeWidth={2.2}/>
             </span>
           </button>
         );
@@ -592,7 +606,8 @@ function EventDayTab({
       {/* No per-function hint banner: it only restated the guest, pax, venue
           and time that the function selector directly above already shows. */}
 
-      {/* ── Stats ── */}
+      {/* ── Stats — opened by the selected function above ── */}
+      {statsOpen&&(
       <div className="kh-stats" style={{ marginBottom: 16 }}>
         <KStat large={isTablet} icon="check"    toneName="ok"     value={readyDishes} label={T2("Ready")} />
         <KStat large={isTablet} icon="flame"    toneName="warn"   value={inProgressDishes} label={T2("Cooking")} />
@@ -600,6 +615,7 @@ function EventDayTab({
         <KStat large={isTablet} icon="utensils" toneName="teal"   value={totalDishes} label={T2("Dishes")} />
         <KStat large={isTablet} icon="users"    toneName="info"   value={totalPax.toLocaleString()} label={T2("Pax")} />
       </div>
+      )}
 
       {/* ── Kitchen Stations ── */}
       <KPanel

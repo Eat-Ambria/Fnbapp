@@ -4710,14 +4710,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
             {/* ── Calendar ── */}
             <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:16}}>
-              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,backgroundColor:K.cardWarm,
-                border:`1px solid ${K.hdrLine}`,boxShadow:K.shadowCard,color:K.sbGold,
-                display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <Icon name="calendarDays" size={28} strokeWidth={1.6}/>
+              {/* Solid brand tile and a heavier title. Ivory-on-ivory with a
+                  pale gold glyph, over the page artwork, this was the quietest
+                  thing on a screen it is supposed to be heading. Cormorant is a
+                  light face, so the weight has to be asked for. */}
+              <span style={{width:60,height:60,borderRadius:18,flexShrink:0,background:K.brand,
+                color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="calendarDays" size={28} strokeWidth={1.8}/>
               </span>
               <span style={{minWidth:0,flex:"1 1 220px"}}>
-                <span style={{display:"block",...type.pageTitle,fontSize:27,color:K.hdrTitle}}>{MO_N[closeCalMo]} {closeCalYr}</span>
-                <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Pick a past date to record its closing")}</span>
+                <span style={{display:"block",...type.pageTitle,fontSize:32,fontWeight:700,letterSpacing:"-0.5px",color:K.hdrTitle}}>{T2(MO_N[closeCalMo])} {closeCalYr}</span>
+                <span style={{display:"block",fontFamily:K.fontBody,fontSize:13.5,color:K.hdrMeta,marginTop:4}}>{T2("Pick a past date to record its closing")}</span>
               </span>
               <span style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
                 <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={prevMo} title={T2("Previous month")}
