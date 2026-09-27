@@ -142,7 +142,7 @@ async function fetchOpsEquipmentItems() {
 // keeps StoreModule free of a cross-feature dependency for four functions. ══
 // Same canonical unit list the SOP recipe editor (KitchenHub.jsx) offers,
 // so "Edit unit" here can never write a unit the recipe editor wouldn't.
-const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
+const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"];
 
 // Requirements tab's "Add to Order list" destinations — keys match store_order_lists.list_key.
 const ORDER_LIST_META = {

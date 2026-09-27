@@ -476,7 +476,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const header=rows[0].map(h=>(h||"").trim().toLowerCase());
     const ix={name:header.indexOf("name"),hi:header.indexOf("hi"),unit:header.indexOf("unit"),qty:header.indexOf("qty"),isSection:header.indexOf("issection"),notes:header.indexOf("notes")};
     if(ix.name<0) return {items:[],warnings:["CSV must have a 'name' column in row 1"]};
-    const validUnits=["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"];
+    const validUnits=["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"];
     const items=[],warnings=[];
     for(let r=1;r<rows.length;r++){
       const row=rows[r];
@@ -3965,8 +3965,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}>
                                   {isBg
-                                    ? <select className="kh-select" value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${K.warnBorder}`,fontSize:13.5,color:K.warn,background:"#FFFFFF",fontWeight:700,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
-                                    : <select className="kh-select" value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    ? <select className="kh-select" value={item.unit||'kg'} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${K.warnBorder}`,fontSize:13.5,color:K.warn,background:"#FFFFFF",fontWeight:700,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                    : <select className="kh-select" value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                   }
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
