@@ -79,6 +79,12 @@ const NAV_ICON = {
   access:"lock",           logs:"listCheck",
 };
 
+// The notification bell is parked, not deleted — the toggle behaviour and the
+// pending-leave badge are worth keeping if it comes back. This is the flag its
+// own comment already referred to; it gates the bell AND the row that exists
+// only to hold it.
+const SHOW_BELL = false;
+
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
@@ -1424,26 +1430,15 @@ export default function App() {
             when hiding: collapsing its height changed the scroll container's size,
             which moved scrollTop, which fired another scroll event with the
             opposite direction — the bar flapped open and shut. */}
+        {SHOW_BELL&&(
         <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
-
-          {/* The only way back once the sidebar is collapsed, so it sits on the
-              left where the panel used to be rather than among the account
-              controls on the right. */}
-          {!sideOpen&&(
-            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(true)}
-              title={T2("Expand")} aria-label={T2("Expand")}
-              style={{width:38,height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
-              <Icon name="panelLeft" size={17} strokeWidth={2}/>
-            </button>
-          )}
-          <span style={{marginLeft:"auto"}}/>
 
 
           {/* Bell hidden for now — set SHOW_BELL back to true to restore it.
               Kept rather than deleted: the toggle behaviour and the pending-leave
               badge below are worth keeping if it comes back. Clicking it when
               Team is already open returns you to the screen you came from. */}
-          {false&&canAccessScreen(currentUser,"team")&&(
+          {SHOW_BELL&&canAccessScreen(currentUser,"team")&&(
             <button className="ash-iconbtn kh-rip" onPointerDown={ripple}
               onClick={()=>{
                 if(screen==="team"){ setScreen(bellReturnRef.current || "kitchen"); }
@@ -1455,46 +1450,28 @@ export default function App() {
               {pendingLv>0&&<span style={{position:"absolute",top:8,right:8,width:8,height:8,borderRadius:"50%",background:K.danger,border:`2px solid ${K.surface}`}}/>}
             </button>
           )}
-
-          {/* The account chip lives in the sidebar now. It is mirrored here ONLY
-              while the sidebar is collapsed, because collapsing hides the panel
-              entirely and sign out would otherwise be unreachable. */}
-          {!sideOpen&&(
-          <div ref={userMenuRef} style={{position:"relative",flexShrink:0}}>
-            <button className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={()=>setUserMenuOpen(o=>!o)}
-              style={{display:"flex",alignItems:"center",gap:9,padding:"4px 10px 4px 4px",height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,cursor:"pointer"}}>
-              <Avatar name={currentUser?.name||"A"} size={28} index={0}/>
-              <span style={{fontSize:13,fontWeight:600,color:K.text,whiteSpace:"nowrap"}}>{currentUser?.name}</span>
-              <Icon name="chevronD" size={14} color={K.textFaint} style={{transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
-            </button>
-            {userMenuOpen&&(
-              <div style={{position:"absolute",top:44,right:0,zIndex:60,minWidth:210,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
-                <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
-                  <div style={{fontSize:13,fontWeight:700,color:K.text}}>{currentUser?.name}</div>
-                  <div style={{fontSize:11.5,color:K.textMuted,marginTop:2}}>{currentUser?.id} · {currentUser?.role==="admin"?"Admin":currentUser?.role}</div>
-                </div>
-                <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setLang(l=>l==="en"?"hi":"en");setUserMenuOpen(false);}}
-                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
-                  <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
-                </button>
-                {/* No Access Manager shortcut here — it is already a nav item. */}
-                <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
-                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
-                  <Icon name="logout" size={15}/>{T("Sign out",lang)}
-                </button>
-              </div>
-            )}
-          </div>
-          )}
         </div>
+        )}
 
         {/* ── PAGE HEADER — brand plate ──
             Outside the scroll container on purpose: it names the screen you are
             on and carries the live event details, which stay useful while you
             work down a long list. Top padding matches the sidebar's 10px margin
             so the plate and the sidebar panel start on the same line. */}
-        <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
-          <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+        {/* Expand sits beside the plate, not on a strip of its own above it —
+            a whole row of the screen for one button, and only while the
+            sidebar was shut. Same as the tablet shell. */}
+        <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:12}}>
+          {!sideOpen&&(
+            <button className="ash-iconbtn kh-rip" onPointerDown={ripple} onClick={()=>setSideOpen(true)}
+              title={T2("Expand")} aria-label={T2("Expand")}
+              style={{width:42,height:42,borderRadius:13,background:K.surface,border:`1px solid ${K.line}`,
+                boxShadow:K.shadowCard,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",
+                cursor:"pointer",padding:0,flexShrink:0}}>
+              <Icon name="panelLeft" size={18} strokeWidth={2}/>
+            </button>
+          )}
+          <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
             <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
