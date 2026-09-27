@@ -977,46 +977,25 @@ export default function App() {
                 );
               })}
             </nav>
-            {/* No Exit button here. Signing out lives in the user chip in the
-                top bar, exactly as it does in the admin app — one place for
-                "who am I / get me out", not two. */}
-
-            {/* Footer plate — the wave, the artwork and the strapline are all
-                baked into the image, same as the admin sidebar. */}
-            <div style={{position:"relative",zIndex:1,flexShrink:0,lineHeight:0}}>
-              <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
-                onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
-                className="ash-sb-footer" style={{display:"block",width:"100%",
-                  objectFit:"cover",objectPosition:"center bottom",
-                  pointerEvents:"none",userSelect:"none"}}/>
-            </div>
-          </div>
-        )}
-        <div style={{position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-          {/* Top bar — expand control on the left, identity on the right, the
-              same pair the admin shell carries above its header plate. */}
-          <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
-            {!tabletSidebarOpen&&(
-              <button onClick={function(){setTabletSidebarOpen(true);}} onPointerDown={ripple}
-                className="ash-iconbtn kh-rip" title={T2("Expand")} aria-label={T2("Expand")}
-                style={{width:38,height:38,borderRadius:10,border:`1px solid ${K.line}`,background:K.surface,
-                  cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:K.textMuted,flexShrink:0,padding:0}}>
-                <Icon name="panelLeft" size={17} strokeWidth={2}/>
+            {/* Account — in the panel with the navigation rather than floating
+                over the content in the top bar, the same place the admin shell
+                keeps it. The menu is position:fixed and measured from the chip:
+                the sidebar sets overflow:hidden, so an absolutely-placed one
+                would be clipped by the panel it lives in. */}
+            <div ref={userMenuRef} style={{position:"relative",zIndex:4,flexShrink:0,marginTop:"auto",padding:"10px 12px 12px",borderTop:`1px solid ${K.sbLine}`}}>
+              <button ref={userChipRef} className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={openUserMenu}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"8px 10px",borderRadius:12,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,cursor:"pointer",textAlign:"left"}}>
+                <Avatar name={currentUser?.name||"T"} size={30} index={0}/>
+                <span style={{minWidth:0,flex:1}}>
+                  <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.sbText,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{currentUser?.name}</span>
+                  <span style={{display:"block",fontSize:11,color:K.sbLabel,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{_catObjs.length} {_catObjs.length===1?T2("station"):T2("stations")}</span>
+                </span>
+                <Icon name="chevronD" size={14} color={K.sbLabel} style={{flexShrink:0,transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
               </button>
-            )}
-            {/* Identity + sign out, exactly as in admin — Exit no longer sits in
-                the sidebar, so there is one place for "who am I / get me out". */}
-            <div ref={userMenuRef} style={{position:"relative",flexShrink:0,marginLeft:"auto"}}>
-              <button className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={()=>setUserMenuOpen(o=>!o)}
-                style={{display:"flex",alignItems:"center",gap:9,padding:"4px 10px 4px 4px",height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,cursor:"pointer"}}>
-                <Avatar name={currentUser?.name||"T"} size={28} index={0}/>
-                <span style={{fontSize:13,fontWeight:600,color:K.text,whiteSpace:"nowrap"}}>{currentUser?.name}</span>
-                <Icon name="chevronD" size={14} color={K.textFaint} style={{transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
-              </button>
-              {userMenuOpen&&(
-                <div style={{position:"absolute",top:44,right:0,zIndex:60,minWidth:230,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
+              {userMenuOpen&&userMenuPos&&(
+                <div style={{position:"fixed",...userMenuPos,zIndex:10002,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
                   <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
-                    <div style={{fontSize:13,fontWeight:700,color:K.text}}>{currentUser?.name}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:K.text,overflowWrap:"anywhere"}}>{currentUser?.name}</div>
                     <div style={{fontSize:11.5,color:K.textMuted,marginTop:2}}>{_catObjs.length} {_catObjs.length===1?T2("station"):T2("stations")}{currentUser?.venue?` · ${currentUser.venue}`:""}</div>
                   </div>
                   <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setLang(l=>l==="en"?"hi":"en");setUserMenuOpen(false);}}
@@ -1030,14 +1009,39 @@ export default function App() {
                 </div>
               )}
             </div>
+
+
+            {/* Footer plate — the wave, the artwork and the strapline are all
+                baked into the image, same as the admin sidebar. */}
+            <div style={{position:"relative",zIndex:1,flexShrink:0,lineHeight:0}}>
+              <img src={`${import.meta.env.BASE_URL}sidebar-footer.webp`} alt="" aria-hidden="true" draggable="false"
+                onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
+                className="ash-sb-footer" style={{display:"block",width:"100%",
+                  objectFit:"cover",objectPosition:"center bottom",
+                  pointerEvents:"none",userSelect:"none"}}/>
+            </div>
           </div>
+        )}
+        <div style={{position:"relative",zIndex:1,flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
 
           {/* Brand plate — static, outside the scroll container, exactly as in
               the admin shell so both look and behave the same. The mask that
               used to fade content under the top bar is gone with it: the plate
               is opaque, so it hides whatever scrolls beneath it. */}
-          <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0"}}>
-              <div style={{position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,
+          {/* Expand sits beside the plate, not inside it and not on a strip of
+              its own above it — a row for one 38px button cost a whole band of
+              a tablet screen. The plate takes the rest of the width. */}
+          <div style={{position:"relative",zIndex:2,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:12}}>
+              {!tabletSidebarOpen&&(
+                <button onClick={function(){setTabletSidebarOpen(true);}} onPointerDown={ripple}
+                  className="ash-iconbtn kh-rip" title={T2("Expand")} aria-label={T2("Expand")}
+                  style={{width:42,height:42,borderRadius:13,border:`1px solid ${K.line}`,background:K.surface,
+                    boxShadow:K.shadowCard,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                    color:K.textMuted,flexShrink:0,padding:0}}>
+                  <Icon name="panelLeft" size={18} strokeWidth={2}/>
+                </button>
+              )}
+              <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,
                 padding:"15px 24px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
                 <svg width="230" height="200" viewBox="0 0 230 200" aria-hidden="true"
                   style={{position:"absolute",top:-26,right:-18,pointerEvents:"none",opacity:.5}}>

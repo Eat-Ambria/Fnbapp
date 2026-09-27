@@ -1640,41 +1640,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         onClose={()=>setResetModal(null)}
       />
 
-      {/* Section tablet banner */}
-      {sectionFilter && hasCats && (
-        // Brand plate, not a per-category accent — this is chrome, and it was
-        // the last thing on the tablet still picking its colour from whichever
-        // station the device happens to be assigned to.
-        <div className="kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.hdrLine}`,borderLeft:`4px solid ${K.brand}`,
-          borderRadius:K.rLg,padding:'15px 18px',marginBottom:14,boxShadow:K.shadowCard}}>
-          {/* A real heading, not a micro-label. At 10.5px uppercase this was the
-              quietest thing on a screen whose whole point is telling the tablet
-              which stations it is responsible for. */}
-          <div style={{display:'flex',alignItems:'center',gap:13,marginBottom:12}}>
-            <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.hdrBadge,color:K.hdrBadgeIcon,
-              display:'flex',alignItems:'center',justifyContent:'center'}}>
-              <Icon name="layers" size={26} strokeWidth={1.8}/>
-            </span>
-            <div style={{minWidth:0,flex:1}}>
-              <div style={{...type.pageTitle,fontSize:28,color:K.hdrTitle}}>{T2("Your stations")}</div>
-              <div style={{fontSize:14,color:K.hdrMeta,marginTop:3}}>{T2("Showing only your assigned categories")}</div>
-            </div>
-            <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0,
-              minWidth:34,height:34,padding:'0 11px',borderRadius:K.rPill,
-              background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brand,
-              fontSize:15,fontWeight:700,fontVariantNumeric:'tabular-nums'}}>{sectionCatNames.length}</span>
-          </div>
-          {/* One chip per station. A single joined line of eleven names was a
-              wall of text nobody could pick their own station out of. */}
-          <div style={{display:'flex',flexWrap:'wrap',gap:7}}>
-            {sectionCatNames.map((n,i)=>(
-              <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'5px 12px',borderRadius:K.rPill,
-                background:K.brandBg,border:`1px solid ${K.brandBorder}`,color:K.brandText,
-                fontSize:12.5,fontWeight:600,whiteSpace:'nowrap'}}>{n}</span>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* -- Chef Photo Modal -- */}
       {readyModal&&(
