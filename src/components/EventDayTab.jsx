@@ -1459,7 +1459,9 @@ function EventDayTab({
                                   if (setTransportQueue) {
                                     setTransportQueue(prev => [...(prev || []), {
                                       id: localDateStr(new Date()) + "_" + dish.fEvId + "_" + dish.fIdx,
-                                      dishName: dish.name, event: tev?.guest || "Unknown",
+                                      dish: dish.name, evId: dish.fEvId, sec: getCatIdForDish(dish.name) || null,
+                                      qty: null, unit: null, station: null,
+                                      event: tev?.guest || "Unknown",
                                       pax: tev?.pax || 0, venue: tev?.venue || "",
                                       eventDate: tev?.date || TODAY,
                                       preparedBy: currentUser?.name || "Chef",
@@ -1571,7 +1573,8 @@ function EventDayTab({
           // date, and the quantity the chef typed for that function.
           const rows = transportCells.map((c, ix) => ({
             id: `${stamp}_${transportPick.sec}_${c.evId}_${ix}_${Date.now()}`,
-            dishName: `${c.n} — ${c.qty} ${c.unit}`,
+            dish: c.n, qty: c.qty, unit: c.unit,
+            evId: c.evId, sec: transportPick.sec,
             event: c.guest,
             pax: c.pax,
             venue: c.venue,

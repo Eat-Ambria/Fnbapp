@@ -339,7 +339,7 @@ export default function App() {
       const nextMap = new Map(safeArr(next).map(q=>[q.id, q]));
       nextMap.forEach((q, id) => {
         if(!prevMap.has(id) || prevMap.get(id).status !== q.status) {
-          dbUpsert("transport_queue",{id:q.id,dish_name:q.dishName,event_guest:q.event,pax:+q.pax||0,venue:q.venue,event_date:q.eventDate,prepared_by:q.preparedBy,marked_at:q.markedAt,status:q.status,picked_up_at:q.pickedUpAt||null},"id").catch(e=>console.error("tq sync:",e));
+          dbUpsert("transport_queue",{id:q.id,dish_name:q.dish||q.dishName||"",ev_id:q.evId||null,sec:q.sec||null,station:q.station||null,qty:q.qty??null,unit:q.unit||null,event_guest:q.event,pax:+q.pax||0,venue:q.venue,event_date:q.eventDate,prepared_by:q.preparedBy,marked_at:q.markedAt,status:q.status,picked_up_at:q.pickedUpAt||null,from_venue:q.fromVenue||null},"id").catch(e=>console.error("tq sync:",e));
         }
       });
       prevMap.forEach((_,id) => {
@@ -500,7 +500,7 @@ export default function App() {
         });
       }
       if(tqData.length>0){
-        setTransportQueue_raw(tqData.map(q=>({id:q.id,dishName:q.dish_name,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined})));
+        setTransportQueue_raw(tqData.map(q=>({id:q.id,dish:q.dish_name,evId:q.ev_id||null,sec:q.sec||null,station:q.station||null,qty:q.qty??null,unit:q.unit||null,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined,fromVenue:q.from_venue||""})));
       } else {
         try{const c=JSON.parse(localStorage.getItem("ambria_transport_queue")||"[]");if(c.length)setTransportQueue_raw(c);}catch(e){}
       }
@@ -606,7 +606,7 @@ export default function App() {
       if(payload.eventType==='DELETE') setLeaves_raw(p=>p.filter(x=>x.id!==payload.old.id));
     });
     const u7 = dbSubscribe('transport_queue', (payload) => {
-      const nq=payload.new?{id:payload.new.id,dishName:payload.new.dish_name,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined}:null;
+      const nq=payload.new?{id:payload.new.id,dish:payload.new.dish_name,evId:payload.new.ev_id||null,sec:payload.new.sec||null,station:payload.new.station||null,qty:payload.new.qty??null,unit:payload.new.unit||null,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined,fromVenue:payload.new.from_venue||""}:null;
       if(payload.eventType==='INSERT'&&nq) setTransportQueue_raw(p=>{if(p.some(i=>i.id===nq.id))return p;return[...p,nq];});
       if(payload.eventType==='UPDATE'&&nq) setTransportQueue_raw(p=>p.map(i=>i.id===nq.id?nq:i));
       if(payload.eventType==='DELETE') setTransportQueue_raw(p=>p.filter(i=>i.id!==payload.old.id));

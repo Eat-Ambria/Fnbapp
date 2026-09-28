@@ -33,9 +33,27 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
   const VCOL = {dry:"#C07010", cold:"#185FA5", quick:"#2B8A50"};
 
+  // Outsourced (vendor-supplied) dishes never enter the kitchen's own cook
+  // list (KitchenHub.jsx/EventDayTab.jsx already exclude them via their own
+  // menuArr()), so they should never count toward a vehicle's manifest,
+  // loading checklist, or this event's "dishes ready" totals either.
+  function menuArr(ev) {
+    const m = ev.menu;
+    let arr;
+    if (Array.isArray(m)) arr = m;
+    else if (typeof m === 'string' && m) { try { arr = JSON.parse(m); } catch(e) { arr = []; } }
+    else arr = [];
+    const out = ev.outsourced_dishes;
+    if (Array.isArray(out) && out.length > 0) {
+      const skip = new Set(out);
+      arr = arr.filter(n => !skip.has(n));
+    }
+    return arr;
+  }
+
   function buildChecklist(ev, vehicleId) {
     const v = VEHICLES.find(x=>x.id===vehicleId);
-    const menuItems = (ev.menu||[]).map(name=>{
+    const menuItems = menuArr(ev).map(name=>{
       const meta = _getDishMeta(name);
       return {
         id:`${name}-menu`.replace(/\s+/g,"-"), name, category:"🍽 Food",
@@ -53,7 +71,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   }
 
   function autoVehicles(ev){
-    const menu=safeArr(ev.menu);
+    const menu=menuArr(ev);
     const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
     const pax=+ev.pax||0;
     const vids=[];
@@ -64,14 +82,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   }
 
   function makeManifest(ev,vid){
-    const menu=safeArr(ev.menu);
+    const menu=menuArr(ev);
     const v=VEHICLES.find(x=>x.id===vid);
     if(v?.type==="cold") return menu.filter(d=>_getDishMeta(d).cold);
     return menu.filter(d=>!_getDishMeta(d).cold);
   }
 
   const initDispatches = () => safeEvs.map(ev=>({
-    evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:ev.menu||[],
+    evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev),
     assignments: autoVehicles(ev).map(vid=>{
       // Build checklist ONCE per (ev,vid), clone for unloading — the previous code called buildChecklist twice, doubling the fuzzy-match cost
       const loading = buildChecklist(ev,vid);
@@ -95,28 +113,13 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
-  const [dishLU, setDishLU] = useState({});
-  const [selFnId, setSelFnId] = useState(()=>{
-    const td=new Date().toISOString().slice(0,10);
-    const tm=new Date(Date.now()+864e5).toISOString().slice(0,10);
-    const todayEv=safeEvs.find(e=>e.date===td);
-    if(todayEv)return todayEv.id;
-    const tmEv=safeEvs.find(e=>e.date===tm);
-    if(tmEv)return tmEv.id;
-    return safeEvs[0]?.id||null;
-  });
-  const [tdSearch, setTdSearch] = useState("");
   const [tdSecOpen, setTdSecOpen] = useState({});
-  const [selEvId,    setSelEvId]    = useState(safeEvs[0]?.id||null);
   const [activeTab,  setActiveTab]  = useState("todayplan");
-  const [selDate,    setSelDate]    = useState(safeEvs[0]?.date||"");
-  const [expandedFn, setExpandedFn] = useState(null); // for load/unload function expand
   const [fleetList,   setFleetList]   = useState(VEHICLES.map(v=>({...v})));
   const [showAddVeh,  setShowAddVeh]  = useState(false);
   const [editVehId,   setEditVehId]   = useState(null);
   const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});
   const [delVehId,    setDelVehId]    = useState(null);
-  const [clSrch,      setClSrch]      = useState("");
 
   function updAsgn(evId,ai,field,val){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[field]:val})}));}
   function toggleCheck(evId,ai,key,idx){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[key]:a[key].map((item,j)=>j!==idx?item:{...item,checked:!item.checked})})}));}
@@ -201,10 +204,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     setDelVehId(null);
   }
 
-  const allDates  = [...new Set(safeEvs.map(e=>e.date).filter(Boolean))].sort();
-  const dayEvs    = safeEvs.filter(e=>e.date===selDate);
-  const selDispatch = dispatches.find(d=>d.evId===selEvId)||null;
-
   const PROP = {
     "Ambria Pushpanjali":{code:"AP",c:"#D4A843",bg:C.goldBg},
     "Ambria Exotica":    {code:"AE",c:"#854F0B",bg:C.goldBg},
@@ -213,7 +212,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   };
   const gp = v => PROP[v]||{code:"EV",c:C.wine,bg:C.wineBg};
 
-  const TABS=[{v:"ready",l:"🍳 Kitchen Ready"},{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"fleet",l:`🚛 ${T2("Fleet")}`}];
+  const TABS=[{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"fleet",l:`🚛 ${T2("Fleet")}`}];
 
   return (
     <div>
@@ -250,213 +249,76 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         );
       })()}
 
-      {/* ── KITCHEN DISPATCH NOTIFICATIONS ── */}
-      {(()=>{
-        const notifications = safeEvs.filter(ev => ev.date===TODAY).map(ev => {
-          const evKt = kt[ev.id] || {};
-          const dispatched = !!evKt.__dispatch_ready;
-          const dispatchTime = evKt.__dispatch_time || "";
-          const menu = safeArr(ev.menu);
-          let readyCount = 0;
-          menu.forEach((name, idx) => {
-            const dk = ev.id+"|"+idx;
-            if(evKt[dk]?.ready) readyCount++;
-          });
-          return {ev, dispatched, dispatchTime, readyCount, total: menu.length};
-        }).filter(n => n.readyCount > 0);
-        if(notifications.length === 0) return null;
-        return (
-          <div style={{marginBottom:14}}>
-            {notifications.map(n => (
-              <div key={n.ev.id} style={{background:n.dispatched?C.greenBg:C.amberBg,border:`1.5px solid ${n.dispatched?C.greenBorder:C.amberBorder}`,borderRadius:12,padding:"12px 16px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <span style={{fontSize:20}}>{n.dispatched?"🚛":"🍳"}</span>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:n.dispatched?C.green:C.amber}}>
-                      {n.dispatched?`${n.ev.guest} — ${T2("Kitchen says: Ready for Dispatch!")}`:`${n.ev.guest} — ${n.readyCount}/${n.total} ${T2("dishes ready from kitchen")}`}
-                    </div>
-                    <div style={{fontSize:12,color:C.muted}}>{n.ev.venue} · {n.ev.time}{n.dispatchTime?` · ${T2("Notified at")} ${n.dispatchTime}`:""}</div>
-                  </div>
-                </div>
-                <div style={{textAlign:"center",flexShrink:0}}>
-                  <div style={{fontSize:18,fontWeight:700,color:n.dispatched?C.green:C.amber}}>{n.readyCount}/{n.total}</div>
-                  <div style={{fontSize:12,color:C.muted}}>{T2("ready")}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* ── FROM KITCHEN — READY FOR PICKUP ── */}
-      {(function(){
-        // Only show queue items whose eventDate is in the active window; drop pre-eventDate legacy items too (they can't be verified)
-        var isRecent=function(item){return item.eventDate && item.eventDate >= DISPATCH_CUTOFF;};
-        var pending=(transportQueue||[]).filter(function(item){return isRecent(item) && (item.status==='Pending Pickup'||item.status==='Ready');});
-        var pickedUp=(transportQueue||[]).filter(function(item){return isRecent(item) && item.status==='Picked Up';});
-        if(!pending.length&&!pickedUp.length) return null;
-        return (
-          <div style={{marginBottom:14,border:`1.5px solid ${C.wine}`,borderRadius:12,overflow:'hidden'}}>
-            <div style={{background:C.wine+'20',padding:'10px 16px',display:'flex',alignItems:'center',gap:8}}>
-              <span style={{fontSize:14}}>🍳</span>
-              <span style={{fontSize:13,fontWeight:700,color:C.wine}}>From Kitchen — Ready for Pickup</span>
-              {pending.length>0&&<span style={{fontSize:11,background:C.wine,color:'#fff',padding:'2px 8px',borderRadius:20,fontWeight:700}}>{pending.length}</span>}
-            </div>
-            {pending.map(function(item,i){return (
-              <div key={item.id||i} style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{item.dishName}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{item.event} · 📍 {item.venue} · {item.pax} pax</div>
-                  <div style={{fontSize:11,color:C.muted}}>{item.fromVenue?`🏠 From: ${item.fromVenue} → ${item.venue}`:`By ${item.preparedBy}`} · {item.markedAt}</div>
-                </div>
-                <button onClick={function(){setTransportQueue&&setTransportQueue(function(prev){return prev.map(function(q){return q.id===item.id?{...q,status:'Picked Up',pickedUpAt:new Date().getHours().toString().padStart(2,'0')+':'+new Date().getMinutes().toString().padStart(2,'0')}:q;});});}} style={{padding:'8px 14px',borderRadius:10,background:C.green,color:'#fff',border:'none',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,minHeight:38}}>📦 {T2("Mark Loaded")}</button>
-              </div>
-            );})}
-            {pickedUp.length>0&&(
-              <div style={{padding:'8px 16px',background:C.darkCard}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:4,textTransform:'uppercase',letterSpacing:0.8}}>Already Picked Up ({pickedUp.length})</div>
-                {pickedUp.map(function(item,i){return (
-                  <div key={item.id||i} style={{fontSize:11,color:C.muted,padding:'4px 0',borderBottom:i<pickedUp.length-1?`1px solid ${C.borderLight}`:'none'}}>
-                    {item.dishName} · {item.event} · By {item.preparedBy}{item.pickedUpAt?' · Picked up '+item.pickedUpAt:''}
-                  </div>
-                );})}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
       <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
         {TABS.map(t=>(
           <button key={t.v} onClick={()=>setActiveTab(t.v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",background:activeTab===t.v?C.wine:"transparent",color:activeTab===t.v?"#fff":C.muted,border:`1.5px solid ${activeTab===t.v?C.wine:C.border}`}}>{t.l}</button>
         ))}
       </div>
 
-      {activeTab==="ready"&&(function(){
-        var readyDishes=[];
-        var dispatchedDishes=[];
-        var relevantEvs=safeEvs.filter(function(e){return e.date===TODAY||e.date===TOMORROW;});
-        relevantEvs.forEach(function(ev){
-          var menuArr=Array.isArray(ev.menu)?ev.menu:[];
-          menuArr.forEach(function(dishName,idx){
-            var evKt=kt[ev.id]||{};
-            var pipeKey=ev.id+'|'+idx;
-            var dishData=evKt[pipeKey]||evKt[ev.id+'_'+idx]||evKt['d_'+idx]||null;
-            if(!dishData) return;
-            if(dishData.readyForDispatch||dishData.dispatchReady){dispatchedDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
-            else if(dishData.completed||dishData.ready||dishData.mesaDone){readyDishes.push({name:dishName,ev:ev,data:dishData,idx:idx});}
-          });
-        });
-        var totalDishes=relevantEvs.reduce(function(s,e){return s+(Array.isArray(e.menu)?e.menu.length:0);},0);
-        return (
-          <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🍳 Dishes Ready for Dispatch</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Live feed from Kitchen Hub — dishes marked ready by chefs</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:16}}>
-              <div style={{background:C.amberBg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.amberBorder}`}}>
-                <div style={{fontSize:24,fontWeight:800,color:C.amber}}>{readyDishes.length}</div>
-                <div style={{fontSize:10,color:C.amber,fontWeight:600}}>Ready to Load</div>
-              </div>
-              <div style={{background:C.greenBg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.greenBorder}`}}>
-                <div style={{fontSize:24,fontWeight:800,color:C.green}}>{dispatchedDishes.length}</div>
-                <div style={{fontSize:10,color:C.green,fontWeight:600}}>Dispatch Marked</div>
-              </div>
-              <div style={{background:C.bg,borderRadius:10,padding:12,textAlign:'center',border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:24,fontWeight:800,color:C.muted}}>{Math.max(0,totalDishes-readyDishes.length-dispatchedDishes.length)}</div>
-                <div style={{fontSize:10,color:C.muted,fontWeight:600}}>Still Cooking</div>
-              </div>
-            </div>
-            {readyDishes.length>0&&(
-              <div style={{marginBottom:20}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.amber,marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>⏳ Ready — Waiting for Transport</div>
-                {readyDishes.map(function(d,i){return(
-                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:C.amberBg,borderRadius:10,border:`1px solid ${C.amberBorder}`}}>
-                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:`2px solid ${C.gold}`}}/>:<div style={{width:44,height:44,borderRadius:10,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🍽</div>}
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{d.name}</div>
-                      <div style={{fontSize:11,color:C.muted}}>{d.ev.venue+' · '+d.ev.pax+' pax · By '+(d.data.completedBy||'Chef')+' at '+(d.data.completedAt||'')}</div>
-                    </div>
-                    <div style={{padding:'6px 12px',borderRadius:8,background:C.amberBg,border:`1px solid ${C.amberBorder}`,fontSize:11,color:C.amber,fontWeight:700}}>Ready</div>
-                  </div>
-                );})}
-              </div>
-            )}
-            {dispatchedDishes.length>0&&(
-              <div style={{marginBottom:20}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.green,marginBottom:8,textTransform:'uppercase',letterSpacing:0.8}}>🚛 Dispatch Marked</div>
-                {dispatchedDishes.map(function(d,i){return(
-                  <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'12px 14px',marginBottom:6,background:C.greenBg,borderRadius:10,border:`1px solid ${C.greenBorder}`}}>
-                    {d.data.selfie?<img src={d.data.selfie} style={{width:44,height:44,borderRadius:10,objectFit:'cover',border:`2px solid ${C.green}`}}/>:<div style={{width:44,height:44,borderRadius:10,background:C.greenBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>✅</div>}
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{d.name}</div>
-                      <div style={{fontSize:11,color:C.muted}}>{d.ev.venue+' · By '+(d.data.dispatchMarkedBy||'Chef')+' at '+(d.data.dispatchMarkedAt||'')}</div>
-                    </div>
-                    <div style={{padding:'6px 12px',borderRadius:8,background:C.greenBg,border:`1px solid ${C.greenBorder}`,fontSize:11,color:C.green,fontWeight:700}}>🚛 Dispatched</div>
-                  </div>
-                );})}
-              </div>
-            )}
-            {readyDishes.length===0&&dispatchedDishes.length===0&&(
-              <div style={{textAlign:'center',padding:'40px 20px',color:C.muted}}>
-                <div style={{fontSize:36,marginBottom:8}}>🍳</div>
-                <div style={{fontSize:14}}>No dishes ready for dispatch yet</div>
-                <div style={{fontSize:12,marginTop:4}}>Dishes will appear here when chefs mark them as ready in Kitchen Hub</div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
       {activeTab==="todayplan"&&(()=>{
         const todayEvs = safeEvs.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const tomorrowEvs = safeEvs.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const laterEvs = safeEvs.filter(e=>e.date>TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-        const allEvs = [...todayEvs,...tomorrowEvs];
-
-        function isDishReady(evId, dishName, dishIdx){
-          const evKt = kt[evId]||{};
-          const dId = evId+"|"+dishIdx;
-          const d = evKt[dId];
-          if(d?.ready || d?.completed || d?.mesaDone) return true;
-          if(evKt["d_"+dishIdx]?.ready) return true;
-          if(d && Array.isArray(d.steps) && d.steps.length > 0 && Array.isArray(d.done) && d.done.length >= d.steps.length) return true;
-          return false;
+        // Toggle a dish's pickup status. Chips read/write the real
+        // transportQueue rows Kitchen Hub's "Send to transport" grid already
+        // creates — the single source of truth for "is this dish ready and
+        // has it been picked up", instead of a separate never-saved toggle.
+        function togglePickedUp(rowId){
+          if(!setTransportQueue) return;
+          const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+          setTransportQueue(prev=>prev.map(r=>{
+            if(r.id!==rowId) return r;
+            const nowPicked = r.status!=="Picked Up";
+            return {...r, status:nowPicked?"Picked Up":"Ready", pickedUpAt:nowPicked?now:undefined};
+          }));
         }
-        function isDishDispatched(evId, dishIdx){
-          const evKt = kt[evId]||{};
-          const dId = evId+"|"+dishIdx;
-          return !!(evKt[dId]?.readyForDispatch || evKt[dId]?.dispatchReady || evKt["d_"+dishIdx]?.dispatchReady);
-        }
-        function getDishReadyTime(evId, dishIdx){
-          const evKt = kt[evId]||{};
-          const dId = evId+"|"+dishIdx;
-          const d = evKt[dId];
-          if(d?.readyAt) return d.readyAt;
-          if(d?.completedAt && typeof d.completedAt === "string") return d.completedAt;
-          if(d?.dishCompletedAt) return new Date(d.dishCompletedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
-          return evKt["d_"+dishIdx]?.readyAt || "";
-        }
-        function getDishDispatchTime(evId, dishIdx){
-          const evKt = kt[evId]||{};
-          const dId = evId+"|"+dishIdx;
-          return evKt[dId]?.dispatchAt || evKt[`d_${dishIdx}`]?.dispatchAt || "";
-        }
-        function dishProgress(evId, dishName, dishIdx){
-          const dId = evId+"|"+dishIdx;
-          const d = (kt[evId]||{})[dId];
-          if(!d||!Array.isArray(d.steps)||!d.steps.length) return 0;
-          return safePct(Array.isArray(d.done)?d.done.length:0,safeArr(d.steps).length);
+        // Rows sharing the same dish + day but a DIFFERENT event — a batch
+        // cooked once and split across functions shows up as one queue row
+        // per function; this finds the others so a chip can show "×N" and
+        // where the rest of the batch is going.
+        function sharedRowsFor(row){
+          return (transportQueue||[]).filter(r2=>r2.id!==row.id && r2.dish===row.dish && r2.eventDate===row.eventDate && (r2.evId||r2.event)!==(row.evId||row.event));
         }
 
         function renderCard(ev, showDate){
           const p = gp(ev.venue);
           const dispatch = dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
-          const bySec={};
-          (ev.menu||[]).forEach((n,i)=>{const s=getCatIdForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
-          const totalDishes = (ev.menu||[]).length;
-          const readyDishes = (ev.menu||[]).filter((n,i)=>isDishReady(ev.id,n,i)).length;
-          const readyPct = safePct(readyDishes,totalDishes);
+          const menu = menuArr(ev);
           const allVehicles = dispatch.assignments.map(a=>fleetList.find(v=>v.id===a.vehicleId)||{name:a.vehicleId,icon:"🚛"});
+
+          // Every station this event's menu actually touches (excluding
+          // beverages/fruit-counter dishes, which never get a transport row).
+          const menuBySec = {};
+          menu.forEach(n=>{
+            if(getCatIdForDish(n)==="beverages"||isFruitSelectionDish(n)) return;
+            const s=getCatIdForDish(n);
+            if(!menuBySec[s]) menuBySec[s]=[];
+            menuBySec[s].push(n);
+          });
+          // This event's own transport-queue rows, grouped by station.
+          const evRows = (transportQueue||[]).filter(r=>r.evId?r.evId===ev.id:(r.event===ev.guest&&r.eventDate===ev.date));
+          const bySec = {};
+          evRows.forEach(r=>{
+            const sec = r.sec || getCatIdForDish(r.dish) || "other";
+            if(!bySec[sec]) bySec[sec]=[];
+            bySec[sec].push(r);
+          });
+          const stationsMeta = Object.keys(menuBySec).sort().map(sec=>{
+            const catObj=RECIPE_DB.cats.find(c=>c.id===sec);
+            const rows=bySec[sec]||[];
+            const total=menuBySec[sec].length;
+            const uniqDishes=[...new Set(rows.map(r=>r.dish))];
+            const sent=uniqDishes.length;
+            const pickedUpAll = rows.length>0 && rows.every(r=>r.status==="Picked Up");
+            const allDone = sent>0 && sent>=total && pickedUpAll;
+            return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0};
+          });
+          const startedStations = stationsMeta.filter(s=>s.started);
+          const notStartedStations = stationsMeta.filter(s=>!s.started);
+          const totalDishes = stationsMeta.reduce((n,s)=>n+s.total,0);
+          const readyDishes = stationsMeta.reduce((n,s)=>n+s.sent,0);
+          const readyPct = safePct(readyDishes,totalDishes);
+          function toggleSecOpen(secKey, currentOpen){ setTdSecOpen(p=>({...p,[secKey]:!currentOpen})); }
 
           return (
             <Card style={{marginBottom:14,padding:0,overflow:"hidden",border:`2px solid ${p.c}18`}}>
@@ -554,73 +416,99 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 <div style={{fontSize:10,color:C.muted,marginTop:4}}>✏ {T2("Editable by")} Pushpander / Raj Kumar</div>
               </div>
 
-              {/* Menu by Section — kitchen progress */}
+              {/* Ready for Transport — station chips, sourced from the real
+                  transportQueue rows Kitchen Hub's "Send to transport" grid
+                  writes (per-function qty split included), not a separate
+                  local toggle. Stations auto-collapse once fully picked up,
+                  and the index strip lets you jump straight to one, so a
+                  200+ dish menu never shows more than a screenful at once. */}
               <div style={{padding:"10px 18px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🍽 {T2("Menu — Kitchen Status")}</span>
-                  <div style={{display:"flex",gap:16}}>
-                    <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>{T2("Status")}</span>
-                    <span style={{fontSize:10,fontWeight:700,color:C.amber,textTransform:"uppercase",minWidth:40,textAlign:"center"}}>📦 {T2("Load")}</span>
-                    <span style={{fontSize:10,fontWeight:700,color:"#5B8FD0",textTransform:"uppercase",minWidth:40,textAlign:"center"}}>📤 {T2("Unload")}</span>
-                  </div>
+                  <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🍳 {T2("Ready for Transport")}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:totalDishes>0&&readyDishes===totalDishes?C.green:C.muted}}>{readyDishes}/{totalDishes} {T2("ready")}</span>
                 </div>
-                <div>
-                  {Object.entries(bySec).map(([sec,dishes])=>{
-                    const catObj=RECIPE_DB.cats.find(c=>c.id===sec);
-                    const m={color:catObj?.color||C.muted,icon:catObj?.icon||"🍽"};
-                    const secReady=dishes.filter(d=>isDishReady(ev.id,d.name,d.idx)).length;
+
+                {stationsMeta.length>0&&(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    {stationsMeta.map(st=>{
+                      const secKey=ev.id+"_"+st.sec;
+                      const open = tdSecOpen[secKey]!==undefined?tdSecOpen[secKey]:!st.allDone;
+                      return (
+                        <button key={st.sec} onClick={()=>toggleSecOpen(secKey,open)}
+                          style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:14,cursor:"pointer",border:"none",
+                            background:st.allDone?C.greenBg:st.sent>0?st.color+"18":C.bg,
+                            outline:`1.5px solid ${st.allDone?C.greenBorder:st.sent>0?st.color:C.border}`,
+                            fontSize:10.5,fontWeight:700,color:st.allDone?C.green:st.sent>0?st.color:C.faint}}>
+                          {st.icon} {st.name} {st.allDone?"✓ ":""}{st.sent}/{st.total}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {startedStations.length===0&&(
+                  <div style={{fontSize:12,color:C.faint,padding:"6px 0"}}>{T2("Nothing sent from Kitchen Hub yet — dishes appear here once a station is sent to transport")}</div>
+                )}
+
+                {startedStations.map(st=>{
+                  const secKey=ev.id+"_"+st.sec;
+                  const open = tdSecOpen[secKey]!==undefined?tdSecOpen[secKey]:!st.allDone;
+                  if(!open){
                     return (
-                      <div key={sec} style={{marginBottom:8}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                          <span style={{fontSize:12,fontWeight:700,color:m.color}}>{m.icon} {T2(catObj?.name||sec)}</span>
-                          <span style={{fontSize:12,fontWeight:600,color:secReady===dishes.length?C.green:C.muted}}>{secReady}/{dishes.length}</span>
-                        </div>
-                        {dishes.map((d,di)=>{
-                          const ready=isDishReady(ev.id,d.name,d.idx);
-                          const dispatched=isDishDispatched(ev.id,d.idx);
-                          const readyTime=getDishReadyTime(ev.id,d.idx);
-                          const dispatchTime=getDishDispatchTime(ev.id,d.idx);
-                          const luKey=ev.id+"_"+d.idx;
-                          const lu=dishLU[luKey]||{};
-                          const isLoaded=!!lu.loaded;
-                          const isUnloaded=!!lu.unloaded;
+                      <div key={st.sec} onClick={()=>toggleSecOpen(secKey,open)}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.greenBg,borderRadius:10,marginBottom:6,cursor:"pointer"}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0}}/>
+                        <span style={{fontSize:12,fontWeight:700,color:C.green}}>{st.icon} {st.name}</span>
+                        <span style={{fontSize:11,color:C.green}}>{st.sent}/{st.total} {T2("picked up")}</span>
+                        <span style={{marginLeft:"auto",fontSize:10,color:C.green}}>▸ {T2("collapsed")}</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={st.sec} style={{marginBottom:12}}>
+                      <div onClick={()=>toggleSecOpen(secKey,open)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,cursor:"pointer"}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",background:st.color,flexShrink:0}}/>
+                        <span style={{fontSize:12.5,fontWeight:700,color:st.color}}>{st.icon} {st.name}</span>
+                        <span style={{fontSize:11,color:C.muted}}>{st.sent}/{st.total} {T2("ready")}</span>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:7,paddingLeft:16}}>
+                        {st.rows.map(row=>{
+                          const shared = sharedRowsFor(row);
+                          const isPicked = row.status==="Picked Up";
                           return (
-                            <div key={di} style={{display:"flex",alignItems:"center",gap:6,padding:"10px 6px",borderBottom:`1px solid ${C.borderLight}`,background:isUnloaded?C.greenBg+"40":isLoaded?C.amberBg+"20":dispatched?C.greenBg+"60":ready?C.amberBg+"40":"transparent"}}>
-                              {/* Kitchen status icon */}
-                              <div style={{width:20,height:20,borderRadius:6,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                                background:dispatched?C.green:ready?C.amber:"transparent",
-                                border:`2px solid ${dispatched?C.green:ready?C.amber:C.border}`}}>
-                                {(ready||dispatched)&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
+                            <div key={row.id} style={{display:"flex",flexDirection:"column",gap:5}}>
+                              <div onClick={()=>togglePickedUp(row.id)}
+                                style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",
+                                  background:isPicked?C.greenBg:"#fff",
+                                  border:`1.5px solid ${isPicked?C.greenBorder:st.color}`,
+                                  borderRadius:20,padding:"7px 13px",opacity:isPicked?.7:1}}>
+                                {isPicked&&<span style={{width:15,height:15,borderRadius:"50%",background:C.green,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✓</span>}
+                                <span style={{fontSize:12,fontWeight:700,color:isPicked?C.green:C.text,textDecoration:isPicked?"line-through":"none"}}>{row.dish}</span>
+                                {row.qty!=null&&<span style={{fontSize:11,color:isPicked?C.green:C.muted}}>· {row.qty}{row.unit?" "+row.unit:""}</span>}
+                                {shared.length>0&&<span style={{width:16,height:16,borderRadius:"50%",background:st.color,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×{shared.length+1}</span>}
                               </div>
-                              {/* Dish name */}
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:12,fontWeight:500,color:C.text}}>{d.name}</div>
-                              </div>
-                              {/* Status badge */}
-                              <div style={{flexShrink:0,minWidth:80}}>
-                                {dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#fff",fontWeight:700}}>🚛 {dispatchTime}</span>}
-                                {ready&&!dispatched&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#fff",fontWeight:700}}>✅ {readyTime}</span>}
-                                {!ready&&!dispatched&&<span style={{fontSize:10,color:C.muted}}>⏳</span>}
-                              </div>
-                              {/* LOAD checkbox */}
-                              <div onClick={(e)=>{e.stopPropagation();setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),loaded:!isLoaded}}));}}
-                                style={{width:32,height:32,borderRadius:8,border:`2px solid ${isLoaded?C.amber:C.border}`,background:isLoaded?C.amber:"transparent",
-                                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                                {isLoaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
-                              </div>
-                              {/* UNLOAD checkbox */}
-                              <div onClick={(e)=>{e.stopPropagation();if(isLoaded)setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),unloaded:!isUnloaded}}));}}
-                                style={{width:32,height:32,borderRadius:8,border:`2px solid ${isUnloaded?"#5B8FD0":C.border}`,background:isUnloaded?"#5B8FD0":"transparent",
-                                  display:"flex",alignItems:"center",justifyContent:"center",cursor:isLoaded?"pointer":"default",opacity:isLoaded?1:.35,flexShrink:0}}>
-                                {isUnloaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
-                              </div>
+                              {shared.length>0&&(
+                                <div style={{marginLeft:10,paddingLeft:12,borderLeft:`2px dashed ${st.color}`}}>
+                                  {shared.map(s2=>(
+                                    <div key={s2.id} style={{fontSize:10.5,color:C.muted,padding:"2px 0"}}>
+                                      ↳ {s2.qty!=null?`${s2.qty}${s2.unit||""} `:""}→ <b style={{color:st.color}}>{s2.event}</b> · {s2.venue}{s2.status==="Picked Up"?" · ✓":""}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
+
+                {notStartedStations.length>0&&(
+                  <div style={{fontSize:11,color:C.faint,padding:"6px 2px"}}>
+                    {notStartedStations.map(s=>s.icon).join(" ")} {T2("Still cooking")}: {notStartedStations.slice(0,3).map(s=>s.name).join(", ")}{notStartedStations.length>3?` +${notStartedStations.length-3} ${T2("more")}`:""}
+                  </div>
+                )}
               </div>
 
               {/* Special instructions */}
@@ -697,199 +585,15 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
 
         return (
           <div>
-            {/* ── Function Dropdown Selector ── */}
-            {allEvs.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events loaded")}</div>}
-            {allEvs.length>0&&(()=>{
-              const selEv=allEvs.find(e=>e.id===selFnId)||allEvs[0];
-              const p=gp(selEv.venue);
-              const menu2r=[];(selEv.menu||[]).forEach((d,oi)=>{if(getCatIdForDish(d)!=="beverages"&&!isFruitSelectionDish(d))menu2r.push({name:d,origIdx:oi});});
-              const lc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.loaded).length;
-              const uc=menu2r.filter(d=>dishLU[selEv.id+"_"+d.origIdx]?.unloaded).length;
-              return(
-                <div style={{marginBottom:14}}>
-                  {/* Dropdown */}
-                  <select value={selFnId||""} onChange={e=>setSelFnId(e.target.value)}
-                    style={{width:"100%",padding:"14px 16px",borderRadius:12,border:`2px solid ${p.c}`,fontSize:14,fontWeight:700,color:C.text,background:C.surface,appearance:"auto",cursor:"pointer",minHeight:48,marginBottom:10}}>
-                    {allEvs.map(ev=>{
-                      const isT=ev.date===TODAY;
-                      return <option key={ev.id} value={ev.id}>{isT?"🟢 Today":"📅 "+ev.date} — {ev.guest} · {ev.venue} · {ev.time} · {ev.pax} pax</option>;
-                    })}
-                  </select>
-                  {/* Summary bar */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",background:p.c+"10",borderRadius:12,border:`1px solid ${p.c}30`}}>
-                    <div>
-                      <div style={{fontSize:16,fontWeight:700,color:C.text}}>{selEv.guest}</div>
-                      <div style={{fontSize:12,color:C.muted}}>📍 {selEv.venue} · ⏰ {selEv.time} · 👥 {selEv.pax} {T2("pax")} · 🚛 {T2("Dispatch")}: {calcDispatch(selEv.time)}</div>
-                      {selEv.special&&<div style={{fontSize:12,color:C.amber,marginTop:3}}>⚠ {selEv.special}</div>}
-                    </div>
-                    <div style={{display:"flex",gap:14,flexShrink:0}}>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.amber}}>{lc}</div><div style={{fontSize:10,color:C.amber}}>📦 {T2("Loaded")}</div></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:"#5B8FD0"}}>{uc}</div><div style={{fontSize:10,color:"#5B8FD0"}}>📤 {T2("Unloaded")}</div></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.text}}>{menu2r.length}</div><div style={{fontSize:10,color:C.muted}}>{T2("dishes")}</div></div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* ── Selected Function Detail ── */}
-            {selFnId&&(()=>{
-              const ev=allEvs.find(e=>e.id===selFnId);
-              if(!ev) return null;
-              const p=gp(ev.venue);
-              const fullMenu=(ev.menu||[]);
-              const menu=[];
-              fullMenu.forEach((n,origIdx)=>{if(getCatIdForDish(n)!=="beverages"&&!isFruitSelectionDish(n))menu.push({name:n,origIdx});});
-              const dispatch=dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
-
-              // Group by section
-              const bySec2={};
-              menu.forEach((item)=>{const s=getCatIdForDish(item.name);if(!bySec2[s])bySec2[s]=[];bySec2[s].push({name:item.name,idx:item.origIdx});});
-
-              // Search filter
-              const q=tdSearch.toLowerCase().trim();
-              const secKeys2=Object.keys(bySec2).sort();
-
-              return(
-                <div>
-                  {/* Search box */}
-                  <div style={{marginBottom:12}}>
-                    <input value={tdSearch} onChange={e=>setTdSearch(e.target.value)} placeholder={`🔍 ${T2("Search dishes…")}`}
-                      style={{width:"100%",padding:"12px 16px",borderRadius:12,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.surface,boxSizing:"border-box",minHeight:44}}/>
-                  </div>
-
-                  {/* Vehicle assignment */}
-                  <Card style={{marginBottom:12,padding:"12px 16px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                      <span style={{fontSize:12,fontWeight:700,color:C.muted}}>🚛 {T2("Vehicles")}</span>
-                      <button onClick={()=>addVehicle(ev.id)} style={{padding:"6px 14px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>+ {T2("Add Vehicle")}</button>
-                    </div>
-                    {dispatch.assignments.map((asgn,ai)=>{
-                      const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛"};
-                      const sc2=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
-                      const loc2=getVehicleLocation(asgn.vehicleId);
-                      return(
-                        <div key={ai} style={{background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,marginBottom:6}}>
-                          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                            <span style={{fontSize:16}}>{v.icon}</span>
-                            <select value={asgn.vehicleId} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}))}
-                              style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36,minWidth:140}}>
-                              {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
-                            </select>
-                            <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}))}
-                              style={{width:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                            <input type="time" value={asgn.dispatchTime} onChange={e=>updAsgn(ev.id,ai,"dispatchTime",e.target.value)}
-                              style={{width:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                            <button onClick={()=>setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}))}
-                              style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
-                          </div>
-                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
-                            <span style={{fontSize:11,fontWeight:700,color:sc2,padding:"2px 8px",borderRadius:8,background:sc2+"15"}}>{asgn.status}</span>
-                            <span style={{fontSize:11,color:C.muted}}>🏠 {loc2.at}</span>
-                            {loc2.dest&&<><span style={{fontSize:11,color:C.faint}}>→</span><span style={{fontSize:11,color:C.muted}}>📍 {loc2.dest}</span></>}
-                            {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
-                            {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
-                            {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
-                          </div>
-                          <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
-                            {nextLabel(asgn.status)&&(
-                              <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
-                                style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
-                                  background:canAdvance(asgn)?(asgn.status==="Loaded"?C.green:asgn.status==="At Venue"?C.green:C.amber):(C.border),
-                                  color:canAdvance(asgn)?"#fff":C.faint}}>
-                                {nextLabel(asgn.status)}
-                              </button>
-                            )}
-                            {asgn.status==="Unloaded"&&<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>✅ Complete</span>}
-                          </div>
-                          {!canAdvance(asgn)&&asgn.status==="Planning"&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Check all loading items first</div>}
-                          {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Assign a driver first</div>}
-                        </div>
-                      );
-                    })}
-                    {dispatch.assignments.length===0&&<div style={{fontSize:12,color:C.faint,padding:"6px 0"}}>🚛 {T2("No vehicles assigned yet")}</div>}
-                    <div style={{fontSize:10,color:C.muted,marginTop:6}}>✏ {T2("Editable by")} Pushpander / Raj Kumar</div>
-                  </Card>
-
-                  {/* Section-wise collapsible checklist */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🍽 {T2("Dishes Checklist")}</span>
-                    <div style={{display:"flex",gap:16}}>
-                      <span style={{fontSize:10,fontWeight:700,color:C.muted}}>{T2("Status")}</span>
-                      <span style={{fontSize:10,fontWeight:700,color:C.amber}}>📦</span>
-                      <span style={{fontSize:10,fontWeight:700,color:"#5B8FD0"}}>📤</span>
-                    </div>
-                  </div>
-
-                  {secKeys2.map(sec=>{
-                    const items=bySec2[sec];
-                    const catObj2=RECIPE_DB.cats.find(c=>c.id===sec);
-                    const m={color:catObj2?.color||C.muted,icon:catObj2?.icon||"🍽"};
-                    const filtered=q?items.filter(d=>d.name.toLowerCase().includes(q)):items;
-                    if(filtered.length===0) return null;
-                    const secLoaded=filtered.filter(d=>dishLU[ev.id+"_"+d.idx]?.loaded).length;
-                    const secUnloaded=filtered.filter(d=>dishLU[ev.id+"_"+d.idx]?.unloaded).length;
-                    const secKey="td_"+ev.id+"_"+sec;
-                    const secOpen2=tdSecOpen[secKey]!==false;
-
-                    return(
-                      <Card key={sec} style={{marginBottom:8,padding:0,overflow:"hidden"}}>
-                        <div onClick={()=>setTdSecOpen(p=>({...p,[secKey]:!secOpen2}))}
-                          style={{padding:"12px 16px",background:m.color+"10",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",borderBottom:secOpen2?`1px solid ${C.border}`:"none"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:14,fontWeight:700,color:m.color}}>{m.icon} {T2(catObj2?.name||sec)}</span>
-                            <span style={{fontSize:12,color:C.muted}}>{filtered.length} {T2("dishes")}</span>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <span style={{fontSize:12,color:secLoaded===filtered.length?C.green:C.amber}}>📦 {secLoaded}/{filtered.length}</span>
-                            <span style={{fontSize:12,color:secUnloaded===filtered.length?C.green:C.muted}}>📤 {secUnloaded}/{filtered.length}</span>
-                            <span style={{fontSize:14,color:C.muted,transform:secOpen2?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-                          </div>
-                        </div>
-                        {secOpen2&&<div style={{padding:"6px 12px"}}>
-                          {filtered.map((d,di)=>{
-                            const ready=isDishReady(ev.id,d.name,d.idx);
-                            const dispatched2=isDishDispatched(ev.id,d.idx);
-                            const readyTime=getDishReadyTime(ev.id,d.idx);
-                            const dispatchTime=getDishDispatchTime(ev.id,d.idx);
-                            const luKey=ev.id+"_"+d.idx;
-                            const lu=dishLU[luKey]||{};
-                            const isLoaded=!!lu.loaded;
-                            const isUnloaded=!!lu.unloaded;
-                            return(
-                              <div key={di} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 4px",borderBottom:di<filtered.length-1?`1px solid ${C.borderLight}`:"none",background:isUnloaded?C.greenBg+"40":isLoaded?C.amberBg+"20":"transparent"}}>
-                                <div style={{width:22,height:22,borderRadius:6,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                                  background:dispatched2?C.green:ready?C.amber:"transparent",border:`2px solid ${dispatched2?C.green:ready?C.amber:C.border}`}}>
-                                  {(ready||dispatched2)&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
-                                </div>
-                                <div style={{flex:1,minWidth:0}}>
-                                  <div style={{fontSize:13,fontWeight:500,color:C.text}}>{d.name}</div>
-                                </div>
-                                <div style={{flexShrink:0,minWidth:70}}>
-                                  {dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.green,color:"#fff",fontWeight:700}}>🚛 {dispatchTime}</span>}
-                                  {ready&&!dispatched2&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.amber,color:"#fff",fontWeight:700}}>✅ {readyTime}</span>}
-                                  {!ready&&!dispatched2&&<span style={{fontSize:11,color:C.muted}}>⏳ Preparing</span>}
-                                </div>
-                                <div onClick={(e)=>{e.stopPropagation();setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),loaded:!isLoaded}}));}}
-                                  style={{width:32,height:32,borderRadius:8,border:`2px solid ${isLoaded?C.amber:C.border}`,background:isLoaded?C.amber:"transparent",
-                                    display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                                  {isLoaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
-                                </div>
-                                <div onClick={(e)=>{e.stopPropagation();if(isLoaded)setDishLU(p=>({...p,[luKey]:{...(p[luKey]||{}),unloaded:!isUnloaded}}));}}
-                                  style={{width:32,height:32,borderRadius:8,border:`2px solid ${isUnloaded?"#5B8FD0":C.border}`,background:isUnloaded?"#5B8FD0":"transparent",
-                                    display:"flex",alignItems:"center",justifyContent:"center",cursor:isLoaded?"pointer":"default",opacity:isLoaded?1:.35,flexShrink:0}}>
-                                  {isUnloaded&&<span style={{color:"#fff",fontSize:14,fontWeight:700}}>✓</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>}
-                      </Card>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            {safeEvs.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events loaded")}</div>}
+            {todayEvs.length>0&&(
+              <div style={{marginBottom:8,fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:0.8}}>🔴 {T2("Today")}</div>
+            )}
+            {todayEvs.map(ev=>renderCard(ev,false))}
+            {tomorrowEvs.length>0&&(
+              <div style={{margin:"14px 0 8px",fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:0.8}}>🟡 {T2("Tomorrow")}</div>
+            )}
+            {tomorrowEvs.map(ev=>renderCard(ev,false))}
           </div>
         );
       })()}
