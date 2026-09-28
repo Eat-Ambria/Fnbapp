@@ -8,6 +8,8 @@ import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages, describeEven
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { SALES_DEPTS } from '../data/salesConfig.js';
+import { K, type } from '../utils/theme.js';
+import { Icon } from './KitchenUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
@@ -233,12 +235,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     } catch (e) {
       console.error('[MenuPackages] syncEventItemsFromKitchenMenu failed:', e);
     }
-  }
-
-  function dayLabel(date) {
-    if (date === TODAY) return "Today";
-    if (date === TOMORROW) return "Tomorrow";
-    return date;
   }
 
   var byDate = useMemo(function() {
@@ -1136,24 +1132,43 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // RENDER
   // ════════════════════════════════════════════════════════════
   var TABS = [
-    { v: "events",   l: "📋 " + T2("Build menu") },
-    { v: "packages", l: "📦 " + T2("Packages") },
-    { v: "library",  l: "📚 " + T2("Dish library") },
+    { v: "events",   icon: "clipboard", l: T2("Build menu") },
+    { v: "packages", icon: "box",       l: T2("Packages") },
+    { v: "library",  icon: "book",      l: T2("Dish library") },
   ];
 
   return (
     <div>
-      <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)" }}>🍽 {T2("Menu")}</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{allEvs.length} {T2("upcoming functions")}</div>
+      {/* ── Heading ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, minWidth: 0 }}>
+        <span style={{ width: 46, height: 46, borderRadius: 14, flexShrink: 0, background: K.brand,
+          color: K.hdrBadgeIcon, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon name="utensils" size={22} strokeWidth={1.8} />
+        </span>
+        <span style={{ ...type.sectionHead, fontSize: 30, fontWeight: 700, letterSpacing: "-0.4px", color: K.hdrTitle }}>{T2("Menu")}</span>
+        <span style={{ padding: "5px 13px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 12.5,
+          fontWeight: 700, fontVariantNumeric: "tabular-nums", background: K.brand, color: "#FFFFFF", whiteSpace: "nowrap" }}>
+          {allEvs.length} {T2("upcoming functions")}
+        </span>
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: "1px solid " + C.border, paddingBottom: 8, marginTop: 12 }}>
+      {/* Tabs. Pills on their own rather than a row of emoji over a rule — the
+          emoji were the only thing distinguishing them and they read as text. */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
         {TABS.map(function(t) {
+          var on = mainTab === t.v;
           return <button key={t.v} onClick={function() { setMainTab(t.v); setSelEvId(null); }}
-            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", background: mainTab === t.v ? C.wine : "transparent", color: mainTab === t.v ? "#fff" : C.muted, border: "1.5px solid " + (mainTab === t.v ? C.wine : C.border) }}>{t.l}</button>;
+            className={on ? undefined : "kh-calnav"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "11px 20px", borderRadius: 999,
+              fontFamily: K.fontBody, fontSize: 13, fontWeight: on ? 700 : 600, cursor: "pointer",
+              background: on ? K.brand : "#FFFFFF", color: on ? "#FFFFFF" : K.textBody,
+              border: "1px solid " + (on ? K.brand : K.cardWarmLine),
+              boxShadow: on ? K.shadowCard : "none" }}>
+            <Icon name={t.icon} size={15} strokeWidth={1.9} />{t.l}
+          </button>;
         })}
       </div>
+
 
       {/* ════════════════════════════════════════════════════════ */}
       {/* BUILD MENU TAB                                          */}
@@ -1167,45 +1182,87 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             var date = entry[0]; var evs = entry[1];
             var isToday = date === TODAY;
             var isTmrw = date === TOMORROW;
+            // The date moved onto each card as a tile. As a heading above every
+            // group it repeated itself down the page and cost a row each time.
+            var d = new Date(date + "T00:00");
+            var tone = isToday ? { bg: K.brand, fg: "#FFFFFF", spine: K.brand }
+                     : isTmrw ? { bg: K.warnBg, fg: K.warn, spine: K.warn }
+                     : { bg: "#FFFFFF", fg: K.hdrMeta, spine: "transparent" };
             return (
-              <div key={date} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? C.green : isTmrw ? C.amber : C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
-                  {isToday ? "🔴 " : isTmrw ? "🟡 " : "📅 "}{dayLabel(date)}
-                </div>
+              <div key={date}>
                 {evs.map(function(ev) {
                   var stats = menuStats(ev);
                   var hasMenu = stats.total > 0;
                   var isLms = !!ev.lms_source;
                   return (
                     <button key={ev.id} onClick={function() { setSelEvId(ev.id); }}
-                      style={{ display: "block", width: "100%", textAlign: "left", background: C.surface, border: "1.5px solid " + (hasMenu ? C.greenBorder : C.amberBorder), borderRadius: 12, padding: "14px 18px", marginBottom: 8, cursor: "pointer" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{ev.guest || "Function"}</span>
-                            {isLms && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, fontWeight: 600 }}>LMS</span>}
-                          </div>
-                          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
-                            {ev.venue} · {ev.time || "TBD"} · {ev.pax || "?"} pax{ev.menuPackage ? " · " + describeEventMenu(ev) : ""}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          {hasMenu
-                            ? <div><div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{stats.total}</div><div style={{ fontSize: 10, color: C.green }}>dishes</div></div>
-                            : <div><div style={{ fontSize: 13, fontWeight: 700, color: C.amber }}>No menu</div><div style={{ fontSize: 10, color: C.amber }}>tap to build</div></div>}
-                        </div>
-                      </div>
-                      {hasMenu && (
-                        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                          {Object.entries(stats.byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e2) {
-                            var catId = e2[0]; var count = e2[1];
-                            var cat = RECIPE_DB.cats.find(function(c) { return c.id === catId; });
-                            return <span key={catId} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 12, background: C.bg, border: "1px solid " + C.border, color: C.muted }}>
-                              {cat ? cat.icon + " " : ""}{cat ? cat.name : catId} ({count})
-                            </span>;
-                          })}
-                        </div>
-                      )}
+                      className="kh-evcard kh-cardart-sm"
+                      style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", textAlign: "left",
+                        position: "relative", backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
+                        borderRadius: 18, padding: "16px 20px", marginBottom: 12, cursor: "pointer",
+                        overflow: "hidden", boxShadow: K.shadowCard }}>
+                      {/* Urgency as a spine, so today and tomorrow are findable
+                          without reading a date on every card. */}
+                      <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: tone.spine }} />
+
+                      <span style={{ width: 62, height: 62, borderRadius: 16, flexShrink: 0, background: tone.bg,
+                        border: "1px solid " + (isToday ? K.brand : K.cardWarmLine),
+                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ fontFamily: K.fontBody, fontSize: 22, fontWeight: 700, lineHeight: 1,
+                          fontVariantNumeric: "tabular-nums", color: tone.fg }}>{d.getDate()}</span>
+                        <span style={{ fontFamily: K.fontBody, fontSize: 10, fontWeight: 700, marginTop: 3,
+                          textTransform: "uppercase", letterSpacing: 0.6, color: tone.fg }}>{d.toLocaleString("en", { month: "short" })}</span>
+                      </span>
+
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                          <span style={{ fontFamily: K.fontBody, fontSize: 16, fontWeight: 700, color: K.hdrTitle }}>{ev.guest || T2("Function")}</span>
+                          {isToday && <span style={{ padding: "3px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
+                            fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+                            background: K.brandBg, color: K.brandText, border: "1px solid " + K.brandBorder }}>{T2("Today")}</span>}
+                          {isTmrw && <span style={{ padding: "3px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
+                            fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+                            background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>{T2("Tomorrow")}</span>}
+                          {isLms && <span style={{ padding: "3px 9px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
+                            fontWeight: 700, background: "#FFFFFF", color: K.hdrMeta, border: "1px solid " + K.cardWarmLine }}>LMS</span>}
+                        </span>
+                        {/* Icons instead of middot separators — four facts run
+                            together by dots read as one long string. */}
+                        <span style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 7,
+                          fontFamily: K.fontBody, fontSize: 12.5, color: K.hdrMeta }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="building" size={13} strokeWidth={1.9} />{ev.venue || "—"}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} strokeWidth={1.9} />{ev.time || T2("TBD")}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="users" size={13} strokeWidth={1.9} />{ev.pax || "?"} {T2("pax")}</span>
+                          {ev.menuPackage && <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="plate" size={13} strokeWidth={1.9} />{describeEventMenu(ev)}</span>}
+                        </span>
+                        {hasMenu && (
+                          <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
+                            {Object.entries(stats.byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e2) {
+                              var catId = e2[0]; var count = e2[1];
+                              var cat = RECIPE_DB.cats.find(function(c) { return c.id === catId; });
+                              return <span key={catId} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                                fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 600, padding: "5px 11px", borderRadius: 999,
+                                background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.textBody }}>
+                                {cat ? cat.icon + " " : ""}{cat ? cat.name : catId}
+                                <b style={{ fontVariantNumeric: "tabular-nums", color: K.hdrTitle }}>{count}</b>
+                              </span>;
+                            })}
+                          </span>
+                        )}
+                      </span>
+
+                      <span style={{ textAlign: "right", flexShrink: 0 }}>
+                        {hasMenu
+                          ? <span><span style={{ display: "block", fontFamily: K.fontBody, fontSize: 26, fontWeight: 700,
+                              lineHeight: 1.1, letterSpacing: "-0.6px", fontVariantNumeric: "tabular-nums", color: K.hdrTitle }}>{stats.total}</span>
+                            <span style={{ display: "block", fontFamily: K.fontBody, fontSize: 11.5, color: K.hdrMeta, marginTop: 2 }}>{T2("dishes")}</span></span>
+                          : <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
+                              fontFamily: K.fontBody, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                              background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>
+                              <Icon name="alert" size={13} strokeWidth={2} />{T2("No menu yet")}
+                            </span>}
+                      </span>
+                      <span style={{ flexShrink: 0, color: K.textFaint, display: "flex" }}><Icon name="chevronR" size={17} strokeWidth={2.1} /></span>
                     </button>
                   );
                 })}

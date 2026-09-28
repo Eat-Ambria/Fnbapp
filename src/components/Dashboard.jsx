@@ -593,7 +593,10 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
               display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Icon name={s.icon} size={18} strokeWidth={1.8}/>
             </span>
-            <span style={{...type.label,fontSize:10,color:K.hdrMeta,letterSpacing:.8,whiteSpace:"nowrap"}}>{s.label}</span>
+            {/* 10px uppercase in the muted tone was the quietest thing in the
+                strip — quieter than the figure it names, which left two big
+                numbers with nothing saying what they counted. */}
+            <span style={{...type.label,fontSize:11.5,fontWeight:700,color:K.hdrTitle,letterSpacing:.9,whiteSpace:"nowrap"}}>{s.label}</span>
             <span style={{marginLeft:"auto",display:"flex",alignItems:"baseline",gap:6}}>
               {/* Body face: Cormorant sets 1 as a serifed I and 0 as a narrow
                   O, so a figure like 103,823 was unreadable in it. */}
