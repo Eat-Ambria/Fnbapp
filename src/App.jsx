@@ -418,7 +418,17 @@ export default function App() {
           if(cid) {
             const fresh = mergedStaff.find(s => (s.staff_id||s.staffListId||s.id) === cid);
             if(fresh) {
-              const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid};
+              // This DB refresh used to blindly overwrite venue with the
+              // static Home Venue configured in Access Manager, silently
+              // discarding whatever the tablet's own login screen asked for
+              // that day ("Where is this tablet located today?" — see
+              // LoginScreen.jsx). A section tablet answers that prompt on
+              // every login precisely because it moves between venues, so
+              // that answer — persisted to ambria_venue_override, most
+              // recent wins — is the current location, not the seed default.
+              let venueOverride = null;
+              try { venueOverride = localStorage.getItem("ambria_venue_override"); } catch(e) {}
+              const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid, venue: venueOverride || cached?.venue || fresh.venue};
               setCurrentUser(refreshed);
               localStorage.setItem("ambria_session_user", JSON.stringify(refreshed));
             }

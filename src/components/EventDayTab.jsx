@@ -100,6 +100,19 @@ function EventDayTab({
   const evList = safeArr(events);
   const todayEvs = evList.filter(e => e.date === TODAY).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
 
+  // Is this function's venue the SAME physical location this tablet is
+  // logged in at (Access Manager's per-staff/tablet "Home Venue")? A kitchen
+  // tablet's own venue is fuzzy-matched against a function's venue name the
+  // same way both directions, since Home Venue is a short name ("Pushpanjali")
+  // and events.venue is the full one ("Ambria Pushpanjali"). Same venue means
+  // the dish is served on-site — no truck, just handed to service directly —
+  // so it should never end up in Transport's queue.
+  const tabVenue = (currentUser?.venue || "").toLowerCase().trim();
+  function venueMatches(v) {
+    const evVenue = (v || "").toLowerCase().trim();
+    return !!(tabVenue && evVenue && (evVenue.includes(tabVenue) || tabVenue.includes(evVenue)));
+  }
+
   // ── State helpers (combined cooking keys) ──
   function dk(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
@@ -170,7 +183,7 @@ function EventDayTab({
         const qty = parseFloat(transportQty[`${f.evId}|${d.n}`]);
         if (!(qty > 0)) return;
         out.push({ evId: f.evId, guest: f.guest, venue: f.venue, pax: f.pax, date: f.date,
-          n: d.n, qty, unit: d.unit });
+          n: d.n, qty, unit: d.unit, sameVenue: venueMatches(f.venue) });
       });
     });
     return out;
@@ -1421,10 +1434,8 @@ function EventDayTab({
                           {/* All done → sign off (venue-aware) */}
                           {secStoreDone && nonStore.every(x => stepDone(d, x.origIdx, x.step) || isD1Step(d, x.origIdx)) && !isReady && (()=>{
                             const tev = todayEvs.find(e => e.id === dish.fEvId);
-                            const tabVenue = (currentUser?.venue||"").toLowerCase().trim();
-                            const evVenue = (tev?.venue||"").toLowerCase().trim();
-                            const sameVenue = tabVenue && evVenue && (evVenue.includes(tabVenue)||tabVenue.includes(evVenue));
-                            const needsTransport = tabVenue && evVenue && !sameVenue;
+                            const sameVenue = venueMatches(tev?.venue);
+                            const needsTransport = tabVenue && tev?.venue && !sameVenue;
                             return(
                             // The sign-off is the one irreversible action on this
                             // screen, so it reads as its own panel with a tinted
@@ -1546,7 +1557,7 @@ function EventDayTab({
         iconTone="brand"
         icon="truck"
         title={T2("Send to transport")}
-        confirmLabel={`${T2("Send")} (${transportCells.length})`}
+        confirmLabel={transportCells.some(c=>!c.sameVenue) ? `${T2("Send")} (${transportCells.length})` : `${T2("Confirm ready")} (${transportCells.length})`}
         confirmIcon="truck"
         cancelLabel={T2("Cancel")}
         confirmDisabled={transportCells.length===0}
@@ -1568,10 +1579,16 @@ function EventDayTab({
         onConfirm={()=>{
           const now = fmtStamp();
           const stamp = localDateStr(new Date());
-          // One queue row per filled cell, in the shape TransportDispatch already
-          // renders. Each row carries ITS OWN function's guest, venue, pax and
-          // date, and the quantity the chef typed for that function.
-          const rows = transportCells.map((c, ix) => ({
+          // A cell whose function is at THIS SAME physical venue never goes
+          // through Transport at all — it's handed straight to service on
+          // site, so no queue row for it. Only a cross-venue cell (the dish
+          // needs a truck to reach a different location) becomes a
+          // transportQueue row, in the shape TransportDispatch renders —
+          // each carrying its own function's guest, venue, pax and date, and
+          // the quantity the chef typed for that function.
+          const crossVenueCells = transportCells.filter(c=>!c.sameVenue);
+          const onSiteCount = transportCells.length - crossVenueCells.length;
+          const rows = crossVenueCells.map((c, ix) => ({
             id: `${stamp}_${transportPick.sec}_${c.evId}_${ix}_${Date.now()}`,
             dish: c.n, qty: c.qty, unit: c.unit,
             evId: c.evId, sec: transportPick.sec,
@@ -1585,10 +1602,9 @@ function EventDayTab({
             fromVenue: currentUser?.venue || "",
             station: transportPick.label,
           }));
-          if(!setTransportQueue || rows.length===0){ setTransportPick(null); return; }
-          setTransportQueue(prev=>[...(prev||[]), ...rows]);
+          if(rows.length>0 && setTransportQueue) setTransportQueue(prev=>[...(prev||[]), ...rows]);
           setTransportPick(null);
-          setTransportToast({ n: rows.length, station: transportPick.label, fns: transportPick.fns.length });
+          if(rows.length>0 || onSiteCount>0) setTransportToast({ n: rows.length, onSite: onSiteCount, station: transportPick.label, fns: transportPick.fns.length });
         }}
         body={transportPick && (()=>{
           const fns = transportPick.fns;
@@ -1659,14 +1675,22 @@ function EventDayTab({
                   paddingBottom:9,borderBottom:`1px solid ${K.lineStrong}`,marginBottom:4}}>
                   <span style={{...type.label,fontSize:10,color:K.textMuted}}>{T2("Dish")}</span>
                   <span style={{...type.label,fontSize:10,color:K.textMuted,textAlign:"center"}}>{T2("Made")}</span>
-                  {fns.map(f=>(
+                  {fns.map(f=>{
+                    const sameVenue = venueMatches(f.venue);
+                    return (
                     <span key={f.evId} style={{textAlign:"center",minWidth:0}}>
                       <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.hdrTitle,
                         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.guest}</span>
                       <span style={{display:"block",fontSize:11,color:K.hdrMeta,marginTop:1,
                         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.pax} pax</span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:3,marginTop:2,padding:"1px 7px",borderRadius:K.rPill,
+                        background:sameVenue?K.brandBg:K.warnBg,border:`1px solid ${sameVenue?K.brandBorder:K.warnBorder}`,
+                        color:sameVenue?K.brandText:K.warn,fontSize:9.5,fontWeight:700,whiteSpace:"nowrap"}}>
+                        {sameVenue?<>🏠 {T2("on-site")}</>:<>🚛 {T2("transport")}</>}
+                      </span>
                     </span>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div style={{maxHeight:376,overflowY:"auto",overscrollBehavior:"contain"}}>
@@ -1731,9 +1755,12 @@ function EventDayTab({
       <KToast
         open={!!transportToast}
         toneName="ok"
-        icon="truck"
-        title={T2("Sent to transport")}
-        body={transportToast ? `${transportToast.n} ${transportToast.n===1?T2("dish"):T2("dishes")} ${T2("from")} ${transportToast.station}${transportToast.fns>1?` · ${transportToast.fns} ${T2("functions")}`:""}.` : ""}
+        icon={transportToast&&transportToast.n>0?"truck":"check"}
+        title={transportToast&&transportToast.n>0?T2("Sent to transport"):T2("Marked ready for pickup")}
+        body={transportToast ? [
+          transportToast.n>0?`${transportToast.n} ${transportToast.n===1?T2("dish"):T2("dishes")} ${T2("to transport")}`:null,
+          transportToast.onSite>0?`${transportToast.onSite} ${transportToast.onSite===1?T2("dish"):T2("dishes")} ${T2("ready on-site")}`:null,
+        ].filter(Boolean).join(" · ")+` ${T2("from")} ${transportToast.station}${transportToast.fns>1?` · ${transportToast.fns} ${T2("functions")}`:""}.` : ""}
         onClose={()=>setTransportToast(null)}
       />
 
