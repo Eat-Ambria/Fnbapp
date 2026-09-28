@@ -9,21 +9,6 @@ import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipe
 import { describeEventMenu } from '../data/menuPackages.js';
 import { logActivity } from './ActivityLog.jsx';
 
-// Module-level caches — persist across component remounts (tab switching), reduce first-open latency dramatically
-const _DISH_META_CACHE = new Map();
-const _COLD_LOWER = COLD_ITEMS.map(function(ci){return ci.toLowerCase();});
-function _getDishMeta(name){
-  if(!name) return {catId:null, cold:false};
-  if(_DISH_META_CACHE.has(name)) return _DISH_META_CACHE.get(name);
-  const nl = String(name).toLowerCase();
-  const meta = {
-    catId: getCatIdForDish(name),
-    cold: _COLD_LOWER.some(function(ci){return nl.includes(ci);}),
-  };
-  _DISH_META_CACHE.set(name, meta);
-  return meta;
-}
-
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   // Only work with events in a rolling window (today - 2d to future). Past events don't need dispatch state — they froze the mount when the queue included all 179+ historical events.
@@ -51,25 +36,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return arr;
   }
 
-  function buildChecklist(ev, vehicleId) {
-    const v = VEHICLES.find(x=>x.id===vehicleId);
-    const menuItems = menuArr(ev).map(name=>{
-      const meta = _getDishMeta(name);
-      return {
-        id:`${name}-menu`.replace(/\s+/g,"-"), name, category:"🍽 Food",
-        source: ["sweets","chaat","chaat_master"].includes(meta.catId)?"AE Kitchen":"AP Kitchen",
-        cold: meta.cold, checked:false,
-      };
-    });
-    if(v?.type==="cold") return [...menuItems.filter(i=>i.cold),{id:"dairy-cold",name:"Dairy & cold items",category:"❄ Cold",source:"AE Kitchen",cold:true,checked:false}];
-    if(v?.type==="dry")  return [...menuItems.filter(i=>!i.cold),
-      {id:"chafing",name:"Chafing dishes + stands",category:"🔧 Equipment",source:"AP Kitchen",cold:false,checked:false},
-      {id:"fuel",   name:"Fuel cans / sterno",      category:"🔧 Equipment",source:"AP Kitchen",cold:false,checked:false},
-      {id:"crockery",name:"Crockery & cutlery",     category:"🍽 Crockery", source:"AP Kitchen",cold:false,checked:false},
-    ];
-    return menuItems;
-  }
-
   function autoVehicles(ev){
     const menu=menuArr(ev);
     const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
@@ -81,24 +47,11 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return vids;
   }
 
-  function makeManifest(ev,vid){
-    const menu=menuArr(ev);
-    const v=VEHICLES.find(x=>x.id===vid);
-    if(v?.type==="cold") return menu.filter(d=>_getDishMeta(d).cold);
-    return menu.filter(d=>!_getDishMeta(d).cold);
-  }
-
   const initDispatches = () => safeEvs.map(ev=>({
     evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev),
-    assignments: autoVehicles(ev).map(vid=>{
-      // Build checklist ONCE per (ev,vid), clone for unloading — the previous code called buildChecklist twice, doubling the fuzzy-match cost
-      const loading = buildChecklist(ev,vid);
-      return {
-        vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:T2("Planning"),
-        manifest:makeManifest(ev,vid), loadingList:loading,
-        unloadingList:loading.map(i=>({...i,id:"u-"+i.id,checked:false})),
-      };
-    }),
+    assignments: autoVehicles(ev).map(vid=>({
+      vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:T2("Planning"),
+    })),
   }));
 
   const [dispatches, setDispatches] = useState(initDispatches);
@@ -122,13 +75,12 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const [delVehId,    setDelVehId]    = useState(null);
 
   function updAsgn(evId,ai,field,val){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[field]:val})}));}
-  function toggleCheck(evId,ai,key,idx){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[key]:a[key].map((item,j)=>j!==idx?item:{...item,checked:!item.checked})})}));}
   function addVehicle(evId){
     const ev=safeEvs.find(e=>e.id===evId);
     const used=new Set((dispatches.find(d=>d.evId===evId)?.assignments||[]).map(a=>a.vehicleId));
     const vid=(VEHICLES.find(v=>!used.has(v.id))||VEHICLES[0])?.id;
     if(!vid) return;
-    setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:[...d.assignments,{vehicleId:vid,driver:"",dispatchTime:calcDispatch(ev?.time||""),status:T2("Planning"),manifest:makeManifest(ev||{},vid),loadingList:buildChecklist(ev||{},vid),unloadingList:buildChecklist(ev||{},vid).map(i=>({...i,id:"u-"+i.id,checked:false}))}]}));
+    setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:[...d.assignments,{vehicleId:vid,driver:"",dispatchTime:calcDispatch(ev?.time||""),status:T2("Planning")}]}));
   }
 
   // ── Dispatch status flow: Planning → Loaded → Dispatched → At Venue → Unloaded ──
@@ -152,10 +104,13 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     }));
   }
   function canAdvance(asgn){
-    if(asgn.status==="Planning"){return asgn.loadingList.length>0&&asgn.loadingList.every(i=>i.checked);}
+    // Loading/unloading is now tracked per-dish on the "Ready for Transport"
+    // chips (see renderCard below), not a separate vehicle checklist — this
+    // flow is just the truck's own physical status, confirmed manually.
+    if(asgn.status==="Planning"){return true;}
     if(asgn.status==="Loaded"){return !!asgn.driver;}
     if(asgn.status==="Dispatched"){return true;}
-    if(asgn.status==="At Venue"){return asgn.unloadingList.length>0&&asgn.unloadingList.every(i=>i.checked);}
+    if(asgn.status==="At Venue"){return true;}
     return false;
   }
   function nextLabel(status){
@@ -175,7 +130,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
       for (var j = 0; j < (dd.assignments || []).length; j++) {
         var a = dd.assignments[j];
         if (a.vehicleId !== vehicleId) continue;
-        var src = (a.loadingList || []).find(l => l.source)?.source || "AP Kitchen";
+        var src = (fleetList.find(v => v.id === vehicleId) || {}).base_location || "AP Kitchen";
         var dest = ev ? (ev.venue || "Venue") : "Venue";
         var guest = ev ? ev.guest : "";
         if (a.status === "Planning" || a.status === "Loaded") return { status: a.status, at: src, dest: dest + (guest ? " (" + guest + ")" : ""), driver: a.driver, time: a.status === "Loaded" ? "Loaded" : "", color: a.status === "Loaded" ? C.amber : C.muted };
@@ -259,17 +214,20 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         const todayEvs = safeEvs.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const tomorrowEvs = safeEvs.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const laterEvs = safeEvs.filter(e=>e.date>TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-        // Toggle a dish's pickup status. Chips read/write the real
-        // transportQueue rows Kitchen Hub's "Send to transport" grid already
-        // creates — the single source of truth for "is this dish ready and
-        // has it been picked up", instead of a separate never-saved toggle.
-        function togglePickedUp(rowId){
+        // Tap a dish chip to cycle its own status: Ready → Loaded → Delivered
+        // → back to Ready. This IS the loading/unloading tracking now — chips
+        // read/write the real transportQueue rows Kitchen Hub's "Send to
+        // transport" grid already creates, so there's no separate vehicle-level
+        // checklist duplicating the same dishes to keep in sync.
+        const ROW_STATUS_FLOW = ["Ready","Loaded","Delivered"];
+        function cycleRowStatus(rowId){
           if(!setTransportQueue) return;
           const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
           setTransportQueue(prev=>prev.map(r=>{
             if(r.id!==rowId) return r;
-            const nowPicked = r.status!=="Picked Up";
-            return {...r, status:nowPicked?"Picked Up":"Ready", pickedUpAt:nowPicked?now:undefined};
+            const ci=ROW_STATUS_FLOW.indexOf(r.status);
+            const next=ROW_STATUS_FLOW[(ci<0?0:ci+1)%ROW_STATUS_FLOW.length];
+            return {...r, status:next, pickedUpAt:next!=="Ready"?now:undefined};
           }));
         }
         // Rows sharing the same dish + day but a DIFFERENT event — a batch
@@ -309,8 +267,8 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             const total=menuBySec[sec].length;
             const uniqDishes=[...new Set(rows.map(r=>r.dish))];
             const sent=uniqDishes.length;
-            const pickedUpAll = rows.length>0 && rows.every(r=>r.status==="Picked Up");
-            const allDone = sent>0 && sent>=total && pickedUpAll;
+            const deliveredAll = rows.length>0 && rows.every(r=>r.status==="Delivered");
+            const allDone = sent>0 && sent>=total && deliveredAll;
             return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0};
           });
           const startedStations = stationsMeta.filter(s=>s.started);
@@ -360,58 +318,55 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 </div>
               </div>
 
-              {/* Dispatch Plan — editable by Pushpander / Raj Kumar */}
+              {/* Dispatch Plan — editable by Pushpander / Raj Kumar. Compact
+                  tiles, 3 to a row — loading/unloading itself is tracked on
+                  the dish chips below, so a tile only needs the truck's own
+                  status (Planning → Loaded → Dispatched → At Venue → Unloaded). */}
               <div style={{padding:"10px 18px",borderBottom:`1px solid ${C.border}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🚛 {T2("Dispatch Plan")}</div>
                   <button onClick={()=>addVehicle(ev.id)} style={{padding:"5px 12px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32}}>+ {T2("Add Vehicle")}</button>
                 </div>
-                {dispatch.assignments.map((asgn,ai)=>{
-                  const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛",type:"dry"};
-                  const loadDone=asgn.loadingList.filter(i=>i.checked).length;
-                  const loadTot=asgn.loadingList.length;
-                  const sc=asgn.status==="Dispatched"||asgn.status==="At Venue"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
-                  const loc=getVehicleLocation(asgn.vehicleId);
-                  return (
-                    <div key={ai} style={{background:C.bg,borderRadius:10,padding:"10px 14px",border:`1px solid ${C.border}`,marginBottom:6}}>
-                      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                        <span style={{fontSize:16}}>{v.icon}</span>
-                        <select value={asgn.vehicleId} onChange={e=>{
-                          setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}));
-                        }} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36,minWidth:140}}>
-                          {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.icon} {fv.name}</option>)}
-                        </select>
-                        <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
-                          setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
-                        }} style={{width:120,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                        <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={{width:90,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,background:C.surface,color:C.text,minHeight:36}}/>
-                        <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"6px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,cursor:"pointer",minHeight:32}}>✕</button>
-                      </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
-                        <span style={{fontSize:11,fontWeight:700,color:sc,padding:"2px 8px",borderRadius:8,background:sc+"15"}}>{asgn.status}</span>
-                        <span style={{fontSize:11,color:C.muted}}>🏠 {loc.at}</span>
-                        {loc.dest&&<><span style={{fontSize:11,color:C.faint}}>→</span><span style={{fontSize:11,color:C.muted}}>📍 {loc.dest}</span></>}
-                        <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>{loadDone}/{loadTot} {T2("loaded")}</span>
-                        {asgn.dispatchedAt&&<span style={{fontSize:10,color:C.muted}}>🚛 {asgn.dispatchedAt}</span>}
-                        {asgn.arrivedAt&&<span style={{fontSize:10,color:C.muted}}>📍 {asgn.arrivedAt}</span>}
-                        {asgn.unloadedAt&&<span style={{fontSize:10,color:C.green}}>✅ {asgn.unloadedAt}</span>}
-                      </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(230px, 1fr))",gap:8}}>
+                  {dispatch.assignments.map((asgn,ai)=>{
+                    const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛",type:"dry"};
+                    const sc=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
+                    const loc=getVehicleLocation(asgn.vehicleId);
+                    return (
+                      <div key={ai} style={{background:C.bg,borderRadius:10,padding:"8px 10px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:5}}>
+                        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                          <span style={{fontSize:13,flexShrink:0}}>{v.icon}</span>
+                          <select value={asgn.vehicleId} onChange={e=>{
+                            setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}));
+                          }} style={{flex:1,minWidth:0,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}>
+                            {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.name}</option>)}
+                          </select>
+                          <span style={{fontSize:9.5,fontWeight:700,color:sc,padding:"2px 6px",borderRadius:6,background:sc+"15",whiteSpace:"nowrap",flexShrink:0}}>{asgn.status}</span>
+                          <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"3px 6px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>
+                        </div>
+                        <div style={{display:"flex",gap:5}}>
+                          <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
+                            setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
+                          }} style={{flex:1,minWidth:0,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}/>
+                          <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={{width:70,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}/>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={loc.at+(loc.dest?" → "+loc.dest:"")}>
+                          🏠 {loc.at}{loc.dest?" → 📍 "+loc.dest:""}
+                        </div>
                         {nextLabel(asgn.status)&&(
                           <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
-                            style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,fontSize:11,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:32,
+                            style={{padding:"5px 8px",borderRadius:6,fontSize:10.5,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:28,
                               background:canAdvance(asgn)?(asgn.status==="Loaded"?C.green:asgn.status==="At Venue"?C.green:C.amber):(C.border),
                               color:canAdvance(asgn)?"#fff":C.faint}}>
                             {nextLabel(asgn.status)}
                           </button>
                         )}
-                        {asgn.status==="Unloaded"&&<span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.green}}>✅ Complete</span>}
+                        {asgn.status==="Unloaded"&&<span style={{fontSize:11,fontWeight:700,color:C.green,textAlign:"center"}}>✅ {T2("Complete")}</span>}
+                        {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:9.5,color:C.amber}}>⚠ {T2("Assign a driver first")}</div>}
                       </div>
-                      {!canAdvance(asgn)&&asgn.status==="Planning"&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Check all loading items to enable "Mark Loaded"</div>}
-                      {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:10,color:C.amber,marginTop:4}}>⚠ Assign a driver to enable dispatch</div>}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
                 {dispatch.assignments.length===0&&<div style={{fontSize:12,color:C.faint,padding:"8px 0"}}>🚛 {T2("No vehicles assigned yet")} — {T2("Add vehicle to start dispatch plan")}</div>}
                 <div style={{fontSize:10,color:C.muted,marginTop:4}}>✏ {T2("Editable by")} Pushpander / Raj Kumar</div>
               </div>
@@ -459,7 +414,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.greenBg,borderRadius:10,marginBottom:6,cursor:"pointer"}}>
                         <span style={{width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0}}/>
                         <span style={{fontSize:12,fontWeight:700,color:C.green}}>{st.icon} {st.name}</span>
-                        <span style={{fontSize:11,color:C.green}}>{st.sent}/{st.total} {T2("picked up")}</span>
+                        <span style={{fontSize:11,color:C.green}}>{st.sent}/{st.total} {T2("delivered")}</span>
                         <span style={{marginLeft:"auto",fontSize:10,color:C.green}}>▸ {T2("collapsed")}</span>
                       </div>
                     );
@@ -474,24 +429,27 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                       <div style={{display:"flex",flexWrap:"wrap",gap:7,paddingLeft:16}}>
                         {st.rows.map(row=>{
                           const shared = sharedRowsFor(row);
-                          const isPicked = row.status==="Picked Up";
+                          const isLoaded = row.status==="Loaded";
+                          const isDelivered = row.status==="Delivered";
+                          const chipColor = isDelivered?C.green:isLoaded?"#5B8FD0":st.color;
+                          const chipBg = isDelivered?C.greenBg:isLoaded?"#EAF1FB":"#fff";
                           return (
                             <div key={row.id} style={{display:"flex",flexDirection:"column",gap:5}}>
-                              <div onClick={()=>togglePickedUp(row.id)}
+                              <div onClick={()=>cycleRowStatus(row.id)}
+                                title={isDelivered?T2("Delivered — tap to reset"):isLoaded?T2("Loaded — tap to mark delivered"):T2("Ready — tap to mark loaded")}
                                 style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",
-                                  background:isPicked?C.greenBg:"#fff",
-                                  border:`1.5px solid ${isPicked?C.greenBorder:st.color}`,
-                                  borderRadius:20,padding:"7px 13px",opacity:isPicked?.7:1}}>
-                                {isPicked&&<span style={{width:15,height:15,borderRadius:"50%",background:C.green,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✓</span>}
-                                <span style={{fontSize:12,fontWeight:700,color:isPicked?C.green:C.text,textDecoration:isPicked?"line-through":"none"}}>{row.dish}</span>
-                                {row.qty!=null&&<span style={{fontSize:11,color:isPicked?C.green:C.muted}}>· {row.qty}{row.unit?" "+row.unit:""}</span>}
+                                  background:chipBg, border:`1.5px solid ${chipColor}`,
+                                  borderRadius:20,padding:"7px 13px",opacity:isDelivered?.7:1}}>
+                                {(isLoaded||isDelivered)&&<span style={{width:15,height:15,borderRadius:"50%",background:chipColor,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDelivered?"✓":"📦"}</span>}
+                                <span style={{fontSize:12,fontWeight:700,color:isDelivered?C.green:isLoaded?"#2A5D9E":C.text,textDecoration:isDelivered?"line-through":"none"}}>{row.dish}</span>
+                                {row.qty!=null&&<span style={{fontSize:11,color:isDelivered?C.green:isLoaded?"#2A5D9E":C.muted}}>· {row.qty}{row.unit?" "+row.unit:""}</span>}
                                 {shared.length>0&&<span style={{width:16,height:16,borderRadius:"50%",background:st.color,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×{shared.length+1}</span>}
                               </div>
                               {shared.length>0&&(
                                 <div style={{marginLeft:10,paddingLeft:12,borderLeft:`2px dashed ${st.color}`}}>
                                   {shared.map(s2=>(
                                     <div key={s2.id} style={{fontSize:10.5,color:C.muted,padding:"2px 0"}}>
-                                      ↳ {s2.qty!=null?`${s2.qty}${s2.unit||""} `:""}→ <b style={{color:st.color}}>{s2.event}</b> · {s2.venue}{s2.status==="Picked Up"?" · ✓":""}
+                                      ↳ {s2.qty!=null?`${s2.qty}${s2.unit||""} `:""}→ <b style={{color:st.color}}>{s2.event}</b> · {s2.venue}{s2.status&&s2.status!=="Ready"?` · ${s2.status==="Delivered"?"✓":"📦"}`:""}
                                     </div>
                                   ))}
                                 </div>
@@ -518,67 +476,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 </div>
               )}
 
-              {/* Loading / Unloading Checklist */}
-              {(()=>{
-                const loadKey="load_"+ev.id;
-                const ld=dispatches.find(d2=>d2.evId===ev.id);
-                if(!ld||ld.assignments.length===0) return null;
-                return(
-                  <div style={{padding:"10px 18px 14px",borderTop:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",marginBottom:8}}>📦 {T2("Loading / Unloading Checklist")}</div>
-                    {ld.assignments.map((asgn,ai)=>{
-                      const v2=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛"};
-                      const loadDone=asgn.loadingList.filter(i=>i.checked).length;
-                      const unloadDone=asgn.unloadingList.filter(i=>i.checked).length;
-                      return(
-                        <div key={ai} style={{marginBottom:10,background:C.bg,borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`}}>
-                          <div style={{padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${C.border}`}}>
-                            <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                              <span style={{fontSize:16}}>{v2.icon}</span>
-                              <span style={{fontSize:12,fontWeight:700,color:C.text}}>{v2.name}</span>
-                              <span style={{fontSize:11,color:C.gold,fontWeight:600}}>{asgn.dispatchTime}</span>
-                            </div>
-                            <div style={{display:"flex",gap:8}}>
-                              <span style={{fontSize:11,color:loadDone===asgn.loadingList.length?C.green:C.amber}}>📦 {loadDone}/{asgn.loadingList.length}</span>
-                              <span style={{fontSize:11,color:unloadDone===asgn.unloadingList.length?C.green:C.muted}}>📤 {unloadDone}/{asgn.unloadingList.length}</span>
-                            </div>
-                          </div>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",minHeight:40}}>
-                            {/* Loading */}
-                            <div style={{padding:"8px 10px",borderRight:`1px solid ${C.border}`}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.amber,marginBottom:6}}>📦 {T2("LOADING")}</div>
-                              {asgn.loadingList.map((item,li)=>(
-                                <div key={li} onClick={()=>{
-                                  setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,loadingList:a2.loadingList.map((ll,lli)=>lli!==li?ll:{...ll,checked:!ll.checked})})}));
-                                }} style={{display:"flex",gap:6,alignItems:"center",padding:"4px 0",cursor:"pointer"}}>
-                                  <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${item.checked?C.green:C.border}`,background:item.checked?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                    {item.checked&&<span style={{color:"#fff",fontSize:8,fontWeight:700}}>✓</span>}
-                                  </div>
-                                  <span style={{fontSize:11,color:item.checked?C.green:C.text,textDecoration:item.checked?"line-through":"none"}}>{item.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                            {/* Unloading */}
-                            <div style={{padding:"8px 10px"}}>
-                              <div style={{fontSize:10,fontWeight:700,color:C.blue||"#5B8FD0",marginBottom:6}}>📤 {T2("UNLOADING")}</div>
-                              {asgn.unloadingList.map((item,li)=>(
-                                <div key={li} onClick={()=>{
-                                  setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,unloadingList:a2.unloadingList.map((ll,lli)=>lli!==li?ll:{...ll,checked:!ll.checked})})}));
-                                }} style={{display:"flex",gap:6,alignItems:"center",padding:"4px 0",cursor:"pointer"}}>
-                                  <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${item.checked?"#5B8FD0":C.border}`,background:item.checked?"#5B8FD0":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                    {item.checked&&<span style={{color:"#fff",fontSize:8,fontWeight:700}}>✓</span>}
-                                  </div>
-                                  <span style={{fontSize:11,color:item.checked?"#5B8FD0":C.text,textDecoration:item.checked?"line-through":"none"}}>{item.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
             </Card>
           );
         }
