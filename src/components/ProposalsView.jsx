@@ -300,10 +300,15 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
         : { data: [] };
       var metaByName = {};
       (metaRes.data || []).forEach(function(r){ metaByName[r.dish_name] = r.sales_dept; });
-      var kitchenNames = items.filter(function(it){
+      var kitchenItems = items.filter(function(it){
         var dept = dishNameToPkgDept[it.dish_name] || metaByName[it.dish_name] || 'kit';
         return dept === 'kit';
-      }).map(function(it){ return it.dish_name; });
+      });
+      var kitchenNames = kitchenItems.map(function(it){ return it.dish_name; });
+      // Outsourced (vendor-supplied) tag from the Menu Builder carries over so
+      // Kitchen Hub tracking and Store ordering keep excluding it once this
+      // becomes a real event — see menuArr()/buildEventBags().
+      var outsourcedNames = kitchenItems.filter(function(it){ return !!it.outsourced; }).map(function(it){ return it.dish_name; });
 
       var evRes = await supabase.from('events').insert({
         id: eventId,
@@ -314,6 +319,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
         pax: p.pax,
         menu_package: pkgName,
         menu: kitchenNames,
+        outsourced_dishes: outsourcedNames,
         special: p.notes || null,
         event_items_initialized: true,
         // V87 — carry over any custom dish's section/subsection tag so it

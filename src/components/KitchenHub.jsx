@@ -32,12 +32,23 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
 
-  // Safe menu array — handles JSONB array or stringified JSON from Supabase
+  // Safe menu array — handles JSONB array or stringified JSON from Supabase.
+  // Dishes tagged outsourced (vendor-supplied, Build Menu/Menu Builder toggle)
+  // are dropped here so they never show up in prep tracking, planning, or
+  // ingredient scanning — this is the one place nearly all of Kitchen Hub
+  // reads an event's dish list from.
   function menuArr(ev) {
     const m = ev.menu;
-    if (Array.isArray(m)) return m;
-    if (typeof m === 'string' && m) { try { return JSON.parse(m); } catch(e) { return []; } }
-    return [];
+    let arr;
+    if (Array.isArray(m)) arr = m;
+    else if (typeof m === 'string' && m) { try { arr = JSON.parse(m); } catch(e) { arr = []; } }
+    else arr = [];
+    const out = ev.outsourced_dishes;
+    if (Array.isArray(out) && out.length > 0) {
+      const skip = new Set(out);
+      arr = arr.filter(n => !skip.has(n));
+    }
+    return arr;
   }
 
   

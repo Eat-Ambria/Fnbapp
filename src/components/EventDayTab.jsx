@@ -357,11 +357,20 @@ function EventDayTab({
     const d = ds(evId, idx, dishInfo?.name);
     setDs(evId, idx, { starts: { ...(d.starts || {}), [si]: Date.now() }, stepTm: { ...(d.stepTm || {}), [si]: tm } }, dishInfo);
   }
+  // Outsourced dishes (Build Menu/Menu Builder toggle) are dropped here so
+  // they never show up in D-1/prep tracking — mirrors KitchenHub.jsx's menuArr.
   function menuArr(ev) {
     const m = ev.menu;
-    if (Array.isArray(m)) return m;
-    if (typeof m === 'string' && m) { try { return JSON.parse(m); } catch { return []; } }
-    return [];
+    let arr;
+    if (Array.isArray(m)) arr = m;
+    else if (typeof m === 'string' && m) { try { arr = JSON.parse(m); } catch { arr = []; } }
+    else arr = [];
+    const out = ev.outsourced_dishes;
+    if (Array.isArray(out) && out.length > 0) {
+      const skip = new Set(out);
+      arr = arr.filter(n => !skip.has(n));
+    }
+    return arr;
   }
 
   // ── Function filter ──

@@ -1020,7 +1020,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
     evList.forEach(ev => {
       const pax = +ev.pax || 0;
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
-      safeArr(ev.menu).forEach(dishName => {
+      // Outsourced dishes (Build Menu/Menu Builder toggle) are vendor-supplied —
+      // their ingredients aren't shopped for or issued from Store.
+      const outsourcedSet = new Set(safeArr(ev.outsourced_dishes));
+      safeArr(ev.menu).filter(dishName => !outsourcedSet.has(dishName)).forEach(dishName => {
         const isFruitSel = isFruitSelectionDish(dishName);
         const cat = getCatForDish(dishName);
         const sec = isFruitSel ? "Fruits" : cat.name;

@@ -223,7 +223,7 @@ export default function App() {
           const pkgDishes = ev.menuPackage && MENU_PACKAGES[ev.menuPackage] ? MENU_PACKAGES[ev.menuPackage] : null;
           const isAutoResolved = isLms && pkgDishes && Array.isArray(ev.menu) && ev.menu.length === pkgDishes.length && ev.menu.every(function(d,i){ return d === pkgDishes[i]; });
           const menuToStore = isAutoResolved ? [] : (ev.menu||[]);
-          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,menu_section_overrides:ev.menu_section_overrides||{},special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null},"id").catch(e=>console.error("ev sync:",e));
+          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,menu_section_overrides:ev.menu_section_overrides||{},special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null,outsourced_dishes:ev.outsourced_dishes||[]},"id").catch(e=>console.error("ev sync:",e));
         }
       });
       prevMap.forEach((_,id) => {
@@ -442,7 +442,7 @@ export default function App() {
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu = MENU_PACKAGES[pkg];
         let extras = e.extras;
         if (!Array.isArray(extras)) extras = [];
-        return {...e, menuPackage:pkg, menu, extras, odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false, custom_menu_confirmed:e.custom_menu_confirmed??false, yield_multiplier:Number(e.yield_multiplier)||1.0};
+        return {...e, menuPackage:pkg, menu, extras, outsourced_dishes:Array.isArray(e.outsourced_dishes)?e.outsourced_dishes:[], odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false, custom_menu_confirmed:e.custom_menu_confirmed??false, yield_multiplier:Number(e.yield_multiplier)||1.0};
       }));
       // ── Auto-close stale attendance: in_time set but no out_time, older than 16 hours ──
       var MAX_SHIFT_HOURS = 16;
@@ -566,7 +566,7 @@ export default function App() {
         if(!Array.isArray(menu)){try{menu=JSON.parse(menu);}catch(e){menu=[];}}
         const pkg=matchMenuPackage(raw.menu_package||"");
         if(menu.length===0 && pkg && MENU_PACKAGES[pkg]) menu=MENU_PACKAGES[pkg];
-        return {...raw,menuPackage:pkg,menu,extras:raw.extras||[],odc_location:raw.odc_location||null,odc_address:raw.odc_address||null,odc_contact_phone:raw.odc_contact_phone||null,odc_transport_cost:raw.odc_transport_cost||null,odc_lead:raw.odc_lead||null,site_recce:raw.site_recce||null,odc_menu_confirmed:raw.odc_menu_confirmed??false,custom_menu_confirmed:raw.custom_menu_confirmed??false,yield_multiplier:Number(raw.yield_multiplier)||1.0};
+        return {...raw,menuPackage:pkg,menu,extras:raw.extras||[],outsourced_dishes:Array.isArray(raw.outsourced_dishes)?raw.outsourced_dishes:[],odc_location:raw.odc_location||null,odc_address:raw.odc_address||null,odc_contact_phone:raw.odc_contact_phone||null,odc_transport_cost:raw.odc_transport_cost||null,odc_lead:raw.odc_lead||null,site_recce:raw.site_recce||null,odc_menu_confirmed:raw.odc_menu_confirmed??false,custom_menu_confirmed:raw.custom_menu_confirmed??false,yield_multiplier:Number(raw.yield_multiplier)||1.0};
       }
       // V72 soft-delete: is_deleted=true on INSERT/UPDATE must remove row from local state.
       // TEMP: a small Ambria Restro booking (or one edited down below the pax

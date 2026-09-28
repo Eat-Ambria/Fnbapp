@@ -159,6 +159,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
   }
 
+  // Outsourced (vendor-supplied) dish names for this event — excluded from
+  // Kitchen Hub tracking and Store & Inventory's ordering/demand calc.
+  function saveOutsourced(next) {
+    if (!selEv || !setEvents) return;
+    setEvents(function(prev) {
+      return (prev || []).map(function(e) {
+        if (e.id !== selEv.id) return e;
+        return { ...e, outsourced_dishes: next };
+      });
+    });
+  }
+
   function saveMenu(dishes) {
     if (!selEv || !setEvents) return;
     // Belt-and-suspenders: this editor only ever adds/removes one dish per
@@ -1227,6 +1239,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             pkgName={selEv.menuPackage || ""}
             sectionOverrides={selEv.menu_section_overrides || {}}
             onSectionOverridesChange={function(next) { saveSectionOverrides(next); }}
+            outsourcedDishes={selEv.outsourced_dishes || []}
+            onOutsourcedChange={function(next) { saveOutsourced(next); }}
             lang={lang}
           />
 

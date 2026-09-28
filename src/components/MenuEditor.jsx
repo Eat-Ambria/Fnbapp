@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase.js';
 // { [dishName]: sectionId } tag for dishes not natively listed in any of the
 // package's sections (custom additions, or catalogue dishes outside it) — it
 // never touches the shared package definition, only this one event's menu.
-function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange }) {
+function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange, outsourcedDishes = [], onOutsourcedChange }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
   var [selSearch, setSelSearch] = useState("");
@@ -200,6 +200,19 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function removeDish(name) {
     onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }));
+    if (onOutsourcedChange && outsourcedSet.has(name)) {
+      onOutsourcedChange(outsourcedDishes.filter(function(n) { return n !== name; }));
+    }
+  }
+
+  // Outsourced (vendor-supplied) dishes are excluded from Kitchen Hub tracking
+  // and Store & Inventory's ingredient demand/ordering — see menuArr() in
+  // KitchenHub.jsx/EventDayTab.jsx and buildEventBags() in StoreModule.jsx.
+  var outsourcedSet = new Set(outsourcedDishes || []);
+  function toggleOutsourced(name) {
+    if (!onOutsourcedChange) return;
+    var isOut = outsourcedSet.has(name);
+    onOutsourcedChange(isOut ? outsourcedDishes.filter(function(n) { return n !== name; }) : [...outsourcedDishes, name]);
   }
 
   // V80: adding a custom dish used to immediately guess its SOP category via
@@ -438,9 +451,17 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                   {isOpen2 && g.names.map(function(name) {
                     var explicitCatRaw = getExplicitCatIdForDish(name);
                     var explicitCat = isRealCatId(explicitCatRaw) ? explicitCatRaw : '';
+                    var isOut = outsourcedSet.has(name);
                     return (
                       <div key={name} style={{ ...ROW, color: C.green, cursor: "default" }}>
-                        <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer" }}>{name}</span>
+                        <span onClick={function() { removeDish(name); }} style={{ flex: 1, cursor: "pointer", textDecoration: isOut ? "line-through" : "none", opacity: isOut ? 0.6 : 1 }}>{name}</span>
+                        {onOutsourcedChange && (
+                          <button onClick={function(e) { e.stopPropagation(); toggleOutsourced(name); }}
+                            title={T2(isOut ? "Vendor-supplied — excluded from Kitchen tracking & Store ordering. Click to undo." : "Mark as outsourced (vendor-supplied) — excludes it from Kitchen tracking & Store ordering")}
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: "1px solid " + (isOut ? C.amber : C.greenBorder), color: isOut ? "#fff" : C.green, background: isOut ? C.amber : C.surface, marginRight: 8, cursor: "pointer", whiteSpace: "nowrap", fontWeight: isOut ? 700 : 400 }}>
+                            🚚 {isOut ? T2("Outsourced") : T2("Mark outsourced")}
+                          </button>
+                        )}
                         <button onClick={function(e) { e.stopPropagation(); openRecat(name); }}
                           title={T2('Fix this dish\'s SOP category')}
                           style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: "1px solid " + C.greenBorder, color: C.green, background: C.surface, marginRight: 8, cursor: "pointer", whiteSpace: "nowrap" }}>

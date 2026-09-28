@@ -350,6 +350,25 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var s = {}; dishItems.forEach(function(x){ s[x.dish_name] = true; }); return s;
   }, [dishItems]);
 
+  // Outsourced (vendor-supplied) dishes — carried into events.outsourced_dishes
+  // when this proposal converts to a booking (see ProposalsView.jsx), so they
+  // stay excluded from Kitchen Hub tracking and Store & Inventory ordering.
+  var outsourcedSet = useMemo(function(){
+    var s = {}; dishItems.forEach(function(x){ if (x.outsourced) s[x.dish_name] = true; }); return s;
+  }, [dishItems]);
+  async function toggleOutsourced(dishName) {
+    var next = !outsourcedSet[dishName];
+    setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, outsourced: next } : x; }); });
+    try {
+      var res = await supabase.from('proposal_items').update({ outsourced: next }).eq('proposal_id', proposal.id).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[MenuBuilder] toggleOutsourced failed:', e);
+      setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, outsourced: !next } : x; }); });
+      sayFail(T2('Could not update that dish'), e);
+    }
+  }
+
   // ── Toggle dish: insert or delete ──
   async function toggleDish(dishName) {
     var isSelected = !!selectedSet[dishName];
@@ -1223,6 +1242,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   catalogueTree={catalogueTree}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
+                  outsourcedSet={outsourcedSet}
+                  onToggleOutsourced={toggleOutsourced}
                   salesMeta={salesMeta}
                   onToggle={toggleDish}
                   templateInfo={templateInfo}
@@ -1327,7 +1348,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
   // Kept here rather than deleted so uncommenting that block is a single edit:
@@ -1751,7 +1772,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
                       {sub.dishes.map(function(d){
-                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
+                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} salesMeta={salesMeta} onToggle={onToggle} />;
                       })}
                     </div>
                   </div>
@@ -1767,7 +1788,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
               {grp.dishes.map(function(d){
-                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} salesMeta={salesMeta} onToggle={onToggle} />;
+                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} salesMeta={salesMeta} onToggle={onToggle} />;
               })}
             </div>
           </div>
@@ -1913,9 +1934,10 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
 
 // V86 — dish card, extracted so it can render inside a subGroups cluster
 // (grouped by catalogue subsection) as well as a plain flat grid.
-function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
+function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, salesMeta, onToggle }) {
   var inT = !!templateSet[d.name];
   var isSel = !!selectedSet[d.name];
+  var isOut = !!(outsourcedSet && outsourcedSet[d.name]);
   var meta = salesMeta[d.name];
   var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
   var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
@@ -1996,6 +2018,15 @@ function DishCard({ d, templateSet, selectedSet, salesMeta, onToggle }) {
             color: isSel ? (inT ? K.ok : K.sageText) : (dashed ? K.sageText : K.textFaint) }}>
             {isSel ? (inT ? "Included" : "Add-on") : (dashed ? "Add as extra" : "Select to add")}
           </span>
+          {isSel && onToggleOutsourced && (
+            <span onClick={function(e){ e.stopPropagation(); onToggleOutsourced(d.name); }}
+              title={isOut ? "Vendor-supplied — excluded from Kitchen tracking & Store ordering. Click to undo." : "Mark as outsourced (vendor-supplied) — excludes it from Kitchen tracking & Store ordering"}
+              style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: K.rPill, cursor: "pointer",
+                background: isOut ? K.warn : "transparent", color: isOut ? "#FFFFFF" : K.textFaint,
+                border: "1px solid " + (isOut ? K.warn : K.lineStrong) }}>
+              🚚 {isOut ? "Outsourced" : "Mark outsourced"}
+            </span>
+          )}
           {dietMeta && (
             <span title={dietMeta.label} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
               fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: K.rPill,
