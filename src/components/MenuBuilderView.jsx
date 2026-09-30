@@ -92,6 +92,16 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return { name: name, dishes: MENU_PACKAGES[name] || [], diet: detectPackageDiet(name) };
   }, [proposal, pkgIdToName, pkgVer]);
 
+  // A veg-base proposal has no business surfacing non-veg add-ons by default —
+  // default the diet filter to the package's own diet (still overridable via
+  // the filter chips, e.g. to add a paid non-veg live counter to a veg wedding).
+  useEffect(function(){
+    if (templateInfo.diet === 'veg' || templateInfo.diet === 'nonveg') {
+      setDietFilter(templateInfo.diet);
+    }
+  // eslint-disable-next-line
+  }, [templateInfo.name]);
+
   var templateSet = useMemo(function(){
     var s = {}; templateInfo.dishes.forEach(function(d){ s[d] = true; }); return s;
   }, [templateInfo.dishes]);
