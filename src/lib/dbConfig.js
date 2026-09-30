@@ -301,16 +301,19 @@ export async function loadAllConfig() {
         if (def.type === 'ratio') {
           cfg.allowExtras = !!def.allow_extras;
           cfg.ratios = opts.map(function(o){
-            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name };
+            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name, price_per_pax: Number(o.price_per_pax) || 0 };
           });
         } else if (def.type === 'count') {
           cfg.min  = def.min_val != null ? def.min_val : 0;
           cfg.max  = def.max_val != null ? def.max_val : 999;
           cfg.step = def.step_val || 1;
+          // V90 — pricing backend: a flat per-unit-per-pax rate, since 'count'
+          // configs have no options list to hang a price on individually.
+          cfg.pricePerPax = Number(def.price_per_pax) || 0;
         } else {
           // options, radio, multi_count, tags
           cfg.options = opts.map(function(o){
-            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '' };
+            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '', price_per_pax: Number(o.price_per_pax) || 0 };
           });
         }
         byDept[def.dept_id].push(cfg);

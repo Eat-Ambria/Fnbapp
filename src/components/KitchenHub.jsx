@@ -3832,6 +3832,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <th style={{...th,textAlign:"left",minWidth:130}}>{T2("Hindi")}</th>
                             <th style={{...th,textAlign:"left",minWidth:96}}>{T2("Unit")}</th>
                             <th style={{...th,textAlign:"center",minWidth:110}}>{T2("Qty")} @ {ingForm.base_pax||300}</th>
+                            <th style={{...th,textAlign:"left",minWidth:130}}>{T2("Notes")}</th>
                             <th style={{...th,textAlign:"center",width:96}}>{T2("Actions")}</th>
                           </>);})()}
                         </tr></thead>
@@ -3843,7 +3844,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               // the same white as the ingredients under it.
                               <tr key={idx} data-dragrow onDragOver={e=>e.preventDefault()} onDrop={()=>ingReorderTo(idx)}
                                 style={{background:K.brandBg,opacity:ingDragIdx===idx?0.4:1,transition:"opacity .12s ease"}}>
-                                <td colSpan={5} style={{padding:"10px 10px 10px 13px",borderTop:`1px solid ${K.brandBorder}`,
+                                <td colSpan={6} style={{padding:"10px 10px 10px 13px",borderTop:`1px solid ${K.brandBorder}`,
                                   borderBottom:`1px solid ${K.brandBorder}`,borderLeft:`3px solid ${K.brand}`}}>
                                   <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                                     <span style={{...type.label,fontSize:10,color:K.brandText,flexShrink:0}}>{T2("Section")}</span>
@@ -3981,6 +3982,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   }
                                 </td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
+                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input value={item.notes||""} onChange={e=>ingUpdateItem(idx,"notes",e.target.value)} placeholder={T2("Optional note")} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/></td>
                                 <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",borderTop:`1px solid ${K.lineSoft}`}}>
                                   <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
                                   <button className="kh-rip" onPointerDown={ripple} onClick={()=>ingRemoveItem(idx)} title={T2("Remove row")} style={{width:32,height:32,borderRadius:10,border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,cursor:"pointer",color:K.danger,padding:0,display:"inline-flex",alignItems:"center",justifyContent:"center",verticalAlign:"middle"}}><Icon name="trash" size={15}/></button>
@@ -4161,7 +4163,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 :Array.isArray(ing.qty)?ing.qty.map((q,qi)=>(
                                   <td key={qi} style={{...td,textAlign:"center",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{q||"—"}</td>
                                 )):null}
-                              <td style={{...td,color:K.textFaint}}>{ing.note||"—"}</td>
+                              <td style={{...td,color:K.textFaint}}>{ing.notes||"—"}</td>
                               {/* Both actions open the ingredient editor, which is
                                   the one place that writes this table back to
                                   Supabase. A row-level delete here would need a

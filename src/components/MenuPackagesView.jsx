@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishLibrary from './DishLibrary.jsx';
+import PricingConfigView from './PricingConfigView.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -1136,6 +1137,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     { v: "packages", icon: "box",       l: T2("Packages") },
     { v: "library",  icon: "book",      l: T2("Dish library") },
   ];
+  if (isAdmin) TABS.push({ v: "pricing", icon: "sliders", l: T2("Pricing") });
 
   return (
     <div>
@@ -1742,6 +1744,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           currentUser={currentUser}
           onJumpToPackage={function(pkgName) { setMainTab("packages"); switchPkg(pkgName); }}
         />
+      )}
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* PRICING TAB — admin-only add-on pricing backend (V90)    */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {mainTab === "pricing" && isAdmin && (
+        <PricingConfigView lang={lang} currentUser={currentUser} />
       )}
 
       {/* V73: Catalogue section picker modal */}
