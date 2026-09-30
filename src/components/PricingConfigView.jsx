@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { K, type } from '../utils/theme.js';
 import { Icon, KToast } from './KitchenUI.jsx';
+import PackageBudgetView from './PackageBudgetView.jsx';
 
 const TYPE_ICONS = {
   options: 'layers', radio: 'listCheck', ratio: 'users',
@@ -106,12 +107,21 @@ function Placeholder({ icon, title, body }) {
 function PricingConfigView({ lang = 'en', currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'headchef');
+  var [mode, setMode] = useState('addons'); // 'addons' | 'budgets'
   var [activeDept, setActiveDept] = useState('kit');
   var [sections, setSections] = useState([]);
   var [loadingSections, setLoadingSections] = useState(false);
   var [savingKey, setSavingKey] = useState(null);
   var [toast, setToast] = useState(null);
   var [, forceTick] = useState(0);
+  var [collapsedGroups, setCollapsedGroups] = useState(function(){ return new Set(); });
+  function toggleGroup(id) {
+    setCollapsedGroups(function(prev){
+      var next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(function(){
     if (activeDept !== 'kit') return;
@@ -185,6 +195,23 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
 
   return (
     <div>
+      <div style={{ display: 'inline-flex', borderRadius: 999, border: '1px solid ' + K.cardWarmLine, background: '#FFFFFF', padding: 3, gap: 2, marginBottom: 16 }}>
+        {[['addons', 'Add-on pricing'], ['budgets', 'Package budgets']].map(function(m){
+          var on = mode === m[0];
+          return (
+            <button key={m[0]} onClick={function(){ setMode(m[0]); }}
+              style={{ padding: '9px 16px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                fontFamily: K.fontBody, fontSize: 13, fontWeight: on ? 700 : 600,
+                background: on ? K.brand : 'transparent', color: on ? '#FFFFFF' : K.textBody }}>
+              {T2(m[1])}
+            </button>
+          );
+        })}
+      </div>
+
+      {mode === 'budgets' ? (
+        <PackageBudgetView lang={lang} currentUser={currentUser} />
+      ) : (<>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {SALES_DEPTS.map(function(d){
           var on = activeDept === d.id;
@@ -211,24 +238,62 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
             <div style={{ fontSize: 12, color: K.hdrMeta, padding: '0 2px 12px' }}>
               {T2('Charged per pax when a dish from this section is added as an extra beyond the package.')}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, paddingBottom: 14 }}>
-              {topSections.map(function(sec){
+            {(function(){
+              // Sections with subsections get their own row-block (header +
+              // a mini-grid of just their children) so a group never shares a
+              // row with an unrelated section — plain leaf sections still
+              // pack 4-up together, but only with their own kind.
+              var blocks = [];
+              var leafBuffer = [];
+              topSections.forEach(function(sec){
                 var kids = childrenOf[sec.id] || [];
+                if (kids.length === 0) { leafBuffer.push(sec); return; }
+                if (leafBuffer.length) { blocks.push({ type: 'leaves', items: leafBuffer }); leafBuffer = []; }
+                blocks.push({ type: 'group', parent: sec, kids: kids });
+              });
+              if (leafBuffer.length) blocks.push({ type: 'leaves', items: leafBuffer });
+
+              return blocks.map(function(b, bi){
+                if (b.type === 'leaves') {
+                  return (
+                    <div key={'l' + bi} style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10 }}>
+                      {b.items.map(function(sec){
+                        return <Chip key={sec.id} name={sec.name} value={sec.addon_price_per_pax}
+                          saving={savingKey === 'sec:' + sec.id} onSave={function(v){ saveSectionPrice(sec.id, v); }} />;
+                      })}
+                    </div>
+                  );
+                }
+                var collapsed = collapsedGroups.has(b.parent.id);
                 return (
-                  <React.Fragment key={sec.id}>
-                    <Chip name={sec.name} value={sec.addon_price_per_pax} saving={savingKey === 'sec:' + sec.id}
-                      onSave={function(v){ saveSectionPrice(sec.id, v); }} />
-                    {kids.map(function(k){
-                      return (
-                        <Chip key={k.id} name={k.name} sub={sec.name} value={k.addon_price_per_pax}
-                          saving={savingKey === 'sec:' + k.id}
-                          onSave={function(v){ saveSectionPrice(k.id, v); }} />
-                      );
-                    })}
-                  </React.Fragment>
+                  <div key={'g' + bi} style={{ borderRadius: 14, border: '1px solid ' + K.line,
+                    background: K.surfaceAlt, padding: 10, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: collapsed ? 0 : 10 }}>
+                      <button onClick={function(){ toggleGroup(b.parent.id); }} title={collapsed ? T2('Expand') : T2('Collapse')}
+                        style={{ width: 26, height: 26, borderRadius: 8, border: '1px solid ' + K.line, background: '#FFFFFF',
+                          color: K.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0 }}>
+                        <Icon name={collapsed ? 'chevronR' : 'chevronD'} size={13} strokeWidth={2.2} />
+                      </button>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: K.hdrTitle,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={b.parent.name}>
+                        {b.parent.name}
+                        <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 600, color: K.textFaint }}>({b.kids.length})</span>
+                      </span>
+                      <PriceInput value={b.parent.addon_price_per_pax} saving={savingKey === 'sec:' + b.parent.id}
+                        onSave={function(v){ saveSectionPrice(b.parent.id, v); }} />
+                    </div>
+                    {!collapsed && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                        {b.kids.map(function(k){
+                          return <Chip key={k.id} name={k.name} value={k.addon_price_per_pax}
+                            saving={savingKey === 'sec:' + k.id} onSave={function(v){ saveSectionPrice(k.id, v); }} />;
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
-              })}
-            </div>
+              });
+            })()}
           </CardShell>
         )
       ) : (
@@ -274,6 +339,7 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
 
       <KToast open={!!toast} toneName={toast && toast.tone} title={toast && toast.title}
         body={toast && toast.body} onClose={function(){ setToast(null); }} />
+      </>)}
     </div>
   );
 }
