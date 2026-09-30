@@ -45,6 +45,21 @@ function PriceInput({ value, onSave, saving, disabled }) {
   );
 }
 
+function Chip({ name, sub, value, onSave, saving }) {
+  return (
+    <div style={{ borderRadius: 14, border: '1px solid ' + K.line, background: '#FFFFFF',
+      padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <span style={{ minWidth: 0 }}>
+        {sub && <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: K.textFaint,
+          textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 1 }}>{sub}</span>}
+        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: K.hdrTitle,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={name}>{name}</span>
+      </span>
+      <PriceInput value={value} saving={saving} onSave={onSave} />
+    </div>
+  );
+}
+
 function Row({ icon, name, desc, children }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 4px',
@@ -193,30 +208,27 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
             body={T2('Add sections in Dish Library → Sections first, then set add-on pricing here.')} />
         ) : (
           <CardShell icon="listCheck" label={T2('Kitchen — add-on price per section')}>
-            <div style={{ fontSize: 12, color: K.hdrMeta, padding: '0 2px 10px' }}>
+            <div style={{ fontSize: 12, color: K.hdrMeta, padding: '0 2px 12px' }}>
               {T2('Charged per pax when a dish from this section is added as an extra beyond the package.')}
             </div>
-            {topSections.map(function(sec){
-              var kids = childrenOf[sec.id] || [];
-              return (
-                <React.Fragment key={sec.id}>
-                  <Row name={sec.name}>
-                    <PriceInput value={sec.addon_price_per_pax} saving={savingKey === 'sec:' + sec.id}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, paddingBottom: 14 }}>
+              {topSections.map(function(sec){
+                var kids = childrenOf[sec.id] || [];
+                return (
+                  <React.Fragment key={sec.id}>
+                    <Chip name={sec.name} value={sec.addon_price_per_pax} saving={savingKey === 'sec:' + sec.id}
                       onSave={function(v){ saveSectionPrice(sec.id, v); }} />
-                  </Row>
-                  {kids.map(function(k){
-                    return (
-                      <div key={k.id} style={{ paddingLeft: 24 }}>
-                        <Row name={k.name}>
-                          <PriceInput value={k.addon_price_per_pax} saving={savingKey === 'sec:' + k.id}
-                            onSave={function(v){ saveSectionPrice(k.id, v); }} />
-                        </Row>
-                      </div>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
+                    {kids.map(function(k){
+                      return (
+                        <Chip key={k.id} name={k.name} sub={sec.name} value={k.addon_price_per_pax}
+                          saving={savingKey === 'sec:' + k.id}
+                          onSave={function(v){ saveSectionPrice(k.id, v); }} />
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </CardShell>
         )
       ) : (
