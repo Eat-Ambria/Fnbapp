@@ -646,7 +646,8 @@ function getAllDishes(opts) {
       explicitNone:    mapped === '__none__',
       hindi:           DISH_HINDI_MAP[name] || '',
       section_id:      row.section_id || null,
-      sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section)
+      sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section),
+      is_veg:          row.is_veg == null ? null : !!row.is_veg
     });
   });
   return out.sort((a, b) => a.dish_name.localeCompare(b.dish_name));

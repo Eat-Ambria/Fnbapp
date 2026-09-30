@@ -229,6 +229,7 @@ function DishLibrary(props) {
         mappedTo: d.mappedTo || '',
         catName: d.catName || '',
         catId: d.catId || '',
+        is_veg: d.is_veg,
       };
     });
   }, [props.refreshKey, showRetired, localBump, view]);
@@ -549,6 +550,20 @@ function DishLibrary(props) {
     } catch (e) { alert('Restore failed: ' + e.message); }
   }
 
+  // V74/V90: veg/non-veg classification — null (unclassified) → veg → non-veg → back to null.
+  // Same tri-state cycle as DishSectionsEditor's toggle, exposed here too since this
+  // "All dishes" table is where most dishes actually get looked at.
+  async function cycleDishVeg(name, current) {
+    if (!isAdmin) return;
+    var next = current == null ? true : (current === true ? false : null);
+    try {
+      var res = await supabase.from('dishes_master').update({ is_veg: next }).eq('dish_name', name);
+      if (res.error) throw res.error;
+      upsertDishMaster(name, { is_veg: next });
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Could not update veg/non-veg: ' + e.message); }
+  }
+
   // ── Render helpers ───────────────────────────────────────────────
   function chip(v, label, count, colorFg, colorBg) {
     var active = filter === v;
@@ -692,13 +707,14 @@ function DishLibrary(props) {
 
       {/* TABLE */}
       <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden', background: C.surface, fontSize: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border }}>
           <div>
             <input type="checkbox" checked={allFilteredSelected} onChange={selectAllFiltered}
               style={{ cursor: 'pointer', margin: 0 }} />
           </div>
           <div>{T2('Dish')}</div>
           <div>{T2('Hindi')}</div>
+          <div>{T2('Veg')}</div>
           <div>{T2('Type')}</div>
           <div>{T2('Maps to')}</div>
           <div>{T2('Used in')}</div>
@@ -724,7 +740,7 @@ function DishLibrary(props) {
           return (
             <div key={d.dish_name}
               style={{
-                display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px',
+                display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px',
                 borderTop: '1px solid ' + C.borderLight,
                 alignItems: 'center',
                 background: isSel ? C.blueBg : (d.is_active ? 'transparent' : C.bg),
@@ -744,6 +760,16 @@ function DishLibrary(props) {
                 {!d.is_active && <span style={{ marginLeft: 6, fontSize: 10, color: C.muted, fontStyle: 'italic' }}>({T2('retired')})</span>}
               </div>
               <div style={{ color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.hindi || '—'}</div>
+              <div onClick={function(e) { e.stopPropagation(); cycleDishVeg(d.dish_name, d.is_veg); }}
+                title={!isAdmin ? (d.is_veg === true ? T2('Veg') : d.is_veg === false ? T2('Non-veg') : T2('Unclassified'))
+                  : (d.is_veg === true ? T2('Veg — click to mark non-veg') : d.is_veg === false ? T2('Non-veg — click to clear') : T2('Unclassified — click to mark veg'))}
+                style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
+                <span style={{
+                  display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                  background: d.is_veg === true ? '#1D9E75' : d.is_veg === false ? '#D64040' : 'transparent',
+                  border: d.is_veg == null ? '1.5px solid ' + C.border : 'none',
+                }} />
+              </div>
               <div>{typeBadge(d.type)}</div>
               <div style={{ color: mapColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapText}</div>
               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>

@@ -18,6 +18,16 @@ import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
 import { KButton, KToast } from './KitchenUI.jsx';
 
+// V90 — a dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise
+// fall back to the dish library's veg/non-veg classification (dishes_master.is_veg)
+// so an unclassified sales tag doesn't silently default every non-veg dish to "Veg".
+// Only truly unclassified-everywhere dishes fall through to DEFAULT_DIET.
+function dietForDish(d, meta) {
+  if (meta && meta.diet_tag) return meta.diet_tag;
+  if (d && d.is_veg != null) return d.is_veg ? 'veg' : 'nonveg';
+  return DEFAULT_DIET;
+}
+
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
 
@@ -103,6 +113,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         notes:           d.notes || '',
         section_id:      d.section_id || null,
         sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
+        is_veg:          d.is_veg,
       };
     });
   }, []);
@@ -623,7 +634,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var q = (searchQ || '').trim().toLowerCase();
     return deptDishes.filter(function(d){
       var meta = salesMeta[d.name];
-      var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+      var diet = dietForDish(d, meta);
       if (dietFilter !== 'all' && diet !== dietFilter) return false;
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       // Hide dishes that aren't in template AND aren't selected, unless showAddons is
@@ -762,7 +773,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var q = (searchQ || '').trim().toLowerCase();
     return allDishes.concat(phantomDishes).filter(function(d){
       var meta = salesMeta[d.name];
-      var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+      var diet = dietForDish(d, meta);
       if (dietFilter !== 'all' && diet !== dietFilter) return false;
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
@@ -783,7 +794,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     var q = (searchQ || '').trim().toLowerCase();
     return allDishes.filter(function(d){
       var meta = salesMeta[d.name];
-      var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+      var diet = dietForDish(d, meta);
       if (dietFilter !== 'all' && diet !== dietFilter) return false;
       if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       return true;
@@ -1939,7 +1950,7 @@ function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourc
   var isSel = !!selectedSet[d.name];
   var isOut = !!(outsourcedSet && outsourcedSet[d.name]);
   var meta = salesMeta[d.name];
-  var diet = (meta && meta.diet_tag) || DEFAULT_DIET;
+  var diet = dietForDish(d, meta);
   var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
   var desc = (meta && meta.sales_description) || '';
   var img = (meta && meta.hero_image_url) || d.image || '';
