@@ -5801,7 +5801,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const VOL_TO_ML = { L: 1000, ml: 1, tsp: 5, tbsp: 15 };
                   const unitFamily = u => WEIGHT_TO_G[u]!=null ? 'weight' : (VOL_TO_ML[u]!=null ? 'volume' : (u||''));
                   const toBaseQty = (q,u) => WEIGHT_TO_G[u]!=null ? q*WEIGHT_TO_G[u] : (VOL_TO_ML[u]!=null ? q*VOL_TO_ML[u] : q);
-                  const ingrMap = {}; // key: "name|unitFamily" -> {n,fam,bySection:{catId:baseQty},total:baseQty}
+                  // Ordering-sheet-only column shaping — doesn't touch the shared
+                  // orderedGroups the yield-override cards above use. APC is
+                  // dropped entirely (not orderable in bulk here); Salads folds
+                  // into Continental; each base gravy's demand (lumped under one
+                  // synthetic "Base Gravies" group everywhere else) is routed to
+                  // the gravy recipe's OWN SOP category instead, so an Indian
+                  // gravy lands under Main Course and a Chinese one under
+                  // Chinese & Pan Asian.
+                  const OS_EXCLUDE_CATS = new Set(['apc']);
+                  const OS_MERGE_CATS = { salads: 'continental' };
+                  function osColIdFor(g, it) {
+                    var catId = g.cat.id === '__bg__' ? (getCatIdForDish(it.dish) || '__bg__') : g.cat.id;
+                    return OS_MERGE_CATS[catId] || catId;
+                  }
+                  const ingrMap = {}; // key: "name|unitFamily" -> {n,fam,bySection:{colId:baseQty},total:baseQty,dishes:Set}
+                  const osColMeta = {}; // colId -> {id,name,icon}
                   orderedGroups.forEach(g=>{
                     g.items.forEach(it=>{
                       const st = it.st;
@@ -5832,24 +5847,37 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
                         if(effKg!=null) ingrList = getIngrForYield(it.dish, effKg);
                       }
+                      const colId = osColIdFor(g, it);
+                      if(OS_EXCLUDE_CATS.has(colId)) return;
+                      if(!osColMeta[colId]){
+                        const realCat = (RECIPE_DB.cats||[]).find(c=>c.id===colId);
+                        osColMeta[colId] = realCat ? {id:colId,name:realCat.name,icon:realCat.icon} : {id:colId,name:g.cat.name,icon:g.cat.icon};
+                      }
                       (ingrList||[]).forEach(ing=>{
                         if(ing._isSection || !ing.q) return;
                         const fam = unitFamily(ing.u);
                         const key = ing.n+"|"+fam;
-                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0};
+                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0, dishes:new Set()};
                         const baseQty = toBaseQty(ing.q, ing.u);
-                        ingrMap[key].bySection[g.cat.id] = (ingrMap[key].bySection[g.cat.id]||0) + baseQty;
+                        ingrMap[key].bySection[colId] = (ingrMap[key].bySection[colId]||0) + baseQty;
                         ingrMap[key].total += baseQty;
+                        ingrMap[key].dishes.add(it.dish);
                       });
                     });
                   });
+                  const osGroups = RECIPE_DB.cats.filter(c=>osColMeta[c.id]).map(c=>osColMeta[c.id]);
+                  // Bg-only fallback categories (couldn't resolve to a real RECIPE_DB
+                  // cat) wouldn't match any RECIPE_DB.cats id above — tack them on
+                  // at the end so their ingredients still get a column.
+                  Object.keys(osColMeta).forEach(id=>{ if(!osGroups.some(x=>x.id===id)) osGroups.push(osColMeta[id]); });
                   const rows = Object.values(ingrMap).map(r=>{
                     let unit = r.fam, div = 1;
                     if(r.fam==='weight'){ unit = r.total>=1000 ? 'kg' : 'gm'; div = r.total>=1000 ? 1000 : 1; }
                     else if(r.fam==='volume'){ unit = r.total>=1000 ? 'L' : 'ml'; div = r.total>=1000 ? 1000 : 1; }
                     const bySection = {};
                     Object.keys(r.bySection).forEach(k=>{ bySection[k] = r.bySection[k]/div; });
-                    return { n:r.n, u:unit, bySection, total:r.total/div };
+                    const usedIn = Array.from(r.dishes).sort((a,b)=>a.localeCompare(b));
+                    return { n:r.n, u:unit, bySection, total:r.total/div, usedIn };
                   }).sort((a,b)=>a.n.localeCompare(b.n));
                   const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
                   const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
@@ -5904,23 +5932,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <colgroup>
                                 <col style={{width:140}}/>
                                 <col style={{width:44}}/>
-                                {orderedGroups.map(g=><col key={g.cat.id} style={{width:56}}/>)}
+                                {osGroups.map(g=><col key={g.id} style={{width:56}}/>)}
                                 <col style={{width:56}}/>
                               </colgroup>
                               <thead>
                                 <tr>
                                   <th style={{...thStyle,textAlign:"left",position:"sticky",left:0,background:C.surface}}>{T2("Item")}</th>
                                   <th style={thStyle}>{T2("UM")}</th>
-                                  {orderedGroups.map(g=><th key={g.cat.id} style={secThStyle} title={g.cat.name}>{g.cat.icon} {g.cat.name}</th>)}
+                                  {osGroups.map(g=><th key={g.id} style={secThStyle} title={g.name}>{g.icon} {g.name}</th>)}
                                   <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {rows.map((r,i)=>(
                                   <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word"}}>{r.n}</td>
+                                    <td title={r.usedIn.length ? T2("Used in:")+" "+r.usedIn.join(", ") : undefined}
+                                      style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",cursor:r.usedIn.length?"help":"default"}}>{r.n}</td>
                                     <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
-                                    {orderedGroups.map(g=><td key={g.cat.id} style={tdStyle}>{roundQ(r.bySection[g.cat.id])}</td>)}
+                                    {osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
                                     <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(r.total)}</td>
                                   </tr>
                                 ))}
