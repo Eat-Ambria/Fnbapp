@@ -1364,7 +1364,7 @@ function EventDayTab({
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={false}
+                                    elapsedSec={el} timerSec={tm} locked={!prevDone}
                                     d1Badge={d1Done}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
@@ -1397,7 +1397,7 @@ function EventDayTab({
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done} running={started && !done} overdue={overdue}
-                                    elapsedSec={el} timerSec={tm} locked={false}
+                                    elapsedSec={el} timerSec={tm} locked={!prevDone}
                                     onStart={() => startStep(dish.fEvId, dish.fIdx, si, tm, dish)}
                                     onDone={() => markManual(dish.fEvId, dish.fIdx, si, dish)}
                                     onUndo={() => clearManual(dish.fEvId, dish.fIdx, si, dish)}
@@ -2039,7 +2039,7 @@ function StepRow({ num, title, desc, ccp, done, running, overdue, elapsedSec, ti
           {subs.map((sb, sbi) => {
             const sbk = stepKey + "_sub_" + sbi;
             const sbDone = !!(d2d.manual && d2d.manual[sbk]);
-            const sbPrevD = true;
+            const sbPrevD = sbi === 0 ? true : !!(d2d.manual && d2d.manual[stepKey + "_sub_" + (sbi - 1)]);
             const sbStarted = !!(d2d.starts && d2d.starts[sbk]);
             const sbEl = sbStarted ? Math.floor((Date.now() - d2d.starts[sbk]) / 1000) : 0;
             const sbOver = sbStarted && sb.tm > 0 && sbEl >= sb.tm && !sbDone;

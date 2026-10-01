@@ -2862,7 +2862,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=hasSubs?subsDone:!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;
                                     const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);
                                     const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
-                                    const prevD=true;
+                                    const prevD=si===0?true:(prevStepHasSubs
+                                      ?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi]))
+                                      :!!(d2d.manual&&d2d.manual[pk]));
                                     return(
                                     <div key={si} style={{padding:"14px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp&&!stDone?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-12,paddingLeft:12,borderRadius:6}:{})}}>
                                       <div style={{display:"flex",gap:14,alignItems:"center"}}>
@@ -2889,7 +2891,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                         <div style={{borderLeft:`2.5px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:19,marginTop:10,paddingLeft:16,opacity:(stS||prevD||stDone)?1:0.5}}>
                                           {step.subs.map((sb,sbi)=>{
                                             const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
-                                            const sbPrevD=true;
+                                            const sbPrevD=sbi===0?true:!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
                                             const sbStarted=!!(d2d.starts&&d2d.starts[sbk]);
                                             const sbEl=sbStarted?Math.floor((Date.now()-d2d.starts[sbk])/1000):0;
                                             const sbOver=sbStarted&&sb.tm>0&&sbEl>=sb.tm&&!sbDone;
@@ -2995,7 +2997,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     const stS=!!(d2d.starts&&d2d.starts[sk]);const stM=hasSubs?subsDone:!!(d2d.manual&&d2d.manual[sk]);const stDone=stM;
                                     const stEl=stS?Math.floor((Date.now()-(d2d.starts[sk]||Date.now()))/1000):0;const stOverdue=stS&&step.tm&&stEl>=step.tm&&!stDone;const stRem=step.tm?Math.max(0,step.tm-stEl):0;const stPct2=step.tm>0?Math.min(100,Math.round(stEl/step.tm*100)):0;const pk="step_"+(si-1);
                                     const prevStepHasSubs=si>0&&Array.isArray(steps[si-1].subs)&&steps[si-1].subs.length>0;
-                                    const prevD=true;
+                                    const prevD=si===0?true:(prevStepHasSubs
+                                      ?steps[si-1].subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[pk+"_sub_"+sbi]))
+                                      :!!(d2d.manual&&d2d.manual[pk]));
                                     return(
                                   <div key={si} style={{padding:"8px 0",borderBottom:si<steps.length-1?`1px solid ${C.borderLight}`:"none",...(step.ccp&&!stDone?{background:C.redBg,borderLeft:`3px solid ${C.red}`,marginLeft:-8,paddingLeft:8,borderRadius:4}:{})}}>
                                     <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
@@ -3022,7 +3026,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       <div style={{borderLeft:`2.5px solid ${stDone?C.green:stS?C.amber:C.gold}`,marginLeft:13,marginTop:6,paddingLeft:12,opacity:(stS||prevD||stDone)?1:0.5}}>
                                         {step.subs.map((sb,sbi)=>{
                                           const sbk=sk+"_sub_"+sbi;const sbDone=!!(d2d.manual&&d2d.manual[sbk]);
-                                          const sbPrevD=true;
+                                          const sbPrevD=sbi===0?true:!!(d2d.manual&&d2d.manual[sk+"_sub_"+(sbi-1)]);
                                           const sbStarted=!!(d2d.starts&&d2d.starts[sbk]);
                                           const sbEl=sbStarted?Math.floor((Date.now()-d2d.starts[sbk])/1000):0;
                                           const sbOver=sbStarted&&sb.tm>0&&sbEl>=sb.tm&&!sbDone;
