@@ -162,8 +162,8 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const PROP = {
     "Ambria Pushpanjali":{code:"AP",c:"#D4A843",bg:C.goldBg},
     "Ambria Exotica":    {code:"AE",c:"#854F0B",bg:C.goldBg},
-    "Manaktala Farm":    {code:"AM",c:"#B05A10",bg:"#1A1610"},
-    "Ambria Restro":     {code:"AR",c:"#0F6E56",bg:"#0E1E1A"},
+    "Manaktala Farm":    {code:"AM",c:"#B05A10",bg:C.amberBg},
+    "Ambria Restro":     {code:"AR",c:"#0F6E56",bg:C.tealBg},
   };
   const gp = v => PROP[v]||{code:"EV",c:C.wine,bg:C.wineBg};
 
