@@ -1,18 +1,23 @@
 // Ambria FnB — Function Plan printable summary
-// V78: a clean one-pager for kitchen/service briefing — event info, food
-// preference/spice/allergies/notes, and the full selected menu grouped by dept.
+// V91: redesigned onto the classic Ambria prospectus sheet layout — a bordered
+// header grid (Date/Function/Guest/Address/Rate/...), two boxed columns
+// (Customized Menu | F&B and Banquet Informations), and bottom sign-off boxes
+// (Board to Read / Attn Chef / Prospectus checked-approved-circulated).
+// Fields this app doesn't capture digitally (Contact No., Mode of Payment,
+// Rate, Advance, Direct/Repeat Guest, Board to Read, sign-off) print as blank
+// ruled boxes, same as the paper form — meant to be filled by hand.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
 import React from "react";
 import { C } from '../data/constants.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
-import { TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.jsx';
+import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
 
 var SPICE_LABELS = {
-  mild:        '🌶️ Mild',
-  medium:      '🌶️🌶️ Medium',
-  spicy:       '🌶️🌶️🌶️ Spicy',
-  extra_spicy: '🔥 Extra Spicy',
+  mild:        'Mild',
+  medium:      'Medium',
+  spicy:       'Spicy',
+  extra_spicy: 'Extra Spicy',
 };
 
 var DIFF_KIND_META = {
@@ -60,7 +65,96 @@ function formatConfigValue(cfg, value, pax) {
   return null;
 }
 
+function dayNameFor(dateStr) {
+  if (!dateStr) return '';
+  try {
+    var d = new Date(dateStr + 'T00:00');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { weekday: 'long' });
+  } catch (e) { return ''; }
+}
+
+// A boxed field: the filled-in value sits above a small uppercase label at
+// the bottom edge of its own cell — same convention as the paper prospectus,
+// where an empty cell is left as a ruled box to fill in by hand.
+function FCell({ value, label, last }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, padding: "8px 10px 6px", borderRight: last ? "none" : "1px solid #000",
+      display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 46 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>{value || ' '}</div>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
+    </div>
+  );
+}
+
+function FRow({ children, thick }) {
+  return <div style={{ display: "flex", borderBottom: thick ? "2px solid #000" : "1px solid #000" }}>{children}</div>;
+}
+
+function ColTitle({ children }) {
+  return <div style={{ fontSize: 14, fontWeight: 700, textDecoration: "underline", marginBottom: 10 }}>{children}</div>;
+}
+
+function SubHead({ children }) {
+  return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>{children}</div>;
+}
+
+function Bullet({ children }) {
+  return <div style={{ fontSize: 12.5, padding: "2px 0 2px 14px", position: "relative" }}>
+    <span style={{ position: "absolute", left: 0 }}>•</span>{children}
+  </div>;
+}
+
 export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
+  // ── Right-column bullets: every bit of F&B/banquet service info this app
+  // tracks, flattened into one list — mirrors the paper form's own mix of
+  // set-up, staffing and timing notes under one heading. ──
+  var bullets = [];
+  if (fp) {
+    var foodPrefParts = [];
+    if (fp.veg_count != null) foodPrefParts.push('Veg ' + fp.veg_count);
+    if (fp.nonveg_count != null) foodPrefParts.push('Non-veg ' + fp.nonveg_count);
+    if (fp.jain_count != null) foodPrefParts.push('Jain ' + fp.jain_count);
+    if (fp.egg_count != null) foodPrefParts.push('Egg ' + fp.egg_count);
+    if (foodPrefParts.length) bullets.push('Food preference — ' + foodPrefParts.join(', '));
+    if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
+    if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : ''));
+    TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' start time @ ' + fp[f.id]); });
+    if (fp.room_info_enabled) {
+      var roomParts = [];
+      if (fp.room_check_in) roomParts.push('check-in ' + fp.room_check_in);
+      if (fp.room_check_out) roomParts.push('check-out ' + fp.room_check_out);
+      if (fp.room_count != null) roomParts.push(fp.room_count + ' room(s)');
+      if (roomParts.length) bullets.push('Rooms — ' + roomParts.join(', '));
+    }
+    EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).forEach(function(f){
+      var count = fp[f.id + '_count']; var price = fp[f.id + '_price'];
+      bullets.push(T2(f.label) + (count != null ? ': ' + count : '') + (price != null ? ' @ ₹' + price : ''));
+    });
+    if (fp.drivers_food_required) {
+      var dfParts = [];
+      if (fp.drivers_food_count != null) dfParts.push(fp.drivers_food_count + ' people');
+      if (fp.drivers_food_rate != null) dfParts.push('@ ₹' + fp.drivers_food_rate + '/plate');
+      if (fp.drivers_food_coupon) dfParts.push('coupon issued');
+      bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
+    }
+  }
+  var lmsPlate = getLmsPlateInfo(event);
+  if (lmsPlate) {
+    if (lmsPlate.comp != null) bullets.push('Complimentary plates: ' + lmsPlate.comp);
+    if (lmsPlate.rateFull != null) bullets.push('Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate');
+  }
+  SALES_DEPTS.forEach(function(d){
+    var deptDefs = DEPT_CONFIGS[d.id] || [];
+    var deptValues = (configsByDept && configsByDept[d.id]) || {};
+    deptDefs.forEach(function(cfg){
+      var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
+      if (val) bullets.push(d.name + ' — ' + cfg.label + ': ' + val);
+    });
+  });
+
+  var attnChefText = [fp && fp.allergies, fp && fp.service_notes, fp && fp.general_notes].filter(Boolean).join('\n');
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
       <style>{"@media print { .fp-no-print { display: none !important; } }"}</style>
@@ -75,184 +169,106 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
         </button>
       </div>
 
-      <div style={{ maxWidth: 780, margin: "0 auto", padding: "30px 24px", color: "#1A1A1A" }}>
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "var(--font-display)" }}>{T2("Function Plan")}</div>
-          <div style={{ fontSize: 12, color: "#666" }}>Ambria Cuisines</div>
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: "30px 24px", color: "#000", fontFamily: "Georgia, 'Times New Roman', serif" }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Ambria Cuisines</div>
+          <div style={{ fontSize: 12, color: "#555" }}>{T2("Function Plan")}</div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24, fontSize: 13 }}>
-          <div><b>{T2("Guest")}:</b> {event.guest || '—'}</div>
-          <div><b>{T2("Event type")}:</b> {event.type || '—'}</div>
-          <div><b>{T2("Venue")}:</b> {event.venue || '—'}</div>
-          <div><b>{T2("Date")}:</b> {event.date || '—'}{event.time ? ' · ' + event.time : ''}</div>
-          <div><b>{T2("Pax")}:</b> {event.pax != null ? event.pax : '—'}</div>
+        {/* ── Header grid — DATE/DAY/FUNCTION, GUEST/ADDRESS/CONTACT, GTD/PAYMENT/RATE, DIRECT/REPEAT ── */}
+        <div style={{ border: "2px solid #000" }}>
+          <FRow>
+            <FCell value={event.date || ''} label="DATE" />
+            <FCell value={dayNameFor(event.date)} label="DAY" />
+            <FCell value={event.type || ''} label="FUNCTION" last />
+          </FRow>
+          <FRow>
+            <FCell value={event.guest || ''} label="GUEST NAME" />
+            <FCell value={event.venue || ''} label="ADDRESS" />
+            <FCell value="" label="CONTACT NO." last />
+          </FRow>
+          <FRow>
+            <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
+            <FCell value="" label="MAX GTD" />
+            <FCell value="" label="MODE OF PAYMENT" />
+            <FCell value="" label="RATE" />
+            <FCell value="" label="ADV & ANY" last />
+          </FRow>
+          <FRow thick>
+            <FCell value="" label="DIRECT" />
+            <FCell value="" label="REPEAT GUEST" last />
+          </FRow>
         </div>
 
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Food Preference")}</div>
-          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13, marginBottom: 8 }}>
-            <span>🟢 {T2("Veg")}: <b>{(fp && fp.veg_count != null) ? fp.veg_count : '—'}</b></span>
-            <span>🔴 {T2("Non-veg")}: <b>{(fp && fp.nonveg_count != null) ? fp.nonveg_count : '—'}</b></span>
-            <span>🟠 {T2("Jain")}: <b>{(fp && fp.jain_count != null) ? fp.jain_count : '—'}</b></span>
-            <span>🟡 {T2("Egg")}: <b>{(fp && fp.egg_count != null) ? fp.egg_count : '—'}</b></span>
-          </div>
-          <div style={{ fontSize: 13, marginBottom: fp && fp.corkage_price != null ? 8 : 0 }}>
-            <b>{T2("Spice tolerance")}:</b> {(fp && fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) || '—'}
-          </div>
-          {fp && fp.corkage_price != null && (
-            <div style={{ fontSize: 13 }}>
-              <b>🍷 {T2("Corkage")}:</b> ₹{fp.corkage_price}{fp.corkage_details ? ' — ' + fp.corkage_details : ''}
-            </div>
-          )}
-        </div>
-
-        {fp && TIME_FIELDS.some(function(f){ return fp[f.id]; }) && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Timings")}</div>
-            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
-              {TIME_FIELDS.filter(function(f){ return fp[f.id]; }).map(function(f){
-                return <span key={f.id}>{T2(f.label)}: <b>{fp[f.id]}</b></span>;
-              })}
-            </div>
-          </div>
-        )}
-
-        {fp && fp.room_info_enabled && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Room Info")}</div>
-            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
-              {fp.room_check_in && <span>{T2("Check-in")}: <b>{fp.room_check_in}</b></span>}
-              {fp.room_check_out && <span>{T2("Check-out")}: <b>{fp.room_check_out}</b></span>}
-              {fp.room_count != null && <span>{T2("Room count")}: <b>{fp.room_count}</b></span>}
-            </div>
-          </div>
-        )}
-
-        {fp && EQUIP_FIELDS.some(function(f){ return fp[f.id + '_enabled']; }) && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>{T2("Equipment Add-ons")}</div>
-            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
-              {EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).map(function(f){
-                var count = fp[f.id + '_count'];
-                var price = fp[f.id + '_price'];
-                return <span key={f.id}>{f.icon} {T2(f.label)}: <b>{count != null ? count : '—'}</b>{price != null ? ' @ ₹' + price : ''}</span>;
-              })}
-            </div>
-          </div>
-        )}
-
-        {fp && fp.drivers_food_required && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 8 }}>🚗 {T2("Drivers Food")}</div>
-            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
-              <span>{T2("Required")}: <b>{T2("Yes")}</b></span>
-              {fp.drivers_food_count != null && <span>{T2("Count of people")}: <b>{fp.drivers_food_count}</b></span>}
-              {fp.drivers_food_coupon != null && <span>{T2("Coupon")}: <b>{fp.drivers_food_coupon ? T2("Yes") : T2("No")}</b></span>}
-            </div>
-          </div>
-        )}
-
-        {fp && fp.allergies && <FPNoteBlock title={T2("Allergies / Dietary Restrictions")} text={fp.allergies} />}
-        {fp && fp.service_notes && <FPNoteBlock title={T2("Service Style Notes")} text={fp.service_notes} />}
-        {fp && fp.general_notes && <FPNoteBlock title={T2("General Notes")} text={fp.general_notes} />}
-
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Selected Menu")}</div>
-          {packageName ? (
-            <div>
-              <div style={{ fontSize: 13, marginBottom: 10 }}><b>{T2("Package")}:</b> {packageName}</div>
-              {Object.keys(menuDiffByDept || {}).length === 0 ? (
-                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
-              ) : (
-                SALES_DEPTS.map(function(d){
-                  var diff = menuDiffByDept && menuDiffByDept[d.id];
-                  if (!diff) return null;
-                  var meta = DIFF_KIND_META[diff.kind];
+        {/* ── Two boxed columns — Customized Menu | F&B and Banquet Informations ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
+          <div style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
+            <ColTitle>{T2("Customized Menu")} :</ColTitle>
+            {packageName ? (
+              <div>
+                <div style={{ fontSize: 12.5, marginBottom: 8 }}><b>{T2("Package")}:</b> {packageName}</div>
+                {Object.keys(menuDiffByDept || {}).length === 0 ? (
+                  <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
+                ) : (
+                  SALES_DEPTS.map(function(d){
+                    var diff = menuDiffByDept && menuDiffByDept[d.id];
+                    if (!diff) return null;
+                    var meta = DIFF_KIND_META[diff.kind];
+                    return (
+                      <div key={d.id} style={{ breakInside: "avoid" }}>
+                        <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
+                        {diff.added.map(function(n){ return <Bullet key={'a' + n}>+ {n}</Bullet>; })}
+                        {diff.removed.map(function(n){ return <Bullet key={'r' + n}>− {n}</Bullet>; })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div>
+                {SALES_DEPTS.map(function(d){
+                  var names = (itemsByDept && itemsByDept[d.id]) || [];
+                  if (names.length === 0) return null;
                   return (
-                    <div key={d.id} style={{ marginBottom: 10, breakInside: "avoid" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
-                        {d.icon} {d.name}
-                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: meta.color, background: meta.bg, padding: "1px 6px", borderRadius: 4 }}>{T2(meta.label)}</span>
-                      </div>
-                      <div style={{ fontSize: 13 }}>
-                        {diff.added.map(function(n){ return <div key={'a' + n} style={{ color: meta.color, padding: "1px 0" }}>+ {n}</div>; })}
-                        {diff.removed.map(function(n){ return <div key={'r' + n} style={{ color: meta.color, padding: "1px 0" }}>− {n}</div>; })}
-                      </div>
+                    <div key={d.id} style={{ breakInside: "avoid" }}>
+                      <SubHead>{d.name}</SubHead>
+                      {names.map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
                     </div>
                   );
-                })
-              )}
-            </div>
-          ) : (
-            <div>
-              {SALES_DEPTS.map(function(d){
-                var names = (itemsByDept && itemsByDept[d.id]) || [];
-                if (names.length === 0) return null;
-                return (
-                  <div key={d.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
-                      {d.icon} {d.name} <span style={{ fontWeight: 400 }}>· {names.length}</span>
-                    </div>
-                    <div style={{ fontSize: 13, columns: 2, columnGap: 24 }}>
-                      {names.map(function(n){ return <div key={n} style={{ breakInside: "avoid", padding: "2px 0" }}>• {n}</div>; })}
-                    </div>
-                  </div>
-                );
-              })}
-              {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
-                <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No items selected yet.")}</div>
-              )}
-            </div>
-          )}
+                })}
+                {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
+                  <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("No items selected yet.")}</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: "14px 16px" }}>
+            <ColTitle>{T2("F&B and Banquet Informations")}</ColTitle>
+            {bullets.length === 0 ? (
+              <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Nothing recorded yet.")}</div>
+            ) : (
+              bullets.map(function(b, i){ return <Bullet key={i}>{b}</Bullet>; })
+            )}
+          </div>
         </div>
 
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, borderBottom: "2px solid #333", paddingBottom: 4, marginBottom: 10 }}>{T2("Department Configurations")}</div>
-          {(function(){
-            var deptRows = SALES_DEPTS.map(function(d){
-              var deptDefs = DEPT_CONFIGS[d.id] || [];
-              var deptValues = (configsByDept && configsByDept[d.id]) || {};
-              var rows = deptDefs.map(function(cfg){
-                var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
-                return val ? { cfg: cfg, val: val } : null;
-              }).filter(Boolean);
-              return { dept: d, rows: rows };
-            }).filter(function(x){ return x.rows.length > 0; });
-
-            if (deptRows.length === 0) {
-              return <div style={{ fontSize: 13, color: "#888", fontStyle: "italic" }}>{T2("No department configurations set.")}</div>;
-            }
-            return deptRows.map(function(x){
-              return (
-                <div key={x.dept.id} style={{ marginBottom: 12, breakInside: "avoid" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 4 }}>
-                    {x.dept.icon} {x.dept.name}
-                  </div>
-                  <div style={{ fontSize: 13 }}>
-                    {x.rows.map(function(r){
-                      return (
-                        <div key={r.cfg.key} style={{ padding: "2px 0" }}>
-                          {r.cfg.icon} <b>{r.cfg.label}:</b> {r.val}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            });
-          })()}
+        {/* ── Sign-off strip — Board to Read / Attn Chef / Checked-Approved-Circulated ── */}
+        <div style={{ border: "2px solid #000", borderTop: "none" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 4 }}>{T2("BOARD TO READ")}</div>
+          </div>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
+            {attnChefText && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{attnChefText}</div>}
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", padding: "10px 16px", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", flex: "1 1 220px" }}>{T2("PROSPECTUS CHECKED / APPROVED / CIRCULATED")}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: _______________</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: _______________</div>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function FPNoteBlock({ title, text }) {
-  return (
-    <div style={{ marginBottom: 14, breakInside: "avoid" }}>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "#333" }}>{text}</div>
     </div>
   );
 }

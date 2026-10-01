@@ -712,6 +712,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planLoading, setPlanLoading] = useState(false);
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
   const [showOrderingSheet, setShowOrderingSheet] = useState(false); // section-wise ingredient ordering sheet modal
+  const [osUsedInOpen, setOsUsedInOpen] = useState(null); // ordering sheet "Used in" popover — row index, tap-to-toggle so it works on tablets (no hover)
   // V74 — per-section ingredient panel UI state for Prep Day Collect from store view (session-local)
   const [d1SecIngrOpen, setD1SecIngrOpen] = useState({});   // { [catId]: bool }
   const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
@@ -5884,7 +5885,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
                   const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
                   return(
-                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShowOrderingSheet(false)}>
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);}}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
                         <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`}}>
                           <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredient Ordering Sheet")}</div>
@@ -5924,7 +5925,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                           <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
                         </div>
-                        <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
+                        <div style={{flex:1,overflow:"auto",padding:"0 20px"}} onClick={()=>setOsUsedInOpen(null)}>
                           {rows.length===0 ? (
                             <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>
                           ) : (
@@ -5946,8 +5947,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <tbody>
                                 {rows.map((r,i)=>(
                                   <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                                    <td title={r.usedIn.length ? T2("Used in:")+" "+r.usedIn.join(", ") : undefined}
-                                      style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",cursor:r.usedIn.length?"help":"default"}}>{r.n}</td>
+                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===i?5:"auto"}}>
+                                      <span style={{position:"relative",display:"inline-block"}}>
+                                        <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===i?null:i);}}
+                                          style={{cursor:r.usedIn.length?"pointer":"default",textDecoration:r.usedIn.length?"underline dotted":"none",textUnderlineOffset:2}}>
+                                          {r.n}
+                                        </span>
+                                        {osUsedInOpen===i && r.usedIn.length>0 && (
+                                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,zIndex:30,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
+                                            <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
+                                            {r.usedIn.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
+                                          </div>
+                                        )}
+                                      </span>
+                                    </td>
                                     <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
                                     {osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
                                     <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(r.total)}</td>
@@ -5958,7 +5971,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           )}
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
-                          <button onClick={()=>setShowOrderingSheet(false)} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
+                          <button onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
                         </div>
                       </div>
                     </div>

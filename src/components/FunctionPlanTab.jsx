@@ -468,5 +468,5 @@ function FPTextArea({ label, placeholder, value, onChange, onBlur }) {
   );
 }
 
-export { TIME_FIELDS, EQUIP_FIELDS };
+export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo };
 export default FunctionPlanTab;
