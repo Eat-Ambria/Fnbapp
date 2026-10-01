@@ -5882,7 +5882,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     return { n:r.n, u:unit, bySection, total:r.total/div, usedIn };
                   }).sort((a,b)=>a.n.localeCompare(b.n));
                   const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
-                  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
+                  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:4};
                   const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
                   const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
                   return(
@@ -5939,7 +5939,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               </colgroup>
                               <thead>
                                 <tr>
-                                  <th style={{...thStyle,textAlign:"left",position:"sticky",left:0,background:C.surface}}>{T2("Item")}</th>
+                                  <th style={{...thStyle,textAlign:"left",left:0,zIndex:6}}>{T2("Item")}</th>
                                   <th style={thStyle}>{T2("UM")}</th>
                                   {osGroups.map(g=><th key={g.id} style={secThStyle} title={g.name}>{g.icon} {g.name}</th>)}
                                   <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
