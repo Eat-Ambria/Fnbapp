@@ -2583,6 +2583,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         });
         // 9C — Demand-driven bg injection: scan dishes for type='bg' rows,
         // sum kg per bg recipe, inject each summed bg as ONE pseudo-dish with totalKg.
+        // fIdx is shared across every catId's pass below, not reset per category —
+        // see the matching fix/comment in EventDayTab.jsx for why a per-category
+        // reset let two unrelated base gravies in different sections collide on
+        // the same (fEvId, fIdx) tracking key and bleed each other's progress.
+        let fIdxD1 = 9000;
         Object.keys(bySecD1).forEach(catId=>{
           const secDishes = bySecD1[catId];
           if (!secDishes || secDishes.length === 0) return;
@@ -2651,7 +2656,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             });
           });
           const bgEntries = [];
-          let fIdx = 9000;
           const anchor = secDishes[0];
           Object.keys(bgDemand).forEach(bgName=>{
             const dem = bgDemand[bgName];
@@ -2666,7 +2670,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               totalKg: dem.totalKg,
               fns: dem.fns.length > 0 ? dem.fns : (anchor.fns || []),
               fEvId: anchor.fEvId,
-              fIdx: fIdx++,
+              fIdx: fIdxD1++,
               specials: [],
               isBaseGravy: true,
             });

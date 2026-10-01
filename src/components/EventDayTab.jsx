@@ -461,6 +461,14 @@ function EventDayTab({
   }
   // 9C — Demand-driven bg injection: sum kg per bg recipe from dishes' type='bg' rows,
   // inject each summed bg as ONE pseudo-dish with totalKg. Skip bgs with zero demand.
+  // fIdx is shared across every catId's pass below, not reset per category: it
+  // restarting at 9000 inside each catId let two DIFFERENT base-gravy dishes in
+  // DIFFERENT sections land on the exact same fIdx. Combined with their anchor
+  // (secDishes[0].fEvId) usually being the SAME event on a day with few
+  // functions, that gave two unrelated gravies the identical (fEvId, fIdx)
+  // tracking key — one section's cooking progress/timer bled straight onto
+  // the other's card, showing as steps "jumping" and false overtime.
+  let fIdx = 9000;
   Object.keys(bySec).forEach(catId => {
     const secDishes = bySec[catId];
     if (!secDishes || secDishes.length === 0) return;
@@ -501,7 +509,6 @@ function EventDayTab({
       });
     });
     const bgEntries = [];
-    let fIdx = 9000;
     const anchor = secDishes[0];
     Object.keys(bgDemand).forEach(bgName => {
       const dem = bgDemand[bgName];
