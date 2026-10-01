@@ -5788,7 +5788,20 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {/* Section-wise ingredient ordering sheet — one spot to see per-section (cuisine) ingredient quantities for this event, with a live yield slider */}
                 {showOrderingSheet && (()=>{
                   const mult = yieldAdjustPct/100;
-                  const ingrMap = {}; // key: "name|unit" -> {n,u,bySection:{catId:qty},total}
+                  // Merge rows by name + unit FAMILY (not the exact unit string) so
+                  // "Amchur Powder" ordered in both gm and kg for different
+                  // stations lands on one line instead of two. Accumulated in a
+                  // base unit (grams / ml) then re-expressed as kg/L — or gm/ml
+                  // when the merged total is under 1 of the big unit, so a 250g
+                  // item doesn't print as "0.25 kg". Units outside these two
+                  // families (Packets, Bot, pcs, tin, bunch, dozen...) have no
+                  // sensible common unit to convert into, so they just merge
+                  // within their own exact unit, same as before.
+                  const WEIGHT_TO_G = { kg: 1000, gm: 1 };
+                  const VOL_TO_ML = { L: 1000, ml: 1, tsp: 5, tbsp: 15 };
+                  const unitFamily = u => WEIGHT_TO_G[u]!=null ? 'weight' : (VOL_TO_ML[u]!=null ? 'volume' : (u||''));
+                  const toBaseQty = (q,u) => WEIGHT_TO_G[u]!=null ? q*WEIGHT_TO_G[u] : (VOL_TO_ML[u]!=null ? q*VOL_TO_ML[u] : q);
+                  const ingrMap = {}; // key: "name|unitFamily" -> {n,fam,bySection:{catId:baseQty},total:baseQty}
                   orderedGroups.forEach(g=>{
                     g.items.forEach(it=>{
                       const st = it.st;
@@ -5821,14 +5834,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       }
                       (ingrList||[]).forEach(ing=>{
                         if(ing._isSection || !ing.q) return;
-                        const key = ing.n+"|"+(ing.u||"");
-                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, u:ing.u||"", bySection:{}, total:0};
-                        ingrMap[key].bySection[g.cat.id] = (ingrMap[key].bySection[g.cat.id]||0) + ing.q;
-                        ingrMap[key].total += ing.q;
+                        const fam = unitFamily(ing.u);
+                        const key = ing.n+"|"+fam;
+                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0};
+                        const baseQty = toBaseQty(ing.q, ing.u);
+                        ingrMap[key].bySection[g.cat.id] = (ingrMap[key].bySection[g.cat.id]||0) + baseQty;
+                        ingrMap[key].total += baseQty;
                       });
                     });
                   });
-                  const rows = Object.values(ingrMap).sort((a,b)=>a.n.localeCompare(b.n));
+                  const rows = Object.values(ingrMap).map(r=>{
+                    let unit = r.fam, div = 1;
+                    if(r.fam==='weight'){ unit = r.total>=1000 ? 'kg' : 'gm'; div = r.total>=1000 ? 1000 : 1; }
+                    else if(r.fam==='volume'){ unit = r.total>=1000 ? 'L' : 'ml'; div = r.total>=1000 ? 1000 : 1; }
+                    const bySection = {};
+                    Object.keys(r.bySection).forEach(k=>{ bySection[k] = r.bySection[k]/div; });
+                    return { n:r.n, u:unit, bySection, total:r.total/div };
+                  }).sort((a,b)=>a.n.localeCompare(b.n));
                   const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
                   const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap"};
                   const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};

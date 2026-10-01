@@ -52,6 +52,31 @@ function PriceInput({ value, onSave, saving, disabled }) {
   );
 }
 
+// Edits a ratio tier's own "1 : N" value (e.g. 1 staff per 25 guests) — the
+// definition itself, not its price. num stays fixed at 1 (every ratio here
+// reads "1 : N"); only the guest count per unit is ever adjusted.
+function RatioInput({ value, onSave, saving }) {
+  var [draft, setDraft] = useState(value == null ? '' : String(value));
+  useEffect(function(){ setDraft(value == null ? '' : String(value)); }, [value]);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 700, color: K.hdrMeta }}>1 :</span>
+      <input type="number" min="1" step="1" value={draft}
+        onChange={function(e){ setDraft(e.target.value); }}
+        onBlur={function(){
+          var n = draft === '' ? 1 : Number(draft);
+          if (!isFinite(n) || n < 1) n = 1;
+          if (n !== (value || 0)) onSave(n);
+          else setDraft(String(value || 0));
+        }}
+        style={{ width: 54, padding: '8px 10px', borderRadius: 10, border: '1px solid ' + K.line,
+          fontSize: 13.5, fontWeight: 700, color: K.text, background: '#FFFFFF',
+          boxSizing: 'border-box', fontFamily: K.fontBody, outline: 'none', opacity: saving ? 0.5 : 1 }} />
+      <span style={{ fontSize: 11.5, color: K.textFaint }}>{'guests'}</span>
+    </span>
+  );
+}
+
 function Chip({ name, sub, value, onSave, saving }) {
   return (
     <div style={{ borderRadius: 14, border: '1px solid ' + K.line, background: '#FFFFFF',
@@ -151,6 +176,24 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
       var res = await supabase.from('dish_catalogue_sections').update({ addon_price_per_pax: price }).eq('id', sectionId);
       if (res.error) throw res.error;
       setSections(function(prev){ return prev.map(function(s){ return s.id === sectionId ? { ...s, addon_price_per_pax: price } : s; }); });
+    } catch (e) {
+      setToast({ tone: 'danger', title: T2('Could not save'), body: String((e && e.message) || e) });
+    } finally { setSavingKey(null); }
+  }
+
+  async function saveRatioDen(deptId, configKey, optionId, den) {
+    var key = 'ratioden:' + deptId + ':' + configKey + ':' + optionId;
+    setSavingKey(key);
+    try {
+      var res = await supabase.from('sales_config_options').update({ ratio_den: den })
+        .eq('dept_id', deptId).eq('config_key', configKey).eq('option_id', optionId);
+      if (res.error) throw res.error;
+      var cfg = (DEPT_CONFIGS[deptId] || []).find(function(c){ return c.key === configKey; });
+      if (cfg && cfg.ratios) {
+        var row = cfg.ratios.find(function(o){ return o.id === optionId; });
+        if (row) row.den = den;
+      }
+      forceTick(function(t){ return t + 1; });
     } catch (e) {
       setToast({ tone: 'danger', title: T2('Could not save'), body: String((e && e.message) || e) });
     } finally { setSavingKey(null); }
@@ -333,8 +376,14 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
                   var desc = cfg.type === 'ratio' ? null : opt.desc;
                   return (
                     <Row key={opt.id} name={name} desc={desc}>
-                      <PriceInput value={opt.price_per_pax} saving={savingKey === 'opt:' + activeDept + ':' + cfg.key + ':' + opt.id}
-                        onSave={function(v){ saveOptionPrice(activeDept, cfg.key, opt.id, v); }} />
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                        {cfg.type === 'ratio' && (
+                          <RatioInput value={opt.den} saving={savingKey === 'ratioden:' + activeDept + ':' + cfg.key + ':' + opt.id}
+                            onSave={function(v){ saveRatioDen(activeDept, cfg.key, opt.id, v); }} />
+                        )}
+                        <PriceInput value={opt.price_per_pax} saving={savingKey === 'opt:' + activeDept + ':' + cfg.key + ':' + opt.id}
+                          onSave={function(v){ saveOptionPrice(activeDept, cfg.key, opt.id, v); }} />
+                      </span>
                     </Row>
                   );
                 })}
