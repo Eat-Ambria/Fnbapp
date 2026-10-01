@@ -1150,7 +1150,7 @@ function EventDayTab({
                     // solid green rail plus a tint that fades out. Flooding the
                     // whole card with pale mint washed the text out and made a
                     // column of finished dishes read as one flat slab.
-                    <div key={di} className={"kh-dishcard kh-cardart-sm" + (isDishOpen(dKey) ? " is-open" : "")} style={{
+                    <div key={dKey} className={"kh-dishcard kh-cardart-sm" + (isDishOpen(dKey) ? " is-open" : "")} style={{
                       position: "relative",
                       backgroundColor: K.surface, borderRadius: K.rLg,
                       border: `1px solid ${isReady ? K.brandBorder : K.line}`,
