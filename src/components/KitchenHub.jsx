@@ -5804,13 +5804,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const toBaseQty = (q,u) => WEIGHT_TO_G[u]!=null ? q*WEIGHT_TO_G[u] : (VOL_TO_ML[u]!=null ? q*VOL_TO_ML[u] : q);
                   // Ordering-sheet-only column shaping — doesn't touch the shared
                   // orderedGroups the yield-override cards above use. APC is
-                  // dropped entirely (not orderable in bulk here); Salads folds
-                  // into Continental; each base gravy's demand (lumped under one
-                  // synthetic "Base Gravies" group everywhere else) is routed to
-                  // the gravy recipe's OWN SOP category instead, so an Indian
-                  // gravy lands under Main Course and a Chinese one under
+                  // dropped entirely (not orderable in bulk here); Beverages is
+                  // the Bev team's own ordering sheet, not Kitchen's; Salads
+                  // folds into Continental; each base gravy's demand (lumped
+                  // under one synthetic "Base Gravies" group everywhere else) is
+                  // routed to the gravy recipe's OWN SOP category instead, so an
+                  // Indian gravy lands under Main Course and a Chinese one under
                   // Chinese & Pan Asian.
-                  const OS_EXCLUDE_CATS = new Set(['apc']);
+                  const OS_EXCLUDE_CATS = new Set(['apc', 'beverages']);
                   const OS_MERGE_CATS = { salads: 'continental' };
                   function osColIdFor(g, it) {
                     var catId = g.cat.id === '__bg__' ? (getCatIdForDish(it.dish) || '__bg__') : g.cat.id;
