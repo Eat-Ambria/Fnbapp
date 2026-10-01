@@ -1465,22 +1465,18 @@ function EventDayTab({
                               <button onClick={() => {
                                 const now = fmtStamp();
                                 const updates = { ready: true, completed: true, completedBy: currentUser?.name || "Chef", completedAt: now, readyAt: now };
-                                if(needsTransport) {
-                                  updates.transportLinked = true;
-                                  if (setTransportQueue) {
-                                    setTransportQueue(prev => [...(prev || []), {
-                                      id: localDateStr(new Date()) + "_" + dish.fEvId + "_" + dish.fIdx,
-                                      dish: dish.name, evId: dish.fEvId, sec: getCatIdForDish(dish.name) || null,
-                                      qty: null, unit: null, station: null,
-                                      event: tev?.guest || "Unknown",
-                                      pax: tev?.pax || 0, venue: tev?.venue || "",
-                                      eventDate: tev?.date || TODAY,
-                                      preparedBy: currentUser?.name || "Chef",
-                                      markedAt: now, status: "Ready",
-                                      fromVenue: currentUser?.venue || "",
-                                    }]);
-                                  }
-                                }
+                                // Signing off this one dish only flags it as
+                                // needing transport — it must NOT queue it on
+                                // its own. The section's "Send to transport"
+                                // button (gated on secAllDone, above) is the
+                                // only place that writes transportQueue rows;
+                                // this used to also push a row right here, so
+                                // every cross-venue dish queued itself the
+                                // moment IT finished (before the rest of its
+                                // station was cooked), then queued AGAIN when
+                                // the station button ran — duplicate entries
+                                // showing per dish instead of once per section.
+                                if(needsTransport) updates.transportLinked = true;
                                 // The yield captured at sign-off used to go only
                                 // to Supabase, so nothing on this screen could
                                 // read it back. Persist it on the dish too —
