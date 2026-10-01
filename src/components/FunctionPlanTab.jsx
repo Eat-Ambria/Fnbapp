@@ -394,6 +394,13 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint }) {
                   onBlur={function(){ commitNumber('drivers_food_count'); }}
                   style={{ ...inputStyle, width: 90 }} />
               </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Rate per plate")}</span>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={val('drivers_food_rate')}
+                  onChange={function(e){ onChangeField('drivers_food_rate', e.target.value); }}
+                  onBlur={function(){ commitDecimal('drivers_food_rate'); }}
+                  style={{ ...inputStyle, width: 90 }} />
+              </label>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Coupon")}</div>
                 <Switch on={!!(fp && fp.drivers_food_coupon)} onChange={function(v){ onSaveField('drivers_food_coupon', v); }} title={T2("Coupon issued?")} />

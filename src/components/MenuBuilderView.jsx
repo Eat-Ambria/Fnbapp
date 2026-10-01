@@ -127,6 +127,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       };
     });
   }, []);
+  var allDishesByName = useMemo(function(){
+    var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
+  }, [allDishes]);
 
   // ── V72/V73: dish_catalogue_sections (all depts) ──
   // Fetched once on mount. Each section may carry a sales_dept override that routes
@@ -138,7 +141,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id, addon_price_per_pax')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -148,6 +151,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     })();
     return function(){ cancelled = true; };
   }, []);
+
+  // V90 — section_id -> its add-on price/pax (set in Menu > Pricing).
+  var sectionAddonPriceMap = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){ m[s.id] = Number(s.addon_price_per_pax) || 0; });
+    return m;
+  }, [sections]);
 
   // V73: sectionId → effective sales_dept (override or 'kit' default)
   var sectionSalesDeptMap = useMemo(function(){
@@ -390,6 +400,25 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
   }
 
+  // V90 — FOC (free of cost): an add-on dish a sales person waives the charge
+  // on for this client. Only meaningful on add-ons — template dishes are
+  // already covered by the package's own per-head budget.
+  var focSet = useMemo(function(){
+    var s = {}; dishItems.forEach(function(x){ if (x.foc) s[x.dish_name] = true; }); return s;
+  }, [dishItems]);
+  async function toggleFoc(dishName) {
+    var next = !focSet[dishName];
+    setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: next } : x; }); });
+    try {
+      var res = await supabase.from('proposal_items').update({ foc: next }).eq('proposal_id', proposal.id).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[MenuBuilder] toggleFoc failed:', e);
+      setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: !next } : x; }); });
+      sayFail(T2('Could not update that dish'), e);
+    }
+  }
+
   // ── Toggle dish: insert or delete ──
   async function toggleDish(dishName) {
     var isSelected = !!selectedSet[dishName];
@@ -548,6 +577,24 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     });
     return counts;
   }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
+
+  // V90 — per-dept add-on ₹ total: only dishes picked beyond the package
+  // (is_addon) and not marked FOC, priced via their catalogue section's
+  // add-on price/pax (set in Menu > Pricing) × this proposal's pax.
+  var deptAddonTotal = useMemo(function(){
+    var totals = {};
+    var pax = Number(proposal && proposal.pax) || 0;
+    dishItems.forEach(function(row){
+      if (!row.is_addon || row.foc) return;
+      var d = allDishesByName[row.dish_name];
+      var price = d && d.section_id ? (sectionAddonPriceMap[d.section_id] || 0) : 0;
+      if (price <= 0) return;
+      var meta = salesMeta[row.dish_name];
+      var dept = sectionOverrideDept[row.dish_name] || dishNameToPkgDept[row.dish_name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      totals[dept] = (totals[dept] || 0) + price * pax;
+    });
+    return totals;
+  }, [dishItems, allDishesByName, sectionAddonPriceMap, salesMeta, sectionOverrideDept, dishNameToPkgDept, proposal]);
 
   // Resolves any section to where the Dish Library files it.
   //
@@ -1265,6 +1312,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   selectedSet={selectedSet}
                   outsourcedSet={outsourcedSet}
                   onToggleOutsourced={toggleOutsourced}
+                  focSet={focSet}
+                  onToggleFoc={toggleFoc}
                   salesMeta={salesMeta}
                   onToggle={toggleDish}
                   templateInfo={templateInfo}
@@ -1337,11 +1386,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
               var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
               var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
               if (!deptHasItems && !deptHasConfigs) return null;
+              var addon = deptAddonTotal[d.id] || 0;
               return (
                 <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 2px" }}>
                   <span style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: K.text,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                  {addon > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: d.color }}>₹{addon}</span>}
                   {/* A zero is deliberately faint: the eye should land on the
                       departments that actually have something in them. */}
                   <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums",
@@ -1356,6 +1407,16 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                 {grandTotal}
               </span>
             </div>
+            {(function(){
+              var grandAddon = SALES_DEPTS.reduce(function(sum, d){ return sum + (deptAddonTotal[d.id] || 0); }, 0);
+              if (grandAddon <= 0) return null;
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 2px 4px" }}>
+                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: K.hdrMeta }}>{T2("Add-on total")}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: K.warn, fontVariantNumeric: "tabular-nums" }}>₹{grandAddon}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
         )}
@@ -1369,7 +1430,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
   // Kept here rather than deleted so uncommenting that block is a single edit:
@@ -1793,7 +1854,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
                       {sub.dishes.map(function(d){
-                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} salesMeta={salesMeta} onToggle={onToggle} />;
+                        return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} focSet={focSet} onToggleFoc={onToggleFoc} salesMeta={salesMeta} onToggle={onToggle} />;
                       })}
                     </div>
                   </div>
@@ -1809,7 +1870,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
               {grp.dishes.map(function(d){
-                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} salesMeta={salesMeta} onToggle={onToggle} />;
+                return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} focSet={focSet} onToggleFoc={onToggleFoc} salesMeta={salesMeta} onToggle={onToggle} />;
               })}
             </div>
           </div>
@@ -1955,10 +2016,11 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
 
 // V86 — dish card, extracted so it can render inside a subGroups cluster
 // (grouped by catalogue subsection) as well as a plain flat grid.
-function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, salesMeta, onToggle }) {
+function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle }) {
   var inT = !!templateSet[d.name];
   var isSel = !!selectedSet[d.name];
   var isOut = !!(outsourcedSet && outsourcedSet[d.name]);
+  var isFoc = !!(focSet && focSet[d.name]);
   var meta = salesMeta[d.name];
   var diet = dietForDish(d, meta);
   var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
@@ -2046,6 +2108,15 @@ function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourc
                 background: isOut ? K.warn : "transparent", color: isOut ? "#FFFFFF" : K.textFaint,
                 border: "1px solid " + (isOut ? K.warn : K.lineStrong) }}>
               🚚 {isOut ? "Outsourced" : "Mark outsourced"}
+            </span>
+          )}
+          {!inT && isSel && onToggleFoc && (
+            <span onClick={function(e){ e.stopPropagation(); onToggleFoc(d.name); }}
+              title={isFoc ? "Free of cost — not charged to the guest. Click to undo." : "Mark free of cost (FOC) — excludes it from the add-on charge"}
+              style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: K.rPill, cursor: "pointer",
+                background: isFoc ? K.ok : "transparent", color: isFoc ? "#FFFFFF" : K.textFaint,
+                border: "1px solid " + (isFoc ? K.ok : K.lineStrong) }}>
+              🎁 {isFoc ? "FOC" : "Mark FOC"}
             </span>
           )}
           {dietMeta && (

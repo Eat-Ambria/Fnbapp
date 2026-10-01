@@ -23,6 +23,12 @@ const TYPE_ICONS = {
   count: 'box', multi_count: 'listCheck', tags: 'tag',
 };
 
+// Dish/item depts (ITEM_HAVING_DEPTS in salesConfig.js) have their own dish
+// catalogue sections to price per-add-on, same mechanism as Kitchen; the
+// remaining depts (Service/Crockery/Transport) have no dish catalogue at all
+// — only DEPT_CONFIGS options — so they stay on the config-option pricing UI.
+var SECTION_DEPT_MAP = { kit: 'kitchen', bev: 'beverage', bak: 'bakery', frt: 'fruits' };
+
 function PriceInput({ value, onSave, saving, disabled }) {
   var [draft, setDraft] = useState(value == null ? '' : String(value));
   useEffect(function(){ setDraft(value == null ? '' : String(value)); }, [value]);
@@ -123,19 +129,20 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
     });
   }
 
+  var sectionDept = SECTION_DEPT_MAP[activeDept];
   useEffect(function(){
-    if (activeDept !== 'kit') return;
+    if (!sectionDept) return;
     var cancelled = false;
     setLoadingSections(true);
     fetchAllRows(function(){
       return supabase.from('dish_catalogue_sections')
         .select('id,name,parent_section_id,sort_order,addon_price_per_pax')
-        .eq('dept', 'kitchen').order('sort_order', { ascending: true });
+        .eq('dept', sectionDept).order('sort_order', { ascending: true });
     }).then(function(rows){ if (!cancelled) setSections(rows || []); })
       .catch(function(e){ console.error('[PricingConfig] load sections failed:', e); if (!cancelled) setSections([]); })
       .finally(function(){ if (!cancelled) setLoadingSections(false); });
     return function(){ cancelled = true; };
-  }, [activeDept]);
+  }, [sectionDept]);
 
   async function saveSectionPrice(sectionId, price) {
     var key = 'sec:' + sectionId;
@@ -227,14 +234,14 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
         })}
       </div>
 
-      {activeDept === 'kit' ? (
+      {sectionDept ? (
         loadingSections ? (
-          <Placeholder icon="listCheck" title={T2('Loading…')} body={T2('Fetching kitchen catalogue sections.')} />
+          <Placeholder icon="listCheck" title={T2('Loading…')} body={T2('Fetching catalogue sections.')} />
         ) : topSections.length === 0 ? (
           <Placeholder icon="listCheck" title={T2('No sections yet')}
             body={T2('Add sections in Dish Library → Sections first, then set add-on pricing here.')} />
         ) : (
-          <CardShell icon="listCheck" label={T2('Kitchen — add-on price per section')}>
+          <CardShell icon="listCheck" label={T2(SALES_DEPT_MAP[activeDept].name) + ' — ' + T2('add-on price per section')}>
             <div style={{ fontSize: 12, color: K.hdrMeta, padding: '0 2px 12px' }}>
               {T2('Charged per pax when a dish from this section is added as an extra beyond the package.')}
             </div>

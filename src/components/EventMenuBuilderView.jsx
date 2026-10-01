@@ -160,7 +160,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id, addon_price_per_pax')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -170,6 +170,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     })();
     return function(){ cancelled = true; };
   }, []);
+
+  // V90 — section_id -> its add-on price/pax (set in Menu > Pricing), so a
+  // dish picked as an extra beyond the package can be costed without a
+  // second per-dish price field. Only sections carry a price; dishes with no
+  // section (or whose section was never priced) cost nothing extra.
+  var sectionAddonPriceMap = useMemo(function(){
+    var m = {};
+    sections.forEach(function(s){ m[s.id] = Number(s.addon_price_per_pax) || 0; });
+    return m;
+  }, [sections]);
 
   var sectionSalesDeptMap = useMemo(function(){
     var m = {};
@@ -318,6 +328,27 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var selectedSet = useMemo(function(){
     var s = {}; dishItems.forEach(function(x){ s[x.dish_name] = true; }); return s;
   }, [dishItems]);
+
+  // V90 — FOC (free of cost): an add-on dish a sales person waives the
+  // charge on for this guest. Only meaningful on add-ons — template dishes
+  // are already covered by the package's own per-head budget.
+  var focSet = useMemo(function(){
+    var s = {}; dishItems.forEach(function(x){ if (x.foc) s[x.dish_name] = true; }); return s;
+  }, [dishItems]);
+
+  async function toggleFoc(dishName) {
+    var cur = dishItems.find(function(x){ return x.dish_name === dishName; });
+    if (!cur) return;
+    var next = !cur.foc;
+    setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: next } : x; }); });
+    try {
+      var res = await supabase.from('event_items').update({ foc: next }).eq('event_id', event.id).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[EventMenuBuilder] toggleFoc failed:', e);
+      setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: !next } : x; }); });
+    }
+  }
 
   // dish name → its PACKAGE section's own sales_dept (authoritative — see MenuBuilderView.jsx)
   var dishNameToPkgDept = useMemo(function(){
@@ -650,6 +681,24 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return counts;
   }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
+
+  // V90 — per-dept add-on ₹ total: only dishes picked beyond the package
+  // (is_addon) and not marked FOC, priced via their catalogue section's
+  // add-on price/pax (set in Menu > Pricing) × this event's pax.
+  var deptAddonTotal = useMemo(function(){
+    var totals = {};
+    var pax = Number(event && event.pax) || 0;
+    dishItems.forEach(function(row){
+      if (!row.is_addon || row.foc) return;
+      var d = allDishesByName[row.dish_name];
+      var price = d && d.section_id ? (sectionAddonPriceMap[d.section_id] || 0) : 0;
+      if (price <= 0) return;
+      var meta = salesMeta[row.dish_name];
+      var dept = sectionOverrideDept[row.dish_name] || dishNameToPkgDept[row.dish_name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      totals[dept] = (totals[dept] || 0) + price * pax;
+    });
+    return totals;
+  }, [dishItems, allDishesByName, sectionAddonPriceMap, salesMeta, sectionOverrideDept, dishNameToPkgDept, event]);
 
   var deptDishes = useMemo(function(){
     // Bug fix — a dish belonging to the currently selected package but with
@@ -1188,6 +1237,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   selectedSet={selectedSet}
                   salesMeta={salesMeta}
                   onToggle={toggleDish}
+                  focSet={focSet}
+                  onToggleFoc={toggleFoc}
                   templateInfo={templateInfo}
                   templateDishesInDept={templateDishesInDept}
                   deptCounts={deptCounts[activeDept]}
@@ -1226,10 +1277,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
             var counts = deptCounts[d.id] || { sel: 0, total: 0 };
             var deptHasItems = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
             if (!deptHasItems) return null;
+            var addon = deptAddonTotal[d.id] || 0;
             return (
               <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px" }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
                 <span style={{ flex: 1, fontSize: 12, color: C.text }}>{d.name}</span>
+                {addon > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: d.color }}>₹{addon}</span>}
                 <span style={{ fontSize: 12, fontWeight: 700, color: counts.sel > 0 ? d.color : C.faint }}>{counts.sel}</span>
               </div>
             );
@@ -1240,6 +1293,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
             </span>
           </div>
+          {(function(){
+            var grandAddon = SALES_DEPTS.reduce(function(sum, d){ return sum + (deptAddonTotal[d.id] || 0); }, 0);
+            if (grandAddon <= 0) return null;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 6px" }}>
+                <span style={{ flex: 1, fontSize: 11.5, fontWeight: 700, color: C.muted }}>{T2("Add-on total")}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.amber }}>₹{grandAddon}</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
       )}
