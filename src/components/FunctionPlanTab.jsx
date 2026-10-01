@@ -39,46 +39,66 @@ var EQUIP_FIELDS = [
   { id: 'heater', label: 'Heater', icon: '🔥', iconName: 'flame' },
 ];
 
-// Native <input type="time"> renders per browser/OS locale (often 24h, with
-// no HTML attribute to force 12h) — a custom hour/minute/AM-PM picker is the
-// only way to guarantee 12h display, and it stores the value as a plain
-// "07:30 PM" string, same convention Dashboard's event Time field already
-// uses.
+// The value is stored as a plain "07:30 PM" string (same convention
+// Dashboard's event Time field already uses). Native <input type="time">
+// renders per browser/OS locale — often 24h, with no HTML attribute to force
+// 12h — so it can't guarantee the 12h display this form needs; a custom pill
+// is the only way to do that. This one is just a free-typed hour + free-typed
+// minute (no forced step) with a single AM/PM tap, not three dropdown lists.
 function parseTime12(v) {
   var m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((v || '').trim());
   if (!m) return { hour: '', min: '', ampm: '' };
-  return { hour: m[1].padStart(2, '0'), min: m[2], ampm: m[3].toUpperCase() };
+  return { hour: String(parseInt(m[1], 10)), min: m[2], ampm: m[3].toUpperCase() };
 }
-var TIME12_HOURS = Array.from({ length: 12 }, function(_, i){ return String(i + 1).padStart(2, '0'); });
-var TIME12_MINS = Array.from({ length: 12 }, function(_, i){ return String(i * 5).padStart(2, '0'); });
-
-// One bordered pill instead of three separately-boxed selects — the old
-// layout of 6 of those side by side read as a wall of broken-up boxes.
 function TimeInput12({ value, onCommit }) {
-  var t = parseTime12(value);
-  function update(part, v) {
-    var next = { hour: t.hour, min: t.min, ampm: t.ampm };
-    next[part] = v;
-    onCommit(next.hour && next.min && next.ampm ? (next.hour + ':' + next.min + ' ' + next.ampm) : null);
+  var parsed = parseTime12(value);
+  var [hour, setHour] = useState(parsed.hour);
+  var [min, setMin] = useState(parsed.min);
+  var [ampm, setAmpm] = useState(parsed.ampm || 'AM');
+  useEffect(function(){
+    var p = parseTime12(value);
+    setHour(p.hour); setMin(p.min); setAmpm(p.ampm || 'AM');
+  }, [value]);
+
+  function commit(h, m, ap) {
+    if (!h && !m) { onCommit(null); return; }
+    if (!h || !m) return; // incomplete — wait for the other field
+    onCommit(h.padStart(2, '0') + ':' + m.padStart(2, '0') + ' ' + ap);
   }
-  var selStyle = { border: "none", background: "transparent", padding: "7px 2px", fontSize: 13, color: K.text, width: 30, textAlign: "center", outline: "none" };
+  function onHourBlur() {
+    var h = hour === '' ? '' : String(Math.min(12, Math.max(1, parseInt(hour, 10) || 12)));
+    setHour(h);
+    commit(h, min, ampm);
+  }
+  function onMinBlur() {
+    var m = min === '' ? '' : String(Math.min(59, Math.max(0, parseInt(min, 10) || 0))).padStart(2, '0');
+    setMin(m);
+    commit(hour, m, ampm);
+  }
+  var fieldStyle = { border: "none", background: "transparent", padding: "7px 2px", fontSize: 13.5, fontWeight: 600,
+    color: K.text, width: 22, textAlign: "center", outline: "none", fontFamily: "inherit" };
+  function ampmBtn(v) {
+    var on = ampm === v;
+    return (
+      <button type="button" key={v}
+        onClick={function(){ setAmpm(v); commit(hour, min, v); }}
+        style={{ border: "none", background: on ? K.brand : "transparent", color: on ? "#fff" : K.textMuted,
+          fontSize: 10.5, fontWeight: 700, padding: "4px 7px", borderRadius: K.rSm - 2, cursor: "pointer", lineHeight: 1 }}>
+        {v}
+      </button>
+    );
+  }
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", border: "1px solid " + K.line, borderRadius: K.rSm, background: K.surfaceAlt, flexShrink: 0 }}>
-      <select value={t.hour} onChange={function(e){ update('hour', e.target.value); }} style={selStyle}>
-        <option value="">--</option>
-        {TIME12_HOURS.map(function(h){ return <option key={h} value={h}>{h}</option>; })}
-      </select>
+    <div style={{ display: "inline-flex", alignItems: "center", border: "1px solid " + K.line, borderRadius: K.rSm,
+      background: K.surfaceAlt, flexShrink: 0, paddingRight: 3 }}>
+      <input value={hour} onChange={function(e){ setHour(e.target.value.replace(/\D/g, '').slice(0, 2)); }}
+        onBlur={onHourBlur} placeholder="--" style={fieldStyle} />
       <span style={{ color: K.textFaint, fontSize: 12 }}>:</span>
-      <select value={t.min} onChange={function(e){ update('min', e.target.value); }} style={selStyle}>
-        <option value="">--</option>
-        {TIME12_MINS.map(function(m){ return <option key={m} value={m}>{m}</option>; })}
-      </select>
-      <select value={t.ampm} onChange={function(e){ update('ampm', e.target.value); }}
-        style={{ ...selStyle, width: 44, borderLeft: "1px solid " + K.line, marginLeft: 3, paddingLeft: 6, fontWeight: 600, color: K.textMuted }}>
-        <option value="">--</option>
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
+      <input value={min} onChange={function(e){ setMin(e.target.value.replace(/\D/g, '').slice(0, 2)); }}
+        onBlur={onMinBlur} placeholder="--" style={fieldStyle} />
+      <span style={{ display: "inline-flex", gap: 1, marginLeft: 4, borderLeft: "1px solid " + K.line, paddingLeft: 3 }}>
+        {['AM', 'PM'].map(ampmBtn)}
+      </span>
     </div>
   );
 }
