@@ -345,6 +345,59 @@ function hydrateRecipeData(cfg) {
   }
 }
 
+// ─── RECIPE REALTIME SYNC ────────────────────────────────────────
+// RECIPE_DB is a plain mutable object, not React state — hydrated once at
+// boot and otherwise never re-fetched. A recipe edited anywhere (ingredient
+// merge in StoreModule, SOP edits in KitchenHub, another device/tab) used to
+// only reach THAT tab's RECIPE_DB; every other open tab kept serving its
+// stale copy until a full page reload. Call this once at boot (App.jsx) so
+// RECIPE_DB stays live-patched for the whole session regardless of which
+// screen is open — the next time any view re-renders (e.g. reopening the
+// Ordering Sheet modal) it reads the current data, no reload needed.
+function patchRecipeRow(r, isDelete) {
+  try {
+    if (isDelete) {
+      const oldId = r && r.id;
+      Object.keys(RECIPE_DB.recipes || {}).forEach(catId => {
+        RECIPE_DB.recipes[catId] = (RECIPE_DB.recipes[catId] || []).filter(x => x.id !== oldId);
+      });
+      return;
+    }
+    if (!r) return;
+    const entry = {
+      id: r.id,
+      n: r.dish_name,
+      n_hi: r.dish_name_hi || '',
+      sub: r.sub || '',
+      steps: typeof r.steps === 'string' ? JSON.parse(r.steps) : r.steps,
+      ingredients: r.ingredients && typeof r.ingredients === 'string' ? JSON.parse(r.ingredients) : (r.ingredients || null),
+      yield: r.yield && typeof r.yield === 'string' ? JSON.parse(r.yield) : (r.yield || null),
+      bg: !!r.bg,
+    };
+    const catId = String(r.category_id);
+    // Drop from any other category first, in case this was a category move
+    Object.keys(RECIPE_DB.recipes || {}).forEach(cid => {
+      if (cid !== catId) RECIPE_DB.recipes[cid] = (RECIPE_DB.recipes[cid] || []).filter(x => x.id !== r.id);
+    });
+    if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
+    const list = RECIPE_DB.recipes[catId];
+    const idx = list.findIndex(x => x.id === r.id);
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    const catObj = (RECIPE_DB.cats || []).find(c => c.id === catId);
+    if (catObj) catObj.count = list.length;
+  } catch (e) {
+    console.error('[patchRecipeRow] failed', e);
+  }
+}
+function subscribeRecipeRealtime(supabase) {
+  return supabase.channel('recipes_global_rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'recipes' }, (p) => {
+      if (p.eventType === 'DELETE') patchRecipeRow(p.old, true);
+      else patchRecipeRow(p.new, false);
+    })
+    .subscribe();
+}
+
 
 
 // ─── DISH → CATEGORY RESOLVER ───────────────────────────────────
@@ -783,4 +836,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };

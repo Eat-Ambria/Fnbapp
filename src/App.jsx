@@ -11,7 +11,7 @@ import { C, hydrateConstants } from './data/constants.js';
 import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections, refreshMenuPackages } from './data/menuPackages.js';
 import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
-import { hydrateRecipeData, RECIPE_DB } from './data/recipeData.js';
+import { hydrateRecipeData, subscribeRecipeRealtime, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
 import { canAccessScreen } from './data/permissions.js';
 import { loadAllConfig } from './lib/dbConfig.js';
@@ -389,6 +389,7 @@ export default function App() {
         hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydrateRecipeData(cfg);
+        subscribeRecipeRealtime(supabase);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
         if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
