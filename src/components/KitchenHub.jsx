@@ -104,6 +104,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [sopSortOpen, setSopSortOpen] = useState(false);
   const [catMenuId, setCatMenuId] = useState(null);
   const [recipeMenu, setRecipeMenu] = useState(null);
+  const [recipeMoveFor, setRecipeMoveFor] = useState(null); // rk of the card whose "..." menu is showing its Move-to category list, not Edit/Delete
   const [stepDragIdx, setStepDragIdx] = useState(null);
   // The shell renders the header slot; its DOM node only exists after that
   // commit, so it is read in an effect rather than during render.
@@ -3460,21 +3461,53 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                             <Icon name="more" size={15}/>
                           </button>
                           {recipeMenu===rk&&(<>
-                            <div onClick={e=>{e.stopPropagation();setRecipeMenu(null);}} style={{position:"fixed",inset:0,zIndex:-1}}/>
-                            <div style={{position:"absolute",top:34,right:0,minWidth:176,background:K.surface,
+                            <div onClick={e=>{e.stopPropagation();setRecipeMenu(null);setRecipeMoveFor(null);}} style={{position:"fixed",inset:0,zIndex:-1}}/>
+                            {/* Explicit z-index — a short card's dropdown can run
+                                taller than the card itself, reaching down past
+                                the Open chevron sitting at the card's own bottom
+                                edge; without this the chevron (plain flow, not
+                                positioned) could paint over the menu instead of
+                                under it. */}
+                            <div style={{position:"absolute",top:34,right:0,minWidth:176,background:K.surface,zIndex:30,
                               border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5}}>
-                              <button className="ash-menu-item kh-rip" onPointerDown={ripple}
-                                onClick={e=>{e.stopPropagation();setRecipeMenu(null);openSopEdit(recipe,sopCat);}}
-                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
-                                  border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
-                                <Icon name="note" size={15}/>{T2("Edit")}
-                              </button>
-                              <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple}
-                                onClick={e=>{e.stopPropagation();setRecipeMenu(null);deleteSop(recipe,sopCat);}}
-                                style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
-                                  border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
-                                <Icon name="trash" size={15}/>{T2("Delete")}
-                              </button>
+                              {recipeMoveFor===rk?(<>
+                                <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                  onClick={e=>{e.stopPropagation();setRecipeMoveFor(null);}}
+                                  style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                    border:"none",background:"transparent",color:K.textFaint,fontSize:12,fontWeight:600,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                  <Icon name="chevronL" size={14}/>{T2("Back")}
+                                </button>
+                                <div style={{height:1,background:K.line,margin:"3px 2px"}}/>
+                                <div className="kh-thinscroll" style={{maxHeight:220,overflowY:"auto"}}>
+                                  {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=>(
+                                    <button key={c.id} className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                      onClick={e=>{e.stopPropagation();setRecipeMenu(null);setRecipeMoveFor(null);moveRecipe(recipe,sopCat,c.id);}}
+                                      style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                        border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                      <span>{c.icon}</span>{T2(c.name)}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>):(<>
+                                <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                  onClick={e=>{e.stopPropagation();setRecipeMenu(null);openSopEdit(recipe,sopCat);}}
+                                  style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                    border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                  <Icon name="note" size={15}/>{T2("Edit")}
+                                </button>
+                                <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                  onClick={e=>{e.stopPropagation();setRecipeMoveFor(rk);}}
+                                  style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                    border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                  <Icon name="layers" size={15}/>{T2("Move to…")}
+                                </button>
+                                <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple}
+                                  onClick={e=>{e.stopPropagation();setRecipeMenu(null);deleteSop(recipe,sopCat);}}
+                                  style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                    border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                  <Icon name="trash" size={15}/>{T2("Delete")}
+                                </button>
+                              </>)}
                             </div>
                           </>)}
                         </div>
