@@ -13,6 +13,7 @@ import { Icon } from './KitchenUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
+import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 import DishLibrary from './DishLibrary.jsx';
 import PricingConfigView from './PricingConfigView.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
@@ -105,6 +106,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // BUILD MENU TAB — preserved verbatim from V62
   // ════════════════════════════════════════════════════════════
   var [selEvId, setSelEvId] = useState(null);
+  // "View FP" on a list card — a lightweight peek at the Function Plan print
+  // view without leaving the list for the full item-builder (selEvId's flow).
+  var [fpViewEvId, setFpViewEvId] = useState(null);
   // V80 — this list used to filter/sort/classify (per-dish SOP-category lookup,
   // an expensive multi-tier scan) EVERY upcoming event on EVERY render, which is
   // what made opening this tab slow once there were 100+ upcoming functions.
@@ -1197,11 +1201,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   var hasMenu = stats.total > 0;
                   var isLms = !!ev.lms_source;
                   return (
-                    <button key={ev.id} onClick={function() { setSelEvId(ev.id); }}
+                    <div key={ev.id} style={{ position: "relative", marginBottom: 12 }}>
+                    <button onClick={function() { setSelEvId(ev.id); }}
                       className="kh-evcard kh-cardart-sm"
                       style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", textAlign: "left",
                         position: "relative", backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
-                        borderRadius: 18, padding: "16px 20px", marginBottom: 12, cursor: "pointer",
+                        borderRadius: 18, padding: "16px 20px", marginBottom: 0, cursor: "pointer",
                         overflow: "hidden", boxShadow: K.shadowCard }}>
                       {/* Urgency as a spine, so today and tomorrow are findable
                           without reading a date on every card. */}
@@ -1266,6 +1271,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </span>
                       <span style={{ flexShrink: 0, color: K.textFaint, display: "flex" }}><Icon name="chevronR" size={17} strokeWidth={2.1} /></span>
                     </button>
+                    {/* A peek at this event's Function Plan without leaving the
+                        list for the full item-builder — top-right, same corner
+                        the SOP cards use for their own overlaid actions. */}
+                    <button onClick={function(e) { e.stopPropagation(); setFpViewEvId(ev.id); }}
+                      title={T2("View Function Plan")}
+                      style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
+                        background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.hdrMeta, cursor: "pointer" }}>
+                      <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
+                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1996,6 +2012,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
         </div>
       )}
+
+      {fpViewEvId && (() => {
+        var fpEv = allEvs.find(function(e) { return e.id === fpViewEvId; });
+        if (!fpEv) { setFpViewEvId(null); return null; }
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>
+            <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); }}
+              lang={lang} currentUser={currentUser} autoOpenPrint={true} />
+          </div>
+        );
+      })()}
 
     </div>
   );

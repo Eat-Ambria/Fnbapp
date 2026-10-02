@@ -5,7 +5,7 @@
 // into events.menu so Kitchen Hub's existing production planning keeps working
 // unchanged. Place in: src/components/EventMenuBuilderView.jsx
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
@@ -36,7 +36,7 @@ function dietForDish(d, meta) {
   return DEFAULT_DIET;
 }
 
-export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items' }) {
+export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false }) {
   var T2 = function(s) { return T(s, lang); };
 
   var [activeDept, setActiveDept]   = useState('kit');
@@ -80,6 +80,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
     setShowFPPrint(true);
   }
+  // Jumping here straight from the Build Menu list (its own "View FP" button)
+  // skips the normal flow of opening the event then clicking into Function
+  // Plan — but the print view needs fp and dishItems/salesMeta (for
+  // itemsByDept/menuDiffByDept below) loaded first, so it waits for both
+  // loads to finish rather than firing on mount with empty data.
+  var autoOpenedRef = useRef(false);
+  useEffect(function(){
+    if (!autoOpenPrint || autoOpenedRef.current) return;
+    if (loading || fp == null) return;
+    autoOpenedRef.current = true;
+    openFPPrint();
+  // eslint-disable-next-line
+  }, [autoOpenPrint, loading, fp]);
 
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
   var hasConfigs = activeDept !== 'kit' && !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
@@ -1107,7 +1120,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}
-        onClose={function(){ setShowFPPrint(false); }}
+        onClose={function(){
+          // Jumped straight here from the Build Menu list (autoOpenPrint) —
+          // closing should return to that list, not fall back to the full
+          // item-builder underneath, which the user never asked to see.
+          if (autoOpenPrint && onClose) onClose(); else setShowFPPrint(false);
+        }}
         T2={T2}
       />
     );
