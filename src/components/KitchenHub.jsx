@@ -143,7 +143,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     } else {
       setIngForm({base_pax: 300, base_yield: {kg:null, pcs:null}, items: []});
     }
-    setIngModal({recipeName:recipe.n, catId});
+    setIngModal({recipeName:recipe.n, recipeId:recipe.id, catId});
     setIngDirty(false);
     loadIimMapOnce();   // 9E — kick off IIM load so migration chips can appear on eligible raw rows
   }
@@ -424,14 +424,17 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       base_yield: ingForm.base_yield || {kg:null, pcs:null},
       items,
     };
-    // Update local RECIPE_DB
+    // Update local RECIPE_DB — matched by id when known, since two recipes can
+    // share the same name (and even the same category): a dish_name+category_id
+    // filter would silently overwrite every row that matches, not just this one.
     const catRecipes=safeArr(RECIPE_DB.recipes[ingModal.catId]);
-    const ri=catRecipes.findIndex(r=>r.n===ingModal.recipeName);
+    const ri=ingModal.recipeId!=null ? catRecipes.findIndex(r=>r.id===ingModal.recipeId) : catRecipes.findIndex(r=>r.n===ingModal.recipeName);
     if(ri>=0) catRecipes[ri].ingredients=payload;
     // Persist to Supabase
     try {
       if(supabase){
-        const {error}=await supabase.from('recipes').update({ingredients:payload}).eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId);
+        const q=supabase.from('recipes').update({ingredients:payload});
+        const {error}=await (ingModal.recipeId!=null ? q.eq('id',ingModal.recipeId) : q.eq('dish_name',ingModal.recipeName).eq('category_id',ingModal.catId));
         if(error) console.error('Ingredient save error:',error);
         else console.log('✅ Ingredients saved for',ingModal.recipeName,'—',items.length,'items');
       }
@@ -519,11 +522,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       items: parsedItems,
     };
     const catRecipes=safeArr(RECIPE_DB.recipes[catId]);
-    const ri=catRecipes.findIndex(r=>r.n===recipe.n);
+    const ri=recipe.id!=null ? catRecipes.findIndex(r=>r.id===recipe.id) : catRecipes.findIndex(r=>r.n===recipe.n);
     if(ri>=0) catRecipes[ri].ingredients=payload;
     try{
       if(supabase){
-        const {error}=await supabase.from('recipes').update({ingredients:payload}).eq('dish_name',recipe.n).eq('category_id',catId);
+        const q=supabase.from('recipes').update({ingredients:payload});
+        const {error}=await (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',catId));
         if(error){ console.error('CSV import save error:',error); alert('Save failed: '+error.message); return; }
         console.log('✅ CSV imported for',recipe.n,'—',parsedItems.length,'items');
       }
@@ -975,7 +979,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   }
   function openSopEdit(recipe,catId){
     setSopForm({name:recipe.n,sub:recipe.sub||"",catId:catId||sopCat||"",bg:!!recipe.bg,steps:safeArr(recipe.steps).map(s=>({t:s.t||"",i:s.i||s.desc||"",tm:s.tm||0,ccp:s.ccp||"",d1:!!s.d1,subs:Array.isArray(s.subs)?s.subs.map(sb=>({t:sb.t||"",i:sb.i||"",tm:sb.tm||0,ccp:sb.ccp||""})):[]}))});
-    setSopModal({mode:"edit",catId:catId||sopCat||"",origName:recipe.n});
+    setSopModal({mode:"edit",catId:catId||sopCat||"",origName:recipe.n,origId:recipe.id});
   }
   function sopFormStep(si,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,[field]:val})}));}
   function sopAddStep(){setSopForm(p=>({...p,steps:[...p.steps,emptySopStep()]}));}
@@ -1025,11 +1029,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       }
       const nextIng = {...(recipe.ingredients||{}), photo_url: url};
       const arr = RECIPE_DB.recipes[catId]||[];
-      const ri = arr.findIndex(x=>x.n===recipe.n);
+      const ri = recipe.id!=null ? arr.findIndex(x=>x.id===recipe.id) : arr.findIndex(x=>x.n===recipe.n);
       if(ri>=0) arr[ri] = {...arr[ri], ingredients: nextIng};
-      setSopRecipe(prev => prev && prev.n===recipe.n ? {...prev, ingredients: nextIng} : prev);
+      setSopRecipe(prev => prev && (recipe.id!=null ? prev.id===recipe.id : prev.n===recipe.n) ? {...prev, ingredients: nextIng} : prev);
       if(supabase){
-        const r = await supabase.from("recipes").update({ingredients:nextIng}).eq("dish_name",recipe.n).eq("category_id",catId);
+        const q = supabase.from("recipes").update({ingredients:nextIng});
+        const r = await (recipe.id!=null ? q.eq("id",recipe.id) : q.eq("dish_name",recipe.n).eq("category_id",catId));
         if(r.error) console.error("recipe photo save:", r.error);
       }
       logActivity("kitchen", (url?"Recipe photo set: ":"Recipe photo removed: ")+recipe.n, "sop_photo", {dish:recipe.n, catId}, currentUser?.id);
@@ -1085,34 +1090,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
     const recObj={n:f.name.trim(),sub:f.sub.trim(),bg:!!f.bg,steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0,ccp:sb.ccp||""}))}:{})};})};
-    // Update local RECIPE_DB — preserve ingredients from old recipe
+    // Update local RECIPE_DB — matched by id (sopModal.origId), not name: two
+    // recipes can share a dish_name (even in the same category), and finding
+    // "the" row by r.n===origName used to grab whichever one happened to be
+    // first, silently editing/deleting the WRONG duplicate.
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
-    if(sopModal.mode==="edit"&&sopModal.origName){
+    if(sopModal.mode==="edit"&&sopModal.origId!=null){
       const arr=RECIPE_DB.recipes[sopModal.catId]||[];
-      const idx=arr.findIndex(r=>r.n===sopModal.origName);
+      const idx=arr.findIndex(r=>r.id===sopModal.origId);
       let oldIngredients=null;
       if(idx>=0){oldIngredients=arr[idx].ingredients||null;arr.splice(idx,1);} // remove from old category
       if(oldIngredients)recObj.ingredients=oldIngredients;
+      recObj.id=sopModal.origId;
       RECIPE_DB.recipes[f.catId].push(recObj);
     }else{
       RECIPE_DB.recipes[f.catId].push(recObj);
     }
-    // Save to Supabase — preserve ingredients column
+    // Save to Supabase — a single UPDATE by id, whether or not the name or
+    // category changed. The old code re-keyed a rename/move as fetch-
+    // ingredients -> delete-by-name -> insert, which (a) deleted EVERY row
+    // sharing that dish_name, not just this one, and (b) used .single() on
+    // the fetch, which throws outright when a duplicate name exists — both
+    // are exactly how one duplicate's edit wiped out the other's data.
+    // Updating the existing row by its own id needs none of that: the
+    // ingredients column is untouched because it's the same row.
     (async()=>{
       const sb=supabase;if(!sb)return;
-      if(sopModal.mode==="edit"&&sopModal.origName){
-        const nameUnchanged=sopModal.origName===recObj.n&&sopModal.catId===f.catId;
-        if(nameUnchanged){
-          // Same name+category → UPDATE in place, ingredients untouched
-          sb.from('recipes').update({sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('dish_name',recObj.n).eq('category_id',f.catId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
-        }else{
-          // Name or category changed → fetch ingredients, then delete+insert with them
-          sb.from('recipes').select('ingredients').eq('dish_name',sopModal.origName).single().then(({data})=>{
-            sb.from('recipes').delete().eq('dish_name',sopModal.origName).then(()=>{
-              sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,ingredients:data?.ingredients||null,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (renamed)');});
-            });
-          });
-        }
+      if(sopModal.mode==="edit"&&sopModal.origId!=null){
+        sb.from('recipes').update({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('id',sopModal.origId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
       }else{
         sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
       }
@@ -1190,24 +1195,33 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function moveRecipe(recipe,fromCatId,toCatId){
     if(!toCatId||toCatId===fromCatId) return;
     var fromArr=RECIPE_DB.recipes[fromCatId]||[];
-    var idx=fromArr.findIndex(r=>r.n===recipe.n);
+    var idx=recipe.id!=null ? fromArr.findIndex(r=>r.id===recipe.id) : fromArr.findIndex(r=>r.n===recipe.n);
     if(idx>=0) fromArr.splice(idx,1);
     if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
     RECIPE_DB.recipes[toCatId].push(recipe);
     RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
-    supabase.from('recipes').update({category_id:toCatId}).eq('dish_name',recipe.n).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('✅ Recipe moved:',recipe.n,'→',toCatId);});
+    // By id — a dish_name+category_id filter moves EVERY duplicate sharing
+    // that name in that category, not just the one the chef picked.
+    var q=supabase.from('recipes').update({category_id:toCatId});
+    (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',fromCatId)).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('✅ Recipe moved:',recipe.n,'→',toCatId);});
     logActivity('kitchen','SOP moved: '+recipe.n+' → '+toCatId,'sop_move',{dish:recipe.n,from:fromCatId,to:toCatId},currentUser?.id);
     setSopRecipe(null);setSopCat(toCatId);
   }
   function moveRecipesBulk(recipes,fromCatId,toCatId){
     if(!toCatId||toCatId===fromCatId||!recipes.length) return;
     var names=recipes.map(r=>r.n);
+    var ids=recipes.map(r=>r.id).filter(id=>id!=null);
+    var byId=ids.length===recipes.length;
     var fromArr=RECIPE_DB.recipes[fromCatId]||[];
-    RECIPE_DB.recipes[fromCatId]=fromArr.filter(r=>names.indexOf(r.n)<0);
+    RECIPE_DB.recipes[fromCatId]=byId ? fromArr.filter(r=>ids.indexOf(r.id)<0) : fromArr.filter(r=>names.indexOf(r.n)<0);
     if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
     RECIPE_DB.recipes[toCatId]=RECIPE_DB.recipes[toCatId].concat(recipes);
     RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
-    supabase.from('recipes').update({category_id:toCatId}).in('dish_name',names).eq('category_id',fromCatId).then(r=>{if(r.error)console.error('Bulk move err:',r.error);else console.log('? Bulk moved',names.length,'recipes ->',toCatId);});
+    // By id when every selected recipe has one — an `.in('dish_name',...)`
+    // filter moves every duplicate sharing a selected name, not just the
+    // ones the chef actually ticked.
+    var q=supabase.from('recipes').update({category_id:toCatId});
+    (byId ? q.in('id',ids) : q.in('dish_name',names).eq('category_id',fromCatId)).then(r=>{if(r.error)console.error('Bulk move err:',r.error);else console.log('✅ Bulk moved',names.length,'recipes ->',toCatId);});
     logActivity('kitchen','SOP bulk moved: '+names.length+' recipes → '+toCatId,'sop_bulk_move',{dishes:names,from:fromCatId,to:toCatId},currentUser?.id);
     setSopSelected(new Set());setSopBulkMode(false);setSopBulkTarget("");
   }
@@ -1242,11 +1256,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function doDeleteSop(recipe,catId){
     const cid=catId||sopCat||"";
     const arr=RECIPE_DB.recipes[cid]||[];
-    const idx=arr.findIndex(r=>r.n===recipe.n);
+    const idx=recipe.id!=null ? arr.findIndex(r=>r.id===recipe.id) : arr.findIndex(r=>r.n===recipe.n);
     if(idx>=0)arr.splice(idx,1);
     (async()=>{
       const sb=supabase;if(!sb)return;
-      sb.from('recipes').delete().eq('dish_name',recipe.n).then(r=>{if(r.error)console.error('SOP delete err:',r.error);else console.log('✅ SOP deleted');});
+      // By id, not just dish_name — a bare name filter deletes EVERY recipe
+      // sharing that name across every category, not just this one.
+      const q=sb.from('recipes').delete();
+      (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',cid)).then(r=>{if(r.error)console.error('SOP delete err:',r.error);else console.log('✅ SOP deleted');});
     })().catch(e=>console.error('SOP delete err:',e));
     logActivity('kitchen', 'SOP deleted: '+recipe.n, 'sop_delete', {dish:recipe.n, catId:cid}, currentUser?.id);
     setSopRecipe(null);
@@ -3344,8 +3361,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const secMissing=sections.filter(s=>!s.yield?.kg&&!s.yield?.pcs).length;
                 return {hasOverall,secTotal:sections.length,secMissing};
               };
-              const isSelected=(recipe)=>sopSelected.has(recipe.n);
-              const toggleSelected=(recipe)=>setSopSelected(p=>{const n=new Set(p);n.has(recipe.n)?n.delete(recipe.n):n.add(recipe.n);return n;});
+              // Keyed by id, not name — two recipes can share a dish_name, and a
+              // bulk move/delete keyed on name would silently pull in every
+              // duplicate instead of just the one ticked.
+              const selKey=(recipe)=>recipe.id!=null?recipe.id:recipe.n;
+              const isSelected=(recipe)=>sopSelected.has(selKey(recipe));
+              const toggleSelected=(recipe)=>setSopSelected(p=>{const n=new Set(p);const k=selKey(recipe);n.has(k)?n.delete(k):n.add(k);return n;});
               // A plain function, called directly — NOT <RecipeCard/> as a JSX
               // element type. Defining a component inline in a render body and
               // using it as <RecipeCard/> gives React a brand-new component
@@ -3372,8 +3393,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const mono=(label||"?").trim().charAt(0).toUpperCase();
                 const tint=isBg?K.warnBg:SOP_TINTS[ri%SOP_TINTS.length];
                 const steps=safeArr(recipe.steps).length;
+                // Keyed by id (falling back to name only if one is somehow
+                // missing), not the list index — two recipes can share a name,
+                // and an index-based key reassigns a row's "..." menu/open
+                // state to whatever recipe now sits at that position once the
+                // list re-sorts or filters, instead of following the recipe.
+                const rk=recipe.id!=null?recipe.id:recipe.n;
                 return(
-                <div key={(isBg?"bg":"n")+ri} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
+                <div key={rk} className="kh-sopcard kh-cardart-sm" style={{position:"relative",
                   backgroundColor:sel?K.brandBg:K.cardWarm,
                   border:`1px solid ${sel?K.brand:(isBg?K.warnBorder:K.cardWarmLine)}`,
                   borderRadius:16,boxShadow:K.shadowCard,boxSizing:"border-box"}}>
@@ -3423,16 +3450,16 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       padding for them. */}
                   {!sopBulkMode&&(
                     <div style={{position:"absolute",top:10,right:10,bottom:10,display:"flex",flexDirection:"column",
-                      alignItems:"flex-end",justifyContent:"space-between",gap:6,zIndex:recipeMenu===recipe.n?22:2}}>
+                      alignItems:"flex-end",justifyContent:"space-between",gap:6,zIndex:recipeMenu===rk?22:2}}>
                       {currentUser?.role==='admin'?(
                         <div style={{position:"relative"}}>
-                          <button className={"kh-sopmenu"+(recipeMenu===recipe.n?" is-open":"")} title={T2("Options")}
-                            onClick={e=>{e.stopPropagation();setRecipeMenu(recipeMenu===recipe.n?null:recipe.n);}}
+                          <button className={"kh-sopmenu"+(recipeMenu===rk?" is-open":"")} title={T2("Options")}
+                            onClick={e=>{e.stopPropagation();setRecipeMenu(recipeMenu===rk?null:rk);}}
                             style={{width:28,height:28,borderRadius:"50%",background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
                               color:K.textMuted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
                             <Icon name="more" size={15}/>
                           </button>
-                          {recipeMenu===recipe.n&&(<>
+                          {recipeMenu===rk&&(<>
                             <div onClick={e=>{e.stopPropagation();setRecipeMenu(null);}} style={{position:"fixed",inset:0,zIndex:-1}}/>
                             <div style={{position:"absolute",top:34,right:0,minWidth:176,background:K.surface,
                               border:`1px solid ${K.line}`,borderRadius:13,boxShadow:K.shadowLift,padding:5}}>
@@ -3507,7 +3534,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                       </select>
                       <KButton variant="brand" size="sm" icon="check" disabled={sopSelected.size===0||!sopBulkTarget}
-                        onClick={()=>{const chosen=allR.filter(r=>sopSelected.has(r.n));moveRecipesBulk(chosen,sopCat,sopBulkTarget);}}
+                        onClick={()=>{const chosen=allR.filter(r=>sopSelected.has(r.id!=null?r.id:r.n));moveRecipesBulk(chosen,sopCat,sopBulkTarget);}}
                         style={{borderRadius:K.rPill,padding:"9px 16px"}}>{T2("Move")}</KButton>
                     </div>
                   )}
@@ -4275,11 +4302,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               const newPcs = yieldForm.pcs==="" || yieldForm.pcs==null ? null : parseFloat(yieldForm.pcs) || null;
                               const newIng = {...(sopRecipe.ingredients||{}), base_pax: basePax, base_yield: {kg: newKg, pcs: newPcs}};
                               if (supabase) {
-                                supabase.from('recipes').update({ ingredients: newIng }).eq('dish_name', sopRecipe.n).eq('category_id', sopCat).then(r => {
+                                const q = supabase.from('recipes').update({ ingredients: newIng });
+                                (sopRecipe.id!=null ? q.eq('id', sopRecipe.id) : q.eq('dish_name', sopRecipe.n).eq('category_id', sopCat)).then(r => {
                                   if (r.error) console.error('Yield save err:', r.error);
                                   else {
                                     const arr = RECIPE_DB.recipes[sopCat]||[];
-                                    const ri = arr.findIndex(x=>x.n===sopRecipe.n);
+                                    const ri = sopRecipe.id!=null ? arr.findIndex(x=>x.id===sopRecipe.id) : arr.findIndex(x=>x.n===sopRecipe.n);
                                     if (ri>=0) arr[ri] = {...arr[ri], ingredients: newIng};
                                     setSopRecipe(p => ({...p, ingredients: newIng}));
                                     console.log('— Yield saved:', newKg, 'kg /', newPcs, 'pcs');
