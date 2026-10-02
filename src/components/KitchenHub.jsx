@@ -717,6 +717,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
   const [showOrderingSheet, setShowOrderingSheet] = useState(false); // section-wise ingredient ordering sheet modal
   const [osUsedInOpen, setOsUsedInOpen] = useState(null); // ordering sheet "Used in" popover — row index, tap-to-toggle so it works on tablets (no hover)
+  const [osEdits, setOsEdits] = useState({}); // ordering sheet manual overrides — key "ingredientName|colId" -> typed string; Total recomputes from these
   // V74 — per-section ingredient panel UI state for Prep Day Collect from store view (session-local)
   const [d1SecIngrOpen, setD1SecIngrOpen] = useState({});   // { [catId]: bool }
   const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
@@ -5921,7 +5922,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
                   const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
                   return(
-                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);}}>
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);setOsEdits({});}}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
                         <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`}}>
                           <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredient Ordering Sheet")}</div>
@@ -5937,14 +5938,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
                             {[90,100,110,120,130,150].map(p=>(
-                              <button key={p} onClick={()=>setYieldAdjustPct(p)}
+                              <button key={p} onClick={()=>{setYieldAdjustPct(p);setOsEdits({});}}
                                 style={{padding:"5px 10px",borderRadius:7,fontSize:11,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`}}>
                                 {p}%
                               </button>
                             ))}
                           </div>
                           <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
-                            onChange={e=>setYieldAdjustPct(+e.target.value)}
+                            onChange={e=>{setYieldAdjustPct(+e.target.value);setOsEdits({});}}
                             style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer",display:"block"}}/>
                           <div style={{position:"relative",height:6,marginTop:1}}>
                             {[50,100,150,200].map(v=>(
@@ -5998,8 +5999,24 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       </span>
                                     </td>
                                     <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
-                                    {osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
-                                    <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(r.total)}</td>
+                                    {osGroups.map(g=>{
+                                      const k = r.n+"|"+g.id;
+                                      const overridden = osEdits[k]!==undefined;
+                                      const shown = overridden ? osEdits[k] : (r.bySection[g.id] ? roundQ(r.bySection[g.id]) : "");
+                                      return (
+                                        <td key={g.id} style={{...tdStyle,padding:0}}>
+                                          <input type="number" step="any" value={shown}
+                                            placeholder={r.bySection[g.id]?undefined:"—"}
+                                            title={overridden?T2("Computed: ")+roundQ(r.bySection[g.id]):""}
+                                            onChange={e=>{const v=e.target.value;setOsEdits(prev=>{const n={...prev};if(v==="")delete n[k];else n[k]=v;return n;});}}
+                                            style={{width:"100%",boxSizing:"border-box",padding:"5px 4px",border:"none",outline:"none",
+                                              textAlign:"right",fontSize:11,fontFamily:K.fontBody,
+                                              background:overridden?C.amberBg:"transparent",
+                                              color:overridden?C.amber:C.text,fontWeight:overridden?700:400}}/>
+                                        </td>
+                                      );
+                                    })}
+                                    <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0))}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -6007,7 +6024,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           )}
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
-                          <button onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
+                          <button onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);setOsEdits({});}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
                         </div>
                       </div>
                     </div>

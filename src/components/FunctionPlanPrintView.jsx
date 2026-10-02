@@ -8,7 +8,7 @@
 // ruled boxes, same as the paper form — meant to be filled by hand.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
-import React from "react";
+import React, { useEffect } from "react";
 import { C } from '../data/constants.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
@@ -106,6 +106,20 @@ function Bullet({ children }) {
 }
 
 export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
+  // Browsers suggest document.title as the filename for "Print → Save as PDF",
+  // so this is the one lever that controls what the chef/sales actually sees
+  // in that Save dialog — set it for as long as this view is on screen, then
+  // put the tab's real title back.
+  useEffect(function(){
+    var prevTitle = document.title;
+    var parts = [event && event.guest, event && event.date, event && event.type,
+      (event && event.pax != null) ? (event.pax + 'pax') : null, 'FP'].filter(Boolean);
+    var name = parts.join('_').replace(/[\\/:*?"<>|]/g, '-').trim();
+    if (name) document.title = name;
+    return function(){ document.title = prevTitle; };
+  // eslint-disable-next-line
+  }, []);
+
   // ── Right-column bullets: every bit of F&B/banquet service info this app
   // tracks, flattened into one list — mirrors the paper form's own mix of
   // set-up, staffing and timing notes under one heading. ──
