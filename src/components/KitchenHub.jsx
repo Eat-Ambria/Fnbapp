@@ -29,6 +29,89 @@ import { logActivity } from './ActivityLog.jsx';
 // the card face is warm ivory and anything paler disappears into it.
 const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","#EBE6D5"];
 
+// Ordering Sheet's own table, as a real component (not a function called
+// inline in KitchenHub's render) — its own state boundary. rows/osGroups are
+// rebuilt from scratch every time KitchenHub re-renders (it isn't memoized,
+// and never was before this edit), including on KitchenHub's own 1-second
+// timer tick. Before the cells were editable that didn't matter; once an
+// onChange lives on each cell, typing a single character used to set state
+// up in KitchenHub itself, which re-ran that whole rebuild on every
+// keystroke on top of the once-a-second one — the lag the user is reporting.
+// Owning osEdits/osUsedInOpen down here means typing only re-renders this
+// table with the rows/osGroups it was already given, not KitchenHub.
+function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
+  const [osUsedInOpen, setOsUsedInOpen] = useState(null);
+  const [osEdits, setOsEdits] = useState({});
+  // A changed yield % invalidates every override's basis — same reset the
+  // yield controls already trigger explicitly; this covers it even if a
+  // future caller changes yieldAdjustPct some other way.
+  useEffect(()=>{ setOsEdits({}); }, [yieldAdjustPct]);
+  const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
+  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:4};
+  const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
+  const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
+  if (rows.length===0) {
+    return <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>;
+  }
+  return (
+    <table onClick={()=>setOsUsedInOpen(null)} style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
+      <colgroup>
+        <col style={{width:140}}/>
+        <col style={{width:44}}/>
+        {osGroups.map(g=><col key={g.id} style={{width:56}}/>)}
+        <col style={{width:56}}/>
+      </colgroup>
+      <thead>
+        <tr>
+          <th style={{...thStyle,textAlign:"left",left:0,zIndex:6}}>{T2("Item")}</th>
+          <th style={thStyle}>{T2("UM")}</th>
+          {osGroups.map(g=><th key={g.id} style={secThStyle} title={g.name}>{g.icon} {g.name}</th>)}
+          <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r,i)=>(
+          <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+            <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===i?5:"auto"}}>
+              <span style={{position:"relative",display:"inline-block"}}>
+                <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===i?null:i);}}
+                  style={{cursor:r.usedIn.length?"pointer":"default",textDecoration:r.usedIn.length?"underline dotted":"none",textUnderlineOffset:2}}>
+                  {r.n}
+                </span>
+                {osUsedInOpen===i && r.usedIn.length>0 && (
+                  <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,zIndex:30,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
+                    <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
+                    {r.usedIn.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
+                  </div>
+                )}
+              </span>
+            </td>
+            <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
+            {osGroups.map(g=>{
+              const k = r.n+"|"+g.id;
+              const overridden = osEdits[k]!==undefined;
+              const shown = overridden ? osEdits[k] : (r.bySection[g.id] ? roundQ(r.bySection[g.id]) : "");
+              return (
+                <td key={g.id} style={{...tdStyle,padding:0}}>
+                  <input type="number" step="any" value={shown}
+                    placeholder={r.bySection[g.id]?undefined:"—"}
+                    title={overridden?T2("Computed: ")+roundQ(r.bySection[g.id]):""}
+                    onChange={e=>{const v=e.target.value;setOsEdits(prev=>{const n={...prev};if(v==="")delete n[k];else n[k]=v;return n;});}}
+                    style={{width:"100%",boxSizing:"border-box",padding:"5px 4px",border:"none",outline:"none",
+                      textAlign:"right",fontSize:11,fontFamily:K.fontBody,
+                      background:overridden?C.amberBg:"transparent",
+                      color:overridden?C.amber:C.text,fontWeight:overridden?700:400}}/>
+                </td>
+              );
+            })}
+            <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0))}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
 
@@ -715,9 +798,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
   const [planLoading, setPlanLoading] = useState(false);
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
-  const [showOrderingSheet, setShowOrderingSheet] = useState(false); // section-wise ingredient ordering sheet modal
-  const [osUsedInOpen, setOsUsedInOpen] = useState(null); // ordering sheet "Used in" popover — row index, tap-to-toggle so it works on tablets (no hover)
-  const [osEdits, setOsEdits] = useState({}); // ordering sheet manual overrides — key "ingredientName|colId" -> typed string; Total recomputes from these
+  const [showOrderingSheet, setShowOrderingSheet] = useState(false); // section-wise ingredient ordering sheet modal; "Used in" popover + edit overrides are owned by OrderingSheetTable itself now
   // V74 — per-section ingredient panel UI state for Prep Day Collect from store view (session-local)
   const [d1SecIngrOpen, setD1SecIngrOpen] = useState({});   // { [catId]: bool }
   const [d1SecSearch,   setD1SecSearch]   = useState({});   // { [catId]: string }
@@ -5917,12 +5998,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     const usedIn = Array.from(r.dishes).sort((a,b)=>a.localeCompare(b));
                     return { n:r.n, u:unit, bySection, total:r.total/div, usedIn };
                   }).sort((a,b)=>a.n.localeCompare(b.n));
-                  const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
-                  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:4};
-                  const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
-                  const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
                   return(
-                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);setOsEdits({});}}>
+                    <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);}}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
                         <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`}}>
                           <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredient Ordering Sheet")}</div>
@@ -5938,14 +6015,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
                             {[90,100,110,120,130,150].map(p=>(
-                              <button key={p} onClick={()=>{setYieldAdjustPct(p);setOsEdits({});}}
+                              <button key={p} onClick={()=>setYieldAdjustPct(p)}
                                 style={{padding:"5px 10px",borderRadius:7,fontSize:11,fontWeight:yieldAdjustPct===p?800:500,cursor:"pointer",background:yieldAdjustPct===p?C.purple:"transparent",color:yieldAdjustPct===p?"#fff":C.purple,border:`1.5px solid ${C.purple}`}}>
                                 {p}%
                               </button>
                             ))}
                           </div>
                           <input type="range" min={50} max={200} step={5} value={Math.min(200,Math.max(50,yieldAdjustPct))}
-                            onChange={e=>{setYieldAdjustPct(+e.target.value);setOsEdits({});}}
+                            onChange={e=>setYieldAdjustPct(+e.target.value)}
                             style={{width:"100%",accentColor:C.purple,height:6,cursor:"pointer",display:"block"}}/>
                           <div style={{position:"relative",height:6,marginTop:1}}>
                             {[50,100,150,200].map(v=>(
@@ -5962,69 +6039,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           </div>
                           <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
                         </div>
-                        <div style={{flex:1,overflow:"auto",padding:"0 20px"}} onClick={()=>setOsUsedInOpen(null)}>
-                          {rows.length===0 ? (
-                            <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>
-                          ) : (
-                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
-                              <colgroup>
-                                <col style={{width:140}}/>
-                                <col style={{width:44}}/>
-                                {osGroups.map(g=><col key={g.id} style={{width:56}}/>)}
-                                <col style={{width:56}}/>
-                              </colgroup>
-                              <thead>
-                                <tr>
-                                  <th style={{...thStyle,textAlign:"left",left:0,zIndex:6}}>{T2("Item")}</th>
-                                  <th style={thStyle}>{T2("UM")}</th>
-                                  {osGroups.map(g=><th key={g.id} style={secThStyle} title={g.name}>{g.icon} {g.name}</th>)}
-                                  <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {rows.map((r,i)=>(
-                                  <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                                    <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===i?5:"auto"}}>
-                                      <span style={{position:"relative",display:"inline-block"}}>
-                                        <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===i?null:i);}}
-                                          style={{cursor:r.usedIn.length?"pointer":"default",textDecoration:r.usedIn.length?"underline dotted":"none",textUnderlineOffset:2}}>
-                                          {r.n}
-                                        </span>
-                                        {osUsedInOpen===i && r.usedIn.length>0 && (
-                                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,zIndex:30,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
-                                            <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
-                                            {r.usedIn.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
-                                          </div>
-                                        )}
-                                      </span>
-                                    </td>
-                                    <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
-                                    {osGroups.map(g=>{
-                                      const k = r.n+"|"+g.id;
-                                      const overridden = osEdits[k]!==undefined;
-                                      const shown = overridden ? osEdits[k] : (r.bySection[g.id] ? roundQ(r.bySection[g.id]) : "");
-                                      return (
-                                        <td key={g.id} style={{...tdStyle,padding:0}}>
-                                          <input type="number" step="any" value={shown}
-                                            placeholder={r.bySection[g.id]?undefined:"—"}
-                                            title={overridden?T2("Computed: ")+roundQ(r.bySection[g.id]):""}
-                                            onChange={e=>{const v=e.target.value;setOsEdits(prev=>{const n={...prev};if(v==="")delete n[k];else n[k]=v;return n;});}}
-                                            style={{width:"100%",boxSizing:"border-box",padding:"5px 4px",border:"none",outline:"none",
-                                              textAlign:"right",fontSize:11,fontFamily:K.fontBody,
-                                              background:overridden?C.amberBg:"transparent",
-                                              color:overridden?C.amber:C.text,fontWeight:overridden?700:400}}/>
-                                        </td>
-                                      );
-                                    })}
-                                    <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0))}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
+                        <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
+                          <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2} />
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
-                          <button onClick={()=>{setShowOrderingSheet(false);setOsUsedInOpen(null);setOsEdits({});}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
+                          <button onClick={()=>{setShowOrderingSheet(false);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
                         </div>
                       </div>
                     </div>
