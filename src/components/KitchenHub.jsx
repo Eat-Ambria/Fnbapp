@@ -110,7 +110,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // commit, so it is read in an effect rather than during render.
   const [hdrSlot, setHdrSlot] = useState(null);
   useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [tab, sopRecipe, sopCat]);
-  const [moveMenuOpen, setMoveMenuOpen] = useState(false);
 
   // -- Ingredient Matrix Editor --
   // New schema: {base_pax:300, base_yield:{kg,pcs}, items:[{name, hi, unit, qty:number, qty_nv?:number}]}
@@ -207,7 +206,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setIngDirty(true);
   }
   function ingUpdateQty(idx, val) {
-    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty:parseFloat(val)||0};return{...f,items};});
+    setIngForm(f=>{const items=[...f.items];items[idx]={...items[idx],qty:Math.max(0,parseFloat(val)||0)};return{...f,items};});
     setIngDirty(true);
   }
   
@@ -506,7 +505,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       if(!validUnits.includes(unit)) warnings.push(`Row ${r+1}: unknown unit '${unit}', kept as-is`);
       const qtyRaw=ix.qty>=0?(row[ix.qty]||"").trim():"";
       let qty=0;
-      if(qtyRaw!==""){ const p=parseFloat(qtyRaw); if(isNaN(p)) warnings.push(`Row ${r+1}: qty '${qtyRaw}' not numeric, defaulted to 0`); else qty=p; }
+      if(qtyRaw!==""){ const p=parseFloat(qtyRaw); if(isNaN(p)) warnings.push(`Row ${r+1}: qty '${qtyRaw}' not numeric, defaulted to 0`); else if(p<0){ warnings.push(`Row ${r+1}: qty '${qtyRaw}' is negative, defaulted to 0`); } else qty=p; }
       const notes=ix.notes>=0?(row[ix.notes]||"").trim():"";
       const it={name,hi,unit,qty};
       if(notes) it.notes=notes;
@@ -1090,6 +1089,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   function saveSop(){
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
+    const blankStepIdx=f.steps.findIndex(s=>!s.t.trim());
+    if(blankStepIdx>=0)return alert(`Step ${blankStepIdx+1} needs a title`);
     const recObj={n:f.name.trim(),sub:f.sub.trim(),bg:!!f.bg,steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0,ccp:sb.ccp||""}))}:{})};})};
     // Update local RECIPE_DB — matched by id (sopModal.origId), not name: two
     // recipes can share a dish_name (even in the same category), and finding
@@ -1894,8 +1895,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:12,
                                 border:`1px solid ${K.line}`,overflow:"hidden",width:150}}>
                                 <span style={{padding:"0 0 0 12px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={16} strokeWidth={1.9}/></span>
-                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
-                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                <input type="number" step="0.5" min="0" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round(Math.max(0,parseFloat(e.target.value)||0)*60))}
                                   placeholder="0"
                                   style={{flex:1,minWidth:0,padding:"11px 0 11px 10px",border:"none",outline:"none",
                                     background:"transparent",fontSize:15,fontWeight:700,color:K.text,
@@ -1958,8 +1959,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                       <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
                                         border:`1px solid ${K.line}`,overflow:"hidden",width:132}}>
                                         <span style={{padding:"0 0 0 10px",color:K.warn,display:"flex"}}><Icon name="clock" size={13} strokeWidth={2}/></span>
-                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
-                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                        <input type="number" step="0.5" min="0" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round(Math.max(0,parseFloat(e.target.value)||0)*60)))}
                                           placeholder="0"
                                           style={{flex:1,minWidth:0,padding:"8px 0 8px 8px",border:"none",outline:"none",
                                             background:"transparent",fontSize:13.5,fontWeight:700,color:K.text,
@@ -3772,46 +3773,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
                       {!editingSteps?(
                         <>
+                          {/* Delete and Move to… live on the card's own "..."
+                              menu in the grid view now — keeping them here too
+                              was the same two actions offered twice. */}
                           <KButton icon="note" onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);}}
                             style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.cardWarm,borderColor:K.cardWarmLine}}>{T2("Edit")}</KButton>
-                          <KButton variant="danger" icon="trash" onClick={()=>deleteSop(sopRecipe,sopCat)}
-                            style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14,background:K.dangerBg}}>{T2("Delete")}</KButton>
-                          {/* A themed menu, not a native select: the browser one
-                              renders as OS chrome — system blue highlight, system
-                              font — in the middle of the app's own palette. It is
-                              height-capped and scrolls, so a growing category
-                              list cannot run off the screen. */}
-                          <div style={{position:"relative",flexShrink:0}}>
-                            <button className="kh-btn kh-rip" onPointerDown={ripple} onClick={()=>setMoveMenuOpen(o=>!o)}
-                              style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 16px",borderRadius:K.rPill,
-                                background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
-                                color:K.textBody,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,whiteSpace:"nowrap"}}>
-                              <Icon name="layers" size={16} strokeWidth={1.9}/>{T2("Move to…")}
-                              <Icon name="chevronD" size={15} strokeWidth={2} style={{transform:moveMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
-                            </button>
-                            {moveMenuOpen&&(<>
-                              <div onClick={()=>setMoveMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
-                              <div className="kh-thinscroll" style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:21,minWidth:250,maxHeight:330,
-                                overflowY:"auto",background:K.surface,border:`1px solid ${K.line}`,borderRadius:16,
-                                boxShadow:K.shadowLift,padding:6}}>
-                                <div style={{...type.label,fontSize:10,color:K.textFaint,padding:"7px 12px 8px"}}>{T2("Move to…")}</div>
-                                {safeArr(RECIPE_DB.cats).filter(c=>c.id!==sopCat).map(c=>(
-                                  <button key={c.id} className="ash-menu-item kh-rip" onPointerDown={ripple}
-                                    onClick={()=>{setMoveMenuOpen(false);moveRecipe(sopRecipe,sopCat,c.id);}}
-                                    style={{display:"flex",alignItems:"center",gap:11,width:"100%",padding:"9px 12px",borderRadius:9,
-                                      border:"none",background:"transparent",color:K.textBody,fontSize:13.5,fontWeight:500,
-                                      cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
-                                    <span style={{width:30,height:30,borderRadius:9,flexShrink:0,background:K.surfaceAlt,
-                                      border:`1px solid ${K.line}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>{c.icon}</span>
-                                    <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{T2(c.name)}</span>
-                                    <span style={{marginLeft:"auto",fontSize:11.5,fontWeight:700,color:K.textFaint,flexShrink:0}}>
-                                      {safeArr(RECIPE_DB.recipes[c.id]).length}
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-                            </>)}
-                          </div>
                         </>
                       ):(
                         <>
@@ -4050,7 +4016,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                     : <select className="kh-select" value={item.unit} onChange={e=>ingUpdateItem(idx,"unit",e.target.value)} style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${isInv?K.accentBorder:K.line}`,fontSize:13.5,color:K.text,background:"#FFFFFF",fontWeight:600,fontFamily:K.fontBody,cursor:"pointer",outline:"none"}}>{["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"].map(u=><option key={u} value={u}>{u}</option>)}</select>
                                   }
                                 </td>
-                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
+                                <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input type="number" step="0.01" min="0" value={item.qty||""} onChange={e=>ingUpdateQty(idx,e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13.5,textAlign:"left",color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontWeight:700,fontVariantNumeric:"tabular-nums",fontFamily:K.fontBody,outline:"none"}}/></td>
                                 <td style={{padding:"8px 10px",borderTop:`1px solid ${K.lineSoft}`}}><input value={item.notes||""} onChange={e=>ingUpdateItem(idx,"notes",e.target.value)} placeholder={T2("Optional note")} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:13,color:K.text,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/></td>
                                 <td style={{padding:"8px 10px",textAlign:"center",whiteSpace:"nowrap",borderTop:`1px solid ${K.lineSoft}`}}>
                                   <span draggable onDragStart={e=>armRowDrag(e,setIngDragIdx,idx)} onDragEnd={()=>setIngDragIdx(null)} title={T2("Drag to reorder")} style={{cursor:"grab",display:"inline-flex",alignItems:"center",gap:2,justifyContent:"center",width:30,height:32,borderRadius:9,color:K.textFaint,userSelect:"none",marginRight:6,verticalAlign:"middle"}}><Icon name="more" size={14} style={{transform:"rotate(90deg)",marginRight:-5}}/><Icon name="more" size={14} style={{transform:"rotate(90deg)"}}/></span>
@@ -4368,9 +4334,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 {T2("Finished weight")} <span style={{color:K.danger}}>*</span>
                               </div>
                               <div style={{...field,borderColor:K.brandBorder,boxShadow:`0 0 0 3px ${K.brandBg}`}}>
-                                <input type="number" step="0.1" inputMode="decimal" autoFocus
+                                <input type="number" step="0.1" min="0" inputMode="decimal" autoFocus
                                   value={yieldForm.kg ?? ""}
-                                  onChange={e=>setYieldForm(p=>({...p, kg: e.target.value}))}
+                                  onChange={e=>{const v=e.target.value;if(v.includes("-"))return;setYieldForm(p=>({...p, kg: v}));}}
                                   placeholder="20" style={inp}/>
                                 <span style={unit}>kg</span>
                               </div>
@@ -4380,9 +4346,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                 {T2("Pieces")} <span style={{fontWeight:500,letterSpacing:0,textTransform:"none",color:K.textFaint}}>({T2("optional")})</span>
                               </div>
                               <div style={field}>
-                                <input type="number" step="1" inputMode="decimal"
+                                <input type="number" step="1" min="0" inputMode="decimal"
                                   value={yieldForm.pcs ?? ""}
-                                  onChange={e=>setYieldForm(p=>({...p, pcs: e.target.value}))}
+                                  onChange={e=>{const v=e.target.value;if(v.includes("-"))return;setYieldForm(p=>({...p, pcs: v}));}}
                                   placeholder="400" style={inp}/>
                                 <span style={unit}>pcs</span>
                               </div>
@@ -4496,8 +4462,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <span style={{display:"flex",alignItems:"center",background:"#FFFFFF",borderRadius:10,
                                 border:`1px solid ${K.line}`,overflow:"hidden",width:126}}>
                                 <span style={{padding:"0 0 0 11px",color:K.textFaint,display:"flex"}}><Icon name="clock" size={14} strokeWidth={2}/></span>
-                                <input type="number" step="0.5" value={step.tm?Math.round(step.tm/60*10)/10:""}
-                                  onChange={e=>sopFormStep(si,"tm",Math.round((parseFloat(e.target.value)||0)*60))}
+                                <input type="number" step="0.5" min="0" value={step.tm?Math.round(step.tm/60*10)/10:""}
+                                  onChange={e=>sopFormStep(si,"tm",Math.round(Math.max(0,parseFloat(e.target.value)||0)*60))}
                                   placeholder="0"
                                   style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",background:"transparent",
                                     fontSize:14,fontWeight:700,color:K.text,fontFamily:K.fontBody,fontVariantNumeric:"tabular-nums"}}/>
@@ -4562,8 +4528,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                           fontSize:12,fontWeight:700,color:K.warn}}>
                                           <Icon name="clock" size={14} strokeWidth={2}/>{T2("Timer")}
                                         </span>
-                                        <input type="number" step="0.5" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
-                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round((parseFloat(e.target.value)||0)*60)))}
+                                        <input type="number" step="0.5" min="0" value={sb.tm?Math.round(sb.tm/60*10)/10:""}
+                                          onChange={e=>sopEditSub(si,sbi,"tm",String(Math.round(Math.max(0,parseFloat(e.target.value)||0)*60)))}
                                           placeholder="0"
                                           style={{flex:1,minWidth:0,padding:"9px 0 9px 8px",border:"none",outline:"none",
                                             background:"transparent",fontSize:14,fontWeight:700,color:K.text,
