@@ -39,6 +39,10 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 // keystroke on top of the once-a-second one — the lag the user is reporting.
 // Owning osEdits/osUsedInOpen down here means typing only re-renders this
 // table with the rows/osGroups it was already given, not KitchenHub.
+// Disabled for now (manual overrides caused confusion vs. the computed
+// demand) but kept in place, not deleted, since it may come back later —
+// flip this back to true to re-enable editing the qty cells.
+const OS_EDIT_ENABLED = false;
 function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osEdits, setOsEdits] = useState({});
@@ -87,7 +91,7 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
               </span>
             </td>
             <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
-            {osGroups.map(g=>{
+            {OS_EDIT_ENABLED ? osGroups.map(g=>{
               const k = r.n+"|"+g.id;
               const overridden = osEdits[k]!==undefined;
               const shown = overridden ? osEdits[k] : (r.bySection[g.id] ? roundQ(r.bySection[g.id]) : "");
@@ -103,8 +107,8 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
                       color:overridden?C.amber:C.text,fontWeight:overridden?700:400}}/>
                 </td>
               );
-            })}
-            <td style={{...tdStyle,fontWeight:700,color:C.text}}>{roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0))}</td>
+            }) : osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
+            <td style={{...tdStyle,fontWeight:700,color:C.text}}>{OS_EDIT_ENABLED ? roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0)) : roundQ(r.total)}</td>
           </tr>
         ))}
       </tbody>
