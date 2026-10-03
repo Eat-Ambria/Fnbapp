@@ -700,10 +700,6 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var visibleDishes = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
     return deptDishes.filter(function(d){
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       // Hide dishes that aren't in template AND aren't selected, unless showAddons is
       // true — or the dish was explicitly placed here via "Add section from
       // library" (V87): that adds the whole section as browsable, unselected
@@ -711,6 +707,16 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
       var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      // Already-selected/overridden dishes bypass the diet filter too — a
+      // brand-new custom dish has no sales_meta yet, so dietForDish falls
+      // back to the app default ('veg'); on a non-veg proposal that silently
+      // hid it from this exact list, which is what the section-grouping
+      // lookup reads, so the dish vanished from every section even though
+      // it saved correctly.
+      var meta = salesMeta[d.name];
+      var diet = dietForDish(d, meta);
+      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
@@ -839,13 +845,15 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var visibleDishesAnyDept = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
     return allDishes.concat(phantomDishes).filter(function(d){
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
       var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      // Already-selected/overridden dishes bypass the diet filter — see the
+      // matching comment on visibleDishes above.
+      var meta = salesMeta[d.name];
+      var diet = dietForDish(d, meta);
+      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });

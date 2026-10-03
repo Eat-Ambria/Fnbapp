@@ -768,16 +768,20 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var visibleDishes = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
     return deptDishes.filter(function(d){
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
       // V88 — "Add section from library" tags a whole section's dishes as
       // browsable-but-unselected (no override, no auto-select) — keep them
       // visible regardless of showAddons.
       var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      // Already-selected/overridden dishes bypass the diet filter — see the
+      // matching comment on visibleDishesAnyDept; a brand-new custom dish
+      // defaults to 'veg' (no sales_meta yet) and would otherwise vanish the
+      // moment it's added to a non-veg package.
+      var meta = salesMeta[d.name];
+      var diet = dietForDish(d, meta);
+      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       if (!noPackage && !inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
@@ -884,13 +888,21 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var visibleDishesAnyDept = useMemo(function(){
     var q = (searchQ || '').trim().toLowerCase();
     return allDishes.concat(phantomDishes).filter(function(d){
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       var inT = !!templateSet[d.name];
       var isSel = !!selectedSet[d.name];
       var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
+      // A dish already selected for this event (or explicitly placed via a
+      // section override — e.g. a custom dish just added and tagged) is part
+      // of the menu already; it must keep showing even if its own diet tag
+      // doesn't match the filter. A brand-new custom dish has no sales_meta
+      // yet, so dietForDish falls back to the app default ('veg') — on a
+      // non-veg package that silently hid it from this exact list, which is
+      // what fed byExact/byLoose below and made the dish vanish from every
+      // section even though its event_items row and override both saved fine.
+      var meta = salesMeta[d.name];
+      var diet = dietForDish(d, meta);
+      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
+      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
       if (!inT && !isSel && !showAddons && !hasOverride) return false;
       return true;
     });
