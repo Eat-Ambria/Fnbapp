@@ -5071,30 +5071,59 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 <div style={{fontSize:13,color:K.hdrMeta,marginTop:4}}>{T2("Pick a date above, then choose the event to record its closing.")}</div>
               </div>
             )}
-            </div>{/* end .kh-an-below */}
-            </div>{/* end .kh-an-row */}
 
             {selEv && (<>
               {/* Event summary + event-level exclude toggle */}
-              <Card style={{marginBottom:12,padding:"12px 16px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:10}}>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:600,color:C.text}}>{selEv.guest||"Function"}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{fmtDate(selEv.date)}{selEv.time?" — "+fmtTime(selEv.time):""}{selEv.venue?" — "+selEv.venue:""} — {selEv.pax} pax — {filteredDishes.length}{allowedCats?"/"+evDishes.length:""} {T2("dishes")}</div>
+              {/* Same summary card as Planning: brand badge, title and meta on the
+                  left, the counts as tiles on the right. */}
+              {(()=>{
+                const allClosed = closedCount===filteredDishes.length && filteredDishes.length>0;
+                const tiles = [{n:closedCount+"/"+filteredDishes.length,l:T2("closed"),t:allClosed?"ok":closedCount>0?"brand":"idle",i:"check"}];
+                if(totalLeftoverKg>0) tiles.push({n:fmtKg(totalLeftoverKg)+" kg",l:T2("leftover"),t:"warn",i:"box"});
+                return(
+                <div style={{padding:"16px 20px",borderRadius:18,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                  boxShadow:K.shadowCard,marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                    <span style={{width:46,height:46,borderRadius:14,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,
+                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon name="utensils" size={21} strokeWidth={1.8}/>
+                    </span>
+                    <div style={{flex:"1 1 230px",minWidth:200}}>
+                      <div style={{...type.cardTitle,fontSize:17,color:K.hdrTitle}}>{selEv.guest||T2("Function")}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:4,
+                        fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                        <span>{fmtDate(selEv.date)}</span>
+                        {selEv.time&&(<><span style={{color:K.textFaint}}>·</span><span>{fmtTime(selEv.time)}</span></>)}
+                        {selEv.venue&&(<><span style={{color:K.textFaint}}>·</span><span>{selEv.venue}</span></>)}
+                        <span style={{color:K.textFaint}}>·</span>
+                        <span>{selEv.pax} {T2("pax")}</span>
+                        <span style={{color:K.textFaint}}>·</span>
+                        <span>{filteredDishes.length}{allowedCats?"/"+evDishes.length:""} {T2("dishes")}</span>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                      {tiles.map(s=>{const tn=tone(s.t);return(
+                        <div key={s.l} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderRadius:13,
+                          background:s.t==="idle"?"#FFFFFF":tn.bg,border:`1px solid ${s.t==="idle"?K.cardWarmLine:tn.border}`}}>
+                          <span style={{color:s.t==="idle"?K.textFaint:tn.fg,display:"flex",flexShrink:0}}><Icon name={s.i} size={16} strokeWidth={1.9}/></span>
+                          <div>
+                            <div style={{fontFamily:K.fontBody,fontSize:18,fontWeight:700,lineHeight:1.1,fontVariantNumeric:"tabular-nums",
+                              color:s.t==="idle"?K.textFaint:tn.fg}}>{s.n}</div>
+                            <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:1,whiteSpace:"nowrap"}}>{s.l}</div>
+                          </div>
+                        </div>);})}
+                    </div>
                   </div>
-                  <div style={{display:"flex",gap:12,fontSize:11,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{color:closedCount===filteredDishes.length&&filteredDishes.length>0?C.green:C.gold,fontWeight:700}}>✓ {closedCount}/{filteredDishes.length} {T2("closed")}</span>
-                    {totalLeftoverKg>0 && <span style={{color:C.amber,fontWeight:600}}>📦 {fmtKg(totalLeftoverKg)} kg {T2("leftover")}</span>}
-                  </div>
-                </div>
-                <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,background:closeExcludeUI?C.amberBg:C.bg,border:`1.5px solid ${closeExcludeUI?C.amberBorder:C.border}`,cursor:"pointer"}}>
-                  <input type="checkbox" checked={closeExcludeUI} onChange={e=>toggleEventExclude(e.target.checked, ctx)} style={{width:18,height:18,accentColor:C.amber,cursor:"pointer"}}/>
-                  <div style={{flex:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:7,fontSize:13.5,fontWeight:700,color:closeExcludeUI?K.warn:K.hdrTitle}}><Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Don't affect future ordering")}</div>
-                    <div style={{fontSize:10,color:C.muted,marginTop:1}}>{T2("Use for daily / repeat functions where a slight over-order is fine. Applies to every dish in this event.")}</div>
-                  </div>
-                </label>
-              </Card>
+                  <label style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderRadius:13,marginTop:14,cursor:"pointer",
+                    background:closeExcludeUI?K.warnBg:"#FFFFFF",border:`1px solid ${closeExcludeUI?K.warnBorder:K.cardWarmLine}`}}>
+                    <input type="checkbox" checked={closeExcludeUI} onChange={e=>toggleEventExclude(e.target.checked, ctx)} style={{width:18,height:18,accentColor:K.brand,cursor:"pointer",flexShrink:0}}/>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7,fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:closeExcludeUI?K.warn:K.hdrTitle}}><Icon name="alert" size={14} strokeWidth={2.1}/>{T2("Don't affect future ordering")}</div>
+                      <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:2}}>{T2("Use for daily / repeat functions where a slight over-order is fine. Applies to every dish in this event.")}</div>
+                    </div>
+                  </label>
+                </div>);
+              })()}
 
               {filteredDishes.length===0 && (
                 <Card style={{padding:"20px",textAlign:"center"}}>
@@ -5103,48 +5132,48 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               )}
 
               {/* Collapsible sections (default collapsed) */}
+              {/* Section tiles, the same as Analytics "Dishes by Section"
+                  (.kh-secgrid in theme.js): icon, name, "x/y closed" and a
+                  progress bar in the station's colour. An opened tile spans the
+                  whole row so its dish cards have room. */}
+              <div className="kh-secgrid" style={{marginBottom:10}}>
               {orderedGroups.map(group=>{
                 const isOpen = !!closeSectionOpen[group.cat.id];
                 const secClosed = group.items.filter(d=>closeRows[d]).length;
+                const secPct = group.items.length>0 ? Math.round(secClosed/group.items.length*100) : 0;
+                const secDone = secClosed===group.items.length;
                 return(
-                  <div key={group.cat.id} style={{marginBottom:10}}>
-                    {/* Opaque, not a 8%-alpha wash of the station colour: over
-                        the page artwork that wash let the photograph through and
-                        the whole row read as broken. The station's colour stays,
-                        but only where colour means something — the left edge and
-                        the icon tile. The name is text, so it is text-coloured. */}
+                  <div key={group.cat.id} style={{borderRadius:16,border:`1px solid ${K.cardWarmLine}`,
+                    backgroundColor:K.cardWarm,boxShadow:K.shadowCard,overflow:"hidden",gridColumn:isOpen?"1 / -1":undefined}}>
                     <button onClick={()=>setCloseSectionOpen(p=>({...p,[group.cat.id]:!p[group.cat.id]}))}
-                      className="kh-btn kh-rip" onPointerDown={ripple}
-                      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 16px",
-                        borderRadius:14,backgroundColor:K.cardWarm,
-                        border:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.cat.color||K.brand}`,
-                        boxShadow:K.shadowCard,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
-                      <span style={{display:"flex",flexShrink:0,color:K.textFaint,transition:"transform .15s",
-                        transform:isOpen?"rotate(90deg)":"rotate(0)"}}>
-                        <Icon name="chevronR" size={16} strokeWidth={2.2}/>
-                      </span>
-                      <span style={{width:36,height:36,borderRadius:11,flexShrink:0,fontSize:18,lineHeight:1,
-                        background:(group.cat.color||K.brand)+"18",
-                        display:"flex",alignItems:"center",justifyContent:"center"}}>{group.cat.icon||"\u{1F37D}"}</span>
-                      <span style={{flex:1,minWidth:0}}>
-                        <span style={{display:"block",fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
-                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{group.cat.name||group.cat.id}</span>
-                        <span style={{display:"block",fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
-                          {group.items.length} {T2("dishes")}
+                      className="kh-secrow kh-rip" onPointerDown={ripple} aria-expanded={isOpen}
+                      style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"stretch",gap:12,padding:"14px 16px",
+                        background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                      <span style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+                        <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.sageBg,
+                          border:`1px solid ${K.sageBorder}`,fontSize:17,lineHeight:1,
+                          display:"flex",alignItems:"center",justifyContent:"center"}}>{group.cat.icon||"\u{1F37D}"}</span>
+                        <span style={{flex:1,minWidth:0}}>
+                          <span style={{display:"block",fontSize:14,fontWeight:700,color:K.hdrTitle,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{group.cat.name||group.cat.id}</span>
+                          <span style={{display:"block",fontSize:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>
+                            {secClosed}/{group.items.length} {T2("closed")}
+                          </span>
+                        </span>
+                        {secDone&&<span style={{color:K.ok,display:"flex",flexShrink:0}}><Icon name="check" size={16} strokeWidth={2.3}/></span>}
+                        <span style={{display:"flex",flexShrink:0,color:K.textFaint,transition:"transform .15s",
+                          transform:isOpen?"rotate(90deg)":"rotate(0)"}}>
+                          <Icon name="chevronR" size={16} strokeWidth={2.2}/>
                         </span>
                       </span>
-                      {/* Progress belongs on the right as a chip, not tacked onto
-                          the dish count with a dash. */}
-                      <span style={{display:"inline-flex",alignItems:"center",gap:6,flexShrink:0,padding:"5px 12px",
-                        borderRadius:K.rPill,fontSize:12,fontWeight:700,
-                        background:secClosed===group.items.length?K.okBg:secClosed>0?K.warnBg:K.surfaceAlt,
-                        border:`1px solid ${secClosed===group.items.length?K.okBorder:secClosed>0?K.warnBorder:K.line}`,
-                        color:secClosed===group.items.length?K.ok:secClosed>0?K.warn:K.textFaint}}>
-                        {secClosed===group.items.length&&<Icon name="check" size={13} strokeWidth={2.3}/>}
-                        {secClosed}/{group.items.length}
+                      <span style={{display:"flex",alignItems:"center",gap:9}}>
+                        <span style={{flex:1,height:7,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
+                          <span style={{display:"block",height:"100%",width:secPct+"%",background:group.cat.color||K.brand,borderRadius:999}}/>
+                        </span>
+                        <span style={{fontSize:12,fontWeight:700,color:K.hdrMeta,fontVariantNumeric:"tabular-nums",minWidth:34,textAlign:"right"}}>{secPct}%</span>
                       </span>
                     </button>
-                    {isOpen && (<div className="kh-closegrid">{group.items.map(dish=>{
+                    {isOpen && (<div className="kh-closegrid" style={{padding:"0 16px 16px"}}>{group.items.map(dish=>{
                       const row = closeRows[dish];
                       const planKg = evPlanRows[closeEventId]?.[dish]?.target_yield_kg || null;
                       const lkg = row?.leftover_kg;
@@ -5196,6 +5225,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 );
               })}
+              </div>
 
               {/* The old copy promised that "the ? flag will be honored once
                   order-suggestion is wired to this data" — a sentence about an
@@ -5208,6 +5238,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {T2("Each field saves on its own as soon as you leave it")}
               </div>
             </>)}
+            </div>{/* end .kh-an-below */}
+            </div>{/* end .kh-an-row */}
           </div>
         );
       })()}
