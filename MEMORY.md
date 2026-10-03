@@ -490,3 +490,8 @@ Vitest is configured. Scripts: `npm test`, `npm run test:watch`, `npm run test:u
 | **~135 `alert()` / `confirm()` calls** | Concentrated in `MenuPackagesView`, `DishSectionsEditor`, `DishLibrary`, `DishMappingModal`. Convert to `KModal` / `KToast` per the rule in 4.3. |
 | **`kitchenTracking` localStorage has no prune** | It grows every day. On quota exhaustion the write fails silently (it is caught) and persistence quietly stops. `transportQueue` already prunes by date; this should too. |
 | **`mesaDone` forces steps 0–1 done** | See 3.2. Confirm whether intended before changing. |
+
+## Planning/Closing/Analytics layout pass
+- Planning, Closing and Analytics share the grid classes .kh-an / .kh-an-row / .kh-an-cal / .kh-an-rail / .kh-an-below (theme.js). Cards under the calendar go in .kh-an-below so they match its width; do not give the rail a flex-basis (it is a column on narrow panels).
+- Trap: src/components/KitchenHub.jsx has CRLF line endings. Node/sed scripts that match multi-line strings need 
+; the Edit tool handles it.
