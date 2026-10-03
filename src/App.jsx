@@ -805,8 +805,6 @@ export default function App() {
   const headerEvents  = singleEvToday
     ? `${singleEvToday.guest||"Function"} (${singleEvToday.pax} pax · ${singleEvToday.time||"TBD"})`
     : "";
-  const nextEvToday = singleEvToday;
-  const paxToday    = singleEvToday ? (+singleEvToday.pax||0) : 0;
   // Topbar search = quick-nav over the screens this user can actually reach.
   const showStaffView = currentUser&&currentUser.role==="staff";
 
@@ -1482,6 +1480,8 @@ export default function App() {
               <Icon name="panelLeft" size={18} strokeWidth={2}/>
             </button>
           )}
+          {/* No plate on the Dashboard — its content already says what and when. */}
+          {screen!=="dashboard"&&(
           <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
@@ -1516,27 +1516,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Live status + at-a-glance chips */}
-            {nextEvToday&&(
-              <div style={{display:"flex",alignItems:"center",gap:14,flexShrink:0,position:"relative",flexWrap:"wrap"}}>
-                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrLiveBg,color:K.hdrLiveText,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
-                  <span style={{width:9,height:9,borderRadius:"50%",background:K.hdrLiveDot}}/>{T2("Active Event")}
-                </span>
-                <span style={{width:1,height:34,background:K.hdrChipLine}}/>
-                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrChipBg,border:`1px solid ${K.hdrChipLine}`,color:K.hdrMetaStrong,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
-                  <Icon name="clock" size={17}/>{nextEvToday.time||"TBD"}
-                </span>
-                <span style={{display:"inline-flex",alignItems:"center",gap:9,padding:"11px 18px",borderRadius:12,background:K.hdrChipBg,border:`1px solid ${K.hdrChipLine}`,color:K.hdrMetaStrong,fontSize:14,fontWeight:600,whiteSpace:"nowrap"}}>
-                  <Icon name="users" size={17}/>{paxToday} {T2("pax")}
-                </span>
-              </div>
-            )}
             {/* Screen-level header actions. A screen that needs one control up
                here - Kitchen Hub puts "Back to Recipes" in it - portals into
                this slot, which keeps that screen's state where it lives instead
                of lifting it into the shell. Empty and invisible otherwise. */}
             <div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0,marginLeft:"auto"}}/>
           </div>
+          )}
         </div>
 
         {/* Only the screen scrolls. minHeight:0 lets this flex child shrink so

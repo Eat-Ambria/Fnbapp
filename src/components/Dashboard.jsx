@@ -1,6 +1,5 @@
 ﻿// Ambria FnB — Dashboard (light mode redesign)
 import React, { useState } from "react";
-import { createPortal } from "react-dom";
 import { C, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
@@ -181,7 +180,9 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   // The month the calendar is showing, and the day picked in it.
   const [calYr, setCalYr] = useState(today.getFullYear());
   const [calMo, setCalMo] = useState(today.getMonth());
-  const [sel, setSel] = useState(todayStr);
+  // Starts empty: today's functions already have their own "Today's events"
+  // section, so pre-selecting today showed the same card twice.
+  const [sel, setSel] = useState(null);
 
   // State
   const [venFil, setVenFil] = useState("All");
@@ -211,14 +212,6 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   // Clicking the column you are already sorting by flips the direction;
   // clicking a different one starts that column ascending.
   const setSortKey = k => setMcSort(p=>p.k===k?{k,dir:-p.dir}:{k,dir:1});
-  // The shell's header slot, where the day's totals sit. Looked up after mount
-  // because the shell has not committed the node on our first render.
-  // The set-state-in-effect rule exempts reading from an external system, which
-  // a DOM node owned by another component is; this is the same lookup
-  // KitchenHub and ProposalsView use for the same slot.
-  const [hdrSlot, setHdrSlot] = useState(null);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  React.useEffect(()=>{ setHdrSlot(document.getElementById("kh-hdr-slot")); }, []);
 
   // "+237 more" was plain grey text that did nothing; "Show all" after it meant
   // dumping 243 cards into the page. Paged, like the menus table above it.
@@ -229,8 +222,8 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   const filtered = venFil==="All"?safeEvs:safeEvs.filter(e=>e.venue===venFil);
   const todayEvs = safeEvs.filter(e=>e.date===todayStr);
   const upcoming = filtered.filter(e=>e.date>todayStr).sort((a,b)=>a.date.localeCompare(b.date));
-  // Eight to a page: two full rows of the four-up grid.
-  const UP_PER_PAGE = 8;
+  // Six to a page: the sidebar list.
+  const UP_PER_PAGE = 6;
   const upPages = Math.max(1,Math.ceil(upcoming.length/UP_PER_PAGE));
   // Clamped on read, not reset by an effect — changing the venue filter to a
   // shorter list would otherwise strand the viewer on an empty page.
@@ -537,228 +530,416 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
         </div>
       )}
 
-      {/* ── The day's totals, in the shell's header plate ──
-          Portalled into #kh-hdr-slot, the same slot Kitchen Hub uses for its
-          back button, so the figures sit on the title row rather than taking a
-          band of their own above the work. These are TODAY, unlike the strip
-          below which is the month and the financial year. */}
-      {hdrSlot&&createPortal((
-        <div className="kh-hdrkpi">
-          {[{n:todayEvs.length,l:T2("Functions today"),short:T2("functions"),icon:"plate"},
-            {n:todayEvs.reduce((s,e)=>s+(+e.pax||0),0),l:T2("Total pax (today)"),short:T2("pax"),icon:"users"},
-            {n:todayEvs.reduce((s,e)=>s+(Array.isArray(e.menu)?e.menu.length:0),0),l:T2("Total dishes (today)"),short:T2("dishes"),icon:"utensils"}
-           ].map(s=>(
-            <div key={s.l} className="kh-hdrkpi-tile" title={`${s.n.toLocaleString()} ${s.l}`}
-              style={{display:"flex",alignItems:"center",gap:11,padding:"9px 15px",
-                borderRadius:14,background:"#FFFFFF",border:`1px solid ${K.hdrChipLine}`,boxShadow:K.shadowCard}}>
-              <span className="kh-hdrkpi-ic" style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
-                border:`1px solid ${K.sageBorder}`,color:K.brand,
-                display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <Icon name={s.icon} size={16} strokeWidth={1.8}/>
-              </span>
-              <div className="kh-hdrkpi-txt">
-                <div className="kh-hdrkpi-n" style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,color:K.hdrTitle,
-                  lineHeight:1,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
-                {/* Two labels, one shown at a time. A tablet has no hover, so
-                    the tooltip these used to fall back to reached nobody and
-                    the tiles became three numbers with no meaning at all. The
-                    short word costs about forty pixels and says what it is. */}
-                <div className="kh-hdrkpi-l" style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.l}</div>
-                <div className="kh-hdrkpi-s" style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,whiteSpace:"nowrap"}}>{s.short}</div>
-              </div>
-            </div>
-          ))}
+      {/* ══ TOP BAR ══
+          Month, the two running totals and the one action you reach for most,
+          on a single plate. backgroundColor, not the background shorthand: the
+          shorthand resets background-image and would wipe the artwork off. */}
+      <div className="kh-cardart-sm" style={{position:"relative",backgroundColor:K.cardWarm,
+        border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowCard,overflow:"hidden",
+        marginBottom:18,padding:"14px 20px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+        <span style={{width:46,height:46,borderRadius:14,flexShrink:0,background:K.sageBg,
+          border:`1px solid ${K.sageBorder}`,color:K.brand,
+          display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon name="calendar" size={21} strokeWidth={1.8}/>
+        </span>
+        <div style={{minWidth:0,marginRight:"auto"}}>
+          <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2("This month")}</div>
+          <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:1}}>{T2(MO_FULL[mo])} {yr}</div>
         </div>
-      ), hdrSlot)}
-
-      {/* ══ QUICK STATS ══
-          First thing on the page: it is the context everything under it is
-          read against, and at the foot nobody scrolled to it.
-          One strip, not two cards — as separate cards each was about 780px
-          wide holding 200px of content, so most of both sat empty.
-          backgroundColor, not the background shorthand: the shorthand resets
-          background-image and would wipe the .kh-cardart-sm artwork off. */}
-      <div className="kh-statstrip kh-cardart-sm" style={{position:"relative",backgroundColor:K.cardWarm,
-        border:`1px solid ${K.cardWarmLine}`,borderRadius:16,boxShadow:K.shadowCard,overflow:"hidden",
-        marginBottom:18}}>
-        {[{label:T2("This month"),icon:"calendar",n:monthEvs.length},
-          {label:`${T2("FY total")} ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
-         ].map((s,i)=>(
-          // One figure each, so the label and the number sit on one line
-          // rather than stacking — half the height for the same information.
-          <div key={s.label} style={{display:"flex",alignItems:"center",gap:14,padding:"13px 20px",
-            borderLeft:i>0?`1px solid ${K.cardWarmLine}`:"none"}}>
-            <span style={{width:38,height:38,borderRadius:12,flexShrink:0,background:K.sageBg,
+        {[{label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
+          {label:`${T2("FY total")} (${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)})`,icon:"chart",n:fyEvs.length}
+         ].map(s=>(
+          <div key={s.label} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px 9px 10px",
+            borderRadius:14,background:"rgba(255,255,255,.7)"}}>
+            <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.sageBg,
               border:`1px solid ${K.sageBorder}`,color:K.brand,
               display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Icon name={s.icon} size={18} strokeWidth={1.8}/>
             </span>
-            {/* 10px uppercase in the muted tone was the quietest thing in the
-                strip — quieter than the figure it names, which left two big
-                numbers with nothing saying what they counted. */}
-            <span style={{...type.label,fontSize:11.5,fontWeight:700,color:K.hdrTitle,letterSpacing:.9,whiteSpace:"nowrap"}}>{s.label}</span>
-            <span style={{marginLeft:"auto",display:"flex",alignItems:"baseline",gap:6}}>
-              {/* Body face: Cormorant sets 1 as a serifed I and 0 as a narrow
-                  O, so a figure like 103,823 was unreadable in it. */}
-              <span style={{fontFamily:K.fontBody,fontSize:23,fontWeight:700,color:K.hdrTitle,
-                lineHeight:1,letterSpacing:"-0.6px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</span>
-              <span style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>{T2("events")}</span>
-            </span>
+            <div>
+              <div style={{fontFamily:K.fontBody,fontSize:20,fontWeight:700,color:K.hdrTitle,lineHeight:1,
+                letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
+              <div style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,marginTop:3,whiteSpace:"nowrap"}}>{s.label}</div>
+            </div>
           </div>
         ))}
+        <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
+        {currentUser?.role==='admin'&&(
+          <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
+            style={{display:"inline-flex",alignItems:"center",gap:10,padding:"8px 20px",minHeight:48,boxSizing:"border-box",borderRadius:14,
+              background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+              color:lmsSyncing?K.textFaint:K.textBody,fontFamily:K.fontBody,
+              cursor:lmsSyncing?"wait":"pointer",whiteSpace:"nowrap",textAlign:"left"}}>
+            {lmsSyncing
+              ? <span style={{display:"inline-block",width:15,height:15,border:`2px solid ${K.textFaint}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>
+              : <Icon name="refresh" size={16} strokeWidth={1.9}/>}
+            <span style={{display:"flex",flexDirection:"column",lineHeight:1.25}}>
+              <span style={{fontSize:14,fontWeight:600}}>{lmsSyncing?T2("Syncing…"):T2("Sync LMS")}</span>
+              {lmsLastSync&&<span style={{fontSize:10.5,fontWeight:500,color:K.hdrMeta}}>{lmsLastSync}</span>}
+            </span>
+          </button>
+        )}
+        <button onClick={()=>openAdd(todayStr)} className="kh-rip" onPointerDown={ripple}
+          style={{display:"inline-flex",alignItems:"center",gap:9,padding:"0 22px",minHeight:48,boxSizing:"border-box",borderRadius:14,
+            background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,
+            fontSize:14,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+          <Icon name="plus" size={16} strokeWidth={2.2}/>{T2("Add Event")}
+        </button>
       </div>
 
-      {/* ══ CALENDAR ══
-          Back after being taken out, but on the warm palette and in the same
-          shape Planning and Analytics use — calendar on the left, the picked
-          day's functions in a rail beside it. The old one was the blue
-          C.* build and would now be the only cool-grey thing on this screen. */}
-      <div style={{marginBottom:24}}>
-        <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",marginBottom:14,minWidth:0}}>
-          <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,
-            color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <Icon name="calendarDays" size={20} strokeWidth={1.8}/>
-          </span>
-          <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
-            {T2("Calendar")}
-          </span>
-        </div>
+      <div style={{display:"flex",gap:18,alignItems:"flex-start",flexWrap:"wrap",marginBottom:24}}>
+      {/* ── Left: calendar, the picked day, today's events ── */}
+      <div style={{flex:"1 1 640px",minWidth:0,display:"flex",flexDirection:"column",gap:18}}>
 
-        <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
-          <div style={{flex:"1 1 620px",minWidth:340,backgroundColor:K.cardWarm,
-            border:`1px solid ${K.cardWarmLine}`,borderRadius:20,overflow:"hidden",boxShadow:K.shadowCard}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,
-              padding:"16px 20px",flexWrap:"wrap"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <button onClick={calPrev} className="kh-calnav" aria-label={T2("Previous month")}
-                  style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
-                    cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <Icon name="chevronL" size={15} strokeWidth={2.1}/>
-                </button>
-                <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle,minWidth:168,textAlign:"center"}}>
-                  {T2(MO_FULL[calMo])} {calYr}
-                </div>
-                <button onClick={calNext} className="kh-calnav" aria-label={T2("Next month")}
-                  style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
-                    cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <Icon name="chevronR" size={15} strokeWidth={2.1}/>
-                </button>
-                <button onClick={()=>{setCalYr(today.getFullYear());setCalMo(today.getMonth());setSel(todayStr);}}
-                  className="kh-calnav"
-                  style={{marginLeft:8,padding:"7px 18px",borderRadius:999,background:"#FFFFFF",
-                    border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
-                    fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Today")}</button>
-              </div>
-              {/* The key to the dots in the grid, above the grid rather than
-                  under it — read afterwards it explains something the eye has
-                  already given up on. */}
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                {VENUES.map(v=>(
-                  <div key={v} style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:gp(v).c,flexShrink:0}}/>
-                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{(VP[v]||{}).code||v.slice(0,3)}</span>
-                  </div>
-                ))}
-              </div>
+        {/* ══ CALENDAR ══ */}
+        <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
+          overflow:"hidden",boxShadow:K.shadowCard}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"16px 20px",flexWrap:"wrap"}}>
+            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:"#F0EEE7",
+              color:K.hdrMeta,display:"flex",alignItems:"center",justifyContent:"center",marginRight:4}}>
+              <Icon name="calendarDays" size={19} strokeWidth={1.8}/>
+            </span>
+            <div style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px",marginRight:6}}>
+              {T2(MO_FULL[calMo])} {calYr}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F4F2EC",
-              borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
-              {DY.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
-                fontWeight:600,color:K.hdrMeta,padding:"9px 0"}}>{T2(d)}</div>)}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-              {calCells.map((cell,i)=>{
-                const dt=calDate(cell);
-                const evs2=dt?evsOn(dt):[];
-                const isT=dt===todayStr, isS=dt===sel;
-                const vCols=[...new Set(evs2.map(e=>gp(e.venue).c))];
-                return(
-                  <div key={i} onClick={()=>{if(dt)setSel(isS?null:dt);}}
-                    onDoubleClick={()=>{if(dt)openAdd(dt);}}
-                    className={dt?"kh-calcell":undefined}
-                    title={dt?T2("Double-click to add a function"):undefined}
-                    style={{height:58,padding:4,cursor:dt?"pointer":"default",
-                      borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
-                      opacity:cell.c?1:.28}}>
-                    {/* Inset tile, not a flooded cell — filled edge to edge the
-                        picked day merges with its neighbours across the
-                        hairlines and stops looking like one day. */}
-                    <div style={{height:"100%",borderRadius:10,padding:"5px 8px",overflow:"hidden",
-                      background:isS?K.sageSel:isT?"#F6EFDD":"transparent",
-                      border:`1px solid ${isT&&!isS?K.goldSoft:"transparent"}`}}>
-                      <div style={{fontFamily:K.fontBody,fontSize:14,fontVariantNumeric:"tabular-nums",
+            <button onClick={calPrev} className="kh-calnav" aria-label={T2("Previous month")}
+              style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="chevronL" size={15} strokeWidth={2.1}/>
+            </button>
+            <button onClick={calNext} className="kh-calnav" aria-label={T2("Next month")}
+              style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="chevronR" size={15} strokeWidth={2.1}/>
+            </button>
+            <button onClick={()=>{setCalYr(today.getFullYear());setCalMo(today.getMonth());setSel(null);}}
+              className="kh-calnav"
+              style={{marginLeft:6,padding:"8px 20px",borderRadius:999,background:"#FFFFFF",
+                border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Today")}</button>
+            {venFil!=="All"&&(
+              <button onClick={()=>setVenFil("All")} className="kh-calnav"
+                style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:7,padding:"8px 14px",
+                  borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,
+                  fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:gp(venFil).c}}/>
+                {(VP[venFil]||{}).code||venFil}
+                <Icon name="close" size={12} strokeWidth={2.4}/>
+              </button>
+            )}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",background:"#F4F2EC",
+            borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+            {DY.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
+              fontWeight:600,color:K.hdrMeta,padding:"10px 0"}}>{T2(d)}</div>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))"}}>
+            {calCells.map((cell,i)=>{
+              const dt=calDate(cell);
+              const evs2=dt?evsOn(dt):[];
+              const isT=dt===todayStr, isS=dt===sel;
+              const shownEvs=evs2.slice(0,2);
+              return(
+                <div key={i} onClick={()=>{if(dt)setSel(isS?null:dt);}}
+                  onDoubleClick={()=>{if(dt)openAdd(dt);}}
+                  className={dt?"kh-calcell":undefined}
+                  title={dt?T2("Double-click to add a function"):undefined}
+                  style={{minHeight:92,padding:4,cursor:dt?"pointer":"default",minWidth:0,
+                    borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
+                    opacity:cell.c?1:.32}}>
+                  {/* Inset tile, not a flooded cell — filled edge to edge the
+                      picked day merges with its neighbours across the
+                      hairlines and stops looking like one day. */}
+                  <div style={{height:"100%",borderRadius:10,padding:"4px 5px",overflow:"hidden",
+                    background:isS?K.sageSel:isT?"#F6EFDD":"transparent",
+                    border:`1px solid ${isT?K.goldSoft:"transparent"}`}}>
+                    <div style={{display:"flex",marginBottom:4}}>
+                      <span style={{minWidth:22,height:22,padding:"0 6px",borderRadius:999,boxSizing:"border-box",
+                        display:"inline-flex",alignItems:"center",justifyContent:"center",
+                        fontFamily:K.fontBody,fontSize:13,fontVariantNumeric:"tabular-nums",
                         fontWeight:isT||isS?700:500,
-                        color:isS?K.sageText:isT?K.gold:K.textBody}}>{cell.d}</div>
-                      {vCols.length>0&&<div style={{display:"flex",gap:3,marginTop:4}}>
-                        {vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}
-                      </div>}
+                        background:isT?"#F2D9C8":"transparent",
+                        color:isS?K.sageText:isT?K.gold:K.textBody}}>{cell.d}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                      {shownEvs.map(ev=>{
+                        const vc=gp(ev.venue);
+                        return(
+                          <button key={ev.id} onClick={e=>{e.stopPropagation();openEdit(ev);}}
+                            title={`${ev.guest||""} · ${ev.time||""}`}
+                            style={{display:"flex",flexDirection:"column",alignItems:"flex-start",width:"100%",
+                              padding:"3px 6px",borderRadius:7,border:"none",background:vc.bg,cursor:"pointer",
+                              textAlign:"left",minWidth:0}}>
+                            <span style={{display:"flex",alignItems:"center",gap:5,width:"100%",minWidth:0,
+                              fontFamily:K.fontBody,fontSize:11.5,fontWeight:700,color:K.hdrTitle}}>
+                              <span style={{width:6,height:6,borderRadius:"50%",background:vc.c,flexShrink:0}}/>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</span>
+                            </span>
+                            <span style={{fontFamily:K.fontBody,fontSize:10.5,color:K.hdrMeta,paddingLeft:11}}>{ev.time||"—"}</span>
+                          </button>
+                        );
+                      })}
+                      {evs2.length>shownEvs.length&&(
+                        <span style={{fontFamily:K.fontBody,fontSize:11,fontWeight:700,color:K.hdrMeta,paddingLeft:6}}>
+                          +{evs2.length-shownEvs.length} {T2("more")}
+                        </span>
+                      )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
-
-          {/* The picked day */}
-          {sel&&(()=>{
-            const dp=String(sel).split("-");
-            const dObj=new Date(+dp[0],(+dp[1])-1,+dp[2]);
-            const WD=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-            return(
-            <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
-              <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
-                border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
-                <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2(WD[dObj.getDay()])}</div>
-                <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:3}}>
-                  {dObj.getDate()} {T2(MO_FULL[dObj.getMonth()])} {dObj.getFullYear()}
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,color:K.hdrMeta}}>
-                  <Icon name="calendar" size={15} strokeWidth={1.9}/>
-                  <span style={{fontFamily:K.fontBody,fontSize:13}}>
-                    {selEvs.length} {selEvs.length===1?T2("function"):T2("functions")}
-                  </span>
-                </div>
-              </div>
-              {selEvs.length===0
-                ? <div style={{padding:"18px 20px",borderRadius:18,border:`1px dashed ${K.cardWarmLine}`,
-                    background:"rgba(251,250,245,.72)",textAlign:"center",
-                    fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
-                    {T2("Nothing booked on this day.")}
-                  </div>
-                : <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {selEvs.map(ev=>{
-                      const vc=gp(ev.venue);
-                      return(
-                        <button key={ev.id} onClick={()=>openEdit(ev)}
-                          className="kh-fncard kh-rip" onPointerDown={ripple}
-                          style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
-                            borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
-                            background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
-                          <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
-                          <div style={{minWidth:0,flex:1,paddingLeft:4}}>
-                            <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
-                              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
-                            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
-                              fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
-                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{ev.time||"—"}</span>
-                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
-                            </div>
-                            <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:5,
-                              fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>
-                              <Icon name="building" size={12} strokeWidth={1.9}/>{ev.venue||"—"}
-                            </div>
-                          </div>
-                          <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
-                            fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{(VP[ev.venue]||{}).code||"EV"}</span>
-                          <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
-                        </button>
-                      );
-                    })}
-                  </div>}
-            </div>
-            );
-          })()}
         </div>
+
+        {/* The picked day. Not shown for today while "Today's events" below
+            lists the same functions. */}
+        {sel&&!(sel===todayStr&&todayEvs.length>0)&&(()=>{
+          const dp=String(sel).split("-");
+          const dObj=new Date(+dp[0],(+dp[1])-1,+dp[2]);
+          const WD=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+          return(
+          <div style={{padding:"16px 20px",borderRadius:20,backgroundColor:K.cardWarm,
+            border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:12}}>
+              <span style={{...type.sectionHead,fontSize:22,color:K.hdrTitle}}>
+                {T2(WD[dObj.getDay()])}, {dObj.getDate()} {T2(MO_FULL[dObj.getMonth()])} {dObj.getFullYear()}
+              </span>
+              <span style={{fontFamily:K.fontBody,fontSize:13,color:K.hdrMeta}}>
+                {selEvs.length} {selEvs.length===1?T2("function"):T2("functions")}
+              </span>
+              <button onClick={()=>setSel(null)} aria-label={T2("Close")} className="kh-calnav"
+                style={{marginLeft:"auto",width:28,height:28,borderRadius:999,background:"#FFFFFF",
+                  border:`1px solid ${K.cardWarmLine}`,color:K.textFaint,cursor:"pointer",padding:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="close" size={13} strokeWidth={2.4}/>
+              </button>
+            </div>
+            {selEvs.length===0
+              ? <div style={{padding:"14px 16px",borderRadius:14,border:`1px dashed ${K.cardWarmLine}`,
+                  background:"rgba(251,250,245,.72)",textAlign:"center",
+                  fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>
+                  {T2("Nothing booked on this day.")}
+                </div>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {selEvs.map(ev=>{
+                    const vc=gp(ev.venue);
+                    return(
+                      <button key={ev.id} onClick={()=>openEdit(ev)}
+                        className="kh-fncard kh-rip" onPointerDown={ripple}
+                        style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
+                          borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
+                          background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
+                        <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
+                        <div style={{minWidth:0,flex:1,paddingLeft:4}}>
+                          <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
+                          <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
+                            fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{ev.time||"—"}</span>
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
+                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="building" size={13} strokeWidth={1.9}/>{ev.venue||"—"}</span>
+                          </div>
+                        </div>
+                        <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
+                          fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{(VP[ev.venue]||{}).code||"EV"}</span>
+                        <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
+                      </button>
+                    );
+                  })}
+                </div>}
+          </div>
+          );
+        })()}
+
+      {/* ══ TODAY'S EVENTS ══ */}
+      {todayEvs.length>0&&(
+        <div style={{marginBottom:26}}>
+          {/* Same anchor as Upcoming below it — two section headings a screen
+              apart in different weights read as two different kinds of thing.
+              Danger tone on the tile, because this one is happening now. */}
+          <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",marginBottom:12,minWidth:0}}>
+            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,
+              color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="flame" size={20} strokeWidth={1.8}/>
+            </span>
+            <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
+              {T2("Today's events")}
+            </span>
+            <span style={{padding:"5px 13px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
+              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.brand,
+              color:"#FFFFFF",whiteSpace:"nowrap"}}>
+              {todayEvs.length} {todayEvs.length===1?T2("function"):T2("functions")} · {todayEvs.reduce((s,e)=>s+(+e.pax||0),0).toLocaleString()} {T2("pax")}
+            </span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {todayEvs.map(ev=>{
+              const p=gp(ev.venue);
+              const evMenu = Array.isArray(ev.menu)?ev.menu.filter(d=>guessSectionForDish(d)!=="Beverages"):[];
+              const evReady = evMenu.filter((_,i)=>{const d=kt[ev.id]?.[ev.id+"|"+i];return d?.ready;}).length;
+              const allReady = evMenu.length>0&&evReady>=evMenu.length;
+              return(
+                // Not a click target itself — Edit and Delete sit on the card.
+                <div key={ev.id}
+                  className="kh-cardart-sm"
+                  style={{position:"relative",backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                    borderRadius:18,overflow:"hidden",boxShadow:K.shadowCard,padding:"16px 20px",
+                    display:"flex",alignItems:"center",gap:22,flexWrap:"wrap"}}>
+                  {evDateTile(ev.date,p)}
+                  <div style={{minWidth:0,flex:"1 1 220px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontFamily:K.fontBody,fontSize:16,fontWeight:700,color:K.hdrTitle,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</span>
+                      <span style={badgeStyle(K.danger,K.dangerBg,K.dangerBorder)}>{T2("Today")}</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,
+                      fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,minWidth:0}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {/* ODC events all share the same generic venue value
+                            ("Outdoor Catering (ODC)") — the actual site name
+                            lives in odc_location (the field ODCModule labels
+                            "Location"), so show that too or this line reads
+                            identically for every outdoor function. */}
+                        {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {describeEventMenu(ev)}
+                      </span>
+                    </div>
+                    {(ev.lms_source||ev.external_caterer||ev.special)&&(
+                      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginTop:7}}>
+                        {ev.lms_source&&<span style={badgeStyle(K.hdrMeta,"#FFFFFF",K.cardWarmLine)}>LMS</span>}
+                        {ev.external_caterer&&<span style={badgeStyle(K.warn,K.warnBg,K.warnBorder)}>{ev.external_caterer_name||T2("External caterer")}</span>}
+                        {ev.special&&<span style={{display:"inline-flex",alignItems:"center",gap:6,
+                          fontFamily:K.fontBody,fontSize:12,color:K.danger}}>
+                          <Icon name="alert" size={13} strokeWidth={2}/>{ev.special}</span>}
+                      </div>
+                    )}
+                  </div>
+                  {/* Readiness as a bar, not a chip. "12/40 ready" is the one
+                      thing about a function being cooked right now that you
+                      want to read across the room, and a proportion is a
+                      length before it is a pair of numbers. */}
+                  {evMenu.length>0&&(
+                    <div style={{flex:"0 1 200px",minWidth:150}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",
+                        marginBottom:6,fontFamily:K.fontBody,fontSize:12}}>
+                        <span style={{color:K.hdrMeta}}>{T2("Dishes ready")}</span>
+                        <span style={{fontWeight:700,fontVariantNumeric:"tabular-nums",
+                          color:allReady?K.ok:K.hdrTitle}}>{evReady}/{evMenu.length}</span>
+                      </div>
+                      <div style={{height:8,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:999,
+                          width:Math.round(evReady/evMenu.length*100)+"%",
+                          background:allReady?K.ok:K.warn}}/>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontFamily:K.fontBody,fontSize:24,fontWeight:700,color:K.hdrTitle,
+                      lineHeight:1.1,letterSpacing:"-0.6px",fontVariantNumeric:"tabular-nums"}}>{ev.pax}</div>
+                    <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{T2("pax")}</div>
+                  </div>
+                  {/* Inline, not behind a click. There are only ever a handful
+                      of these and they are the ones being cooked, so hiding
+                      Edit and Delete behind an expand cost a click for nothing. */}
+                  <div style={{display:"flex",gap:9,flexShrink:0}}>
+                    <button onClick={()=>openEdit(ev)} className="kh-rip" onPointerDown={ripple}
+                      style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 18px",borderRadius:999,
+                        background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,
+                        fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                      <Icon name="settings" size={14} strokeWidth={1.9}/>{T2("Edit")}
+                    </button>
+                    <button onClick={()=>setDeleteId(ev.id)} aria-label={T2("Delete")} className="kh-calnav"
+                      style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:10,
+                        borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
+                        color:K.hdrMeta,cursor:"pointer"}}>
+                      <Icon name="trash" size={15} strokeWidth={1.9}/>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      </div>
+
+      {/* ── Right: event types, quick actions, upcoming ── */}
+      <div style={{flex:"0 1 340px",minWidth:300,display:"flex",flexDirection:"column",gap:18}}>
+
+        {/* Event types — the venue key and the venue filter in one. Counts are
+            for the month the calendar is showing; clicking a row filters the
+            calendar and the upcoming list to that venue. */}
+        <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
+          boxShadow:K.shadowCard,padding:"18px 20px"}}>
+          <div style={{...type.sectionHead,fontSize:22,fontWeight:700,color:K.hdrTitle,marginBottom:12}}>{T2("Event Types")}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {VENUES.map(v=>{
+              const on=venFil===v;
+              const n=safeEvs.filter(e=>e.venue===v&&e.date.startsWith(`${calYr}-${pad(calMo+1)}`)).length;
+              return(
+                <button key={v} onClick={()=>setVenFil(on?"All":v)} title={v}
+                  className={on?undefined:"kh-calnav"}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"9px 12px",borderRadius:12,cursor:"pointer",
+                    background:on?K.sageSel:"rgba(255,255,255,.7)",border:`1px solid ${on?K.sageBorder:"transparent"}`,
+                    fontFamily:K.fontBody,fontSize:13.5,color:K.textBody,textAlign:"left"}}>
+                  <span style={{width:10,height:10,borderRadius:"50%",background:gp(v).c,flexShrink:0}}/>
+                  <span style={{fontWeight:on?700:500}}>{(VP[v]||{}).code||v.slice(0,3)}</span>
+                  <span style={{marginLeft:"auto",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>{n}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Upcoming — compact, paged. */}
+        <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
+          boxShadow:K.shadowCard,padding:"18px 20px"}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6}}>
+            <span style={{...type.sectionHead,fontSize:22,fontWeight:700,color:K.hdrTitle}}>{T2("Upcoming Events")}</span>
+            <span style={{marginLeft:"auto",fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
+              {upcoming.length} {upcoming.length===1?T2("function"):T2("functions")}
+            </span>
+          </div>
+          {upcomingShown.length===0&&(
+            <div style={{padding:"14px 0",fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta}}>{T2("Nothing to show")}</div>
+          )}
+          {upcomingShown.map((ev,i)=>{
+            const p=gp(ev.venue);const dd=daysDiff(ev.date);
+            const d=new Date(ev.date+"T00:00");
+            return(
+              <button key={ev.id} onClick={()=>openEdit(ev)} title={T2("Edit function")} className="kh-calnav"
+                style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"10px 4px",background:"transparent",
+                  border:"none",borderTop:i>0?`1px solid ${K.lineSoft}`:"none",cursor:"pointer",textAlign:"left",minWidth:0}}>
+                <div style={{width:44,height:44,borderRadius:12,background:p.bg,flexShrink:0,display:"flex",
+                  flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                  <span style={{fontFamily:K.fontBody,fontSize:9,fontWeight:700,color:p.c,textTransform:"uppercase",letterSpacing:.5}}>{d.toLocaleString("en",{month:"short"})}</span>
+                  <span style={{fontFamily:K.fontBody,fontSize:17,fontWeight:700,color:p.c,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{d.getDate()}</span>
+                </div>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                    <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
+                    <span style={{fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:K.hdrTitle,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</span>
+                    <span style={{marginLeft:"auto",flexShrink:0,fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>{ev.time}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,minWidth:0,
+                    fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{describeEventMenu(ev)}</span>
+                    <span style={{marginLeft:"auto",flexShrink:0,fontWeight:dd<=1?700:500,color:dd<=1?K.warn:K.hdrMeta}}>{daysLabel(dd)}</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {upPages>1&&(
+            <div style={{marginTop:10,paddingTop:12,borderTop:`1px solid ${K.lineSoft}`,display:"flex"}}>
+              <Pager page={upPageNow} pages={upPages} onPage={setUpPage}
+                from={upFrom} shown={UP_PER_PAGE} total={upcoming.length} T2={T2}/>
+            </div>
+          )}
+        </div>
+      </div>
       </div>
 
       {/* ══ UNCONFIRMED MENU ALERTS (grouped by timeframe) ══ */}
@@ -985,312 +1166,6 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           </div>
         );
       })()}
-
-      {/* ══ TODAY'S EVENTS ══ */}
-      {todayEvs.length>0&&(
-        <div style={{marginBottom:26}}>
-          {/* Same anchor as Upcoming below it — two section headings a screen
-              apart in different weights read as two different kinds of thing.
-              Danger tone on the tile, because this one is happening now. */}
-          <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",marginBottom:12,minWidth:0}}>
-            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.danger,
-              color:"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <Icon name="flame" size={20} strokeWidth={1.8}/>
-            </span>
-            <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
-              {T2("Today's events")}
-            </span>
-            <span style={{padding:"5px 13px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
-              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.danger,
-              color:"#FFFFFF",whiteSpace:"nowrap"}}>
-              {todayEvs.length} {todayEvs.length===1?T2("function"):T2("functions")} · {todayEvs.reduce((s,e)=>s+(+e.pax||0),0).toLocaleString()} {T2("pax")}
-            </span>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {todayEvs.map(ev=>{
-              const p=gp(ev.venue);
-              const evMenu = Array.isArray(ev.menu)?ev.menu.filter(d=>guessSectionForDish(d)!=="Beverages"):[];
-              const evReady = evMenu.filter((_,i)=>{const d=kt[ev.id]?.[ev.id+"|"+i];return d?.ready;}).length;
-              const allReady = evMenu.length>0&&evReady>=evMenu.length;
-              return(
-                // Not a click target itself — Edit and Delete sit on the card.
-                <div key={ev.id}
-                  className="kh-cardart-sm"
-                  style={{position:"relative",backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
-                    borderRadius:18,overflow:"hidden",boxShadow:K.shadowCard,padding:"16px 20px",
-                    display:"flex",alignItems:"center",gap:22,flexWrap:"wrap"}}>
-                  {evDateTile(ev.date,p)}
-                  <div style={{minWidth:0,flex:"1 1 220px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                      <span style={{fontFamily:K.fontBody,fontSize:16,fontWeight:700,color:K.hdrTitle,
-                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</span>
-                      <span style={badgeStyle(K.danger,K.dangerBg,K.dangerBorder)}>{T2("Today")}</span>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,
-                      fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,minWidth:0}}>
-                      <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
-                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {/* ODC events all share the same generic venue value
-                            ("Outdoor Catering (ODC)") — the actual site name
-                            lives in odc_location (the field ODCModule labels
-                            "Location"), so show that too or this line reads
-                            identically for every outdoor function. */}
-                        {ev.venue}{ev.venue==="Outdoor Catering (ODC)"?" — "+(ev.odc_location||"Location TBD"):""} · {ev.time} · {describeEventMenu(ev)}
-                      </span>
-                    </div>
-                    {(ev.lms_source||ev.external_caterer||ev.special)&&(
-                      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginTop:7}}>
-                        {ev.lms_source&&<span style={badgeStyle(K.hdrMeta,"#FFFFFF",K.cardWarmLine)}>LMS</span>}
-                        {ev.external_caterer&&<span style={badgeStyle(K.warn,K.warnBg,K.warnBorder)}>{ev.external_caterer_name||T2("External caterer")}</span>}
-                        {ev.special&&<span style={{display:"inline-flex",alignItems:"center",gap:6,
-                          fontFamily:K.fontBody,fontSize:12,color:K.danger}}>
-                          <Icon name="alert" size={13} strokeWidth={2}/>{ev.special}</span>}
-                      </div>
-                    )}
-                  </div>
-                  {/* Readiness as a bar, not a chip. "12/40 ready" is the one
-                      thing about a function being cooked right now that you
-                      want to read across the room, and a proportion is a
-                      length before it is a pair of numbers. */}
-                  {evMenu.length>0&&(
-                    <div style={{flex:"0 1 200px",minWidth:150}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",
-                        marginBottom:6,fontFamily:K.fontBody,fontSize:12}}>
-                        <span style={{color:K.hdrMeta}}>{T2("Dishes ready")}</span>
-                        <span style={{fontWeight:700,fontVariantNumeric:"tabular-nums",
-                          color:allReady?K.ok:K.hdrTitle}}>{evReady}/{evMenu.length}</span>
-                      </div>
-                      <div style={{height:8,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
-                        <div style={{height:"100%",borderRadius:999,
-                          width:Math.round(evReady/evMenu.length*100)+"%",
-                          background:allReady?K.ok:K.warn}}/>
-                      </div>
-                    </div>
-                  )}
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontFamily:K.fontBody,fontSize:24,fontWeight:700,color:K.hdrTitle,
-                      lineHeight:1.1,letterSpacing:"-0.6px",fontVariantNumeric:"tabular-nums"}}>{ev.pax}</div>
-                    <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{T2("pax")}</div>
-                  </div>
-                  {/* Inline, not behind a click. There are only ever a handful
-                      of these and they are the ones being cooked, so hiding
-                      Edit and Delete behind an expand cost a click for nothing. */}
-                  <div style={{display:"flex",gap:9,flexShrink:0}}>
-                    <button onClick={()=>openEdit(ev)} className="kh-rip" onPointerDown={ripple}
-                      style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 18px",borderRadius:999,
-                        background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,
-                        fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-                      <Icon name="settings" size={14} strokeWidth={1.9}/>{T2("Edit")}
-                    </button>
-                    <button onClick={()=>setDeleteId(ev.id)} aria-label={T2("Delete")} className="kh-calnav"
-                      style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:10,
-                        borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
-                        color:K.hdrMeta,cursor:"pointer"}}>
-                      <Icon name="trash" size={15} strokeWidth={1.9}/>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ══ UPCOMING EVENTS ══ */}
-      <div style={{marginBottom:24}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:14}}>
-          {/* The heading was Cormorant on ivory over the page artwork, with a
-              pale sage chip and the sync time on a line of its own below —
-              three quiet things stacked, none of which caught the eye. An icon
-              tile anchors it the way the menus table above is anchored, the
-              count goes solid brand so it reads as a figure and not a label,
-              and the sync time moves up beside the button it describes. */}
-          <div style={{display:"flex",alignItems:"center",gap:13,flexWrap:"wrap",minWidth:0}}>
-            <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,
-              color:K.hdrBadgeIcon,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <Icon name="calendarDays" size={20} strokeWidth={1.8}/>
-            </span>
-            <span style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px"}}>
-              {T2("Upcoming")}
-            </span>
-            <span style={{padding:"5px 13px",borderRadius:999,fontFamily:K.fontBody,fontSize:12.5,
-              fontWeight:700,fontVariantNumeric:"tabular-nums",background:K.brand,
-              color:"#FFFFFF",whiteSpace:"nowrap"}}>
-              {upcoming.length} {upcoming.length===1?T2("function"):T2("functions")}
-            </span>
-          </div>
-          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-            {/* When the last sync ran decides whether the list in front of you
-                is current, so it sits beside the button that changes it rather
-                than on a grey line of its own under the title. */}
-            {lmsLastSync&&currentUser?.role==='admin'&&(
-              // A chip, not loose text: it sits in a row of pill buttons, and
-              // bare words between them read as something that fell out of one.
-              // The label lives in the tooltip — next to a button that says
-              // "Sync LMS", a timestamp needs no second explanation.
-              <span title={`${T2("Last LMS sync")}: ${lmsLastSync}`}
-                style={{display:"inline-flex",alignItems:"center",gap:7,padding:"9px 15px",
-                  borderRadius:999,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
-                  fontFamily:K.fontBody,fontSize:12,color:K.sageText,whiteSpace:"nowrap"}}>
-                <Icon name="clock" size={13} strokeWidth={2}/>
-                <span style={{fontWeight:700}}>{lmsLastSync}</span>
-              </span>
-            )}
-            {currentUser?.role==='admin'&&(
-              <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
-                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
-                  background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,
-                  color:lmsSyncing?K.textFaint:K.textBody,fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,
-                  cursor:lmsSyncing?"wait":"pointer"}}>
-                {lmsSyncing
-                  ? <span style={{display:"inline-block",width:13,height:13,border:`2px solid ${K.textFaint}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>
-                  : <Icon name="refresh" size={14} strokeWidth={1.9}/>}
-                {lmsSyncing?T2("Syncing…"):T2("Sync LMS")}
-              </button>
-            )}
-            <button onClick={()=>openAdd(todayStr)} className="kh-rip" onPointerDown={ripple}
-              style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:999,
-                background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,
-                fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-              <Icon name="plus" size={14} strokeWidth={2.2}/>{T2("Add function")}
-            </button>
-          </div>
-        </div>
-        {/* The sync result itself is a toast — see the KToast near the foot of
-            this component. It used to be a full-width bar wedged between the
-            heading and the filters, pushing the whole list down for a message
-            that is over in a moment and read once. */}
-        <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
-        {/* Venue filter — each pill carries its venue's colour as a dot, the
-            same key the rows' spines and date tiles use. Reading "AE" told you
-            nothing about which rows it would leave behind. */}
-        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-          {["All",...VENUES].map(v=>{
-            const on=venFil===v;
-            const c=v==="All"?null:gp(v).c;
-            return(
-              <button key={v} onClick={()=>setVenFil(v)} className={on?undefined:"kh-calnav"}
-                style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:999,
-                  fontFamily:K.fontBody,fontSize:12.5,fontWeight:on?700:600,cursor:"pointer",
-                  background:on?K.brand:"#FFFFFF",color:on?"#FFFFFF":K.textBody,
-                  border:`1px solid ${on?K.brand:K.cardWarmLine}`}}>
-                {c&&<span style={{width:8,height:8,borderRadius:"50%",background:c,flexShrink:0}}/>}
-                {v==="All"?T2("All"):(VP[v]||{}).code||v.slice(0,3)}
-              </button>
-            );
-          })}
-        </div>
-        <div className="kh-evgrid">
-          {upcomingShown.map(ev=>{
-            const p=gp(ev.venue);const dd=daysDiff(ev.date);
-            // D-1 status for tomorrow's events
-            const isD1 = dd===1;
-            const evMenu = Array.isArray(ev.menu)?ev.menu.filter(d=>guessSectionForDish(d)!=="Beverages"):[];
-            const d1Done = isD1?evMenu.filter((_,i)=>{const d=kt[ev.id]?.[ev.id+"|"+i];return d?.mesaDone;}).length:0;
-            const soon = dd<=1;
-            return(
-              // backgroundColor, never the `background` shorthand: the
-              // shorthand resets background-image and would wipe the
-              // .kh-cardart-sm artwork off the card.
-              // This used to toggle an expanded block that no longer exists, so
-              // clicking a card did nothing at all. Editing is where that
-              // expand led, so the card goes straight there.
-              <div key={ev.id} onClick={()=>openEdit(ev)} title={T2("Edit function")}
-                className="kh-evcard kh-cardart-sm"
-                style={{position:"relative",backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
-                  borderRadius:16,cursor:"pointer",overflow:"hidden",boxShadow:K.shadowCard,
-                  padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
-                {/* Delete. stopPropagation because the whole card opens Edit —
-                    without it, removing a function would open the editor for
-                    the one being removed on the way out.
-                    It opens the same confirm dialog the delete in Today's
-                    events uses; nothing is removed on this click alone. */}
-                <button onClick={e=>{e.stopPropagation();setDeleteId(ev.id);}}
-                  className="kh-cardx" aria-label={T2("Delete")} title={T2("Delete function")}
-                  style={{position:"absolute",top:9,right:9,zIndex:2,width:26,height:26,borderRadius:999,
-                    display:"flex",alignItems:"center",justifyContent:"center",padding:0,cursor:"pointer",
-                    background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textFaint}}>
-                  <Icon name="close" size={13} strokeWidth={2.4}/>
-                </button>
-                {/* Right padding keeps a long name off the delete button. */}
-                <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0,paddingRight:26}}>
-                  {evDateTile(ev.date,p,"kh-evtile")}
-                  <div style={{minWidth:0,flex:1}}>
-                    {/* Body face, matching the guest name in Today's events.
-                        Cormorant was tried here and is wrong: it left the same
-                        field in two different fonts on one screen, and being a
-                        light face it made an all-caps name like SURINDER read
-                        weaker than a lowercase one. The display face stays on
-                        section headings, which is what it separates. */}
-                    <div style={{fontFamily:K.fontBody,fontSize:15,fontWeight:700,color:K.hdrTitle,
-                      lineHeight:1.25,
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</div>
-                    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:4,
-                      fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,minWidth:0}}>
-                      <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
-                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {(VP[ev.venue]||{}).code||"EV"} · {ev.time}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                {/* A short gold rule, the app's own divider on the header
-                    plates — it separates the name from the detail without
-                    spending a full-width line on it. Its width and colour live
-                    in CSS, not here: on hover the card draws it out to full
-                    width, and an inline width would outrank that. */}
-                <div className="kh-evrule"/>
-                <div style={{minWidth:0}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,color:K.textBody}}>
-                    <Icon name="plate" size={14} strokeWidth={1.9}/>
-                    <span style={{fontFamily:K.fontBody,fontSize:12.5,
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{describeEventMenu(ev)}</span>
-                  </div>
-                  {(ev.lms_source||ev.external_caterer||(isD1&&evMenu.length>0))&&(
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-                      {ev.lms_source&&<span style={badgeStyle(K.hdrMeta,"#FFFFFF",K.cardWarmLine)}>LMS</span>}
-                      {ev.external_caterer&&<span style={badgeStyle(K.warn,K.warnBg,K.warnBorder)}>{ev.external_caterer_name||T2("External caterer")}</span>}
-                      {isD1&&evMenu.length>0&&<span style={badgeStyle(d1Done>0?K.ok:K.warn,d1Done>0?K.okBg:K.warnBg,d1Done>0?K.okBorder:K.warnBorder)}>D-1 {d1Done}/{evMenu.length}</span>}
-                    </div>
-                  )}
-                </div>
-                {/* Headcount and countdown share the card's foot, split left
-                    and right — the two numbers you compare across cards, in
-                    the same place on every one of them. marginTop:auto so a
-                    one-line name and a two-line one still foot at the same
-                    height across a row. */}
-                <div style={{marginTop:"auto",paddingTop:11,borderTop:`1px solid ${K.cardWarmLine}`,
-                  display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10}}>
-                  <div style={{display:"flex",alignItems:"baseline",gap:5}}>
-                    <span style={{fontFamily:K.fontBody,fontSize:21,fontWeight:700,color:K.hdrTitle,
-                      lineHeight:1,letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{ev.pax}</span>
-                    <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta}}>{T2("pax")}</span>
-                  </div>
-                  {/* Tomorrow is the one countdown worth colouring — it is the
-                      day D-1 prep has to be done. Everything further out is
-                      just a number of days. */}
-                  <span style={soon
-                    ? badgeStyle(K.warn,K.warnBg,K.warnBorder)
-                    : {fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>
-                    {daysLabel(dd)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {/* Only when there is more than one page. On a single page the bar
-            holds no buttons, so all it says is "Showing 1–2 of 2" — which the
-            count chip in the heading already said, in a full-width card. */}
-        {upPages>1&&(
-          <div style={{marginTop:14,padding:"12px 18px",borderRadius:16,backgroundColor:K.cardWarm,
-            border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,display:"flex"}}>
-            <Pager page={upPageNow} pages={upPages} onPage={setUpPage}
-              from={upFrom} shown={UP_PER_PAGE} total={upcoming.length} T2={T2}/>
-          </div>
-        )}
-      </div>
-
 
       {/* Sync result. Kept short on purpose — the counts are the whole message,
           and KToast clears itself (4.5s, 7s for a failure so it can be read). */}

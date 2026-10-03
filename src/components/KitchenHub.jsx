@@ -5439,27 +5439,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               return(
                 <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
                   overflow:"hidden",boxShadow:K.shadowCard}}>
-                  {/* Heading */}
-                  <div style={{padding:"22px 24px 4px"}}>
-                    <div style={{display:"flex",alignItems:"flex-start",gap:16,minWidth:0}}>
-                      <span style={{width:52,height:52,borderRadius:16,flexShrink:0,background:K.sageBg,
-                        border:`1px solid ${K.sageBorder}`,color:K.brand,
-                        display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <Icon name="calendarDays" size={25} strokeWidth={1.7} />
-                      </span>
-                      <div style={{minWidth:0}}>
-                        {/* 700, not the scale's 600: Cormorant is a light face,
-                            and at this size on ivory the title needs the extra
-                            weight to hold against the artwork behind the card. */}
-                        <div style={{...type.pageTitle,fontSize:30,fontWeight:700,color:K.hdrTitle}}>
-                          {T2("Production Planning")}
-                        </div>
-                        <div style={{...type.body,fontSize:13,color:K.hdrMeta,marginTop:4}}>
-                          {T2("Plan, balance and deliver exceptional food experiences.")}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                   {/* The venue legend moved up here from the card's foot. It is
                       the key to the dots inside the grid, and read AFTER them
                       it explains something the eye has already given up on. */}
