@@ -486,6 +486,16 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     if (sectionId) await saveSectionOverride(name, sectionId);
   }
 
+  // Same as addCustomDish, minus the library-creation step — for a dish the
+  // chef picked from the existing library search instead of typing a new one.
+  async function addExistingDish(name, sectionId) {
+    var row = { proposal_id: proposal.id, dish_name: name, is_addon: true, ordering: dishItems.length };
+    var res = await supabase.from('proposal_items').insert(row).select().single();
+    if (res.error) throw res.error;
+    setDishItems(function(prev){ return prev.concat([res.data]); });
+    if (sectionId) await saveSectionOverride(name, sectionId);
+  }
+
   // V76: manual re-seed — recovers proposals stuck with 0 selected because
   // seedTemplateIfNeeded's one-shot auto-seed fired before pkgMapLoaded resolved
   // (a pre-existing race, now fixed above, but already-affected proposals were
@@ -1340,6 +1350,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   onLoadDefaults={loadPackageDefaults}
                   seeding={seeding}
                   onAddCustomDish={addCustomDish}
+                  onAddExistingDish={addExistingDish}
+                  allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   onAddSectionFromLibrary={addSectionFromLibrary}
                   onRemoveSection={removeAdHocSection}
@@ -1448,7 +1460,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
   // Kept here rather than deleted so uncommenting that block is a single edit:
@@ -1567,11 +1579,32 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   function openCustomModal(){
     setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '' });
   }
+  // Search the dish library as the user types, so "add dish" reuses an
+  // existing dish (and its recipe/ingredients) instead of silently creating a
+  // near-duplicate — same mistake that caused the "Khao Soey"/"Khao Sucsey"
+  // split earlier. An exact (case-insensitive) match switches the modal into
+  // "existing dish" mode; anything else still falls through to create-new.
+  var customQuery = (pendingCustom && pendingCustom.name || '').trim().toLowerCase();
+  var nameSuggestions = useMemo(function(){
+    if (!pendingCustom || customQuery.length < 2 || !allDishes) return [];
+    return allDishes.filter(function(d){ return d.name.toLowerCase().includes(customQuery); }).slice(0, 8);
+  // eslint-disable-next-line
+  }, [customQuery, allDishes, !!pendingCustom]);
+  var matchedExisting = useMemo(function(){
+    if (!customQuery || !allDishes) return null;
+    return allDishes.find(function(d){ return d.name.toLowerCase() === customQuery; }) || null;
+  // eslint-disable-next-line
+  }, [customQuery, allDishes]);
   async function confirmCustom(){
     if (!pendingCustom || !pendingCustom.name.trim() || customSaving) return;
+    if (matchedExisting && selectedSet[matchedExisting.name]) { setPendingCustom(null); return; }
     setCustomSaving(true);
     try {
-      await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
+      if (matchedExisting && onAddExistingDish) {
+        await onAddExistingDish(matchedExisting.name, pendingCustom.sectionId || null);
+      } else {
+        await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
+      }
       setPendingCustom(null);
     } catch (e) {
       sayFail(T2('Could not add that dish'), e);
@@ -1906,25 +1939,53 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 14 }}>{T2("Add a dish")}</div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Dish name")}</div>
-            <input value={pendingCustom.name} autoFocus
-              onChange={function(e){ setPendingCustom(function(p){ return { ...p, name: e.target.value }; }); }}
-              placeholder={T2("Not in list…")}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: "border-box", marginBottom: 16 }} />
-
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-              {(RECIPE_DB.cats || []).map(function(c){
-                var active = pendingCustom.catId === c.id;
-                return (
-                  <button key={c.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, catId: active ? "" : c.id }; }); }}
-                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                      background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
-                      border: "1px solid " + (active ? C.green : C.border) }}>
-                    {c.icon} {c.name}
-                  </button>
-                );
-              })}
+            <div style={{ position: "relative", marginBottom: matchedExisting ? 6 : 16 }}>
+              <input value={pendingCustom.name} autoFocus
+                onChange={function(e){ setPendingCustom(function(p){ return { ...p, name: e.target.value }; }); }}
+                placeholder={T2("Search the library, or type a new name…")}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.bg, fontSize: 13, color: C.text, boxSizing: "border-box" }} />
+              {/* Search the existing library first — picking a suggestion
+                  reuses that dish (its recipe/ingredients included) instead of
+                  creating a near-duplicate under a slightly different name. */}
+              {!matchedExisting && nameSuggestions.length > 0 && (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 10, maxHeight: 200, overflowY: "auto", background: C.surface, border: "1px solid " + C.border, borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.15)" }}>
+                  {nameSuggestions.map(function(d){
+                    return (
+                      <button key={d.name} onClick={function(){ setPendingCustom(function(p){ return { ...p, name: d.name }; }); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 12px", background: "transparent", border: "none", borderBottom: "1px solid " + C.borderLight, fontSize: 12.5, color: C.text, cursor: "pointer" }}>
+                        {d.name} <span style={{ color: C.muted, fontSize: 11 }}>· {d.catName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+            {matchedExisting && (
+              <div style={{ fontSize: 11.5, color: C.green, marginBottom: 16, display: "flex", alignItems: "center", gap: 5 }}>
+                ✓ {T2("Already in the library")} ({matchedExisting.catName}){selectedSet[matchedExisting.name] ? " — " + T2("already in this menu") : ""}
+              </div>
+            )}
+
+            {/* An existing dish already has its own SOP category — this picker
+                only matters when creating a genuinely new one. */}
+            {!matchedExisting && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+                  {(RECIPE_DB.cats || []).map(function(c){
+                    var active = pendingCustom.catId === c.id;
+                    return (
+                      <button key={c.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, catId: active ? "" : c.id }; }); }}
+                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+                          background: active ? C.green : "transparent", color: active ? "#fff" : C.text,
+                          border: "1px solid " + (active ? C.green : C.border) }}>
+                        {c.icon} {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {placementOptions.length > 0 && (
               <>
@@ -1950,9 +2011,9 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving}
-                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
-                {customSaving ? T2("Adding…") : T2("Add dish")}
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (matchedExisting && selectedSet[matchedExisting.name])}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (matchedExisting && selectedSet[matchedExisting.name])) ? 0.6 : 1 }}>
+                {customSaving ? T2("Adding…") : (matchedExisting ? T2("Add to menu") : T2("Add dish"))}
               </button>
             </div>
           </div>

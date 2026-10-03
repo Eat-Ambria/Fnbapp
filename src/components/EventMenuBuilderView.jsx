@@ -608,6 +608,18 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (sectionId) await saveSectionOverride(name, sectionId);
   }
 
+  // Same as addCustomDish, minus the library-creation step — for a dish the
+  // chef picked from the existing library search instead of typing a new one.
+  async function addExistingDish(name, sectionId) {
+    var row = { event_id: event.id, dish_name: name, is_addon: true, ordering: dishItems.length };
+    var res = await supabase.from('event_items').insert(row).select().single();
+    if (res.error) throw res.error;
+    var nextItems = dishItems.concat([res.data]);
+    setDishItems(nextItems);
+    if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(nextItems);
+    if (sectionId) await saveSectionOverride(name, sectionId);
+  }
+
   // V87 — "Add section from library": every top-level catalogue section
   // routed to the active dept, subsections listed right after (indented).
   var catalogueSectionOptions = useMemo(function(){
@@ -1284,6 +1296,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   onLoadDefaults={loadPackageDefaults}
                   seeding={seeding}
                   onAddCustomDish={addCustomDish}
+                  onAddExistingDish={addExistingDish}
+                  allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   onAddSectionFromLibrary={addSectionFromLibrary}
                   onRemoveSection={removeAdHocSection}

@@ -10,6 +10,7 @@
 
 import React, { useEffect } from "react";
 import { C } from '../data/constants.js';
+import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
 
@@ -24,6 +25,34 @@ var DIFF_KIND_META = {
   addon:     { label: 'Add-on',    color: '#2A7A48', bg: '#E5F5EA' },
   deduction: { label: 'Deduction', color: '#A52828', bg: '#FAE5E5' },
   swap:      { label: 'Swap',      color: '#1858A5', bg: '#E5F0FA' },
+};
+
+// LMS's own function-type code (fiscd_function_type) — no label travels with
+// it in the synced data, so this is the LMS admin's own code list.
+var LMS_FUNCTION_TYPES = {
+  1: 'Ring Ceremony',       13: null,                   25: 'House Party',
+  2: 'Birthday',            14: 'Haldi',                26: 'Lunch Function',
+  3: 'Wedding',             15: 'Mehendi',               27: 'Breakfast Function',
+  4: 'Reception',           16: 'Roka Ceremony',         28: 'Dinner Function',
+  5: 'Kua Poojan',          17: 'Residential Wedding',   29: 'Breakfast',
+  6: 'Anniversary',         18: 'Destination Wedding',   30: 'Lunch',
+  7: 'Lagan',               19: 'Kothi Booking',         31: 'Kitty Party',
+  8: 'Sagan',               20: 'Sangeet',               32: 'Restaurant Sale',
+  9: 'Cocktail',            21: 'Baby Shower',           33: 'Lohri',
+  10: 'Religious',          22: 'Engagement',            34: 'Diwali Party',
+  11: 'Corporate',          23: 'Tender',                35: 'Get Together',
+  12: 'Proposal Ceremony',  24: 'Barat Assembly',        36: 'Mata Ki Chowki',
+};
+
+// LMS staff id (fisc_entryby, who entered the contract) -> name.
+var LMS_STAFF_NAMES = {
+  3: 'Rajnish', 4: 'Aman Chibber', 5: 'Nivedita', 6: 'Harsh Sharma', 7: 'Kartik Atree',
+  10: 'Tarun', 11: 'Krati Agarwal', 12: 'Himanshu Vats', 14: 'Tushita', 15: 'Dipesh',
+  16: 'Medhavi', 17: 'Gaurav Arora', 18: 'Sahaj Kalra', 20: 'Ajay Chaudhary', 21: 'Ajay Chauhan',
+  25: 'Anmol Oberoi', 29: 'Jitanshu Gulati', 30: 'Arjun Kumar', 34: 'Ompal Sharma', 36: 'Sudheer',
+  40: 'Vindeep Kapoor', 48: 'Saloni', 49: 'Chaitanya Arora', 52: 'Pratik Agarwal', 54: 'Virendra',
+  55: 'Umakant', 59: 'Rajshekhar', 60: 'Vipin Kumar', 61: 'Vinay', 63: 'Aditya Singh',
+  66: 'Abhishek Srivastav',
 };
 
 // Renders one saved config value as a short human-readable line, using the
@@ -153,6 +182,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
       bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
     }
   }
+  var lmsRaw = event.lms_raw || null;
+  var functionTypeLabel = (lmsRaw && LMS_FUNCTION_TYPES[Number(lmsRaw.fiscd_function_type)]) || event.type || '';
+  var mgrName = lmsRaw ? LMS_STAFF_NAMES[Number(lmsRaw.fisc_entryby)] : null;
+
   var lmsPlate = getLmsPlateInfo(event);
   if (lmsPlate) {
     if (lmsPlate.comp != null) bullets.push('Complimentary plates: ' + lmsPlate.comp);
@@ -194,12 +227,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           <FRow>
             <FCell value={event.date || ''} label="DATE" />
             <FCell value={dayNameFor(event.date)} label="DAY" />
-            <FCell value={event.type || ''} label="FUNCTION" last />
+            <FCell value={functionTypeLabel} label="FUNCTION" last />
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
             <FCell value={event.venue || ''} label="ADDRESS" />
-            <FCell value="" label="CONTACT NO." last />
+            <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
           <FRow>
             <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
@@ -278,8 +311,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", padding: "10px 16px", gap: 16, flexWrap: "wrap" }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", flex: "1 1 220px" }}>{T2("PROSPECTUS CHECKED / APPROVED / CIRCULATED")}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: _______________</div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: _______________</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: {mgrName || '_______________'}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: {localDateStr(new Date())}</div>
           </div>
         </div>
       </div>
