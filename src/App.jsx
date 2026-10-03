@@ -1481,7 +1481,13 @@ export default function App() {
             </button>
           )}
           {/* No plate on the Dashboard — its content already says what and when. */}
-          {screen!=="dashboard"&&(
+          {/* Kitchen Hub has no plate either, but its SOPs tab portals "Back to Recipes" /
+              "All Categories" into #kh-hdr-slot, so the bare slot stays. */}
+          {/* The Dashboard portals its title/totals/actions in here, so with the sidebar
+              shut they sit on the Expand button's row instead of under it. */}
+          {screen==="dashboard"&&<div id="dash-top-slot" style={{flex:1,minWidth:0}}/>}
+          {screen==="kitchen"&&<div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}/>}
+          {screen!=="dashboard"&&screen!=="kitchen"&&(
           <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}

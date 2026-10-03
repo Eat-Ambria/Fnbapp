@@ -303,7 +303,7 @@ const KITCHEN_CSS = `
    hover at all.
    NOTE: no backticks in this block — the whole stylesheet is a JS template
    literal, so a stray backtick ends it and breaks the build. */
-.kh-scope .kh-tab { border-radius: 12px; }
+.kh-scope .kh-tab { border-radius: 999px; }
 .kh-scope .kh-tab:hover {
   filter: none;
   color: ${K.tabIdleText} !important;
@@ -689,6 +689,38 @@ const KITCHEN_CSS = `
 /* An expandable section row. The whole row is the click target but nothing on
    it says so until the pointer is over it. */
 .kh-secrow:hover { background: ${K.sageBg}; }
+
+/* Analytics layout. Three cells: the calendar (.kh-an-cal), the picked day's
+   functions (.kh-an-rail) and everything else (.kh-an-below: summary cards,
+   dishes by section).
+   Wide panel: a two-column grid — calendar top-left, the rest directly UNDER
+   the calendar, and the rail down the right spanning both rows. As a plain flex
+   row the "rest" started only after the row ended, i.e. below the (often much
+   taller) rail, leaving a big empty band under the calendar.
+   Narrow panel (< 620 + 16 + 366 = 1002px): one column, in DOM order — calendar,
+   functions, rest. A container query, so it follows the panel, not the window. */
+.kh-an { container-type: inline-size; }
+.kh-an-row { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
+@container (min-width: 1002px) {
+  .kh-an-row { display: grid; grid-template-columns: minmax(0, 1fr) 366px; gap: 16px; align-items: start; }
+  .kh-an-cal { grid-column: 1; grid-row: 1; }
+  .kh-an-rail { grid-column: 2; grid-row: 1 / span 2; }
+  .kh-an-below { grid-column: 1; grid-row: 2; }
+}
+/* Analytics "Dishes by Section": tiles, four to a row where the column is wide
+   enough (~190px a tile), stepping down as the panel narrows. Each tile opens
+   that section's dishes in a modal. Sized off the .kh-an container — remember
+   the tiles' column is the panel minus the 382px rail from 1002px up. */
+.kh-secgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@container (min-width: 480px)  { .kh-secgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 760px)  { .kh-secgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 1150px) { .kh-secgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Planning: the dish sections as tiles (each opens its table in PlanSectionModal).
+   Planning runs full width, so plain viewport breakpoints: 4 / 3 / 2 / 1. */
+.kh-plangrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+@media (max-width: 1280px) { .kh-plangrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 980px)  { .kh-plangrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px)  { .kh-plangrid { grid-template-columns: minmax(0, 1fr); } }
 
 /* An upcoming-function card. The whole card opens the editor, so hovering it
    lifts rather than just tinting: a flat colour change says "selected", a lift

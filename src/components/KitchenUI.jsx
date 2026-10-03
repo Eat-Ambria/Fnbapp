@@ -27,9 +27,7 @@ import { Icon } from './Icons.jsx';
 function KTabs({ items, value, onChange, right = null }) {
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap",
-      background: K.tabBarBg, border: `1px solid ${K.tabBarLine}`,
-      borderRadius: 16, padding: 8, boxShadow: K.shadowCard, marginBottom: 14,
+      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14,
     }}>
       {items.map(t => {
         const on = value === t.v;
@@ -38,8 +36,10 @@ function KTabs({ items, value, onChange, right = null }) {
             onPointerDown={ripple} onClick={() => onChange(t.v)}
             style={{
               display: "flex", alignItems: "center", gap: 9,
-              padding: "11px 18px", borderRadius: 12, border: "none",
-              background: on ? K.tabActiveBg : "transparent",
+              padding: "11px 18px", borderRadius: 999,
+              border: `1px solid ${on ? K.tabActiveBg : K.tabBarLine}`,
+              boxShadow: K.shadowCard,
+              background: on ? K.tabActiveBg : "#FFFFFF",
               color: on ? K.tabActiveText : K.tabIdleText,
               fontSize: 14, fontWeight: on ? 700 : 500,
               cursor: "pointer", whiteSpace: "nowrap",

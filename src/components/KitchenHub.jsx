@@ -116,6 +116,56 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   );
 }
 
+// Planning → a section's dish table, opened from its tile. KModal's look, but its
+// own component on purpose: KModal sits at z-index 10000, and the dish rows in
+// here open the ingredient modal (planIngrModal, z-index 9999, not portalled) —
+// under a KModal that would land BEHIND the table it was opened from. This one
+// sits at 9000, so anything a row opens comes up on top. Portalled to <body>,
+// Escape / scrim / × close it. Inputs inside keep saving on blur exactly as in
+// the page.
+function PlanSectionModal({ open, onClose, icon, title, meta, children }) {
+  // onClose is a fresh arrow on every KitchenHub render (it re-renders on a 1s timer), so it is
+  // read through a ref — the key listener and scroll lock are set up once per open, not per tick.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") closeRef.current?.(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [open]);
+  if (!open) return null;
+  return createPortal(
+    <div onClick={onClose} role="presentation"
+      style={{ position: "fixed", inset: 0, zIndex: 9000, background: K.modalScrim,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}
+        style={{ position: "relative", background: K.modalBg, border: `1px solid ${K.modalLine}`,
+          borderRadius: K.modalRadius, boxShadow: K.shadowLift, width: "100%", maxWidth: 980,
+          maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 22px", flexWrap: "wrap",
+          borderBottom: `1px solid ${K.cardWarmLine}` }}>
+          <span style={{ width: 40, height: 40, borderRadius: 13, flexShrink: 0, background: K.sageBg,
+            border: `1px solid ${K.sageBorder}`, fontSize: 19, lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
+          <div style={{ ...type.sectionHead, fontSize: 21, color: K.hdrTitle, minWidth: 0 }}>{title}</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginRight: 44 }}>{meta}</div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            style={{ position: "absolute", top: 16, right: 16, width: 34, height: 34, borderRadius: K.rPill,
+              background: K.surface, border: `1px solid ${K.modalLine}`, color: K.textMuted,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+            <Icon name="close" size={16} strokeWidth={2.1} />
+          </button>
+        </div>
+        <div style={{ overflowY: "auto", minHeight: 0 }}>{children}</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
 
@@ -767,6 +817,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const anaGp=v=>ANA_VP[v]||{code:"EV",c:"#2563EB"};
   const [usageLogs, setUsageLogs] = useState([]);
   const [analyticsExp, setAnalyticsExp] = useState(new Set());
+  const [anSecModal, setAnSecModal] = useState(null); // Analytics: the section (cid) whose dishes are open in a modal
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
   function fetchUsageLogs(evIds){fetchAllRows(()=>supabase.from('ingredient_usage_log').select('*').in('event_id',evIds)).then(data=>setUsageLogs(data||[])).catch(()=>setUsageLogs([]));}
   useEffect(()=>{
@@ -796,6 +847,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planEvId, setPlanEvId] = useState(null);
   const [planSelDate, setPlanSelDate] = useState(null);
   const [planCalMo, setPlanCalMo] = useState(()=>new Date().getMonth());
+  const [planUnmappedOpen, setPlanUnmappedOpen] = useState(false); // Planning: the "Unmapped" list starts folded
+  const [planSecModal, setPlanSecModal] = useState(null); // Planning: the section (cat id) whose dish table is open in a modal
   const [planCalYr, setPlanCalYr] = useState(()=>new Date().getFullYear());
   const [planRows, setPlanRows] = useState({});          // {dishName: row}
   const [planDrafts, setPlanDrafts] = useState({});      // {dishName: string being edited}
@@ -2283,8 +2336,34 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               toneName="danger"
               icon="alert"
               style={{marginBottom:12}}
-              title={`${heading} — ${ev.guest||T2("Function")} (${isToday?T2("today"):T2("tomorrow")})`}
-              sub={`${ev.venue||""} — ${ev.date} — ${ev.pax} ${T2("pax")} — ${ev.time||"TBD"}${pkgNote} — ${body}`}
+              title={
+                <span style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:15}}>
+                  <span>{heading}</span>
+                  <span style={{padding:"2px 10px",borderRadius:999,background:K.danger,color:"#FFFFFF",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+                    {isToday?T2("Today"):T2("Tomorrow")}
+                  </span>
+                </span>
+              }
+              sub={
+                <>
+                  <span style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:6}}>
+                    {[{i:"plate",t:ev.guest||T2("Function"),b:true},
+                      {i:"building",t:ev.venue||""},
+                      {i:"calendar",t:ev.date},
+                      {i:"clock",t:ev.time||"TBD"},
+                      {i:"users",t:`${ev.pax} ${T2("pax")}`},
+                      ...(pkgNote?[{i:"box",t:pkg}]:[])
+                    ].filter(c=>c.t).map((c,ci)=>(
+                      <span key={ci} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:999,
+                        background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,fontSize:12,
+                        fontWeight:c.b?700:500,color:K.hdrTitle,whiteSpace:"nowrap"}}>
+                        <Icon name={c.i} size={12} strokeWidth={1.9}/>{c.t}
+                      </span>
+                    ))}
+                  </span>
+                  <span style={{display:"block",marginTop:8,fontSize:12.5,color:K.textBody}}>{body}</span>
+                </>
+              }
               right={
               currentUser&&currentUser.role==='admin'&&(
                 <KButton variant="danger" size="sm" icon="check" onClick={function(){
@@ -5439,81 +5518,83 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               return(
                 <div style={{backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,
                   overflow:"hidden",boxShadow:K.shadowCard}}>
-                  {/* The venue legend moved up here from the card's foot. It is
-                      the key to the dots inside the grid, and read AFTER them
-                      it explains something the eye has already given up on. */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,
-                    padding:"16px 20px",flexWrap:"wrap"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      {/* Both of these used to render an em dash, so back and
-                          forward were the same glyph and neither said which way
-                          it went. */}
-                      <button onClick={prevMo} className="kh-calnav" aria-label={T2("Previous month")}
-                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
-                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <Icon name="chevronL" size={15} strokeWidth={2.1} />
-                      </button>
-                      <div style={{...type.sectionHead,fontSize:21,color:K.hdrTitle,minWidth:168,textAlign:"center"}}>
-                        {T2(MO_FULL[planCalMo])} {planCalYr}
-                      </div>
-                      <button onClick={nextMo} className="kh-calnav" aria-label={T2("Next month")}
-                        style={{width:32,height:32,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
-                          cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <Icon name="chevronR" size={15} strokeWidth={2.1} />
-                      </button>
-                      <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}}
-                        className="kh-calnav"
-                        style={{marginLeft:8,padding:"7px 18px",borderRadius:999,background:"#FFFFFF",
-                          border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
-                          fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Today")}</button>
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"16px 20px",flexWrap:"wrap"}}>
+                    <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:"#F0EEE7",
+                      color:K.hdrMeta,display:"flex",alignItems:"center",justifyContent:"center",marginRight:4}}>
+                      <Icon name="calendarDays" size={19} strokeWidth={1.8} />
+                    </span>
+                    <div style={{...type.sectionHead,fontSize:28,fontWeight:700,color:K.hdrTitle,letterSpacing:"-0.4px",marginRight:6}}>
+                      {T2(MO_FULL[planCalMo])} {planCalYr}
                     </div>
-                    <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                      {Object.entries(ANA_VP).map(([v,p])=>(
-                        <div key={v} style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{width:8,height:8,borderRadius:"50%",background:p.c,flexShrink:0}}/>
-                          <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{p.code}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <button onClick={prevMo} className="kh-calnav" aria-label={T2("Previous month")}
+                      style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                        cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon name="chevronL" size={15} strokeWidth={2.1} />
+                    </button>
+                    <button onClick={nextMo} className="kh-calnav" aria-label={T2("Next month")}
+                      style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",
+                        cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon name="chevronR" size={15} strokeWidth={2.1} />
+                    </button>
+                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}}
+                      className="kh-calnav"
+                      style={{marginLeft:6,padding:"8px 20px",borderRadius:999,background:"#FFFFFF",
+                        border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
+                        fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Today")}</button>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:"#F4F2EC",
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",background:"#F4F2EC",
                     borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`}}>
                     {DY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontFamily:K.fontBody,fontSize:12,
                       fontWeight:600,color:K.hdrMeta,padding:"9px 0"}}>{T2(d)}</div>)}
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))"}}>
                     {cells.map((cell,i)=>{
                       const dt = cellDate(cell);
                       const evs2 = dt ? evsOnDate(dt) : [];
                       const isToday = dt === TODAY;
                       const isSel = dt === planSelDate;
-                      const vCols = [...new Set(evs2.map(e=>anaGp(e.venue).c))];
+                      const shownEvs = evs2.slice(0,1);
                       return(
                         <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanEvId(makeCombinedId(dt));}}}
                           className={dt?"kh-calcell":undefined}
-                          style={{height:58,padding:4,cursor:dt?"pointer":"default",
+                          style={{minHeight:68,padding:3,cursor:dt?"pointer":"default",minWidth:0,
                             borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
-                            opacity:cell.c?1:.28}}>
+                            opacity:cell.c?1:.32}}>
                           {/* The selection is an inset tile, not a flooded cell:
                               filled edge to edge it merges with its neighbours
                               across the hairlines and stops looking like one day. */}
-                          <div style={{height:"100%",borderRadius:10,padding:"5px 8px",overflow:"hidden",
+                          <div style={{height:"100%",borderRadius:10,padding:"4px 5px",overflow:"hidden",
                             background:isSel?K.sageSel:isToday?"#F6EFDD":"transparent",
-                            border:isToday&&!isSel?`1px solid ${K.goldSoft}`:"1px solid transparent"}}>
-                            <div style={{fontFamily:K.fontBody,fontSize:14,fontVariantNumeric:"tabular-nums",
-                              fontWeight:isToday||isSel?700:500,
-                              color:isSel?K.sageText:isToday?K.gold:K.textBody}}>{cell.d}</div>
-                            {vCols.length>0&&<div style={{display:"flex",gap:3,marginTop:4}}>{vCols.slice(0,4).map((col,ci)=><div key={ci} style={{width:6,height:6,borderRadius:"50%",background:col}}/>)}</div>}
-                            {/* The count only appears on the picked day: on all
-                                42 cells at once it turned the grid into a wall
-                                of text and the dots stopped being scannable. */}
-                            {isSel&&evs2.length>0&&(
-                              <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3,
-                                fontFamily:K.fontBody,fontSize:10.5,fontWeight:600,color:K.sageText,whiteSpace:"nowrap"}}>
-                                {evs2.length} {evs2.length===1?T2("event"):T2("events")}
-                                <Icon name="chevronR" size={10} strokeWidth={2.3} />
-                              </div>
-                            )}
+                            border:`1px solid ${isToday?K.goldSoft:"transparent"}`}}>
+                            <div style={{display:"flex",marginBottom:2}}>
+                              <span style={{minWidth:20,height:20,padding:"0 5px",borderRadius:999,boxSizing:"border-box",
+                                display:"inline-flex",alignItems:"center",justifyContent:"center",
+                                fontFamily:K.fontBody,fontSize:13,fontVariantNumeric:"tabular-nums",
+                                fontWeight:isToday||isSel?700:500,
+                                background:isToday?"#F2D9C8":"transparent",
+                                color:isSel?K.sageText:isToday?K.gold:K.textBody}}>{cell.d}</span>
+                            </div>
+                            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                              {shownEvs.map(ev=>{
+                                const vc = anaGp(ev.venue);
+                                return(
+                                  <div key={ev.id} title={`${ev.guest||""} · ${ev.time||""}`}
+                                    style={{display:"flex",flexDirection:"column",alignItems:"flex-start",width:"100%",
+                                      padding:"3px 6px",borderRadius:7,background:vc.c+"1A",minWidth:0,boxSizing:"border-box"}}>
+                                    <span style={{display:"flex",alignItems:"center",gap:5,width:"100%",minWidth:0,
+                                      fontFamily:K.fontBody,fontSize:11,fontWeight:700,color:K.hdrTitle}}>
+                                      <span style={{width:6,height:6,borderRadius:"50%",background:vc.c,flexShrink:0}}/>
+                                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</span>
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              {evs2.length>shownEvs.length&&(
+                                <span style={{fontFamily:K.fontBody,fontSize:11,fontWeight:700,color:K.hdrMeta,paddingLeft:6}}>
+                                  +{evs2.length-shownEvs.length} {T2("more")}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -5522,47 +5603,6 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 </div>
               );
             })()}
-
-            {/* ── Plan status bar ──
-                The same four numbers the summary row above the dish list
-                carries. They live here too because this is the screen you are
-                on while deciding whether the day is ready to cook from, and
-                "29 unmapped" is the one fact that should reach you before you
-                scroll. Only rendered once a plan is actually loaded — with no
-                event picked every count is a meaningless zero. */}
-            {selEv && (
-              <div style={{padding:"16px 20px",borderRadius:18,backgroundColor:K.cardWarm,
-                border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
-                display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 200px",minWidth:180}}>
-                  <div style={{...type.cardTitle,color:K.hdrTitle}}>{T2("Plan Efficiently")}</div>
-                  <div style={{...type.body,fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
-                    {T2("Sync your kitchen, team and resources for a seamless service.")}
-                  </div>
-                </div>
-                <div style={{display:"flex",gap:22,flexWrap:"wrap",alignItems:"center"}}>
-                  {[{n:stats.auto,l:T2("Auto-planned"),c:K.ok,i:"check"},
-                    {n:stats.override,l:T2("Overrides"),c:K.brand,i:"sliders"},
-                    {n:stats.fromStore,l:T2("From store"),c:K.hdrMeta,i:"box"},
-                    {n:stats.unmapped,l:T2("Unmapped"),c:K.danger,i:"alert"}].map(s=>(
-                    <div key={s.l} style={{display:"flex",alignItems:"center",gap:9}}>
-                      <span style={{color:s.c,display:"flex",flexShrink:0}}><Icon name={s.i} size={17} strokeWidth={1.9}/></span>
-                      <div>
-                        <div style={{fontFamily:K.fontBody,fontSize:19,fontWeight:700,lineHeight:1.1,
-                          fontVariantNumeric:"tabular-nums",color:s.n>0?s.c:K.textFaint}}>{s.n}</div>
-                        <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{s.l}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={()=>setShowOrderingSheet(true)} className="kh-rip" onPointerDown={ripple}
-                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"11px 20px",borderRadius:999,
-                    background:K.brand,color:"#FFFFFF",border:"none",cursor:"pointer",
-                    fontFamily:K.fontBody,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>
-                  {T2("View Breakdown")}<Icon name="chevronR" size={14} strokeWidth={2.2}/>
-                </button>
-              </div>
-            )}
 
             </div>{/* end left column */}
 
@@ -6074,14 +6114,25 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 )}
 
-                {/* Grouped sections */}
+                {/* Grouped sections — tiles, four to a row (.kh-plangrid in theme.js). A tile
+                    opens that section's dish table in PlanSectionModal; editing there works
+                    exactly as it did inline. */}
+                <div className="kh-plangrid">
                 {orderedGroups.map(g=>{
                   const overrideInGroup = g.items.filter(it=>isRealOverride(it.dish)).length;
                   const autoInGroup = g.items.length - overrideInGroup;
+                  const chips = (<>
+                          {autoInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
+                            background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`}}>{autoInGroup} {T2("auto")}</span>}
+                          {overrideInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
+                            background:K.brandBg,color:K.brandText,border:`1px solid ${K.brandBorder}`}}>{overrideInGroup} {T2("pinned")}</span>}
+                  </>);
                   return(
-                    <div key={g.cat.id} style={{marginBottom:14,borderRadius:18,border:`1px solid ${K.cardWarmLine}`,
+                    <div key={g.cat.id} style={{borderRadius:18,border:`1px solid ${K.cardWarmLine}`,
                       backgroundColor:K.cardWarm,overflow:"hidden",boxShadow:K.shadowCard}}>
-                      <div style={{padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <div onClick={()=>setPlanSecModal(g.cat.id)} role="button" tabIndex={0} className="kh-secrow"
+                        onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setPlanSecModal(g.cat.id);}}}
+                        style={{padding:"14px 16px",display:"flex",flexDirection:"column",alignItems:"stretch",gap:12,height:"100%",cursor:"pointer"}}>
                         <div style={{display:"flex",alignItems:"center",gap:11,minWidth:0}}>
                           <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.sageBg,
                             border:`1px solid ${K.sageBorder}`,fontSize:16,lineHeight:1,
@@ -6089,13 +6140,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <span style={{...type.sectionHead,fontSize:17,color:K.hdrTitle}}>{g.cat.name}</span>
                           <span style={{fontFamily:K.fontBody,fontSize:13,color:K.textFaint,fontVariantNumeric:"tabular-nums"}}>({g.items.length})</span>
                         </div>
-                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                          {autoInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
-                            background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`}}>{autoInGroup} {T2("auto")}</span>}
-                          {overrideInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
-                            background:K.brandBg,color:K.brandText,border:`1px solid ${K.brandBorder}`}}>{overrideInGroup} {T2("pinned")}</span>}
-                        </div>
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:"auto"}}>{chips}</div>
                       </div>
+                      <PlanSectionModal open={planSecModal===g.cat.id} onClose={()=>setPlanSecModal(null)}
+                        icon={g.cat.icon} title={<>{g.cat.name} <span style={{fontFamily:K.fontBody,fontSize:14,color:K.textFaint}}>({g.items.length})</span></>} meta={chips}>
                       {/* Column heads. The rows already carried a name, a
                           number, a unit and a status; nothing said which was
                           which, so every row had to be decoded on its own. */}
@@ -6238,29 +6286,40 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           )];
                         })}
                       </div>
+                      </PlanSectionModal>
                     </div>
                   );
                 })}
+                </div>{/* end .kh-plangrid */}
 
                 {/* Unmapped bucket */}
                 {unmapped.length>0 && (
                   <div style={{marginBottom:10,borderRadius:10,border:`1px solid ${C.red}30`,background:C.surface,overflow:"hidden"}}>
-                    <div style={{padding:"8px 12px",background:C.red+"08",borderBottom:`1px solid ${C.red}20`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    {/* Folded by default — eight "No recipe" rows were a full screen of red under the tiles.
+                        The header alone says how many and where to fix them; click to see the list. */}
+                    <div onClick={()=>setPlanUnmappedOpen(o=>!o)} role="button" tabIndex={0} aria-expanded={planUnmappedOpen}
+                      onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setPlanUnmappedOpen(o=>!o);}}}
+                      style={{padding:"8px 12px",background:C.red+"08",borderBottom:planUnmappedOpen?`1px solid ${C.red}20`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
                       <div style={{fontSize:12,fontWeight:600,color:C.red,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{fontSize:14}}>❓</span>
                         <span>{T2("Unmapped")}</span>
                         <span style={{fontSize:10,color:C.muted,fontWeight:400}}>({unmapped.length})</span>
                       </div>
-                      <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>{T2("Fix via Dish Map")}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>{T2("Fix via Dish Map")}</div>
+                        <span style={{color:C.muted,display:"flex",transform:planUnmappedOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                          <Icon name="chevronD" size={15} strokeWidth={2.1}/>
+                        </span>
+                      </div>
                     </div>
-                    <div>
+                    {planUnmappedOpen&&<div>
                       {unmapped.map((it,i)=>(
                         <div key={i} style={{padding:"8px 12px",borderBottom:i<unmapped.length-1?`1px solid ${C.borderLight}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
                           <div style={{flex:1,minWidth:0,fontSize:12,color:C.text}}>{it.dish}</div>
                           <div style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:600,color:C.red,background:C.red+"15",border:`1px solid ${C.red}30`,whiteSpace:"nowrap"}}>{T2("No recipe")}</div>
                         </div>
                       ))}
-                    </div>
+                    </div>}
                   </div>
                 )}
               </div>);
@@ -6325,15 +6384,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         
         const selEv=selId&&selId!=="__combined"?allEvs.find(e=>e.id===selId):null;
         return(
-          <div>
+          <div className="kh-an">
             {/* —— Calendar Date Picker ——
                 Same two-column shape as Planning: the calendar on the left and
                 the picked day's functions in a rail beside it. Full-bleed, the
                 seven columns came out around 230px each and the tracked days
                 stretched into slabs — the same styling read as a different
                 control purely because of its proportions. */}
-            <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap",marginBottom:16}}>
-              <div style={{flex:"1 1 620px",minWidth:340}}>
+            <div className="kh-an-row">
+              <div className="kh-an-cal" style={{minWidth:0}}>
               {(()=>{
                 const pad2=n=>String(n).padStart(2,"0");
                 const MO_N=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -6435,7 +6494,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 const MO_L=["January","February","March","April","May","June","July","August","September","October","November","December"];
                 const nEv=dateEvs.length;
                 return(
-                <div style={{flex:"0 1 366px",minWidth:280,display:"flex",flexDirection:"column",gap:14}}>
+                <div className="kh-an-rail" style={{minWidth:0,display:"flex",flexDirection:"column",gap:14}}>
                   {dObj&&(
                     <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
                       border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
@@ -6507,7 +6566,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   </div>
                 </div>);
               })()}
-            </div>
+            {/* Third cell of .kh-an-row: under the calendar, beside the functions rail (see theme.js). */}
+            <div className="kh-an-below">
             {perfs.length===0&&<div style={{padding:"40px 20px",textAlign:"center",borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}><div style={{fontSize:40,marginBottom:12}}>📊</div><div style={{fontSize:14,color:C.muted}}>{T2("Select an event above. Complete dishes in Prep Day or Event Day to see full analytics.")}</div></div>}
             {perfs.length>0&&(<>
             {/* —— Summary Cards —— */}
@@ -6533,13 +6593,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             </div>
             {/* —— Section Breakdown —— */}
             <div style={{...type.label,fontSize:11,color:K.hdrMeta,marginBottom:10,letterSpacing:.7}}>{T2("Dishes by Section")}</div>
-            <div style={{marginBottom:20}}>
-              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;const secOpen=analyticsExp.has("sec_"+cid);return(
-                <div key={cid} style={{marginBottom:10,borderRadius:16,border:`1px solid ${K.cardWarmLine}`,
+            {/* Section tiles, four to a row (.kh-secgrid in theme.js); a tile opens its dishes in a modal. */}
+            <div className="kh-secgrid" style={{marginBottom:20}}>
+              {Object.entries(byS).map(([cid,sec])=>{const dn=sec.ds.filter(d=>d.isDone).length;const ov=sec.ds.reduce((s,d)=>s+d.overC,0);const un=sec.ds.reduce((s,d)=>s+d.underC,0);const pct=sec.ds.length>0?Math.round(dn/sec.ds.length*100):0;const secOpen=anSecModal===cid;return(
+                <div key={cid} style={{borderRadius:16,border:`1px solid ${K.cardWarmLine}`,
                   backgroundColor:K.cardWarm,boxShadow:K.shadowCard,overflow:"hidden"}}>
-                  <div onClick={()=>{setAnalyticsExp(p=>{const s=new Set(p);s.has("sec_"+cid)?s.delete("sec_"+cid):s.add("sec_"+cid);return s;});}}
+                  <div onClick={()=>setAnSecModal(cid)} role="button" tabIndex={0}
+                    onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setAnSecModal(cid);}}}
                     className="kh-secrow"
-                    style={{padding:"14px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                    style={{padding:"14px 16px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"stretch",gap:12,height:"100%"}}>
                     <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
                       <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.sageBg,
                         border:`1px solid ${K.sageBorder}`,fontSize:17,lineHeight:1,
@@ -6555,9 +6617,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </div>
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:9}}>
-                        <div style={{width:92,height:7,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:"auto"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:9,flex:"1 1 100%"}}>
+                        <div style={{flex:1,height:7,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
                           <div style={{height:"100%",width:pct+"%",background:sec.co,borderRadius:999}}/>
                         </div>
                         <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:700,color:K.hdrMeta,
@@ -6570,19 +6632,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         fontWeight:600,background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap"}}>{un} {T2("under")}</span>}
                       {ov>0&&<span style={{padding:"4px 10px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,
                         fontWeight:600,background:K.dangerBg,color:K.danger,border:`1px solid ${K.dangerBorder}`,whiteSpace:"nowrap"}}>{ov} {T2("over")}</span>}
-                      <span style={{color:K.textFaint,display:"flex",flexShrink:0,
-                        transform:secOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
-                        <Icon name="chevronD" size={16} strokeWidth={2.1}/>
-                      </span>
                     </div>
                   </div>
-                  {secOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${C.borderLight}`}}>
+                  <KModal open={secOpen} onClose={()=>setAnSecModal(null)} toneName="brand" iconTone="brand" icon="chart"
+                    width={680} confirmLabel={T2("Close")} title={<span>{sec.ic} {sec.n}</span>}
+                    subhead={<span style={{fontFamily:K.fontBody,fontSize:13,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>{dn}/{sec.ds.length} {T2("done")} · {pct}%</span>}
+                    body={<div style={{maxHeight:"62vh",overflowY:"auto",whiteSpace:"normal",paddingBottom:4}}>
                     {sec.ds.sort((a,b)=>{const o={done:0,in_progress:1,not_started:2};return o[a.status]-o[b.status];}).map(p=>{const isOpen=analyticsExp.has(p.name);const usageLog=(usageLogs||[]).find(l=>l.dish_name===p.name);const stColor=p.status==="done"?C.green:p.status==="in_progress"?C.amber:C.faint;const stLabel=p.status==="done"?"✅":p.status==="in_progress"?"⏳":"⏸";return(
-                      <div key={p.name} style={{marginTop:6,borderRadius:8,border:`1px solid ${p.status==="not_started"?C.borderLight:C.border}`,background:p.status==="not_started"?C.bg:C.surface,opacity:p.status==="not_started"?.6:1}}>
+                      // Full strength in the modal: dimming not-started rows (opacity .6 + faint text) left them unreadable on its pale plate; the ⏸/⏳/✅ mark already says the status.
+                      <div key={p.name} style={{marginTop:6,borderRadius:8,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF"}}>
                         <div onClick={()=>{if(p.hasData)toggleAnalyticsDish(p.name);}} style={{padding:"10px 12px",cursor:p.hasData?"pointer":"default",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                           <div style={{minWidth:0,flex:1}}>
-                            <div style={{fontSize:12,fontWeight:600,color:p.status==="not_started"?C.faint:C.text}}>{stLabel} {p.name}</div>
-                            <div style={{fontSize:10,color:C.muted}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)||"—"}</div>
+                            <div style={{fontSize:12,fontWeight:600,color:K.hdrTitle}}>{stLabel} {p.name}</div>
+                            <div style={{fontSize:11,color:K.hdrMeta,marginTop:2}}>{p.isDone&&p.totalT!=null?"Total: "+fS(p.totalT)+" · ":""}Expected: {fS(p.expT)||"—"}</div>
                             {usageLog&&(()=>{
                               const ings=usageLog.ingredients||[];
                               const varIngs=ings.filter(i=>i.actual_qty!=null&&i.scaled_qty!=null&&Math.abs(i.actual_qty-i.scaled_qty)>0.01);
@@ -6656,7 +6718,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                         </div>}
                       </div>
                     );})}
-                  </div>}
+                  </div>} />
                 </div>
               );})}
             </div>
@@ -6731,6 +6793,8 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             );})}
             
             </>)}
+            </div>{/* end .kh-an-below */}
+            </div>{/* end .kh-an-row */}
           </div>
         );
       })()}
