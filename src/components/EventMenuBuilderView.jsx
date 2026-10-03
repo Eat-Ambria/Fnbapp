@@ -142,6 +142,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }, [templateInfo.dishes]);
 
   // ── All dishes (from dishes_master via getAllDishes) ──
+  // dishLibBump forces a re-read after addCustomDish adds a brand-new dish —
+  // getAllDishes() reads DISH_MASTER, a plain in-memory object createCustomDish
+  // mutates directly (not React state), so without this the empty dep array
+  // below would keep serving the mount-time snapshot forever: the new dish
+  // would get selected (event_items) but never appear in ANY section group,
+  // since groupedByPkgSection/groupedBySection look it up by name in here.
+  var [dishLibBump, setDishLibBump] = useState(0);
   var allDishes = useMemo(function(){
     var raw = getAllDishes ? getAllDishes({ includeInactive: false }) : [];
     return raw.map(function(d){
@@ -160,7 +167,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         is_veg:          d.is_veg,
       };
     });
-  }, []);
+  // eslint-disable-next-line
+  }, [dishLibBump]);
   var allDishesByName = useMemo(function(){
     var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
   }, [allDishes]);
@@ -590,6 +598,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // under (this event only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
     await createCustomDishInLibrary(supabase, name, catId);
+    setDishLibBump(function(n){ return n + 1; });
     var row = { event_id: event.id, dish_name: name, is_addon: true, ordering: dishItems.length };
     var res = await supabase.from('event_items').insert(row).select().single();
     if (res.error) throw res.error;
