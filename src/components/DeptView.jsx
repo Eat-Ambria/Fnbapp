@@ -78,7 +78,7 @@ function calcDispatch(time){
   return `${String(dH<0?dH+24:dH).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 
-function DeptView({attendance, setAttendance, events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, leaves, setLeaves, empDb, setEmpDb, allocRules={}, setAllocRules}) {
+function DeptView({attendance, setAttendance, events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, leaves, setLeaves, empDb, setEmpDb, allocRules={}, setAllocRules, checklistsCfg={}}) {
   const T2 = s => T(s, lang);
   const [selDept, setSelDept] = useState(forceDept||null);
   const [deptTab, setDeptTab] = useState(null); // null = auto-pick first tab
@@ -95,6 +95,16 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const [selOdcId, setSelOdcId] = useState(null);
   useEffect(()=>{const t2=setInterval(()=>setBevTick(k=>k+1),1000);return()=>clearInterval(t2);},[]);
   const [odcChecks, setOdcChecks] = useState({});
+  // Service > Staff Allocation's admin rule editor — lifted here from a nested
+  // IIFE that only runs when selDept==="service" && activeTab==="staffing" &&
+  // currentUser is admin. useState INSIDE that conditional closure meant these
+  // three hooks simply didn't exist on renders where the condition was false,
+  // so switching tabs changed the total hook count render-to-render — exactly
+  // React's "rendered more/fewer hooks than previous render" crash (minified
+  // error #310), which is what threw opening this tab at all.
+  const [editRule,setEditRule_]=useState(null);
+  const [ruleForm,setRuleForm_]=useState({per100:6,per50:3,ref:[]});
+  const [ruleSaving,setRuleSaving_]=useState(false);
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),30000);return()=>clearInterval(t);},[]);
   useEffect(()=>{if(forceDept){setSelDept(forceDept);setDeptTab(null);}},[forceDept]);
 
@@ -183,7 +193,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   ];
 
   // Service checklist template
-  const SERVICE_CHECKLIST = [
+  // Hardcoded fallback only — the real list is the `checklists` table
+  // (type='service'), admin-editable via Access Manager's Service Checklist
+  // Manager. Same table/pattern ODCModule.jsx already uses for its own
+  // checklist types; this was seeded with matching rows but DeptView was
+  // never actually wired to read them.
+  const SERVICE_CHECKLIST_FALLBACK = [
     {id:"briefing",label:"Event Briefing Done",h:"इवेंट ब्रीफिंग पूर्ण",icon:"📋"},
     {id:"table_setup",label:"Tables & Chairs Setup",h:"टेबल और कुर्सी सेटअप",icon:"🪑"},
     {id:"linen",label:"Linen & Table Covers",h:"लिनन और टेबल कवर",icon:"🧵"},
@@ -196,6 +211,10 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     {id:"vip_table",label:"VIP / Host Table Ready",h:"VIP / होस्ट टेबल तैयार",icon:"⭐"},
     {id:"final_walkthrough",label:"Final Walkthrough Done",h:"अंतिम निरीक्षण पूर्ण",icon:"✅"},
   ];
+  const svcRows = safeArr(checklistsCfg && checklistsCfg.service);
+  const SERVICE_CHECKLIST = svcRows.length > 0
+    ? svcRows.map(r=>({id:r.item_key, label:r.label_en, h:r.label_hi||"", icon:r.icon||"📋"}))
+    : SERVICE_CHECKLIST_FALLBACK;
 
   // ── KIOSK OVERLAY ──
   if(kioskMode) return (
@@ -282,7 +301,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // Tabs per department
   const DEPT_TABS = {
     kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
-    service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
+    service:  [{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
     crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
     beverages:[{v:"store_req",l:`📦 ${T2("Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     fruits:   [{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🍓 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
@@ -517,9 +536,6 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
             {/* ── Admin: Edit Allocation Rules ── */}
             {(currentUser?.role==='admin')&&(()=>{
-              const [editRule,setEditRule_]=React.useState(null);
-              const [ruleForm,setRuleForm_]=React.useState({per100:6,per50:3,ref:[]});
-              const [ruleSaving,setRuleSaving_]=React.useState(false);
               function openRule(pkg){
                 const r=ALLOC_BASE[pkg]||{per100:6,per50:3,ref:[]};
                 setRuleForm_({per100:r.per100||6,per50:r.per50||3,ref:(r.ref||[]).map(x=>({...x}))});
@@ -614,17 +630,17 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                   <div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{ev.guest}</div><div style={{fontSize:12,color:C.muted}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")}</div></div>
                   <span style={{fontSize:12,fontWeight:700,color:doneCt===SERVICE_CHECKLIST.length?C.green:C.amber}}>{doneCt}/{SERVICE_CHECKLIST.length}</span>
                 </div>
-                <div style={{padding:"12px 16px"}}>
+                <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(96px, 1fr))",gap:8}}>
                   {SERVICE_CHECKLIST.map(item=>{
                     const done = !!checks[item.id];
                     return (
                       <div key={item.id} onClick={()=>setSvcChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:!done}}))}
-                        style={{display:"flex",gap:10,alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:"pointer"}}>
-                        <div style={{width:24,height:24,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {done&&<span style={{color:"#fff",fontSize:10}}>✓</span>}
+                        style={{display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",gap:4,padding:"10px 6px",borderRadius:10,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,minHeight:84}}>
+                        <span style={{fontSize:16}}>{item.icon}</span>
+                        <span style={{fontSize:10.5,lineHeight:1.25,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{lang==="hi"?item.h:item.label}</span>
+                        <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:"auto"}}>
+                          {done&&<span style={{color:"#fff",fontSize:9}}>✓</span>}
                         </div>
-                        <span style={{fontSize:14,flexShrink:0}}>{item.icon}</span>
-                        <span style={{fontSize:12,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{lang==="hi"?item.h:item.label}</span>
                       </div>
                     );
                   })}

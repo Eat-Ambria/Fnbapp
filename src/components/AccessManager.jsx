@@ -31,7 +31,7 @@ function PToggle({on, onChange}) {
   );
 }
 
-function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServer=null}) {
+function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServer=null, checklistsCfg={}, setChecklistsCfg=null}) {
   const T2 = s => T(s, lang);
   // Curated order/wording for the roles with special routing elsewhere in the
   // app (tablet shell, gate kiosk, admin bypass...) — kept as a fixed list so
@@ -107,6 +107,72 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     deleteRoleDefinition(key);
     logActivity('access','Role deleted: '+r.label,'role_delete',{roleKey:key},currentUser?.id);
     bump();
+  }
+
+  // ── Service Checklist Manager — master control for Service Ops' checklist
+  // tab. Same `checklists` table (type='service') ODCModule.jsx already uses
+  // for its own phase checklists: delete-all-then-insert on save, same as
+  // ODCModule's saveEditPhase. ──
+  const CHECKLIST_FALLBACK = [
+    {item_key:"briefing",label_en:"Event Briefing Done",label_hi:"इवेंट ब्रीफिंग पूर्ण",icon:"📋"},
+    {item_key:"table_setup",label_en:"Tables & Chairs Setup",label_hi:"टेबल और कुर्सी सेटअप",icon:"🪑"},
+    {item_key:"linen",label_en:"Linen & Table Covers",label_hi:"लिनन और टेबल कवर",icon:"🧵"},
+    {item_key:"buffet_setup",label_en:"Buffet Counter Setup",label_hi:"बुफ़े काउंटर सेटअप",icon:"🍽"},
+    {item_key:"live_counter",label_en:"Live Counters Ready",label_hi:"लाइव काउंटर तैयार",icon:"🔥"},
+    {item_key:"water_station",label_en:"Water Station Placed",label_hi:"पानी स्टेशन लगा",icon:"💧"},
+    {item_key:"napkins",label_en:"Napkins & Cutlery Set",label_hi:"नैपकिन और कटलरी सेट",icon:"🍴"},
+    {item_key:"dustbins",label_en:"Dustbins Placed",label_hi:"डस्टबिन लगाए",icon:"🗑"},
+    {item_key:"staff_uniform",label_en:"Staff Uniform Check",label_hi:"स्टाफ यूनिफ़ॉर्म चेक",icon:"👔"},
+    {item_key:"vip_table",label_en:"VIP / Host Table Ready",label_hi:"VIP / होस्ट टेबल तैयार",icon:"⭐"},
+    {item_key:"final_walkthrough",label_en:"Final Walkthrough Done",label_hi:"अंतिम निरीक्षण पूर्ण",icon:"✅"},
+  ];
+  const [showChecklistManager, setShowChecklistManager] = useState(false);
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [checklistSaving, setChecklistSaving] = useState(false);
+  const [newCkLabel, setNewCkLabel] = useState("");
+  const [newCkHindi, setNewCkHindi] = useState("");
+  const [newCkIcon, setNewCkIcon] = useState("📋");
+  function slugifyItemKey(s){ return (s||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); }
+  function openChecklistManager(){
+    var rows = safeArr(checklistsCfg && checklistsCfg.service);
+    var src = rows.length>0 ? rows : CHECKLIST_FALLBACK;
+    setChecklistItems(src.map(function(r,i){return {item_key:r.item_key,label_en:r.label_en,label_hi:r.label_hi||"",icon:r.icon||"📋",sort_order:i+1};}));
+    setNewCkLabel(""); setNewCkHindi(""); setNewCkIcon("📋");
+    setShowChecklistManager(true);
+  }
+  function addChecklistItem(){
+    var label = newCkLabel.trim();
+    if(!label) return;
+    var key = slugifyItemKey(label);
+    if(!key){ window.alert('Item name must contain at least one letter or number.'); return; }
+    if(checklistItems.some(function(it){return it.item_key===key;})){ window.alert('An item with key "'+key+'" already exists. Pick a different name.'); return; }
+    setChecklistItems(function(p){return p.concat([{item_key:key,label_en:label,label_hi:newCkHindi.trim(),icon:(newCkIcon||'📋').trim()||'📋',sort_order:p.length+1}]);});
+    setNewCkLabel(""); setNewCkHindi(""); setNewCkIcon("📋");
+  }
+  function removeChecklistItem(idx){
+    setChecklistItems(function(p){return p.filter(function(_,i){return i!==idx;}).map(function(it,i){return {...it,sort_order:i+1};});});
+  }
+  function moveChecklistItem(idx,dir){
+    setChecklistItems(function(p){
+      var arr=[...p]; var swap=idx+dir;
+      if(swap<0||swap>=arr.length) return arr;
+      var t=arr[idx]; arr[idx]=arr[swap]; arr[swap]=t;
+      return arr.map(function(it,i){return {...it,sort_order:i+1};});
+    });
+  }
+  async function saveChecklistItems(){
+    if(checklistItems.length===0){ window.alert('Add at least one checklist item before saving.'); return; }
+    setChecklistSaving(true);
+    try{
+      await supabase.from('checklists').delete().eq('type','service');
+      var rows = checklistItems.map(function(it){return {type:'service',item_key:it.item_key,label_en:it.label_en,label_hi:it.label_hi||null,icon:it.icon||'📋',sort_order:it.sort_order,is_active:true};});
+      var {error} = await supabase.from('checklists').insert(rows);
+      if(error) throw error;
+      if(setChecklistsCfg) setChecklistsCfg(function(p){return {...p,service:rows};});
+      logActivity('access','Service checklist updated ('+rows.length+' items)','checklist_update',{},currentUser?.id);
+      setShowChecklistManager(false);
+    }catch(e){ window.alert('Save failed: '+e.message); }
+    setChecklistSaving(false);
   }
 
   function updateDept(deptId, patch){
@@ -455,6 +521,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <button onClick={exportCSV} disabled={staff.length===0} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:staff.length===0?C.faint:C.muted,fontSize:13,fontWeight:600,cursor:staff.length===0?"not-allowed":"pointer"}}>⬇ {T2("Export CSV")}</button>
           {canAdd&&<button onClick={()=>setShowMasterData(true)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🗂 {T2("Manage Sections & Venues")}</button>}
           {canAdd&&<button onClick={()=>{setShowRoleManager(true);setRoleEditKey(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🧩 {T2("Manage Roles")}</button>}
+          {canAdd&&<button onClick={openChecklistManager} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>📋 {T2("Manage Service Checklist")}</button>}
           {canAdd&&<button onClick={openAdd} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ {T2("Add Staff")}</button>}
         </div>
       </div>
@@ -907,6 +974,46 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* ══════ SERVICE CHECKLIST MANAGER ══════ */}
+      <Modal open={showChecklistManager} onClose={()=>setShowChecklistManager(false)} wide>
+        <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:17,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>📋 {T2("Manage Service Checklist")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("These items show for every function on Service Ops' Checklist tab. Reorder, add, or remove — changes apply everywhere immediately on save.")}</div>
+        </div>
+        <div style={{padding:"18px 24px",maxHeight:"70vh",overflowY:"auto"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {checklistItems.map(function(it,idx){
+              return (
+                <div key={it.item_key} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,background:C.bg}}>
+                  <span style={{fontSize:18,flexShrink:0}}>{it.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text}}>{it.label_en}</div>
+                    {it.label_hi&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{it.label_hi}</div>}
+                  </div>
+                  <button onClick={function(){moveChecklistItem(idx,-1);}} disabled={idx===0} style={{padding:"6px 9px",borderRadius:7,background:C.darkCard,border:`1px solid ${C.border}`,color:idx===0?C.faint:C.muted,fontSize:12,cursor:idx===0?"not-allowed":"pointer"}}>↑</button>
+                  <button onClick={function(){moveChecklistItem(idx,1);}} disabled={idx===checklistItems.length-1} style={{padding:"6px 9px",borderRadius:7,background:C.darkCard,border:`1px solid ${C.border}`,color:idx===checklistItems.length-1?C.faint:C.muted,fontSize:12,cursor:idx===checklistItems.length-1?"not-allowed":"pointer"}}>↓</button>
+                  <button onClick={function(){removeChecklistItem(idx);}} title={T2("Remove")} style={{padding:"6px 10px",borderRadius:7,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:600,cursor:"pointer"}}>🗑</button>
+                </div>
+              );
+            })}
+            {checklistItems.length===0&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12,fontStyle:"italic"}}>{T2("No items yet — add one below.")}</div>}
+          </div>
+
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:.6}}>{T2("Add item")}</div>
+          <div style={{display:"grid",gridTemplateColumns:"56px 1fr 1fr",gap:8,marginBottom:14}}>
+            <input value={newCkIcon} onChange={function(e){setNewCkIcon(e.target.value);}} maxLength={4} style={{...fld,textAlign:"center",fontSize:18}}/>
+            <input value={newCkLabel} onChange={function(e){setNewCkLabel(e.target.value);}} placeholder={T2("English label")} style={fld}/>
+            <input value={newCkHindi} onChange={function(e){setNewCkHindi(e.target.value);}} placeholder={T2("Hindi label (optional)")} style={fld}/>
+          </div>
+          <button onClick={addChecklistItem} style={{padding:"9px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.text,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:16}}>+ {T2("Add to list")}</button>
+
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={saveChecklistItems} disabled={checklistSaving} style={{flex:1,padding:"12px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",opacity:checklistSaving?.6:1}}>{checklistSaving?T2("Saving…"):"✓ "+T2("Save Checklist")}</button>
+            <button onClick={function(){setShowChecklistManager(false);}} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+          </div>
         </div>
       </Modal>
 
