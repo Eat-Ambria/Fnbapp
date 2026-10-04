@@ -509,11 +509,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(search && !s.name?.toLowerCase().includes(search.toLowerCase()) && !(s.staffListId||s.staff_id||s.id)?.toLowerCase().includes(search.toLowerCase())) return false;
     if(filterStatus==="active" && (s.is_active===false||s.active===false)) return false;
     if(filterStatus==="inactive" && s.is_active!==false&&s.active!==false) return false;
-    if(filterRole==="admin" && s.role!=="admin") return false;
-    if(filterRole==="head_chef" && s.role!=="head_chef") return false;
     if(filterRole==="tablet" && !s.role?.startsWith("section_")) return false;
     if(filterRole==="dept" && !["service","crockery","beverages","fruits","transport","kiosk_gate"].includes(s.role)) return false;
-    if(filterRole==="staff" && s.role!=="staff") return false;
+    // Any other non-"all" value is an exact role key — covers every role in
+    // ROLE_OPTIONS (admin, head_chef, staff, sales, sales_manager, any
+    // custom role from Manage Roles...), not just the handful that used to
+    // get their own hardcoded pill.
+    if(filterRole!=="all" && filterRole!=="tablet" && filterRole!=="dept" && s.role!==filterRole) return false;
     if(filterDept!=="all" && (s.dept||"kitchen")!==filterDept) return false;
     if(!showBasicStaff && filterRole!=="staff" && s.role==="staff") return false;
     return true;
@@ -583,9 +585,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       {/* ══════ FILTERS ══════ */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
         <span style={{fontSize:11,color:C.faint,marginRight:2}}>🔍</span>
-        {[{v:"all",l:T2("All roles")},{v:"admin",l:"👑 Admin"},{v:"head_chef",l:"👨‍🍳 Chef"},{v:"tablet",l:"📱 Tablets"},{v:"dept",l:"🏢 Depts"},{v:"staff",l:"👤 Staff"}].map(f=>(
-          <button key={f.v} onClick={()=>setFilterRole(f.v)} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:filterRole===f.v?600:400,cursor:"pointer",background:filterRole===f.v?C.goldBg:"transparent",border:`1px solid ${filterRole===f.v?C.gold:C.border}`,color:filterRole===f.v?C.gold:C.muted,transition:"all .15s"}}>{f.l}</button>
-        ))}
+        <select value={filterRole} onChange={e=>setFilterRole(e.target.value)}
+          style={{padding:"4px 10px",borderRadius:20,fontSize:11,border:`1px solid ${filterRole!=="all"?C.gold:C.border}`,color:filterRole!=="all"?C.gold:C.muted,background:filterRole!=="all"?C.goldBg:"transparent",cursor:"pointer"}}>
+          <option value="all">{T2("All roles")}</option>
+          <option value="tablet">📱 {T2("Section Tablets (grouped)")}</option>
+          <option value="dept">🏢 {T2("Dept Roles (grouped)")}</option>
+          {ROLE_OPTIONS.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+        </select>
         <div style={{width:1,height:18,background:C.border,margin:"0 2px"}}/>
         {[{v:"all",l:T2("Any status")},{v:"active",l:"✅ Active"},{v:"inactive",l:"🔴 Inactive"}].map(f=>(
           <button key={f.v} onClick={()=>setFilterStatus(f.v)} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:filterStatus===f.v?600:400,cursor:"pointer",background:filterStatus===f.v?C.greenBg:"transparent",border:`1px solid ${filterStatus===f.v?C.green:C.border}`,color:filterStatus===f.v?C.green:C.muted,transition:"all .15s"}}>{f.l}</button>
