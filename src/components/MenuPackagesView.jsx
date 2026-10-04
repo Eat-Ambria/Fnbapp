@@ -1246,7 +1246,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="users" size={13} strokeWidth={1.9} />{ev.pax || "?"} {T2("pax")}</span>
                           {ev.menuPackage && <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="plate" size={13} strokeWidth={1.9} />{describeEventMenu(ev)}</span>}
                         </span>
-                        {hasMenu && (
+                        {/* The per-category chip breakdown is dropped on mobile —
+                            a function with a dozen categories turned every card
+                            into a scroll of its own; the dish-count total
+                            (trailing block) is enough for a list view, and the
+                            full breakdown is still one tap away inside the
+                            editor. */}
+                        {hasMenu && !isMobile && (
                           <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
                             {Object.entries(stats.byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e2) {
                               var catId = e2[0]; var count = e2[1];
