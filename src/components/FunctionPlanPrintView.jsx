@@ -220,6 +220,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
         <div style={{ textAlign: "center", marginBottom: 18 }}>
           <div style={{ fontSize: 22, fontWeight: 700 }}>Ambria Cuisines</div>
           <div style={{ fontSize: 12, color: "#555" }}>{T2("Function Plan")}</div>
+          {fp && fp.locked && (
+            <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 10.5, fontWeight: 700, letterSpacing: ".5px" }}>
+              🔒 {T2("FINAL — SENT TO KITCHEN")}
+            </div>
+          )}
         </div>
 
         {/* ── Header grid — DATE/DAY/FUNCTION, GUEST/ADDRESS/CONTACT, GTD/PAYMENT/RATE, DIRECT/REPEAT ── */}
@@ -264,8 +269,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                     return (
                       <div key={d.id} style={{ breakInside: "avoid" }}>
                         <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                        {diff.added.map(function(n){ return <Bullet key={'a' + n}>+ {n}</Bullet>; })}
-                        {diff.removed.map(function(n){ return <Bullet key={'r' + n}>− {n}</Bullet>; })}
+                        {diff.added.map(function(n){ return <Bullet key={'a' + n}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+</span> {n}</Bullet>; })}
+                        {diff.removed.map(function(n){ return <Bullet key={'r' + n}><span style={{ color: "#B3281F", fontWeight: 700 }}>−</span> {n}</Bullet>; })}
                       </div>
                     );
                   })

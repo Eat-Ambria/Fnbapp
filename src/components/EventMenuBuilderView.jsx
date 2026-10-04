@@ -18,6 +18,7 @@ import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip } from './MenuBu
 import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
+import { KModal } from './KitchenUI.jsx';
 
 // V79 — events.menu_package is free text (LMS sync, manual entry...) and often
 // doesn't match a MENU_PACKAGES key byte-for-byte (e.g. "Multi-Cuisine Veg" vs
@@ -494,6 +495,50 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       console.error('[EventMenuBuilder] saveFPField failed:', e);
       alert(T2('Failed to save:') + ' ' + (e.message || e));
     }
+  }
+
+  // ── Lock / unlock (V92) — "Mark as Final" freezes the FP once it's been
+  // reviewed and is ready for Kitchen; re-opening it for a late change always
+  // asks for a reason so there's a record of why a locked plan moved. Both
+  // transitions append to lock_history rather than overwrite it — this is the
+  // trail a future notification system (chefs pinged on release / last-minute
+  // change) will read from, so keep it even though nothing reads it yet.
+  var [fpLockModal, setFpLockModal] = useState(null); // null | 'lock' | 'unlock'
+  var [unlockReason, setUnlockReason] = useState('');
+
+  async function writeFpLockState(patch, histEntry) {
+    var next = { ...(fp || { event_id: event.id }), ...patch,
+      lock_history: [ ...((fp && fp.lock_history) || []), histEntry ] };
+    setFp(next);
+    try {
+      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      if (res.error) throw res.error;
+      setFp(res.data);
+    } catch (e) {
+      console.error('[EventMenuBuilder] FP lock state save failed:', e);
+      alert(T2('Failed to save:') + ' ' + (e.message || e));
+    }
+  }
+
+  async function confirmMarkFinal() {
+    var who = (currentUser && currentUser.name) || null;
+    await writeFpLockState(
+      { locked: true, locked_at: new Date().toISOString(), locked_by: who },
+      { action: 'locked', by: who, at: new Date().toISOString() }
+    );
+    setFpLockModal(null);
+  }
+
+  async function confirmUnlock() {
+    var who = (currentUser && currentUser.name) || null;
+    var reason = unlockReason.trim();
+    if (!reason) return;
+    await writeFpLockState(
+      { locked: false },
+      { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason }
+    );
+    setFpLockModal(null);
+    setUnlockReason('');
   }
 
   // ── All selected dish names grouped by effective dept, for the printable FP ──
@@ -1209,7 +1254,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               <div style={{ fontSize: 13 }}>{T2("Loading…")}</div>
             </div>
           ) : (
-            <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint} />
+            <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint}
+              locked={!!(fp && fp.locked)}
+              onRequestLock={function(){ setFpLockModal('lock'); }}
+              onRequestUnlock={function(){ setFpLockModal('unlock'); }} />
           )}
         </div>
       )}
@@ -1359,6 +1407,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         </div>
       </div>
       )}
+
+      <KModal open={fpLockModal === 'lock'} toneName="brand" icon="lock"
+        title={T2("Mark Function Plan as Final?")}
+        body={T2("This locks the FP so it can't be changed by mistake, and signals to Kitchen that it's ready. You'll need a reason to re-open it later if something changes last-minute.")}
+        confirmLabel={T2("Lock & send to Kitchen")} confirmIcon="lock"
+        onConfirm={confirmMarkFinal}
+        onClose={function(){ setFpLockModal(null); }} />
+
+      <KModal open={fpLockModal === 'unlock'} toneName="warn" icon="alert"
+        title={T2("Re-open this Function Plan?")}
+        body={<>
+          <div style={{ marginBottom: 10 }}>{T2("This FP was marked final. Say why it needs to change — this is kept against the FP so there's a record of the late change.")}</div>
+          <textarea autoFocus value={unlockReason} onChange={function(e){ setUnlockReason(e.target.value); }}
+            placeholder={T2("Reason for re-opening…")} rows={3}
+            style={{ width: "100%", padding: "9px 11px", borderRadius: 10, border: "1px solid " + C.border, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+        </>}
+        confirmLabel={T2("Unlock for editing")} confirmIcon="lock" confirmDisabled={!unlockReason.trim()}
+        onConfirm={confirmUnlock}
+        onClose={function(){ setFpLockModal(null); setUnlockReason(''); }} />
     </div>
   );
 }

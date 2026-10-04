@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect } from "react";
 import { K } from '../utils/theme.js';
-import { Icon, KButton } from './KitchenUI.jsx';
+import { Icon, KButton, KBanner } from './KitchenUI.jsx';
 
 var SPICE_LEVELS = [
   { id: 'mild',        label: 'Mild',        icon: '🌶️' },
@@ -164,7 +164,7 @@ function getLmsPlateInfo(event) {
   };
 }
 
-export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint }) {
+export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locked, onRequestLock, onRequestUnlock }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
 
@@ -208,10 +208,20 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint }) {
     <div style={{ maxWidth: 1080, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
-        <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
+        <div style={{ display: "flex", gap: 8 }}>
+          <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
+          {!locked && <KButton variant="accent" icon="lock" onClick={onRequestLock}>{T2("Mark as Final")}</KButton>}
+        </div>
       </div>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+      {locked && (
+        <KBanner toneName="brand" icon="lock" style={{ marginBottom: 16 }}
+          title={T2("Locked — sent to Kitchen")}
+          sub={(fp && fp.locked_by ? (fp.locked_by + ' · ') : '') + (fp && fp.locked_at ? new Date(fp.locked_at).toLocaleString() : '')}
+          right={<KButton variant="ghost" icon="lock" onClick={onRequestUnlock}>{T2("Unlock to edit")}</KButton>} />
+      )}
+
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap", pointerEvents: locked ? "none" : "auto", opacity: locked ? 0.55 : 1 }}>
       <div style={{ flex: "1.2 1 480px", display: "flex", flexDirection: "column", gap: 16, minWidth: 360 }}>
 
         {/* ── Food Preference (+ Corkage) ── */}
