@@ -31,6 +31,7 @@ import { DeptView } from './components/DeptView.jsx';
 import { StaffView } from './components/StaffView.jsx';
 import { KioskAttendance } from './components/KioskAttendance.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
+import { NotificationCenter, isKitchenRole } from './components/NotificationCenter.jsx';
 
 // Heavier, not-needed-on-first-paint screens — code-split so the initial bundle
 // (login + dashboard) doesn't have to parse every admin/kitchen screen up front.
@@ -1099,6 +1100,7 @@ export default function App() {
                     </span>
                   </div>
                 )}
+              <NotificationCenter currentUser={currentUser} T2={T2} />
               {/* Screen-level header actions. A screen that needs one control up
                  here - Kitchen Hub puts "Back to Recipes" in it - portals into
                  this slot, which keeps that screen's state where it lives instead
@@ -1439,7 +1441,7 @@ export default function App() {
             when hiding: collapsing its height changed the scroll container's size,
             which moved scrollTop, which fired another scroll event with the
             opposite direction — the bar flapped open and shut. */}
-        {SHOW_BELL&&(
+        {(SHOW_BELL||isKitchenRole(currentUser))&&(
         <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
 
 
@@ -1459,6 +1461,10 @@ export default function App() {
               {pendingLv>0&&<span style={{position:"absolute",top:8,right:8,width:8,height:8,borderRadius:"50%",background:K.danger,border:`2px solid ${K.surface}`}}/>}
             </button>
           )}
+          {/* Kitchen notification bell (V92) — head_chef accounts only reach this
+              shell (section tablets use the other header, above); self-contained,
+              renders nothing for anyone else. */}
+          <NotificationCenter currentUser={currentUser} T2={T2} />
         </div>
         )}
 

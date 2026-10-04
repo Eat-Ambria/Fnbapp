@@ -7,64 +7,20 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // V92: switched from generateSW to injectManifest so the service worker
+      // can carry a `push` handler (web push notifications) — generateSW only
+      // lets you configure routing/caching, there's no hook for custom event
+      // listeners. src/sw.js hand-writes the same routing/caching rules this
+      // used to get for free from a `workbox: {...}` block here, plus the push
+      // handler. The update-gating behavior (no auto skipWaiting — see
+      // src/sw.js) is unchanged.
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      workbox: {
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'ambria-pages',
-              networkTimeoutSeconds: 3,
-            },
-          },
-          {
-            // V82: was StaleWhileRevalidate — that serves whatever's already in
-            // the SW's OWN Cache Storage first, unconditionally, and only
-            // refreshes it in the background for next time. That cache is
-            // separate from the browser's HTTP cache, so a normal hard refresh
-            // (Ctrl+Shift+R) does NOT bypass it — every reload could be serving
-            // one-deploy-behind script/style content. NetworkFirst actually
-            // prefers the network when it's reachable (this is content-hashed
-            // static hosting, so a cache hit only ever helps, never masks new
-            // content); the cache is still there as an offline/slow-network
-            // fallback.
-            urlPattern: ({ request }) =>
-              request.destination === 'script' ||
-              request.destination === 'style',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'ambria-assets',
-              networkTimeoutSeconds: 3,
-            },
-          },
-          {
-            urlPattern: /ozibklsaweqizzyfwqmm\.supabase\.co\/rest\/v1\/.+\?.*select=/,
-            handler: 'NetworkFirst',
-            method: 'GET',
-            options: {
-              cacheName: 'ambria-supabase-reads',
-              networkTimeoutSeconds: 4,
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 86400,
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-        ],
-        // V81: do NOT skipWaiting automatically — that let a freshly deployed
-        // SW silently take over an already-open tab (clientsClaim) with no
-        // reload, while the old JS bundle kept running and its dynamic
-        // import()s targeted chunk hashes the new deploy had already deleted
-        // ("Failed to fetch dynamically imported module"). A new SW now sits
-        // in "waiting" until the user clicks the app's own "Update Now"
-        // banner (App.jsx), which posts SKIP_WAITING and reloads in lockstep.
-        clientsClaim: true,
       },
       manifest: {
         name: 'Ambria FnB Operations',

@@ -500,9 +500,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // ── Lock / unlock (V92) — "Mark as Final" freezes the FP once it's been
   // reviewed and is ready for Kitchen; re-opening it for a late change always
   // asks for a reason so there's a record of why a locked plan moved. Both
-  // transitions append to lock_history rather than overwrite it — this is the
-  // trail a future notification system (chefs pinged on release / last-minute
-  // change) will read from, so keep it even though nothing reads it yet.
+  // transitions append to lock_history rather than overwrite it, and also
+  // fire a kitchen notification (in-app bell + web push — notifyKitchen
+  // below) so chefs actually see the release/late-change, not just an audit
+  // trail nobody opens.
   var [fpLockModal, setFpLockModal] = useState(null); // null | 'lock' | 'unlock'
   var [unlockReason, setUnlockReason] = useState('');
 
@@ -520,6 +521,26 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // Best-effort: a notification failing to send should never block the lock/
+  // unlock itself, so this never throws into its caller.
+  async function notifyKitchen(kind, title, body) {
+    try {
+      var ins = await supabase.from('notifications').insert({
+        target_role: 'kitchen', event_id: event.id, kind: kind, title: title, body: body,
+      }).select().single();
+      if (ins.error) throw ins.error;
+      // Push is background delivery only (closed/backgrounded tabs) — an open
+      // tab already got this via the realtime insert above, so a failure here
+      // (no VAPID secrets configured yet, no subscribed devices...) is fine to
+      // swallow rather than surface to whoever just locked the FP.
+      supabase.functions.invoke('send-push', { body: { notification_id: ins.data.id } }).catch(function (e) {
+        console.error('[EventMenuBuilder] send-push invoke failed:', e);
+      });
+    } catch (e) {
+      console.error('[EventMenuBuilder] notifyKitchen failed:', e);
+    }
+  }
+
   async function confirmMarkFinal() {
     var who = (currentUser && currentUser.name) || null;
     await writeFpLockState(
@@ -527,6 +548,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       { action: 'locked', by: who, at: new Date().toISOString() }
     );
     setFpLockModal(null);
+    notifyKitchen('fp_locked', T2('FP released') + ': ' + (event.guest || T2('Function')),
+      (event.date ? event.date + ' · ' : '') + (who ? T2('by') + ' ' + who : ''));
   }
 
   async function confirmUnlock() {
@@ -539,6 +562,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     );
     setFpLockModal(null);
     setUnlockReason('');
+    notifyKitchen('fp_unlocked', T2('FP changed — last-minute update') + ': ' + (event.guest || T2('Function')),
+      reason + (who ? ' (' + who + ')' : ''));
   }
 
   // ── All selected dish names grouped by effective dept, for the printable FP ──
