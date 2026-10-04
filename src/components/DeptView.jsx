@@ -266,7 +266,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     service:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
     crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
-    beverages:[{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
+    beverages:[{v:"store_req",l:`📦 ${T2("Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     fruits:   [{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🍓 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`}],
     odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`}],
@@ -685,17 +685,18 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       )}
 
-      {/* ══════ BEVERAGES: D-1 Store Requirements — the actual SOP ingredients
-          for tomorrow's beverage dishes (sugar, mint, fruit pulp, syrups...),
-          not just a checklist of dish names. One combined "Collect from
-          store" list per function, same pattern as Kitchen Hub's Collect
-          from store cards, stored in the shared kitchenTracking state under
-          ev.id/"__bevstore" so it persists and syncs the same way. ══════ */}
+      {/* ══════ BEVERAGES: Store Requirements — the actual SOP ingredients for
+          TODAY's beverage dishes (sugar, mint, fruit pulp, syrups...), not
+          just a checklist of dish names. Beverages has no D-1 prep day like
+          Kitchen — collection happens same-day as the function. One combined
+          "Collect from store" list per function, same pattern as Kitchen
+          Hub's Collect from store cards, stored in the shared kitchenTracking
+          state under ev.id/"__bevstore" so it persists and syncs the same way. ══════ */}
       {selDept==="beverages"&&activeTab==="store_req"&&(
         <div>
-          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("D-1 Store Requirements")}</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store today for tomorrow's functions")}</div>
-          {tomorrowEvs.map(ev=>{
+          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("Store Requirements")}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store for today's functions")}</div>
+          {todayEvs.map(ev=>{
             const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
             if(bevItems.length===0) return null;
             const agg = aggBevIngredients(ev.pax, bevItems);
@@ -766,8 +767,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {tomorrowEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages")).length===0&&(
-            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for tomorrow")}</div>
+          {todayEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages")).length===0&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for today")}</div>
           )}
         </div>
       )}
