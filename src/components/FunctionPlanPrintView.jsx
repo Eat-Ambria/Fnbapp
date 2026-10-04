@@ -128,7 +128,10 @@ function SubHead({ children }) {
   return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>{children}</div>;
 }
 
-function Bullet({ children }) {
+function Bullet({ children, dot }) {
+  if (dot === false) {
+    return <div style={{ fontSize: 12.5, padding: "2px 0" }}>{children}</div>;
+  }
   return <div style={{ fontSize: 12.5, padding: "2px 0 2px 14px", position: "relative" }}>
     <span style={{ position: "absolute", left: 0 }}>•</span>{children}
   </div>;
@@ -269,8 +272,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                     return (
                       <div key={d.id} style={{ breakInside: "avoid" }}>
                         <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                        {diff.added.map(function(n){ return <Bullet key={'a' + n}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+</span> {n}</Bullet>; })}
-                        {diff.removed.map(function(n){ return <Bullet key={'r' + n}><span style={{ color: "#B3281F", fontWeight: 700 }}>−</span> {n}</Bullet>; })}
+                        {diff.added.map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                        {diff.removed.map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
                       </div>
                     );
                   })
