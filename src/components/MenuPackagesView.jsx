@@ -7,6 +7,7 @@ import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
+import { useIsMobile } from '../utils/useIsMobile.js';
 import { SALES_DEPTS } from '../data/salesConfig.js';
 import { K, type } from '../utils/theme.js';
 import { Icon } from './KitchenUI.jsx';
@@ -92,6 +93,7 @@ function SortableDish({ id, disabled, children }) {
 
 function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
   var T2 = function(s) { return T(s, lang); };
+  var isMobile = useIsMobile();
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
   // V74: menu_packages is now realtime-subscribed (App.jsx). MENU_PACKAGES/MENU_PACKAGE_SECTIONS
@@ -1204,14 +1206,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     <div key={ev.id} style={{ position: "relative", marginBottom: 12 }}>
                     <button onClick={function() { setSelEvId(ev.id); }}
                       className="kh-evcard kh-cardart-sm"
-                      style={{ display: "flex", alignItems: "center", gap: 16, width: "100%", textAlign: "left",
+                      style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center",
+                        gap: isMobile ? 12 : 16, width: "100%", textAlign: "left",
                         position: "relative", backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
-                        borderRadius: 18, padding: "16px 20px", marginBottom: 0, cursor: "pointer",
+                        borderRadius: 18, padding: isMobile ? "14px 16px" : "16px 20px", marginBottom: 0, cursor: "pointer",
                         overflow: "hidden", boxShadow: K.shadowCard }}>
                       {/* Urgency as a spine, so today and tomorrow are findable
                           without reading a date on every card. */}
                       <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: tone.spine }} />
 
+                      <span style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 0, flex: 1 }}>
                       <span style={{ width: 62, height: 62, borderRadius: 16, flexShrink: 0, background: tone.bg,
                         border: "1px solid " + (isToday ? K.brand : K.cardWarmLine),
                         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -1257,12 +1261,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           </span>
                         )}
                       </span>
+                      </span>
 
-                      <span style={{ textAlign: "right", flexShrink: 0 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
+                        justifyContent: isMobile ? "space-between" : "flex-end" }}>
+                      <span style={{ textAlign: isMobile ? "left" : "right" }}>
                         {hasMenu
-                          ? <span><span style={{ display: "block", fontFamily: K.fontBody, fontSize: 26, fontWeight: 700,
+                          ? <span style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 6 : 0, flexDirection: isMobile ? "row" : "column" }}>
+                              <span style={{ fontFamily: K.fontBody, fontSize: 26, fontWeight: 700,
                               lineHeight: 1.1, letterSpacing: "-0.6px", fontVariantNumeric: "tabular-nums", color: K.hdrTitle }}>{stats.total}</span>
-                            <span style={{ display: "block", fontFamily: K.fontBody, fontSize: 11.5, color: K.hdrMeta, marginTop: 2 }}>{T2("dishes")}</span></span>
+                            <span style={{ fontFamily: K.fontBody, fontSize: 11.5, color: K.hdrMeta, marginTop: isMobile ? 0 : 2 }}>{T2("dishes")}</span></span>
                           : <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
                               fontFamily: K.fontBody, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
                               background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>
@@ -1270,6 +1278,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             </span>}
                       </span>
                       <span style={{ flexShrink: 0, color: K.textFaint, display: "flex" }}><Icon name="chevronR" size={17} strokeWidth={2.1} /></span>
+                      </span>
                     </button>
                     {/* A peek at this event's Function Plan without leaving the
                         list for the full item-builder — top-right, same corner

@@ -9,6 +9,7 @@ import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { TODAY } from '../utils/helpers.js';
+import { useIsMobile } from '../utils/useIsMobile.js';
 import EventMenuBuilderView from './EventMenuBuilderView.jsx';
 
 // events.date isn't always stored as ISO "YYYY-MM-DD" (LMS sync / manual entry
@@ -30,6 +31,7 @@ function parseEventDate(s) {
 
 export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
+  var isMobile = useIsMobile();
 
   var [events, setEvents]       = useState([]);
   var [loading, setLoading]     = useState(true);
@@ -93,10 +95,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   }
 
   return (
-    <div style={{ padding: "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
+    <div style={{ padding: isMobile ? "16px 12px" : "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", letterSpacing: 0.3 }}>
+        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700, color: C.text, fontFamily: "var(--font-display)", letterSpacing: 0.3 }}>
           📅 {T2("Booked Functions")}
         </div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
@@ -135,7 +137,51 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
         </div>
       )}
 
-      {!loading && filteredList.length > 0 && (
+      {!loading && filteredList.length > 0 && isMobile && (
+        /* ── Mobile: stacked cards — a 6-column grid row has nowhere to go
+           on a phone, so each event becomes its own card with labelled
+           fields instead of shrinking columns past readability. ── */
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filteredList.map(function(ev){
+            return (
+              <div key={ev.id} style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "14px 14px" }}>
+                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.text }}>{ev.guest || T2("Function")}</div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 10px", marginTop: 12, paddingTop: 12, borderTop: "1px solid " + C.border }}>
+                  <div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Venue")}</div>
+                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 2 }}>{ev.venue || '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Date")}</div>
+                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 2 }}>{ev.date || '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Pax")}</div>
+                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{ev.pax != null ? ev.pax : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Menu Package")}</div>
+                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.menu_package || ev.menuPackage || '—'}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }}
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                    🍽 {T2("Menu")}
+                  </button>
+                  <button onClick={function(){ openMenuBuilder(ev, 'fp'); }}
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: C.wine, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                    📋 {T2("FP")}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!loading && filteredList.length > 0 && !isMobile && (
         <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
             <div>{T2("Guest / Event")}</div>

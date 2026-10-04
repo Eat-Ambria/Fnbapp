@@ -1311,6 +1311,34 @@ const KITCHEN_CSS = `
 .ash-search:hover { border-color: ${K.lineStrong} !important; }
 .ash-search:focus-within { border-color: ${K.accent} !important; box-shadow: 0 0 0 3px rgba(37,99,235,.14) !important; }
 .ash-search input:focus { box-shadow: none !important; border-color: transparent !important; }
+
+/* ── Mobile shell (V94) — the floating sidebar becomes a slide-in drawer ──
+   Desktop keeps it as a normal flex sibling (pushes content aside); on a
+   phone it's taken out of flow as a fixed overlay instead, so the content
+   underneath stays full-width and the sidebar floats on top. No JS-driven
+   open/close animation — App.jsx's existing sideOpen already mounts/unmounts
+   it (same as desktop), so opening it is just a position/z-index change, not
+   a new interaction to build. The backdrop only has to exist for this: it's
+   display:none on desktop. */
+.ash-sidebar-backdrop { display: none; }
+@media (max-width: 768px) {
+  .ash-shell .ash-sidebar {
+    position: fixed !important;
+    top: 10px !important; bottom: 10px !important; left: 10px !important;
+    width: min(82vw, 300px) !important;
+    margin: 0 !important;
+    z-index: 50 !important;
+  }
+  .ash-shell .ash-sidebar-backdrop {
+    display: block;
+    position: fixed; inset: 0; z-index: 49;
+    background: rgba(10,16,12,.45);
+  }
+  /* The 32px side gutter every admin screen's scroll container uses (set
+     inline at each render site in App.jsx) is fine on desktop but wastes a
+     tenth of a phone's width on both edges. */
+  .ash-shell .kh-shellscroll { padding: 14px 12px 20px !important; }
+}
 `;
 
 // Inject (or refresh) the stylesheet. Rewriting textContent when the tag

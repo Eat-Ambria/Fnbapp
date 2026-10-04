@@ -8,6 +8,7 @@ import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
 import { K, type } from '../utils/theme.js';
 import { Icon, KToast, ModalWatermark } from './KitchenUI.jsx';
 import { ripple } from '../utils/ripple.js';
+import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { guessSectionForDish } from '../data/recipeData.js';
@@ -105,6 +106,7 @@ function Pager({page,pages,onPage,from,shown,total,T2}) {
 
 function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
+  const isMobile = useIsMobile();
   const [lmsSyncing, setLmsSyncing] = useState(false);
   const [lmsResult, setLmsResult] = useState(null); // {status,events_upserted,...} or {status:'error',message}
   const [lmsLastSync, setLmsLastSync] = useState(null); // timestamp string
@@ -1162,7 +1164,7 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
       </div>
 
       {/* ── Right: event types, upcoming ── */}
-      <div style={{flex:"0 1 330px",minWidth:300,display:"flex",flexDirection:"column",gap:18}}>
+      <div style={{flex:isMobile?"1 1 100%":"0 1 330px",minWidth:isMobile?0:300,display:"flex",flexDirection:"column",gap:18}}>
 
         {/* Event types — the venue key and the venue filter in one. Counts are
             for the month the calendar is showing; clicking a row filters the

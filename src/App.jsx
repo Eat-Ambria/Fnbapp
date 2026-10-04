@@ -90,7 +90,10 @@ export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
   const [lang,setLang]               = useState("en");
-  const [sideOpen,setSideOpen]       = useState(true);
+  // Lazy init: on a phone the sidebar is a slide-in overlay (see .ash-sidebar
+  // mobile CSS in theme.js), so starting it open would cover the whole screen
+  // on first load. Desktop keeps the old always-open default.
+  const [sideOpen,setSideOpen]       = useState(()=>typeof window==='undefined'||window.innerWidth>768);
   const [allocRules,setAllocRules]   = useState({});
   const [dbChecklists,setDbChecklists] = useState({});
   const [tabletScreen,setTabletScreen] = useState("kitchen");
@@ -1205,7 +1208,12 @@ export default function App() {
           single expand control lives in the top bar — the same pattern the
           section-tablet shell uses. */}
       {sideOpen&&(
-      <div style={{width:K.sbWidth,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",overflow:"hidden"}}>
+      <>
+      {/* Phone only (see .ash-sidebar-backdrop in theme.js) — the sidebar
+          becomes a slide-in overlay below 768px, so tapping outside it
+          should close it like any drawer. Invisible/inert on desktop. */}
+      <div className="ash-sidebar-backdrop" onClick={()=>setSideOpen(false)}/>
+      <div className="ash-sidebar" style={{width:K.sbWidth,margin:"10px 0 10px 10px",background:K.sbBg,border:`1px solid ${K.sbLine}`,borderRadius:22,boxShadow:K.sidebarShadow,zIndex:3,display:"flex",flexDirection:"column",flexShrink:0,position:"relative",overflow:"hidden"}}>
 
         {/* Decorative background art.
             Drop the artwork at Fnbapp/public/leaf-bg.webp — BASE_URL is used
@@ -1424,6 +1432,7 @@ export default function App() {
           </div>
         )}
       </div>
+      </>
       )}
 
       {/* ── MAIN CONTENT ── */}

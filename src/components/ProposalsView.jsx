@@ -16,6 +16,7 @@ import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
 import { KButton, ModalWatermark, KModal } from './KitchenUI.jsx';
 import { fetchAllRows } from '../lib/db.js';
+import { useIsMobile } from '../utils/useIsMobile.js';
 import MenuBuilderView from './MenuBuilderView.jsx';
 
 // ── Local enums for form pickers (kept here so no schema/DB coupling) ──
@@ -52,6 +53,7 @@ function emptyForm() {
 
 export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var T2 = function(s) { return T(s, lang); };
+  var isMobile = useIsMobile();
   var canCreate  = hasPermission(currentUser, 'proposals.create');
   var canViewAll = hasPermission(currentUser, 'proposals.view_all');
   var canConvert = hasPermission(currentUser, 'proposals.convert');
@@ -499,7 +501,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   }
 
   return (
-    <div style={{ padding: "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
+    <div style={{ padding: isMobile ? "4px 2px" : "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
       {/* Screen actions live in the page header plate, portalled into the slot
           the shell renders there, so they sit on the banner rather than in a
           row of their own pushing the list down. */}
@@ -811,6 +813,141 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
             // Two widths, because a won proposal grows a Convert button (or a
             // Booked pill) and reserving room for it on every page would leave a
             // hole on the ones that have none.
+            if (isMobile) {
+              // A 7-8 column grid has no honest mobile form — every field becomes
+              // its own labelled row instead of shrinking past readability.
+              return (
+                <div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {pagedList.map(function(p){
+                      var meta = STATUS_META[p.status] || STATUS_META.draft;
+                      var pDiet = p.menu_diet || null;
+                      var dietFg = pDiet === 'nonveg' ? K.danger : pDiet === 'veg' ? K.ok : K.textFaint;
+                      var dietLabel = pDiet === 'nonveg' ? T2("Non-Veg") : pDiet === 'veg' ? T2("Veg") : T2("Not specified");
+                      return (
+                        <div key={p.id} className="kh-cardart-sm" style={{ backgroundColor: K.cardWarm, borderRadius: 16,
+                          border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "14px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                            <span style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+                              background: K.warnBg, border: "1px solid " + K.warnBorder,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontFamily: K.fontDisplay, fontSize: 17, fontWeight: 600, color: K.warn }}>
+                              {String(p.guest_name || "?").trim().charAt(0).toUpperCase()}
+                            </span>
+                            <span style={{ minWidth: 0, flex: 1 }}>
+                              <span style={{ display: "block", fontSize: 14.5, fontWeight: 700, color: K.hdrTitle,
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.guest_name}</span>
+                              <span style={{ display: "block", fontSize: 12.5, color: K.hdrMeta, marginTop: 1,
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {p.event_type || T2("Event")}{p.phone ? ' · ' + p.phone : ''}
+                              </span>
+                            </span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "0 4px 0 10px",
+                              borderRadius: K.rPill, background: meta.bg, border: "1px solid " + meta.border, flexShrink: 0 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: "50%", background: meta.fg, flexShrink: 0 }} />
+                              <select className="kh-select" value={p.status} onChange={function(e){ updateStatus(p, e.target.value); }}
+                                style={{ padding: "7px 5px 7px 0", border: "none", outline: "none", background: "transparent",
+                                  fontSize: 12, fontWeight: 700, color: meta.fg, cursor: "pointer", fontFamily: K.fontBody }}>
+                                <option value="draft">{T2("Draft")}</option>
+                                <option value="sent">{T2("Sent")}</option>
+                                <option value="won">{T2("Won")}</option>
+                                <option value="lost">{T2("Lost")}</option>
+                              </select>
+                            </span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 10px", marginTop: 12, paddingTop: 12, borderTop: "1px solid " + K.lineSoft }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: K.text, minWidth: 0 }}>
+                              <Icon name="building" size={13} strokeWidth={1.9} style={{ color: K.textFaint, flexShrink: 0 }} />
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.venue || T2("Not set")}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: K.text, minWidth: 0 }}>
+                              <Icon name="calendar" size={13} strokeWidth={1.9} style={{ color: K.textFaint, flexShrink: 0 }} />
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.event_date || T2("Not set")}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: K.text, fontWeight: 700 }}>
+                              <Icon name="users" size={13} strokeWidth={1.9} style={{ color: K.textFaint, flexShrink: 0 }} />
+                              {p.pax != null ? p.pax : T2("Not set")}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: dietFg }}>
+                              <Icon name="apple" size={13} strokeWidth={1.9} style={{ flexShrink: 0 }} />
+                              {dietLabel}
+                            </div>
+                            {canViewAll && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: K.text, gridColumn: "1 / -1", minWidth: 0 }}>
+                                <Icon name="contact" size={13} strokeWidth={1.9} style={{ color: K.textFaint, flexShrink: 0 }} />
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{repNameLookup[p.rep_emp_id] || p.rep_emp_id}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                            <KButton size="sm" icon="note" onClick={function(){ openEdit(p); }}
+                              style={{ flex: 1, padding: "9px 10px", borderRadius: 10, fontSize: 12.5, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+                              {T2("Edit")}
+                            </KButton>
+                            <KButton size="sm" variant="brand" icon="utensils" onClick={function(){ openMenuBuilder(p); }}
+                              style={{ flex: 1, padding: "9px 10px", borderRadius: 10, fontSize: 12.5 }}>
+                              {T2("Menu")}
+                            </KButton>
+                            <button onClick={function(){ duplicateProposal(p); }} title={T2("Duplicate")}
+                              className="kh-rip kh-iconbtn" onPointerDown={ripple}
+                              style={{ width: 38, height: 38, borderRadius: 10, background: "#FFFFFF", cursor: "pointer", padding: 0,
+                                border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <Icon name="layers" size={15} />
+                            </button>
+                            <button onClick={function(){ deleteProposal(p); }} title={T2("Delete")}
+                              className="kh-rip" onPointerDown={ripple}
+                              style={{ width: 38, height: 38, borderRadius: 10, background: K.dangerBg, cursor: "pointer", padding: 0,
+                                border: "1px solid " + K.dangerBorder, color: K.danger,
+                                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <Icon name="trash" size={15} />
+                            </button>
+                            {canConvert && p.status === 'won' && (
+                              p.converted_event_id ? (
+                                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 12px",
+                                  borderRadius: 10, background: K.okBg, border: "1px solid " + K.okBorder, color: K.ok, fontSize: 12.5, fontWeight: 700, width: "100%" }}>
+                                  <Icon name="check" size={14} strokeWidth={2.2} />{T2("Booked")}
+                                </span>
+                              ) : (
+                                <KButton size="sm" icon="calendar" onClick={function(){ convertToBooking(p); }}
+                                  style={{ width: "100%", padding: "9px 10px", borderRadius: 10, fontSize: 12.5, background: K.okBg, borderColor: K.okBorder, color: K.ok }}>
+                                  {T2("Convert to booking")}
+                                </KButton>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, color: K.hdrMeta }}>
+                      {T2("Showing")} {pagedList.length} {T2("of")} {sortedList.length} {sortedList.length === 1 ? T2("proposal") : T2("proposals")}
+                    </span>
+                    {pageCount > 1 && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button onClick={function(){ setPage(Math.max(1, pageSafe - 1)); }} disabled={pageSafe === 1}
+                          className="kh-rip" onPointerDown={ripple}
+                          style={{ width: 34, height: 34, borderRadius: 10, background: "#FFFFFF", padding: 0,
+                            border: "1px solid " + K.cardWarmLine, color: pageSafe === 1 ? K.lineStrong : K.textBody,
+                            cursor: pageSafe === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon name="chevronL" size={14} strokeWidth={2.1} />
+                        </button>
+                        <span style={{ fontSize: 12.5, color: K.hdrMeta, minWidth: 54, textAlign: "center" }}>{pageSafe} / {pageCount}</span>
+                        <button onClick={function(){ setPage(Math.min(pageCount, pageSafe + 1)); }} disabled={pageSafe === pageCount}
+                          className="kh-rip" onPointerDown={ripple}
+                          style={{ width: 34, height: 34, borderRadius: 10, background: "#FFFFFF", padding: 0,
+                            border: "1px solid " + K.cardWarmLine, color: pageSafe === pageCount ? K.lineStrong : K.textBody,
+                            cursor: pageSafe === pageCount ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon name="chevronR" size={14} strokeWidth={2.1} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
             var wideActions = canConvert && pagedList.some(function(p){ return p.status === 'won'; });
             var actionsCol = wideActions ? "392px" : "284px";
             var cols = (canViewAll
