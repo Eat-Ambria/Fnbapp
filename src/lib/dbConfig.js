@@ -303,7 +303,7 @@ export async function loadAllConfig() {
         if (def.type === 'ratio') {
           cfg.allowExtras = !!def.allow_extras;
           cfg.ratios = opts.map(function(o){
-            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name, price_per_pax: Number(o.price_per_pax) || 0 };
+            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name, price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
           });
         } else if (def.type === 'count') {
           cfg.min  = def.min_val != null ? def.min_val : 0;
@@ -312,10 +312,15 @@ export async function loadAllConfig() {
           // V90 — pricing backend: a flat per-unit-per-pax rate, since 'count'
           // configs have no options list to hang a price on individually.
           cfg.pricePerPax = Number(def.price_per_pax) || 0;
+          // V95 — whether that rate is charged per guest or as one flat amount.
+          cfg.pricingMode = def.pricing_mode || 'per_pax';
+          // V95 — included in every package by default (standard crockery,
+          // service, display setups...), so it never adds to the price.
+          cfg.isIncluded = !!def.is_included;
         } else {
           // options, radio, multi_count, tags
           cfg.options = opts.map(function(o){
-            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '', price_per_pax: Number(o.price_per_pax) || 0 };
+            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '', price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
           });
         }
         byDept[def.dept_id].push(cfg);

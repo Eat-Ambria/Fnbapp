@@ -1161,14 +1161,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       </div>
 
       {/* Tabs. Pills on their own rather than a row of emoji over a rule — the
-          emoji were the only thing distinguishing them and they read as text. */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+          emoji were the only thing distinguishing them and they read as text.
+          On a phone they scroll sideways as one line instead of wrapping to a
+          second — four pills wrapped 2+2 read as a broken layout, not a tab bar. */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18,
+        flexWrap: isMobile ? "nowrap" : "wrap",
+        overflowX: isMobile ? "auto" : undefined,
+        WebkitOverflowScrolling: isMobile ? "touch" : undefined,
+        paddingBottom: isMobile ? 2 : undefined }}>
         {TABS.map(function(t) {
           var on = mainTab === t.v;
           return <button key={t.v} onClick={function() { setMainTab(t.v); setSelEvId(null); }}
             className={on ? undefined : "kh-calnav"}
-            style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "11px 20px", borderRadius: 999,
-              fontFamily: K.fontBody, fontSize: 13, fontWeight: on ? 700 : 600, cursor: "pointer",
+            style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: isMobile ? "10px 16px" : "11px 20px",
+              borderRadius: 999, flexShrink: 0,
+              fontFamily: K.fontBody, fontSize: 13, fontWeight: on ? 700 : 600, cursor: "pointer", whiteSpace: "nowrap",
               background: on ? K.brand : "#FFFFFF", color: on ? "#FFFFFF" : K.textBody,
               border: "1px solid " + (on ? K.brand : K.cardWarmLine),
               boxShadow: on ? K.shadowCard : "none" }}>

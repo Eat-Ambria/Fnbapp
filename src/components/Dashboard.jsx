@@ -544,53 +544,95 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
       {/* ══ TOP BAR ══
           Title and date on the left, the two running totals, then the two
           actions — one row, no plate behind it. */}
-      {(()=>{ const topBar=(
-      <div style={{display:"flex",alignItems:"center",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:topSlot?0:18}}>
-        {/* Spacer: pushes the totals and actions to the right. Only on desktop —
-            once this row wraps onto several lines (phone width) an auto-margin
-            spacer just strands whatever's left on the first line instead of
-            actually centering anything, so it's dropped rather than kept inert. */}
-        {!isMobile&&<div style={{marginRight:"auto"}}/>}
+      {(()=>{ const topBar=isMobile?(
+      /* Mobile: a real 2-column grid, not a wrapped flex row. Flex items
+         refuse to shrink below their own text's width unless told to, so
+         "406 · FY total · 26–27" alone was wide enough that two never fit on
+         one line — every pill fell onto its own full-width row ("long
+         buttons"). minmax(0,1fr) columns force an even 50/50 split and the
+         text truncates inside it instead. */
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8,marginBottom:topSlot?0:18}}>
+        <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
         {[{label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
           {label:`${T2("FY total")} · ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
          ].map(s=>(
-          <div key={s.label} style={{display:"flex",alignItems:"center",gap:isMobile?7:10,
-            flex:isMobile?"1 1 140px":undefined,
-            padding:isMobile?"5px 10px 5px 5px":"6px 16px 6px 7px",
-            borderRadius:13,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
-            <span style={{width:isMobile?26:32,height:isMobile?26:32,borderRadius:9,flexShrink:0,background:K.sageBg,
+          <div key={s.label} style={{display:"flex",alignItems:"center",gap:7,minWidth:0,
+            padding:"6px 10px 6px 6px",borderRadius:13,
+            backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+            <span style={{width:26,height:26,borderRadius:9,flexShrink:0,background:K.sageBg,
               border:`1px solid ${K.sageBorder}`,color:K.brand,
               display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <Icon name={s.icon} size={isMobile?13:15} strokeWidth={1.8}/>
+              <Icon name={s.icon} size={13} strokeWidth={1.8}/>
             </span>
             <div style={{minWidth:0}}>
-              <div style={{fontFamily:K.fontBody,fontSize:isMobile?15:17,fontWeight:700,color:K.hdrTitle,lineHeight:1,
+              <div style={{fontFamily:K.fontBody,fontSize:15,fontWeight:700,color:K.hdrTitle,lineHeight:1,
                 letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
-              <div style={{fontFamily:K.fontBody,fontSize:isMobile?10:11,color:K.hdrMeta,marginTop:2,
-                whiteSpace:isMobile?"normal":"nowrap",lineHeight:1.25}}>{s.label}</div>
+              <div style={{fontFamily:K.fontBody,fontSize:10,color:K.hdrMeta,marginTop:2,lineHeight:1.25,
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label}</div>
+            </div>
+          </div>
+        ))}
+        {currentUser?.role==='admin'&&(
+          <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
+            style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 10px",minHeight:40,minWidth:0,boxSizing:"border-box",borderRadius:13,
+              backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
+              color:lmsSyncing?K.textFaint:K.textBody,fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,
+              cursor:lmsSyncing?"wait":"pointer",overflow:"hidden"}}>
+            {lmsSyncing
+              ? <span style={{display:"inline-block",width:14,height:14,flexShrink:0,border:`2px solid ${K.textFaint}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>
+              : <Icon name="refresh" size={15} strokeWidth={1.9} style={{flexShrink:0}}/>}
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lmsSyncing?T2("Syncing…"):T2("Sync LMS")}</span>
+          </button>
+        )}
+        <button onClick={()=>openAdd(todayStr)} className="kh-rip" onPointerDown={ripple}
+          style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 10px",minHeight:40,minWidth:0,boxSizing:"border-box",borderRadius:13,
+            background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,boxShadow:K.shadowCard,
+            fontSize:12.5,fontWeight:600,cursor:"pointer",overflow:"hidden",
+            gridColumn:currentUser?.role==='admin'?undefined:"1 / -1"}}>
+          <Icon name="plus" size={14} strokeWidth={2.2} style={{flexShrink:0}}/>
+          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{T2("Add Event")}</span>
+        </button>
+      </div>
+      ):(
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:topSlot?0:18}}>
+        {/* Spacer: pushes the totals and actions to the right. */}
+        <div style={{marginRight:"auto"}}/>
+        {[{label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
+          {label:`${T2("FY total")} · ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
+         ].map(s=>(
+          <div key={s.label} style={{display:"flex",alignItems:"center",gap:10,
+            padding:"6px 16px 6px 7px",
+            borderRadius:13,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+            <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:K.sageBg,
+              border:`1px solid ${K.sageBorder}`,color:K.brand,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name={s.icon} size={15} strokeWidth={1.8}/>
+            </span>
+            <div>
+              <div style={{fontFamily:K.fontBody,fontSize:17,fontWeight:700,color:K.hdrTitle,lineHeight:1,
+                letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
+              <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.label}</div>
             </div>
           </div>
         ))}
         <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
         {currentUser?.role==='admin'&&(
           <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
-            style={{display:"inline-flex",alignItems:"center",gap:10,padding:isMobile?"0 12px":"0 16px",minHeight:42,boxSizing:"border-box",borderRadius:13,
+            style={{display:"inline-flex",alignItems:"center",gap:10,padding:"0 16px",minHeight:42,boxSizing:"border-box",borderRadius:13,
               backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
               color:lmsSyncing?K.textFaint:K.textBody,fontFamily:K.fontBody,fontSize:13,fontWeight:600,
-              cursor:lmsSyncing?"wait":"pointer",whiteSpace:"nowrap",flex:isMobile?"1 1 140px":undefined,justifyContent:isMobile?"center":"flex-start"}}>
+              cursor:lmsSyncing?"wait":"pointer",whiteSpace:"nowrap"}}>
             {lmsSyncing
               ? <span style={{display:"inline-block",width:15,height:15,border:`2px solid ${K.textFaint}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>
               : <Icon name="refresh" size={16} strokeWidth={1.9}/>}
             {lmsSyncing?T2("Syncing…"):T2("Sync LMS")}
-            {/* Last-sync timestamp dropped on mobile — it's the least essential
-                part of this button and was what forced it onto its own row. */}
-            {lmsLastSync&&!isMobile&&<span style={{fontSize:11.5,fontWeight:500,color:K.hdrMeta}}>{lmsLastSync}</span>}
+            {lmsLastSync&&<span style={{fontSize:11.5,fontWeight:500,color:K.hdrMeta}}>{lmsLastSync}</span>}
           </button>
         )}
         <button onClick={()=>openAdd(todayStr)} className="kh-rip" onPointerDown={ripple}
-          style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:9,padding:isMobile?"0 16px":"0 20px",minHeight:42,boxSizing:"border-box",borderRadius:13,
+          style={{display:"inline-flex",alignItems:"center",gap:9,padding:"0 20px",minHeight:42,boxSizing:"border-box",borderRadius:13,
             background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,boxShadow:K.shadowCard,
-            fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flex:isMobile?"1 1 140px":undefined}}>
+            fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
           <Icon name="plus" size={15} strokeWidth={2.2}/>{T2("Add Event")}
         </button>
       </div>
