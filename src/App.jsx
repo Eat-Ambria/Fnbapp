@@ -1503,7 +1503,12 @@ export default function App() {
               shut they sit on the Expand button's row instead of under it. */}
           {screen==="dashboard"&&<div id="dash-top-slot" style={{flex:1,minWidth:0}}/>}
           {screen==="kitchen"&&<div id="kh-hdr-slot" style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}/>}
-          {screen!=="dashboard"&&screen!=="kitchen"&&(
+          {/* Menu Packages has no plate either — its own "Menu" heading + tab
+              strip sits right below and already names the screen, so the
+              brand plate above it was pure repetition (same icon, "Menu
+              Packages" vs "Menu", same date) costing a whole band of height
+              on every one of its tabs, worst on a phone. */}
+          {screen!=="dashboard"&&screen!=="kitchen"&&screen!=="menus"&&(
           <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}

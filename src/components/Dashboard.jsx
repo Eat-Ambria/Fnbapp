@@ -545,44 +545,52 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
           Title and date on the left, the two running totals, then the two
           actions — one row, no plate behind it. */}
       {(()=>{ const topBar=(
-      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:topSlot?0:18}}>
-        {/* Spacer: pushes the totals and actions to the right. */}
-        <div style={{marginRight:"auto"}}/>
+      <div style={{display:"flex",alignItems:"center",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:topSlot?0:18}}>
+        {/* Spacer: pushes the totals and actions to the right. Only on desktop —
+            once this row wraps onto several lines (phone width) an auto-margin
+            spacer just strands whatever's left on the first line instead of
+            actually centering anything, so it's dropped rather than kept inert. */}
+        {!isMobile&&<div style={{marginRight:"auto"}}/>}
         {[{label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
           {label:`${T2("FY total")} · ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
          ].map(s=>(
-          <div key={s.label} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 16px 6px 7px",
+          <div key={s.label} style={{display:"flex",alignItems:"center",gap:isMobile?7:10,
+            flex:isMobile?"1 1 140px":undefined,
+            padding:isMobile?"5px 10px 5px 5px":"6px 16px 6px 7px",
             borderRadius:13,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
-            <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:K.sageBg,
+            <span style={{width:isMobile?26:32,height:isMobile?26:32,borderRadius:9,flexShrink:0,background:K.sageBg,
               border:`1px solid ${K.sageBorder}`,color:K.brand,
               display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <Icon name={s.icon} size={15} strokeWidth={1.8}/>
+              <Icon name={s.icon} size={isMobile?13:15} strokeWidth={1.8}/>
             </span>
-            <div>
-              <div style={{fontFamily:K.fontBody,fontSize:17,fontWeight:700,color:K.hdrTitle,lineHeight:1,
+            <div style={{minWidth:0}}>
+              <div style={{fontFamily:K.fontBody,fontSize:isMobile?15:17,fontWeight:700,color:K.hdrTitle,lineHeight:1,
                 letterSpacing:"-0.5px",fontVariantNumeric:"tabular-nums"}}>{s.n.toLocaleString()}</div>
-              <div style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,marginTop:2,whiteSpace:"nowrap"}}>{s.label}</div>
+              <div style={{fontFamily:K.fontBody,fontSize:isMobile?10:11,color:K.hdrMeta,marginTop:2,
+                whiteSpace:isMobile?"normal":"nowrap",lineHeight:1.25}}>{s.label}</div>
             </div>
           </div>
         ))}
         <style>{`@keyframes lms-spin{to{transform:rotate(360deg)}}`}</style>
         {currentUser?.role==='admin'&&(
           <button onClick={syncLms} disabled={lmsSyncing} className={lmsSyncing?undefined:"kh-calnav"}
-            style={{display:"inline-flex",alignItems:"center",gap:10,padding:"0 16px",minHeight:42,boxSizing:"border-box",borderRadius:13,
+            style={{display:"inline-flex",alignItems:"center",gap:10,padding:isMobile?"0 12px":"0 16px",minHeight:42,boxSizing:"border-box",borderRadius:13,
               backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,
               color:lmsSyncing?K.textFaint:K.textBody,fontFamily:K.fontBody,fontSize:13,fontWeight:600,
-              cursor:lmsSyncing?"wait":"pointer",whiteSpace:"nowrap"}}>
+              cursor:lmsSyncing?"wait":"pointer",whiteSpace:"nowrap",flex:isMobile?"1 1 140px":undefined,justifyContent:isMobile?"center":"flex-start"}}>
             {lmsSyncing
               ? <span style={{display:"inline-block",width:15,height:15,border:`2px solid ${K.textFaint}`,borderTopColor:"transparent",borderRadius:"50%",animation:"lms-spin .8s linear infinite"}}/>
               : <Icon name="refresh" size={16} strokeWidth={1.9}/>}
             {lmsSyncing?T2("Syncing…"):T2("Sync LMS")}
-            {lmsLastSync&&<span style={{fontSize:11.5,fontWeight:500,color:K.hdrMeta}}>{lmsLastSync}</span>}
+            {/* Last-sync timestamp dropped on mobile — it's the least essential
+                part of this button and was what forced it onto its own row. */}
+            {lmsLastSync&&!isMobile&&<span style={{fontSize:11.5,fontWeight:500,color:K.hdrMeta}}>{lmsLastSync}</span>}
           </button>
         )}
         <button onClick={()=>openAdd(todayStr)} className="kh-rip" onPointerDown={ripple}
-          style={{display:"inline-flex",alignItems:"center",gap:9,padding:"0 20px",minHeight:42,boxSizing:"border-box",borderRadius:13,
+          style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:9,padding:isMobile?"0 16px":"0 20px",minHeight:42,boxSizing:"border-box",borderRadius:13,
             background:K.brand,color:"#FFFFFF",border:"none",fontFamily:K.fontBody,boxShadow:K.shadowCard,
-            fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flex:isMobile?"1 1 140px":undefined}}>
           <Icon name="plus" size={15} strokeWidth={2.2}/>{T2("Add Event")}
         </button>
       </div>
@@ -907,18 +915,21 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
                   onDoubleClick={()=>{if(dt)openAdd(dt);}}
                   className={dt?"kh-calcell":undefined}
                   title={dt?T2("Double-click to add a function"):undefined}
-                  style={{minHeight:86,padding:"8px 8px 6px",cursor:dt?"pointer":"default",minWidth:0,
+                  style={{minHeight:86,padding:"8px 8px 6px",cursor:dt?"pointer":"default",minWidth:0,overflow:"hidden",
                     borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
                     background:isS?K.sageSel:isT?"#F8F0DC":"transparent",
                     opacity:cell.c?1:.32}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,minHeight:22}}>
-                    <span style={{minWidth:22,height:22,padding:"0 5px",borderRadius:999,boxSizing:"border-box",
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,minHeight:22,minWidth:0}}>
+                    <span style={{minWidth:22,height:22,padding:"0 5px",borderRadius:999,boxSizing:"border-box",flexShrink:0,
                       display:"inline-flex",alignItems:"center",justifyContent:"center",
                       fontFamily:K.fontBody,fontSize:13,fontVariantNumeric:"tabular-nums",
                       fontWeight:isT||isS?700:500,
                       background:isT?K.brand:"transparent",
                       color:isT?"#FFFFFF":isS?K.sageText:K.textBody}}>{cell.d}</span>
-                    {isT&&<span style={{fontFamily:K.fontBody,fontSize:10,fontWeight:700,letterSpacing:.7,color:K.gold}}>{T2("TODAY")}</span>}
+                    {/* The "TODAY" tag itself doesn't fit a phone-width cell —
+                        the tinted background and filled date circle already
+                        mark today without it. */}
+                    {isT&&!isMobile&&<span style={{fontFamily:K.fontBody,fontSize:10,fontWeight:700,letterSpacing:.7,color:K.gold,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{T2("TODAY")}</span>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:4}}>
                     {shownEvs.map(ev=>evChip(ev,false))}
