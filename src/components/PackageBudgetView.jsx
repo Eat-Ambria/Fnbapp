@@ -8,6 +8,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { T } from '../data/translations.js';
 import { SALES_DEPTS } from '../data/salesConfig.js';
+
+// GYV is a budget-only bucket (company overhead/margin, not a real
+// operational department) — local to this screen, not added to the shared
+// SALES_DEPTS list, so it never shows up as a dept tab in the Menu Builder
+// (proposal or booked-function) or anywhere else SALES_DEPTS drives real
+// dish/config selection.
+var BUDGET_DEPTS = SALES_DEPTS.concat([
+  { id: 'gyv', name: 'GYV', icon: '🏢', glyph: 'building', color: '#5B6472', bg: '#E7E9EC' },
+]);
 import { supabase } from '../lib/supabase.js';
 import { K, type } from '../utils/theme.js';
 import { Icon, KToast } from './KitchenUI.jsx';
@@ -22,27 +31,6 @@ function splitPkgName(name) {
   m = s.match(/^(.*?)\s*\bveg\b\s*$/i);
   if (m) return { tier: m[1].trim(), diet: 'veg' };
   return { tier: s, diet: null };
-}
-
-function BigPriceInput({ value, onSave, saving }) {
-  var [draft, setDraft] = useState(value == null ? '' : String(value));
-  useEffect(function(){ setDraft(value == null ? '' : String(value)); }, [value]);
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 18, fontWeight: 700, color: K.hdrMeta }}>₹</span>
-      <input type="number" min="0" step="1" value={draft}
-        onChange={function(e){ setDraft(e.target.value); }}
-        onBlur={function(){
-          var n = draft === '' ? 0 : Number(draft);
-          if (!isFinite(n) || n < 0) n = 0;
-          if (n !== (value || 0)) onSave(n);
-          else setDraft(String(value || 0));
-        }}
-        style={{ width: 110, padding: '10px 14px', borderRadius: 12, border: '1.5px solid ' + K.brandBorder,
-          fontSize: 20, fontWeight: 700, color: K.hdrTitle, background: '#FFFFFF', textAlign: 'right',
-          boxSizing: 'border-box', fontFamily: K.fontBody, outline: 'none', opacity: saving ? 0.5 : 1 }} />
-    </span>
-  );
 }
 
 function DeptPriceInput({ value, onSave, saving }) {
@@ -136,35 +124,25 @@ function PackageBudgetView({ lang = 'en', currentUser = null }) {
   var budget = (pkgId && budgets[pkgId]) || { per_head_total: 0, dept_allocation: {} };
   var alloc = budget.dept_allocation || {};
 
-  async function saveTotal(v) {
-    if (!pkgId) return;
-    setSavingKey('total');
-    try {
-      var res = await supabase.from('menu_package_budgets')
-        .upsert({ package_id: pkgId, per_head_total: v, dept_allocation: alloc }, { onConflict: 'package_id' });
-      if (res.error) throw res.error;
-      setBudgets(function(prev){
-        var next = { ...prev };
-        next[pkgId] = { per_head_total: v, dept_allocation: alloc };
-        return next;
-      });
-    } catch (e) {
-      setToast({ tone: 'danger', title: T2('Could not save'), body: String((e && e.message) || e) });
-    } finally { setSavingKey(null); }
-  }
-
+  // Per-head total is the SUM of the 7 dept amounts below, not its own typed
+  // field — it used to be a separate manually-entered number (per_head_total)
+  // that never moved when a dept amount changed, so admins filled in Kitchen/
+  // Beverage/etc. and the total kept reading 0. It's still persisted as its
+  // own column (other code may read menu_package_budgets.per_head_total
+  // later), just always written as the computed sum rather than edited directly.
   async function saveDeptAmount(deptId, v) {
     if (!pkgId) return;
     var key = 'dept:' + deptId;
     setSavingKey(key);
     try {
       var nextAlloc = { ...alloc, [deptId]: v };
+      var nextTotal = BUDGET_DEPTS.reduce(function(sum, d){ return sum + (Number(nextAlloc[d.id]) || 0); }, 0);
       var res = await supabase.from('menu_package_budgets')
-        .upsert({ package_id: pkgId, per_head_total: budget.per_head_total, dept_allocation: nextAlloc }, { onConflict: 'package_id' });
+        .upsert({ package_id: pkgId, per_head_total: nextTotal, dept_allocation: nextAlloc }, { onConflict: 'package_id' });
       if (res.error) throw res.error;
       setBudgets(function(prev){
         var next = { ...prev };
-        next[pkgId] = { per_head_total: budget.per_head_total, dept_allocation: nextAlloc };
+        next[pkgId] = { per_head_total: nextTotal, dept_allocation: nextAlloc };
         return next;
       });
     } catch (e) {
@@ -172,10 +150,8 @@ function PackageBudgetView({ lang = 'en', currentUser = null }) {
     } finally { setSavingKey(null); }
   }
 
-  var total = Number(budget.per_head_total) || 0;
-  var allocatedSum = SALES_DEPTS.reduce(function(sum, d){ return sum + (Number(alloc[d.id]) || 0); }, 0);
-  var remaining = total - allocatedSum;
-  var bannerTone = total <= 0 ? null : (remaining === 0 ? 'ok' : (remaining > 0 ? 'warn' : 'danger'));
+  var allocatedSum = BUDGET_DEPTS.reduce(function(sum, d){ return sum + (Number(alloc[d.id]) || 0); }, 0);
+  var total = allocatedSum;
 
   var dietLabel = { veg: T2('Veg'), nonveg: T2('Non-Veg') };
 
@@ -230,12 +206,15 @@ function PackageBudgetView({ lang = 'en', currentUser = null }) {
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: K.textFaint }}>{T2('Per head total')}</div>
             <div style={{ fontSize: 13, color: K.hdrMeta, marginTop: 2 }}>{selTier} · {effDiet ? dietLabel[effDiet] : T2('Unclassified')}</div>
           </div>
-          <BigPriceInput value={budget.per_head_total} saving={savingKey === 'total'} onSave={saveTotal} />
+          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: K.hdrMeta }}>₹</span>
+            <span style={{ fontSize: 26, fontWeight: 800, color: K.hdrTitle, fontVariantNumeric: 'tabular-nums' }}>{total}</span>
+          </span>
         </div>
 
         {/* Stacked bar — proportional segments per dept */}
         <div style={{ display: 'flex', height: 34, borderRadius: 10, overflow: 'hidden', background: K.surfaceAlt, marginBottom: 12 }}>
-          {total > 0 && SALES_DEPTS.filter(function(d){ return (Number(alloc[d.id]) || 0) > 0; }).map(function(d){
+          {total > 0 && BUDGET_DEPTS.filter(function(d){ return (Number(alloc[d.id]) || 0) > 0; }).map(function(d){
             var amt = Number(alloc[d.id]) || 0;
             var pct = (amt / total) * 100;
             return (
@@ -247,25 +226,15 @@ function PackageBudgetView({ lang = 'en', currentUser = null }) {
           })}
         </div>
 
-        {bannerTone && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px',
-            borderRadius: 10, flexWrap: 'wrap',
-            background: bannerTone === 'ok' ? K.sageBg : bannerTone === 'warn' ? K.warnBg : K.dangerBg,
-            color: bannerTone === 'ok' ? K.sageText : bannerTone === 'warn' ? K.warn : K.danger,
-            border: '1px solid ' + (bannerTone === 'ok' ? K.sageBorder : bannerTone === 'warn' ? K.warnBorder : K.dangerBorder) }}>
-            <span style={{ fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name={bannerTone === 'ok' ? 'check' : 'alert'} size={14} strokeWidth={2.2} />
-              {bannerTone === 'ok' ? T2('Fully allocated')
-                : bannerTone === 'warn' ? '₹' + remaining + T2(' remaining to allocate')
-                : T2('Over-allocated by ') + '₹' + Math.abs(remaining)}
-            </span>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>₹{allocatedSum} / ₹{total}</span>
+        {total === 0 && (
+          <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: 'italic' }}>
+            {T2('Set an amount in any department below — the total fills in on its own.')}
           </div>
         )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-        {SALES_DEPTS.map(function(d){
+        {BUDGET_DEPTS.map(function(d){
           var amt = Number(alloc[d.id]) || 0;
           var pct = total > 0 ? (amt / total) * 100 : 0;
           return (
