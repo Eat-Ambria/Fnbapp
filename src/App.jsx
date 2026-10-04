@@ -14,6 +14,7 @@ import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, subscribeRecipeRealtime, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
 import { canAccessScreen, hydratePermissions } from './data/permissions.js';
+import { hydrateAppSettings } from './data/appSettings.js';
 import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
@@ -393,6 +394,7 @@ export default function App() {
         hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydratePermissions(cfg.roleDefinitions);
+        hydrateAppSettings(cfg.appSettings);
         hydrateRecipeData(cfg);
         subscribeRecipeRealtime(supabase);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);

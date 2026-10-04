@@ -202,6 +202,7 @@ export async function loadAllConfig() {
     salesConfigOptionsRaw,
     homeVenuesRaw,
     roleDefinitionsRaw,
+    appSettingsRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
     loadTable('cold_chain_items',      [], transformColdItems),
@@ -224,6 +225,7 @@ export async function loadAllConfig() {
     loadTable('sales_config_options',  [], null),
     loadTable('home_venues',           [], null),
     loadTable('role_definitions',      [], null),
+    loadTable('app_settings',          [], null),
   ]);
 
   // Home venues (staff "home venue" for transport routing) — master data, editable in Access Manager
@@ -351,5 +353,6 @@ export async function loadAllConfig() {
     teamDepts,
     homeVenues,
     roleDefinitions: roleDefinitionsRaw || [],
+    appSettings: appSettingsRaw || [],
   };
 }

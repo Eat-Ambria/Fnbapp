@@ -19,6 +19,7 @@ import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 import { KModal } from './KitchenUI.jsx';
+import { getFpUnlockCode } from '../data/appSettings.js';
 
 // V79 — events.menu_package is free text (LMS sync, manual entry...) and often
 // doesn't match a MENU_PACKAGES key byte-for-byte (e.g. "Multi-Cuisine Veg" vs
@@ -506,6 +507,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // trail nobody opens.
   var [fpLockModal, setFpLockModal] = useState(null); // null | 'lock' | 'unlock'
   var [unlockReason, setUnlockReason] = useState('');
+  // Admin-set in Access Manager (Security card) — a shared code staff must
+  // enter to re-open a locked FP, so it takes more than just typing any
+  // reason into the prompt below. Empty = admin hasn't set one, so unlocking
+  // falls back to reason-only, same as before this existed.
+  var [unlockCode, setUnlockCode] = useState('');
+  // The person who marked it final can always re-open their own FP with just
+  // a reason, same as before the code existed — the code is only a gate
+  // against someone OTHER than the locker re-opening it.
+  var isOwnLock = !!(fp && fp.locked_by && currentUser && currentUser.name && fp.locked_by === currentUser.name);
+  var requiredUnlockCode = isOwnLock ? '' : getFpUnlockCode();
 
   async function writeFpLockState(patch, histEntry) {
     var next = { ...(fp || { event_id: event.id }), ...patch,
@@ -556,12 +567,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var who = (currentUser && currentUser.name) || null;
     var reason = unlockReason.trim();
     if (!reason) return;
+    if (requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode) return;
     await writeFpLockState(
       { locked: false },
       { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason }
     );
     setFpLockModal(null);
     setUnlockReason('');
+    setUnlockCode('');
     notifyKitchen('fp_unlocked', T2('FP changed — last-minute update') + ': ' + (event.guest || T2('Function')),
       reason + (who ? ' (' + who + ')' : ''));
   }
@@ -1447,10 +1460,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           <textarea autoFocus value={unlockReason} onChange={function(e){ setUnlockReason(e.target.value); }}
             placeholder={T2("Reason for re-opening…")} rows={3}
             style={{ width: "100%", padding: "9px 11px", borderRadius: 10, border: "1px solid " + C.border, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+          {requiredUnlockCode && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 5 }}>{T2("Enter the FP re-open code (set by admin)")}</div>
+              <input value={unlockCode} onChange={function(e){ setUnlockCode(e.target.value); }} type="password"
+                placeholder={T2("Code")}
+                style={{ width: "100%", padding: "9px 11px", borderRadius: 10, border: "1px solid " + C.border, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+          )}
         </>}
-        confirmLabel={T2("Unlock for editing")} confirmIcon="lock" confirmDisabled={!unlockReason.trim()}
+        confirmLabel={T2("Unlock for editing")} confirmIcon="lock"
+        confirmDisabled={!unlockReason.trim() || (!!requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode)}
         onConfirm={confirmUnlock}
-        onClose={function(){ setFpLockModal(null); setUnlockReason(''); }} />
+        onClose={function(){ setFpLockModal(null); setUnlockReason(''); setUnlockCode(''); }} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
+import { APP_SETTINGS, setAppSetting } from '../data/appSettings.js';
 
 // ── Shared modal backdrop ──
 function Modal({open, onClose, wide, children}) {
@@ -173,6 +174,24 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       setShowChecklistManager(false);
     }catch(e){ window.alert('Save failed: '+e.message); }
     setChecklistSaving(false);
+  }
+
+  // ── FP re-open code — a shared code staff must enter to unlock a Function
+  // Plan that's been marked final, so re-opening a locked FP takes more than
+  // just typing a reason into the existing prompt. Single global value
+  // (app_settings table), not per-staff — admin-only to set. ──
+  const [fpCodeDraft, setFpCodeDraft] = useState(APP_SETTINGS.fp_unlock_code || "");
+  const [fpCodeSaving, setFpCodeSaving] = useState(false);
+  async function saveFpCode(){
+    var code = fpCodeDraft.trim();
+    setFpCodeSaving(true);
+    try{
+      var {error} = await supabase.from('app_settings').upsert({key:'fp_unlock_code', value:code||null, updated_at:new Date().toISOString()}, {onConflict:'key'});
+      if(error) throw error;
+      setAppSetting('fp_unlock_code', code);
+      logActivity('access', code?'FP re-open code updated':'FP re-open code cleared','fp_code_update',{},currentUser?.id);
+    }catch(e){ window.alert('Save failed: '+e.message); }
+    setFpCodeSaving(false);
   }
 
   function updateDept(deptId, patch){
@@ -540,6 +559,22 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           </div>
         ))}
       </div>
+
+      {/* ══════ SECURITY — FP re-open code ══════ */}
+      {canAdd&&(
+        <div style={{background:C.darkCard,borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",border:`1px solid ${C.border}`}}>
+          <div style={{flex:"1 1 220px",minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text}}>🔑 {T2("FP Re-open Code")}</div>
+            <div style={{fontSize:11,color:C.muted,marginTop:2}}>{T2("Staff must enter this to unlock a Function Plan that's been marked final. Leave blank to allow unlocking with just a reason, same as before.")}</div>
+          </div>
+          <input value={fpCodeDraft} onChange={e=>setFpCodeDraft(e.target.value)} placeholder={T2("e.g. 4821")}
+            style={{width:140,padding:"9px 12px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg}}/>
+          <button onClick={saveFpCode} disabled={fpCodeSaving||fpCodeDraft.trim()===(APP_SETTINGS.fp_unlock_code||"")}
+            style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",opacity:(fpCodeSaving||fpCodeDraft.trim()===(APP_SETTINGS.fp_unlock_code||""))?.5:1}}>
+            {fpCodeSaving?T2("Saving…"):T2("Save")}
+          </button>
+        </div>
+      )}
 
       {/* ══════ SEARCH ══════ */}
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={T2("Search by name or ID…")}
