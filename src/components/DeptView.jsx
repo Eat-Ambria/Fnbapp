@@ -142,11 +142,15 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // dept_id='svc', config_key='waiter_ratio') for today's + tomorrow's events,
   // so the tab can use the real per-event ratio when one's been set instead of
   // only ever guessing from the menu package. Fetched once per visit to the
-  // staffing tab, keyed by event id (undefined = not loaded yet).
+  // Service dept, keyed by event id (undefined = not loaded yet). Gated on
+  // selDept only, not activeTab — activeTab isn't computed until after this
+  // component's early returns (kiosk mode, dept selector), and a hook can't
+  // reference it without being skipped on those renders, which is exactly the
+  // "hooks ran a different number of times" crash fixed elsewhere in this file.
   const [waiterRatioByEv, setWaiterRatioByEv] = useState({});
   const staffingEvIds = [...todayEvs, ...tomorrowEvs].map(e=>e.id).join(',');
   useEffect(()=>{
-    if(selDept!=="service" || activeTab!=="staffing") return;
+    if(selDept!=="service") return;
     const ids = staffingEvIds ? staffingEvIds.split(',') : [];
     const missing = ids.filter(id=>waiterRatioByEv[id]===undefined);
     if(missing.length===0) return;
@@ -163,7 +167,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       });
     return ()=>{ cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selDept, activeTab, staffingEvIds]);
+  }, [selDept, staffingEvIds]);
 
   // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
   // Beverages gets its own dedicated Ops dept below, so it's excluded here —
