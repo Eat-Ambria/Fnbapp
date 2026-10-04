@@ -314,14 +314,22 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // rest of this file's unit list (tsp/tbsp/pcs/slice/Bot/tin/bunch/dozen)
   // has no unambiguous numeric ratio between members, so those are left as a
   // plain relabel same as before.
-  const ING_ROW_WEIGHT_G = { kg: 1000, gm: 1, g: 1 };
-  const ING_ROW_VOLUME_ML = { L: 1000, l: 1000, ml: 1 };
+  const ING_ROW_WEIGHT_G = { kg: 1000, kgs: 1000, kilo: 1000, kilos: 1000, gm: 1, gms: 1, g: 1, gram: 1, grams: 1 };
+  const ING_ROW_VOLUME_ML = { l: 1000, lt: 1000, ltr: 1000, litre: 1000, liter: 1000, ml: 1, mls: 1 };
   function convertIngRowQty(qty, fromUnit, toUnit) {
-    if (ING_ROW_WEIGHT_G[fromUnit] != null && ING_ROW_WEIGHT_G[toUnit] != null) {
-      return Math.round(qty * ING_ROW_WEIGHT_G[fromUnit] / ING_ROW_WEIGHT_G[toUnit] * 1e6) / 1e6;
+    // fromUnit is whatever's already stored on the row — hand-entered recipes
+    // mix "ml"/"ML"/"gm"/"GMS"/"gms" — while toUnit comes from this dropdown's
+    // own fixed-case options. An exact-case lookup here used to silently skip
+    // the rescale for any row whose stored unit wasn't cased to match the
+    // dropdown, keeping qty as-is under the NEW unit (the exact 1000x error
+    // the comment above warns about), instead of actually converting it.
+    const f = String(fromUnit || '').toLowerCase().trim();
+    const t = String(toUnit || '').toLowerCase().trim();
+    if (ING_ROW_WEIGHT_G[f] != null && ING_ROW_WEIGHT_G[t] != null) {
+      return Math.round(qty * ING_ROW_WEIGHT_G[f] / ING_ROW_WEIGHT_G[t] * 1e6) / 1e6;
     }
-    if (ING_ROW_VOLUME_ML[fromUnit] != null && ING_ROW_VOLUME_ML[toUnit] != null) {
-      return Math.round(qty * ING_ROW_VOLUME_ML[fromUnit] / ING_ROW_VOLUME_ML[toUnit] * 1e6) / 1e6;
+    if (ING_ROW_VOLUME_ML[f] != null && ING_ROW_VOLUME_ML[t] != null) {
+      return Math.round(qty * ING_ROW_VOLUME_ML[f] / ING_ROW_VOLUME_ML[t] * 1e6) / 1e6;
     }
     return null;
   }
@@ -5968,10 +5976,19 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                   // families (Packets, Bot, pcs, tin, bunch, dozen...) have no
                   // sensible common unit to convert into, so they just merge
                   // within their own exact unit, same as before.
-                  const WEIGHT_TO_G = { kg: 1000, gm: 1 };
-                  const VOL_TO_ML = { L: 1000, ml: 1, tsp: 5, tbsp: 15 };
-                  const unitFamily = u => WEIGHT_TO_G[u]!=null ? 'weight' : (VOL_TO_ML[u]!=null ? 'volume' : (u||''));
-                  const toBaseQty = (q,u) => WEIGHT_TO_G[u]!=null ? q*WEIGHT_TO_G[u] : (VOL_TO_ML[u]!=null ? q*VOL_TO_ML[u] : q);
+                  // Normalized to lowercase before lookup — hand-entered recipes mix
+                  // "ml"/"ML"/"gm"/"GMS"/"gms" for the same unit, and an exact-case
+                  // lookup here (same bug as the Collect-from-store aggregators —
+                  // see unitFamily/unitToBase in utils/helpers.js) silently split one
+                  // ingredient into two or three separate ordering-sheet rows.
+                  // Kept as its own local table (not the shared helper) since this
+                  // sheet also merges tsp/tbsp into the volume family, which the
+                  // shared helper deliberately doesn't recognize.
+                  const WEIGHT_TO_G = { kg: 1000, kgs: 1000, kilo: 1000, kilos: 1000, gm: 1, gms: 1, g: 1, gram: 1, grams: 1 };
+                  const VOL_TO_ML = { l: 1000, lt: 1000, ltr: 1000, litre: 1000, liter: 1000, ml: 1, mls: 1, tsp: 5, tbsp: 15 };
+                  const osNormU = u => String(u||'').toLowerCase().trim();
+                  const osUnitFamily = u => { var n=osNormU(u); return WEIGHT_TO_G[n]!=null ? 'weight' : (VOL_TO_ML[n]!=null ? 'volume' : n); };
+                  const osToBaseQty = (q,u) => { var n=osNormU(u); return WEIGHT_TO_G[n]!=null ? q*WEIGHT_TO_G[n] : (VOL_TO_ML[n]!=null ? q*VOL_TO_ML[n] : q); };
                   // Ordering-sheet-only column shaping — doesn't touch the shared
                   // orderedGroups the yield-override cards above use. APC is
                   // dropped entirely (not orderable in bulk here); Beverages is
@@ -6027,10 +6044,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                       }
                       (ingrList||[]).forEach(ing=>{
                         if(ing._isSection || !ing.q) return;
-                        const fam = unitFamily(ing.u);
-                        const key = ing.n+"|"+fam;
+                        const fam = osUnitFamily(ing.u);
+                        // Name normalized the same way the other aggregators key their
+                        // buckets — otherwise "Milk" vs "milk" from two different
+                        // recipes would split the same way the unit casing did.
+                        const key = (ing.n||"").toLowerCase().trim()+"|"+fam;
                         if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0, dishes:new Set()};
-                        const baseQty = toBaseQty(ing.q, ing.u);
+                        const baseQty = osToBaseQty(ing.q, ing.u);
                         ingrMap[key].bySection[colId] = (ingrMap[key].bySection[colId]||0) + baseQty;
                         ingrMap[key].total += baseQty;
                         ingrMap[key].dishes.add(it.dish);
