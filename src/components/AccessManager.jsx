@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { C, ALL_DEPARTMENTS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
-import { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
+import { SCREEN_PERMISSIONS, PRESET_ROLES, PRESET_ROLES_DEFAULT, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
 import { VENUE_OPTIONS, HOME_VENUES } from '../data/staffData.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
@@ -33,7 +33,12 @@ function PToggle({on, onChange}) {
 
 function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServer=null}) {
   const T2 = s => T(s, lang);
-  const ROLE_OPTIONS = [
+  // Curated order/wording for the roles with special routing elsewhere in the
+  // app (tablet shell, gate kiosk, admin bypass...) — kept as a fixed list so
+  // their position/wording in the dropdown doesn't shuffle as roles are
+  // edited. Anything else in PRESET_ROLES (sales, sales_manager, and any role
+  // created via Manage Roles) is appended after, live — see masterTick.
+  const CURATED_ROLE_ORDER = [
     {v:"admin",              l:"👑 Admin — Full Access"},
     {v:"head_chef",          l:"👨‍🍳 Head Chef — Kitchen + Store + Transport"},
     {v:"section_tablet",     l:"📱 Section Tablet — Pick SOP categories below"},
@@ -45,16 +50,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
     {v:"staff",              l:"👤 Basic Staff — Attendance only"},
   ];
-  const ROLE_MAP = Object.fromEntries(ROLE_OPTIONS.map(r=>[r.v,r.l]));
-  // Auto-derive dept from selected section via team_sections mapping
-  function deptForSection(secName){
-    if(!secName) return null;
-    for(var i=0;i<TEAM_DEPTS.length;i++){
-      var d=TEAM_DEPTS[i];
-      if(Array.isArray(d.sections) && d.sections.indexOf(secName)>=0) return d.id;
-    }
-    return null;
-  }
+  const curatedKeys = CURATED_ROLE_ORDER.map(r=>r.v);
+  const extraRoleOptions = Object.keys(PRESET_ROLES)
+    .filter(k=>!curatedKeys.includes(k) && !k.startsWith('section_'))
+    .map(k=>({v:k, l:(PRESET_ROLES[k].icon||'🧩')+' '+PRESET_ROLES[k].label}));
+  const ROLE_OPTIONS = CURATED_ROLE_ORDER.concat(extraRoleOptions);
+  const ROLE_MAP = Object.fromEntries(Object.keys(PRESET_ROLES).map(k=>[k,(PRESET_ROLES[k].icon||'')+' '+PRESET_ROLES[k].label]));
 
   // ── Master data: departments/sections (team_departments + team_sections) and home venues ──
   const [showMasterData, setShowMasterData] = useState(false);
@@ -64,6 +65,49 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [newDeptIcon, setNewDeptIcon] = useState("");
   const [newSectionBuf, setNewSectionBuf] = useState({}); // { [deptId]: string }
   const [newVenueName, setNewVenueName] = useState("");
+
+  // ── Role Manager (V93) ──
+  const [showRoleManager, setShowRoleManager] = useState(false);
+  const [roleEditKey, setRoleEditKey] = useState(null); // null = list view, "" = creating, else editing that key
+  const [roleForm, setRoleForm] = useState({label:"",icon:"🧩",tier:2,screens:[]});
+  function slugifyRoleKey(s){ return (s||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); }
+  function openRoleCreate(){ setRoleForm({label:"",icon:"🧩",tier:2,screens:[]}); setRoleEditKey(""); }
+  function openRoleEdit(key){
+    var r = PRESET_ROLES[key]||{};
+    setRoleForm({label:r.label||"",icon:r.icon||"🧩",tier:r.tier||2,screens:[...(r.screens||[])]});
+    setRoleEditKey(key);
+  }
+  function saveRole(){
+    var label = (roleForm.label||'').trim();
+    if(!label){ window.alert('Role name is required.'); return; }
+    var key = roleEditKey;
+    if(key===""){
+      key = slugifyRoleKey(label);
+      if(!key){ window.alert('Role name must contain at least one letter or number.'); return; }
+      if(PRESET_ROLES[key]){ window.alert('A role with key "'+key+'" already exists (from the name "'+(PRESET_ROLES[key].label)+'"). Pick a different name.'); return; }
+    }
+    var prevElevated = (PRESET_ROLES[key]&&PRESET_ROLES[key].elevated)||[];
+    var isBuiltin = !!PRESET_ROLES_DEFAULT[key] || !!(PRESET_ROLES[key]&&PRESET_ROLES[key].isBuiltin);
+    var def = {label:label, icon:(roleForm.icon||'🧩').trim()||'🧩', tier:Number(roleForm.tier)||2, screens:roleForm.screens||[], elevated:prevElevated, isBuiltin:isBuiltin};
+    supabase.from('role_definitions').upsert({role_key:key,label:def.label,icon:def.icon,tier:def.tier,screens:def.screens,elevated:def.elevated,is_builtin:isBuiltin,updated_at:new Date().toISOString()},{onConflict:'role_key'})
+      .then(r=>{if(r.error){console.error('Role save err:',r.error);window.alert('Failed to save role: '+r.error.message);}});
+    setRoleDefinition(key, def);
+    logActivity('access',(roleEditKey===""?'Role created: ':'Role updated: ')+label,roleEditKey===""?'role_add':'role_update',{roleKey:key},currentUser?.id);
+    setRoleEditKey(null);
+    bump();
+  }
+  function confirmDeleteRole(key){
+    var r = PRESET_ROLES[key];
+    if(!r) return;
+    if(PRESET_ROLES_DEFAULT[key] || r.isBuiltin){ window.alert('"'+r.label+'" is a system role and can\'t be deleted — but you can still edit which tabs it includes.'); return; }
+    var inUse = safeArr(empDb).filter(s=>s.role===key).length;
+    if(inUse>0){ window.alert('Cannot delete "'+r.label+'" — '+inUse+' staff member(s) still have this role. Reassign them first.'); return; }
+    if(!window.confirm('Delete role "'+r.label+'"? This cannot be undone.')) return;
+    supabase.from('role_definitions').delete().eq('role_key',key).then(res=>{if(res.error)console.error('Role delete err:',res.error);});
+    deleteRoleDefinition(key);
+    logActivity('access','Role deleted: '+r.label,'role_delete',{roleKey:key},currentUser?.id);
+    bump();
+  }
 
   function updateDept(deptId, patch){
     var d = TEAM_DEPTS.find(x=>x.id===deptId);
@@ -410,6 +454,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           )}
           <button onClick={exportCSV} disabled={staff.length===0} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:staff.length===0?C.faint:C.muted,fontSize:13,fontWeight:600,cursor:staff.length===0?"not-allowed":"pointer"}}>⬇ {T2("Export CSV")}</button>
           {canAdd&&<button onClick={()=>setShowMasterData(true)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🗂 {T2("Manage Sections & Venues")}</button>}
+          {canAdd&&<button onClick={()=>{setShowRoleManager(true);setRoleEditKey(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🧩 {T2("Manage Roles")}</button>}
           {canAdd&&<button onClick={openAdd} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ {T2("Add Staff")}</button>}
         </div>
       </div>
@@ -514,14 +559,22 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             </div>
             {form.role!=='section_tablet'&&!form.role?.startsWith('section_')&&(
             <div>
-              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Section")}</div>
-              <select value={form.section||""} onChange={e=>{var s=e.target.value;var d=deptForSection(s);setForm(p=>({...p,section:s,dept:d||p.dept,staff_id:editId?p.staff_id:autoGenerateId(s,d||p.dept)}));}} style={fld}>
-                <option value="">— Select section —</option>
-                {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Department")}</div>
+              <select value={form.dept||""} onChange={e=>{var d=e.target.value;setForm(p=>({...p,dept:d,section:""}));}} style={fld}>
+                <option value="">— {T2("Select department")} —</option>
+                {(TEAM_DEPTS||[]).map(d=><option key={d.id} value={d.id}>{d.label}</option>)}
               </select>
-              {form.section && (
-                <div style={{fontSize:10,color:C.faint,marginTop:4}}>→ Dept: <b style={{color:C.muted}}>{((TEAM_DEPTS||[]).find(d=>d.id===form.dept)||{}).label||form.dept||"—"}</b></div>
-              )}
+            </div>
+            )}
+            {form.role!=='section_tablet'&&!form.role?.startsWith('section_')&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Section")}</div>
+              <select value={form.section||""} disabled={!form.dept}
+                onChange={e=>{var s=e.target.value;setForm(p=>({...p,section:s,staff_id:editId?p.staff_id:autoGenerateId(s,p.dept)}));}}
+                style={{...fld,...(!form.dept?{opacity:.55,cursor:"not-allowed"}:{})}}>
+                <option value="">{form.dept?("— "+T2("Select section")+" —"):("— "+T2("Pick a department first")+" —")}</option>
+                {((TEAM_DEPTS||[]).find(d=>d.id===form.dept)||{}).sections?.map(s=><option key={s}>{s}</option>)}
+              </select>
             </div>
             )}
             <div>
@@ -778,6 +831,82 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         </div>
         <div style={{padding:"14px 24px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end"}}>
           <button onClick={()=>setShowMasterData(false)} style={{padding:"9px 18px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Close")}</button>
+        </div>
+      </Modal>
+
+      {/* ══════ ROLE MANAGER (V93) ══════ */}
+      <Modal open={showRoleManager} onClose={()=>{setShowRoleManager(false);setRoleEditKey(null);}} wide>
+        <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>🧩 {T2("Manage Roles")}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Each role is a bundle of tabs. Create a new role or edit what an existing one includes — changes apply to everyone with that role.")}</div>
+          </div>
+          {roleEditKey===null&&<button onClick={openRoleCreate} style={{padding:"9px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("New Role")}</button>}
+        </div>
+        <div style={{padding:"18px 24px",maxHeight:"70vh",overflowY:"auto"}}>
+          {roleEditKey===null ? (
+            /* ── List view ── */
+            <div style={{display:"flex",flexDirection:"column",gap:8}} key={masterTick}>
+              {Object.keys(PRESET_ROLES).sort((a,b)=>(PRESET_ROLES[b].tier||0)-(PRESET_ROLES[a].tier||0)||a.localeCompare(b)).map(function(key){
+                var r = PRESET_ROLES[key];
+                var count = safeArr(empDb).filter(function(s){return s.role===key;}).length;
+                var isBuiltin = !!PRESET_ROLES_DEFAULT[key] || !!r.isBuiltin;
+                var isAdmin = key==='admin';
+                return (
+                  <div key={key} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:C.bg}}>
+                    <span style={{fontSize:20}}>{r.icon||'🧩'}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:13,fontWeight:700,color:C.text}}>{r.label}</span>
+                        {isBuiltin&&<span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:5,background:C.darkCard,color:C.muted}}>{T2("SYSTEM")}</span>}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                        {isAdmin?T2("Always full access"):((r.screens||[]).length+' '+T2("tabs"))} · {count} {count===1?T2("staff member"):T2("staff members")}
+                      </div>
+                    </div>
+                    {!isAdmin&&<button onClick={function(){openRoleEdit(key);}} style={{padding:"7px 14px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:600,cursor:"pointer"}}>✏️ {T2("Edit")}</button>}
+                    {!isBuiltin&&<button onClick={function(){confirmDeleteRole(key);}} title={T2("Delete role")} style={{padding:"7px 10px",borderRadius:8,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:11,fontWeight:600,cursor:"pointer"}}>🗑</button>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ── Create/Edit form ── */
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:12,marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Role name")} *</div>
+                  <input value={roleForm.label} onChange={function(e){setRoleForm(function(p){return {...p,label:e.target.value};});}} placeholder="e.g. Sales Rep" style={fld}/>
+                  {roleEditKey===""&&roleForm.label.trim()&&<div style={{fontSize:10,color:C.faint,marginTop:4}}>{T2("Key")}: {slugifyRoleKey(roleForm.label)||'—'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("Icon")}</div>
+                  <input value={roleForm.icon} onChange={function(e){setRoleForm(function(p){return {...p,icon:e.target.value};});}} maxLength={4} style={{...fld,textAlign:"center",fontSize:18}}/>
+                </div>
+              </div>
+              <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:.6}}>{T2("Tab access")}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
+                {Object.keys(SCREEN_PERMISSIONS).map(function(sid){
+                  var screen = SCREEN_PERMISSIONS[sid];
+                  var isOn = (roleForm.screens||[]).includes(sid);
+                  return (
+                    <div key={sid} onClick={function(){setRoleForm(function(p){var cur=p.screens||[];return {...p,screens:isOn?cur.filter(function(s){return s!==sid;}):cur.concat([sid])};});}}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:`1px solid ${isOn?C.green+"40":C.borderLight}`,background:isOn?C.greenBg+"20":"transparent",cursor:"pointer",transition:"all .15s"}}>
+                      <PToggle on={isOn} onChange={function(){}}/>
+                      <span style={{fontSize:16}}>{screen.icon}</span>
+                      <span style={{fontSize:12,fontWeight:isOn?600:400,color:isOn?C.green:C.faint}}>{screen.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {roleEditKey!==""&&safeArr(empDb).some(function(s){return s.role===roleEditKey;})&&
+                <div style={{fontSize:11,color:C.amber,marginBottom:14}}>⚠ {T2("Changes apply immediately to everyone currently assigned this role.")}</div>}
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={saveRole} style={{flex:1,padding:"12px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ {T2("Save Role")}</button>
+                <button onClick={function(){setRoleEditKey(null);}} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 

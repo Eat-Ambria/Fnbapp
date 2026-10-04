@@ -28,67 +28,115 @@ const SCREEN_PERMISSIONS = {
 // Defines: which screens each role can see, and which elevated actions they get
 // Tab access = auto-gets ALL permissions for that screen
 // Elevated actions = specific action-level perms that only certain roles have (across any screen they access)
-const PRESET_ROLES = {
+//
+// V93 — this used to be the only source of truth; it's now just the FALLBACK
+// (used before Supabase answers, or if it's unreachable), same pattern as
+// EMPLOYEE_DB_INIT/TEAM_DEPTS elsewhere. The live source of truth is the
+// `role_definitions` table, seeded from exactly this object — Access
+// Manager's "Manage Roles" screen reads/writes that table and calls
+// hydratePermissions()/setRoleDefinition()/deleteRoleDefinition() below to
+// keep this in-memory object in sync without a reload.
+const PRESET_ROLES_DEFAULT = {
   admin: {
     label: "Admin — Full Access",
+    icon: "👑",
     tier: 4,
     screens: ["dashboard","kitchen","store","team","transport","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_fruits","dept_odc","proposals","sales_catalogue","booked_functions"],
-    // Admin gets everything — no need to list elevated actions
+    elevated: [],
   },
   head_chef: {
     label: "Head Chef",
+    icon: "👨‍🍳",
     tier: 3,
     screens: ["dashboard","kitchen","menus","store","team","transport"],
     elevated: ["kitchen.scaling_apply","team.leave_approve"],
   },
   service: {
     label: "Service Dept",
+    icon: "🍽",
     tier: 2,
     screens: ["dashboard","dept_service","team","vendors"],
     elevated: [],
   },
   crockery: {
     label: "Crockery Dept",
+    icon: "🍶",
     tier: 2,
     screens: ["dashboard","dept_crockery","team","store"],
     elevated: [],
   },
   beverages: {
     label: "Beverages Dept",
+    icon: "🥤",
     tier: 2,
     screens: ["dashboard","dept_beverages","menus","team","store"],
     elevated: [],
   },
   fruits: {
     label: "Fruits Dept",
+    icon: "🍓",
     tier: 2,
     screens: ["dashboard","dept_fruits","menus","team","store"],
     elevated: [],
   },
   transport: {
     label: "Transport",
+    icon: "🚛",
     tier: 2,
     screens: ["dashboard","transport"],
     elevated: [],
   },
   kiosk_gate: {
     label: "Gate Kiosk",
+    icon: "🏛",
     tier: 1,
     screens: ["team"],
     elevated: ["team.attendance_mark"],
   },
-  section_tablet:      {label:"Section Tablet",       tier:1, screens:["kitchen"], elevated:[]},
-  section_indian:      {label:"Indian Section",       tier:1, screens:["kitchen"], elevated:[]},
-  section_chinese:     {label:"Chinese Section",      tier:1, screens:["kitchen"], elevated:[]},
-  section_tandoor:     {label:"Tandoor Section",      tier:1, screens:["kitchen"], elevated:[]},
-  section_chaat:       {label:"Chaat Section",        tier:1, screens:["kitchen"], elevated:[]},
-  section_sweets:      {label:"Sweets Section",       tier:1, screens:["kitchen"], elevated:[]},
-  section_continental: {label:"Continental Section",  tier:1, screens:["kitchen"], elevated:[]},
-  section_bakery:      {label:"Bakery Section",       tier:1, screens:["kitchen"], elevated:[]},
-  staff:               {label:"Staff",                tier:1, screens:["dashboard","kitchen"], elevated:[]},
-  sales:               {label:"Sales Rep",            tier:2, screens:["dashboard","proposals","booked_functions"], elevated:["proposals.create","proposals.edit","proposals.delete","booked_functions.edit_menu"]},
-  sales_manager:       {label:"Sales Manager",        tier:3, screens:["dashboard","proposals","booked_functions","sales_catalogue","menus"], elevated:["proposals.create","proposals.edit","proposals.delete","proposals.view_all","proposals.convert","sales_catalogue.edit","booked_functions.edit_menu"]},
+  section_tablet:      {label:"Section Tablet",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_indian:      {label:"Indian Section",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_chinese:     {label:"Chinese Section",      icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_tandoor:     {label:"Tandoor Section",      icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_chaat:       {label:"Chaat Section",        icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_sweets:      {label:"Sweets Section",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_continental: {label:"Continental Section",  icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  section_bakery:      {label:"Bakery Section",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
+  staff:               {label:"Staff",                icon:"👤", tier:1, screens:["dashboard","kitchen"], elevated:[]},
+  sales:               {label:"Sales Rep",            icon:"📈", tier:2, screens:["dashboard","proposals","booked_functions"], elevated:["proposals.create","proposals.edit","proposals.delete","booked_functions.edit_menu"]},
+  sales_manager:       {label:"Sales Manager",        icon:"📊", tier:3, screens:["dashboard","proposals","booked_functions","sales_catalogue","menus"], elevated:["proposals.create","proposals.edit","proposals.delete","proposals.view_all","proposals.convert","sales_catalogue.edit","booked_functions.edit_menu"]},
 };
+
+// Mutated in place (push/delete-style, like ALL_DEPARTMENTS/VENUE_OPTIONS in
+// constants.js) rather than reassigned, so every other module's
+// `import { PRESET_ROLES }` binding keeps seeing live edits.
+const PRESET_ROLES = { ...PRESET_ROLES_DEFAULT };
+
+// Rebuilds PRESET_ROLES from the hardcoded fallback + whatever's in the
+// `role_definitions` table (DB rows always win over the fallback — a role
+// edited or deleted in Access Manager must not reappear in its old shape
+// just because the fallback still has it).
+function hydratePermissions(roleDefRows) {
+  Object.keys(PRESET_ROLES).forEach(k => delete PRESET_ROLES[k]);
+  Object.assign(PRESET_ROLES, PRESET_ROLES_DEFAULT);
+  if (!Array.isArray(roleDefRows)) return;
+  roleDefRows.forEach(r => {
+    if (!r || !r.role_key) return;
+    PRESET_ROLES[r.role_key] = {
+      label: r.label || r.role_key,
+      icon: r.icon || null,
+      tier: r.tier != null ? r.tier : 2,
+      screens: Array.isArray(r.screens) ? r.screens : [],
+      elevated: Array.isArray(r.elevated) ? r.elevated : [],
+      isBuiltin: !!r.is_builtin,
+    };
+  });
+}
+
+// Optimistic in-memory update right after a successful Supabase write, so
+// Access Manager doesn't need a full reload to see its own change reflected
+// everywhere (dropdowns, canAccessScreen, etc.) in the same session.
+function setRoleDefinition(roleKey, def) { PRESET_ROLES[roleKey] = def; }
+function deleteRoleDefinition(roleKey) { delete PRESET_ROLES[roleKey]; }
 
 // ── CORE FUNCTIONS ──
 
@@ -172,5 +220,5 @@ function permsFromScreens(screenIds) {
   return perms;
 }
 
-export { SCREEN_PERMISSIONS, PRESET_ROLES, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
+export { SCREEN_PERMISSIONS, PRESET_ROLES, PRESET_ROLES_DEFAULT, hydratePermissions, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
 

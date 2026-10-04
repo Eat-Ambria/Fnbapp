@@ -50,6 +50,8 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [attDateLoading,setAttDateLoading] = useState(false);
   const [attSearch,setAttSearch] = useState('');
   const [attStatusFilter,setAttStatusFilter] = useState('All');
+  const [attPage,setAttPage] = useState(1);
+  const ATT_PAGE_SIZE = 25;
   function fetchAttDate(d){
     if(!d||d===TODAY||!supabase){setAttDateData(null);return;}
     setAttDateLoading(true);
@@ -359,30 +361,34 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
         var fStatus = attStatusFilter==='All'?fDept:fDept.filter(function(r){return r.status===attStatusFilter;});
         var fSearch = attSearch?fStatus.filter(function(r){return (r.name||'').toLowerCase().includes(attSearch.toLowerCase())||(r.code||'').toLowerCase().includes(attSearch.toLowerCase());}):fStatus;
         var rows = fSearch.sort(function(a,b){return a.name.localeCompare(b.name);});
+        var attTotalPages = Math.max(1, Math.ceil(rows.length/ATT_PAGE_SIZE));
+        var attCurPage = Math.min(Math.max(1,attPage), attTotalPages);
+        var pageStart = (attCurPage-1)*ATT_PAGE_SIZE;
+        var pageRows = rows.slice(pageStart, pageStart+ATT_PAGE_SIZE);
         return (
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📋 Daily Attendance</div>
             <div style={{display:'flex',gap:8,alignItems:'center'}}>
-              <input type="date" value={viewDate} max={TODAY} onChange={function(e){var d=e.target.value;if(d){setAttDate(d);if(d!==TODAY)fetchAttDate(d);else setAttDateData(null);}}}
+              <input type="date" value={viewDate} max={TODAY} onChange={function(e){var d=e.target.value;if(d){setAttDate(d);setAttPage(1);if(d!==TODAY)fetchAttDate(d);else setAttDateData(null);}}}
                 style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
-              {!isToday&&<button onClick={function(){setAttDate(TODAY);setAttDateData(null);}}
+              {!isToday&&<button onClick={function(){setAttDate(TODAY);setAttDateData(null);setAttPage(1);}}
                 style={{padding:'6px 14px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',background:C.gold,color:'#fff',border:'none'}}>Today</button>}
             </div>
           </div>
           <div style={{fontSize:12,color:isToday?C.muted:C.amber,marginBottom:14,fontWeight:isToday?400:600}}>{viewLabel}{!isToday?' (historical)':''}{attDateLoading?' — loading…':''}</div>
           {/* Filters */}
           <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>
-            <select value={secFilter} onChange={function(e){setSecFilter(e.target.value);}} style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:120}}>
+            <select value={secFilter} onChange={function(e){setSecFilter(e.target.value);setAttPage(1);}} style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:120}}>
               {depts.map(function(d){return <option key={d} value={d}>{d}</option>;})}
             </select>
             <div style={{display:'flex',gap:3}}>
               {attStatuses.map(function(st){
                 var active = attStatusFilter===st;
-                return <button key={st} onClick={function(){setAttStatusFilter(st);}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
+                return <button key={st} onClick={function(){setAttStatusFilter(st);setAttPage(1);}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
               })}
             </div>
-            <input value={attSearch} onChange={function(e){setAttSearch(e.target.value);}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
+            <input value={attSearch} onChange={function(e){setAttSearch(e.target.value);setAttPage(1);}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
           </div>
           {/* Summary cards */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:16}}>
@@ -394,15 +400,15 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
             })}
           </div>
           {/* Table header */}
-          <div style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
+          <div style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',background:C.bg,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'2px solid '+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
             <div>Code</div><div></div><div>Name</div><div>Dept</div><div>IN</div><div>OUT</div><div>Status</div><div>Hrs</div><div>Venue</div>
           </div>
           {/* Table rows */}
-          <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
-            {rows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>No records match filters</div>
-            :rows.map(function(r,ri){
+          <div style={{border:'1px solid '+C.border,borderTop:'none',borderRadius:rows.length===0?'0 0 10px 10px':0,overflow:'hidden'}}>
+            {pageRows.length===0?<div style={{padding:28,textAlign:'center',color:C.muted,fontSize:12}}>No records match filters</div>
+            :pageRows.map(function(r,ri){
               var sc = attStatusColors[r.status]||C.muted;
-              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12}}>
+              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'11px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12,transition:'background .12s'}}>
                 <div title={r.code} style={{color:C.muted,fontSize:11,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{/^STF-\d{8,}$/.test(r.code)?'STF·'+r.code.slice(-4):r.code}</div>
                 <div>{r.photo?<img src={r.photo} style={{width:28,height:28,borderRadius:'50%',objectFit:'cover'}}/>:<Avatar name={r.name} size={28} index={ri}/>}</div>
                 <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
@@ -415,6 +421,19 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               </div>;
             })}
           </div>
+          {/* Pagination */}
+          {rows.length>0&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,padding:'10px 2px',border:'1px solid '+C.border,borderTop:'none',borderRadius:'0 0 10px 10px',background:C.surface}}>
+            <div style={{fontSize:11,color:C.muted,paddingLeft:10}}>
+              Showing {pageStart+1}–{Math.min(pageStart+ATT_PAGE_SIZE,rows.length)} of {rows.length}
+            </div>
+            <div style={{display:'flex',gap:6,alignItems:'center',paddingRight:10}}>
+              <button onClick={function(){setAttPage(function(p){return Math.max(1,p-1);});}} disabled={attCurPage<=1}
+                style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.border,background:attCurPage<=1?C.bg:C.surface,color:attCurPage<=1?C.faint:C.text,fontSize:11,fontWeight:600,cursor:attCurPage<=1?'default':'pointer'}}>← Prev</button>
+              <div style={{fontSize:11,color:C.muted,minWidth:70,textAlign:'center'}}>Page {attCurPage} of {attTotalPages}</div>
+              <button onClick={function(){setAttPage(function(p){return Math.min(attTotalPages,p+1);});}} disabled={attCurPage>=attTotalPages}
+                style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.border,background:attCurPage>=attTotalPages?C.bg:C.surface,color:attCurPage>=attTotalPages?C.faint:C.text,fontSize:11,fontWeight:600,cursor:attCurPage>=attTotalPages?'default':'pointer'}}>Next →</button>
+            </div>
+          </div>}
           {/* Vendor section */}
           {vendorAtt.length>0&&<div style={{marginTop:16}}>
             <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8}}>🏢 Outside Vendors ({vendorAtt.length})</div>
