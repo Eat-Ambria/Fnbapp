@@ -707,6 +707,17 @@ const KITCHEN_CSS = `
   .kh-an-rail { grid-column: 2; grid-row: 1 / span 2; }
   .kh-an-below { grid-column: 1; grid-row: 2; }
 }
+/* Planning's "below" (stats, yield adjustment, dish-section tiles) routinely
+   runs much longer than the short functions rail beside it — reserving the
+   rail's 366px column for the full height left everything under the
+   calendar squeezed into the narrow left column long after the rail's own
+   content had ended, wasting the whole right side of the panel. Scoped to
+   Planning only: Analytics/Closing share this layout and their "below"
+   content is short enough that the shared two-column split still reads fine. */
+@container (min-width: 1002px) {
+  .kh-an-fullbelow .kh-an-rail { grid-row: 1; }
+  .kh-an-fullbelow .kh-an-below { grid-column: 1 / -1; }
+}
 /* Analytics "Dishes by Section": tiles, four to a row where the column is wide
    enough (~190px a tile), stepping down as the panel narrows. Each tile opens
    that section's dishes in a modal. Sized off the .kh-an container — remember

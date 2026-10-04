@@ -5527,7 +5527,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         },{auto:0,override:0,unmapped:0,fromStore:0});
 
         return(
-          <div className="kh-an">
+          <div className="kh-an kh-an-fullbelow">
             {/* ── Calendar view: the day picker, beside the day's functions ──
                 The heading lives INSIDE the calendar card rather than on a
                 plate of its own above it. The calendar is what this screen is,

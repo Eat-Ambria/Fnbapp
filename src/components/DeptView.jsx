@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState } from '../utils/helpers.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
@@ -16,7 +16,7 @@ import { FruitSelectionPicker } from './FruitSelectionPicker.jsx';
 // ever being imported, so opening that tab threw "KitchenHub is not defined".
 // KitchenHub does not import DeptView, so there is no cycle here.
 import { KitchenHub } from './KitchenHub.jsx';
-import { getExplicitCatIdForDish, isFruitSelectionDish, fmtT, getFullSteps, getStepsForDish } from '../data/recipeData.js';
+import { getExplicitCatIdForDish, isFruitSelectionDish, fmtT, getFullSteps, getStepsForDish, getIngrForDish } from '../data/recipeData.js';
 
 // Dish→department membership used to fall back to guessSectionForDish() — a
 // pure regex match on the dish NAME — for any dish with no explicit SOP tag.
@@ -44,6 +44,34 @@ function sectionForDish(name) {
   }
   if (isFruitSelectionDish(name)) return 'Fruits';
   return 'Uncategorized';
+}
+
+// Combined "collect from store" ingredient list for one function's beverage
+// dishes — same unit-family merge (kg<->gm, L<->ml) as Kitchen Hub's
+// aggSecIngredientsD1, just scoped to a flat dish list and the simpler
+// pax-ratio scaler (getIngrForDish) since Beverages has no yield-override
+// planning state of its own.
+function aggBevIngredients(pax, dishNames) {
+  const bucket = {};
+  const WEIGHT_G = { g: 1, gm: 1, kg: 1000 };
+  const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
+  const familyOf = u => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
+  const toBase = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
+  dishNames.forEach(function(dishName){
+    (getIngrForDish(dishName, pax) || []).filter(i => i.q > 0).forEach(function(i){
+      const fam = familyOf(i.u);
+      const k = (i.n || "").toLowerCase().trim() + "|" + fam;
+      if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", fam: fam, _base: 0, u: i.u, q: 0 };
+      else if (!bucket[k].h && i.h) bucket[k].h = i.h;
+      bucket[k]._base += toBase(i.q, i.u);
+    });
+  });
+  Object.values(bucket).forEach(function(b){
+    if (b.fam === 'w') { if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'kg'; } else { b.q = b._base; b.u = 'gm'; } }
+    else if (b.fam === 'v') { if (b._base >= 1000) { b.q = b._base / 1000; b.u = 'L'; } else { b.q = b._base; b.u = 'ml'; } }
+    else b.q = b._base;
+  });
+  return Object.values(bucket).sort((a, b) => (a.n || "").localeCompare(b.n || ""));
 }
 
 function calcDispatch(time){
@@ -657,34 +685,84 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       )}
 
-      {/* ══════ BEVERAGES: Counters ══════ */}
-      {/* ══════ BEVERAGES: D-1 Store Requirements ══════ */}
+      {/* ══════ BEVERAGES: D-1 Store Requirements — the actual SOP ingredients
+          for tomorrow's beverage dishes (sugar, mint, fruit pulp, syrups...),
+          not just a checklist of dish names. One combined "Collect from
+          store" list per function, same pattern as Kitchen Hub's Collect
+          from store cards, stored in the shared kitchenTracking state under
+          ev.id/"__bevstore" so it persists and syncs the same way. ══════ */}
       {selDept==="beverages"&&activeTab==="store_req"&&(
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("D-1 Store Requirements")}</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these from store today for tomorrow's functions")}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store today for tomorrow's functions")}</div>
           {tomorrowEvs.map(ev=>{
             const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
             if(bevItems.length===0) return null;
+            const agg = aggBevIngredients(ev.pax, bevItems);
+            const BK = "__bevstore";
+            const bevStore = (kitchenTracking && kitchenTracking[ev.id] && kitchenTracking[ev.id][BK]) || {};
+            const started = !!bevStore.start, done = !!bevStore.end;
+            const itemsDone = bevStore.items_done || {};
+            const total = agg.length;
+            const collected = agg.filter(i=>itemsDone[storeItemKey(i)]).length;
+            const pct = total>0 ? Math.round(collected/total*100) : 0;
+            function writeBev(upd){
+              setKitchenTracking(p=>{
+                const o = p && typeof p==="object" ? {...p} : {};
+                o[ev.id] = {...(o[ev.id]||{}), [BK]: mergeDishState(o[ev.id]?.[BK], upd)};
+                return o;
+              });
+            }
+            const toggleItem = (i)=>{
+              const k = storeItemKey(i);
+              const cur = ((kitchenTracking && kitchenTracking[ev.id] && kitchenTracking[ev.id][BK]) || {}).items_done || {};
+              writeBev({items_done:{[k]:!cur[k]}});
+            };
+            const byCat = {};
+            agg.forEach(i=>{ const c=categorizeIngredient(i.n); (byCat[c]=byCat[c]||[]).push(i); });
+            const orderedCats = INGR_CATEGORY_ORDER.filter(c=>byCat[c]&&byCat[c].length>0);
             return (
-              <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>{ev.guest}</div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:10}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {bevItems.length} {T2("beverages")}</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {bevItems.map((d,i)=>{
-                    const ck = bevChecks[ev.id+"_bev"]||{};
-                    const done = !!ck[d];
-                    return (
-                      <div key={i} onClick={()=>setBevChecks(p=>({...p,[ev.id+"_bev"]:{...(p[ev.id+"_bev"]||{}),[d]:!done}}))}
-                        style={{display:"flex",gap:8,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,alignItems:"center",minHeight:40}}>
-                        <div style={{width:22,height:22,borderRadius:4,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {done&&<span style={{color:"#fff",fontSize:12,fontWeight:700}}>✓</span>}
-                        </div>
-                        <span style={{fontSize:11,color:done?C.green:C.text}}>🥤 {d}</span>
-                      </div>
-                    );
-                  })}
+              <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px",border:`2px solid ${done?C.greenBorder:started?C.amberBorder:C.border}`,background:done?C.greenBg:started?C.amberBg:C.surface}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.text}}>{ev.guest}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{ev.venue} · {ev.time} · {ev.pax} {T2("pax")} · {bevItems.length} {T2("beverages")}</div>
+                  </div>
+                  {total>0&&!started&&!done&&<button onClick={()=>writeBev({start:Date.now()})} style={{padding:"10px 16px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,flexShrink:0}}>▶️ {T2("Go Collect")}</button>}
+                  {started&&!done&&<button onClick={()=>writeBev({end:Date.now(), items_done:markAllCollected(agg)})} style={{padding:"10px 16px",borderRadius:10,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40,flexShrink:0}}>✓ {T2("Done")}</button>}
                 </div>
+                {total===0 ? (
+                  <div style={{marginTop:10,fontSize:11,color:C.muted,fontStyle:"italic"}}>{T2("No ingredient data for these beverages")}</div>
+                ) : (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borderLight}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                      <div style={{fontSize:12,fontWeight:700,color:done?C.green:C.gold,whiteSpace:"nowrap"}}>{collected} / {total} {T2("collected")}</div>
+                      <div style={{flex:1,height:5,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:pct+"%",background:pct===100?C.green:C.gold,borderRadius:3,transition:"width .3s"}}/>
+                      </div>
+                    </div>
+                    {orderedCats.map(cat=>(
+                      <div key={cat} style={{marginBottom:8}}>
+                        <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:4,borderBottom:`1px solid ${C.border}`,paddingBottom:3}}>{T2(cat)}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:4}}>
+                          {byCat[cat].map((i,ii)=>{
+                            const itDone = !!itemsDone[storeItemKey(i)];
+                            return (
+                              <div key={ii} onClick={()=>toggleItem(i)}
+                                style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",borderRadius:8,cursor:"pointer",background:itDone?C.greenBg:C.bg,border:`1px solid ${itDone?C.greenBorder:C.borderLight}`}}>
+                                <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${itDone?C.green:C.border}`,background:itDone?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {itDone&&<span style={{color:"#fff",fontSize:10}}>✓</span>}
+                                </div>
+                                <div style={{flex:1,minWidth:0,fontSize:11,color:itDone?C.green:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lang==="hi"&&i.h?i.h:i.n}</div>
+                                <div style={{fontSize:11,fontWeight:700,color:dept.color,flexShrink:0}}>{fmtQty(i.q,i.u)}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             );
           })}
