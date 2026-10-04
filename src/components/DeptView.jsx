@@ -18,6 +18,7 @@ import { FruitSelectionPicker } from './FruitSelectionPicker.jsx';
 import { KitchenHub } from './KitchenHub.jsx';
 import { getExplicitCatIdForDish, isFruitSelectionDish, fmtT, getFullSteps, getStepsForDish, getIngrForDish } from '../data/recipeData.js';
 import { getEventItemsByDept } from '../lib/eventItems.js';
+import { DEPT_CONFIGS } from '../data/salesConfig.js';
 
 // Dish→department membership used to fall back to guessSectionForDish() — a
 // pure regex match on the dish NAME — for any dish with no explicit SOP tag.
@@ -136,6 +137,33 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // future function, not just tomorrow — the fruits actually needed can be
   // decided whenever, not on a strict D-1 cadence like kitchen prep.
   const upcomingEvs = safeArr(events).filter(e=>e.date>=TODAY).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+
+  // Service > Staff Allocation: the saved Waiters Ratio config (event_configs,
+  // dept_id='svc', config_key='waiter_ratio') for today's + tomorrow's events,
+  // so the tab can use the real per-event ratio when one's been set instead of
+  // only ever guessing from the menu package. Fetched once per visit to the
+  // staffing tab, keyed by event id (undefined = not loaded yet).
+  const [waiterRatioByEv, setWaiterRatioByEv] = useState({});
+  const staffingEvIds = [...todayEvs, ...tomorrowEvs].map(e=>e.id).join(',');
+  useEffect(()=>{
+    if(selDept!=="service" || activeTab!=="staffing") return;
+    const ids = staffingEvIds ? staffingEvIds.split(',') : [];
+    const missing = ids.filter(id=>waiterRatioByEv[id]===undefined);
+    if(missing.length===0) return;
+    let cancelled = false;
+    supabase.from('event_configs').select('event_id, config_value').eq('dept_id','svc').eq('config_key','waiter_ratio').in('event_id', missing)
+      .then(({data,error})=>{
+        if(cancelled || error) return;
+        setWaiterRatioByEv(p=>{
+          const next = {...p};
+          missing.forEach(id=>{ next[id] = null; }); // seen, nothing saved
+          (data||[]).forEach(r=>{ next[r.event_id] = r.config_value; });
+          return next;
+        });
+      });
+    return ()=>{ cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selDept, activeTab, staffingEvIds]);
 
   // Kitchen section names from Supabase recipe categories (replaces hardcoded SECTIONS)
   // Beverages gets its own dedicated Ops dept below, so it's excluded here —
@@ -469,15 +497,33 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         }
         const allEvs=[...todayEvs,...tomorrowEvs];
         let grandTotal=0;
+        // Prefer the event's own saved Waiters Ratio config (Build Menu /
+        // Booked Functions > Service > Configs) over the package/pax formula
+        // below when one's been set — ConfigsPanel.jsx now defaults every
+        // event to "Standard" the first time its Configs tab is opened, so
+        // this should be populated for anything touched since that change.
+        // calcStaff/ALLOC_BASE stay exactly as they were: events with no
+        // saved config yet (or an unmapped package) still fall back to them.
+        const waiterCfgDef = (DEPT_CONFIGS.svc||[]).find(c=>c.key==='waiter_ratio');
+        function fromWaiterConfig(ev){
+          const saved = waiterRatioByEv[ev.id];
+          if(!saved||!saved.ratio_id||!waiterCfgDef) return null;
+          const ratio = (waiterCfgDef.ratios||[]).find(r=>r.id===saved.ratio_id);
+          if(!ratio) return null;
+          const pax = +ev.pax||0;
+          const extras = saved.extras||0;
+          const staff = Math.ceil(pax/ratio.den)*ratio.num + extras;
+          return {staff, fromConfig:true, ratioLabel:ratio.label, num:ratio.num, den:ratio.den, extras};
+        }
         return(
           <div>
             <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("Service Staff Allocation")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Auto-calculated based on menu package and guest count")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Uses the event's Waiters Ratio config when set, otherwise estimated from menu package and guest count")}</div>
             {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events today or tomorrow")}</div>}
             {allEvs.map(ev=>{
               const pkg=ev.menuPackage||"";
               const pax=+ev.pax||0;
-              const result=calcStaff(pkg,pax);
+              const result=fromWaiterConfig(ev)||calcStaff(pkg,pax);
               if(result.staff)grandTotal+=result.staff;
               const isToday=ev.date===TODAY;
               return(
@@ -496,7 +542,31 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                       <div style={{fontSize:10,color:C.muted}}>{T2("staff needed")}</div>
                     </div>
                   </div>
-                  {result.staff&&(
+                  {result.staff&&result.fromConfig&&(
+                    <div style={{padding:"12px 16px"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}>
+                        <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",textAlign:"center"}}>
+                          <div style={{fontSize:10,color:C.muted}}>{T2("Ratio")}</div>
+                          <div style={{fontSize:16,fontWeight:700,color:C.text}}>{result.num}:{result.den}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{result.ratioLabel}</div>
+                        </div>
+                        <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",textAlign:"center"}}>
+                          <div style={{fontSize:10,color:C.muted}}>{T2("Extra")}</div>
+                          <div style={{fontSize:16,fontWeight:700,color:C.amber}}>+{result.extras}</div>
+                          <div style={{fontSize:10,color:C.muted}}>{T2("staff")}</div>
+                        </div>
+                        <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:10,padding:"8px 12px",textAlign:"center"}}>
+                          <div style={{fontSize:10,color:C.gold}}>{T2("Total")}</div>
+                          <div style={{fontSize:20,fontWeight:800,color:C.gold}}>{result.staff}</div>
+                          <div style={{fontSize:10,color:C.gold}}>{T2("staff")}</div>
+                        </div>
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,background:C.bg,borderRadius:8,padding:"8px 12px"}}>
+                        ⚙ {T2("From this function's Waiters Ratio config")} ({T2(result.ratioLabel)})
+                      </div>
+                    </div>
+                  )}
+                  {result.staff&&!result.fromConfig&&(
                     <div style={{padding:"12px 16px"}}>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}>
                         <div style={{background:C.bg,borderRadius:10,padding:"8px 12px",textAlign:"center"}}>

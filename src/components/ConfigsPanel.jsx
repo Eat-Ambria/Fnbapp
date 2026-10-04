@@ -65,6 +65,24 @@ function optIcon(opt, fallback) {
   return fallback;
 }
 
+// The "base tier" for a single-choice config — picked by name where one is
+// obviously the baseline ("Standard", "Standard Kit", "Standard Chafers"...),
+// falling back to whichever option sorts first (every one of these catalogues
+// is authored low-tier-to-high-tier, e.g. "Buffet"/"Round Tables"/"No Carving"
+// as position one) for the few configs with no option actually named Standard.
+function defaultOptForCfg(cfg) {
+  var list = cfg.type === 'ratio' ? (cfg.ratios || []) : (cfg.options || []);
+  if (list.length === 0) return null;
+  var nameOf = function(o){ return cfg.type === 'ratio' ? o.label : o.name; };
+  var std = list.find(function(o){ return /^standard/i.test(String(nameOf(o) || '').trim()); });
+  return std || list[0];
+}
+function defaultValueForCfg(cfg) {
+  var opt = defaultOptForCfg(cfg);
+  if (!opt) return null;
+  return cfg.type === 'ratio' ? { ratio_id: opt.id, extras: 0 } : { selected_id: opt.id };
+}
+
 // V88 — configTable/idField default to the proposal shape so existing callers
 // (MenuBuilderView.jsx) are untouched; EventMenuBuilderView.jsx passes the
 // event_configs table + event_id instead, reusing this same panel (and the
@@ -101,6 +119,26 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en", configTable = 
   }
 
   useEffect(function(){ loadConfigs(); /* eslint-disable-next-line */ }, [proposal && proposal.id, configTable]);
+
+  // ── Default every single-choice config to its "Standard" tier the first
+  // time it's seen with nothing picked, so Glassware/Bartender Ratio/Waiters
+  // Ratio etc. are never left blank — Staff Allocation and anything else
+  // downstream needs a real saved value to read, not just a cosmetic
+  // pre-highlight that vanishes if nobody taps anything. Runs once per
+  // proposal/event + dept, right after that dept's configs finish loading. ──
+  useEffect(function(){
+    if (loading) return;
+    if (!proposal || !proposal.id) return;
+    var deptVals = values[activeDept] || {};
+    configs.forEach(function(cfg){
+      if (cfg.type !== 'options' && cfg.type !== 'radio' && cfg.type !== 'ratio') return;
+      var existing = deptVals[cfg.key];
+      if (existing !== undefined && existing !== null) return;
+      var def = defaultValueForCfg(cfg);
+      if (def) saveConfig(cfg.key, def);
+    });
+    // eslint-disable-next-line
+  }, [loading, proposal && proposal.id, activeDept]);
 
   // ── Realtime for this entity's configs ──
   useEffect(function(){
