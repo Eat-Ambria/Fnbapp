@@ -204,6 +204,14 @@ const BEV_RE=/mocktail|juice|drink|tea|coffee|lassi|sharbat|nimbu|jal jeera|chaa
 function getFullSteps(name){
   const isBev=guessSectionForDish(name)==="Beverages";
   const sopSteps=getStepsForDish(name);
+  // A dish with its own SOP recipe (set up the same way as any other recipe,
+  // just filed under the Beverages category) should show ITS steps, not the
+  // generic per-type template below. getStepsForDish returns the exact
+  // GENERIC_STEPS constant when nothing is mapped for this dish, so that's
+  // the one reliable signal that no real recipe exists to prefer.
+  if(isBev && sopSteps!==GENERIC_STEPS){
+    return [{t:"Collect ingredients from Store",i:"Collect syrups, fruits, ice, garnishes, glasses per recipe. Verify stock.",tm:900,store:true},...sopSteps];
+  }
   if(isBev){
     const bevSteps=[{t:"Collect ingredients from Store",i:"Collect syrups, fruits, ice, garnishes, glasses per recipe. Verify stock.",tm:900,store:true},{t:"Setup counter at venue",i:"Arrange dispensers, ice bins, garnish trays, glasses on counter",tm:600}];
     if(/fruit counter|fresh fruit|imported fruit|\bfruits\b/i.test(name)){bevSteps.push({t:"Wash & sort fruits",i:"Wash all fruits thoroughly. Sort Indian and imported separately.",tm:600},{t:"Peel & slice",i:"Peel, deseed, and slice fruits into serving portions",tm:900},{t:"Arrange on platter",i:"Arrange beautifully on platters with garnish. Keep chilled.",tm:300},{t:"Serve fresh",i:"Replenish platters as needed. Keep ice bed fresh.",tm:0,live:true});}

@@ -17,6 +17,7 @@ import { FruitSelectionPicker } from './FruitSelectionPicker.jsx';
 // KitchenHub does not import DeptView, so there is no cycle here.
 import { KitchenHub } from './KitchenHub.jsx';
 import { getExplicitCatIdForDish, isFruitSelectionDish, fmtT, getFullSteps, getStepsForDish, getIngrForDish } from '../data/recipeData.js';
+import { getEventItemsByDept } from '../lib/eventItems.js';
 
 // Dish→department membership used to fall back to guessSectionForDish() — a
 // pure regex match on the dish NAME — for any dish with no explicit SOP tag.
@@ -103,6 +104,27 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   const todayAtts = safeArr(attendance).filter(a=>a.date===TODAY);
   const todayEvs = safeArr(events).filter(e=>e.date===TODAY);
+  // events.menu is a KITCHEN-only mirror of the real event_items table (see
+  // EventMenuBuilderView.jsx's mirrorKitchenMenu) — Beverage/Bakery/Fruits
+  // selections never land in it at all. Beverages Ops needs the same
+  // per-dept resolution EventMenuBuilderView uses, fetched per today's
+  // event and cached by event id (undefined = not loaded yet, so the empty
+  // state below doesn't flash before the fetch resolves).
+  const [bevItemsByEv, setBevItemsByEv] = useState({});
+  const todayEvIds = todayEvs.map(e=>e.id).join(',');
+  useEffect(()=>{
+    if(selDept!=="beverages") return;
+    let cancelled = false;
+    todayEvs.forEach(ev=>{
+      if(bevItemsByEv[ev.id]!==undefined) return;
+      getEventItemsByDept(ev).then(byDept=>{
+        if(cancelled) return;
+        setBevItemsByEv(p=>({...p, [ev.id]: byDept.bev||[]}));
+      });
+    });
+    return ()=>{ cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selDept, todayEvIds]);
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
   // Fruits' D-1 Store Req needs to cover today (edit a pick made late) and any
   // future function, not just tomorrow — the fruits actually needed can be
@@ -696,8 +718,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("Store Requirements")}</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store for today's functions")}</div>
+          {todayEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
+            <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12,fontStyle:"italic"}}>{T2("Loading beverage items…")}</div>
+          )}
           {todayEvs.map(ev=>{
-            const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
+            if(bevItemsByEv[ev.id]===undefined) return null;
+            const bevItems = bevItemsByEv[ev.id]||[];
             if(bevItems.length===0) return null;
             const agg = aggBevIngredients(ev.pax, bevItems);
             const BK = "__bevstore";
@@ -767,7 +793,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {todayEvs.filter(ev=>safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages")).length===0&&(
+          {todayEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && todayEvs.filter(ev=>(bevItemsByEv[ev.id]||[]).length>0).length===0&&(
             <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for today")}</div>
           )}
         </div>
@@ -778,9 +804,12 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>🥤 {T2("Live Beverage Prep")}</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Tap any beverage to start prep. Timers run until complete.")}</div>
+          {todayEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
+            <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12,fontStyle:"italic"}}>{T2("Loading beverage items…")}</div>
+          )}
           {todayEvs.map(ev=>{
-            const menu = safeArr(ev.menu);
-            const bevItems = menu.map((d,i)=>({name:d,idx:i})).filter(x=>sectionForDish(x.name)==="Beverages");
+            if(bevItemsByEv[ev.id]===undefined) return null;
+            const bevItems = (bevItemsByEv[ev.id]||[]).map((d,i)=>({name:d,idx:i}));
             if(bevItems.length===0) return null;
             const bevReady = bevItems.filter(b=>{const bk=`bev_${ev.id}_${b.idx}`;return bevChecks[bk]?.ready;}).length;
             return (
@@ -828,7 +857,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                                 <div style={{width:32,height:32,borderRadius:8,background:sDone?C.green:sRunning?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone||sRunning?"#fff":C.muted,flexShrink:0}}>{sDone?"✓":si+1}</div>
                                 <div style={{flex:1}}>
                                   <div style={{fontSize:12,fontWeight:700,color:sDone?C.green:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</div>
-                                  {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i}</div>}
+                                  {(step.i||step.desc)&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i||step.desc}</div>}
                                   {sTm>0&&<div style={{marginTop:6}}>
                                     <div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}>
                                       <div style={{height:"100%",width:sPct+"%",background:sDone?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/>
@@ -858,7 +887,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </div>
             );
           })}
-          {todayEvs.every(ev=>!safeArr(ev.menu).some(d=>sectionForDish(d)==="Beverages"))&&(
+          {todayEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && todayEvs.every(ev=>(bevItemsByEv[ev.id]||[]).length===0)&&(
             <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages in today's functions")}</div>
           )}
         </div>
@@ -868,7 +897,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {selDept==="beverages"&&activeTab==="menu"&&(
         <div>
           {todayEvs.map(ev=>{
-            const bevItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Beverages");
+            if(bevItemsByEv[ev.id]===undefined) return null;
+            const bevItems = bevItemsByEv[ev.id]||[];
             if(bevItems.length===0) return null;
             return (
               <Card key={ev.id} style={{marginBottom:10,padding:"14px 16px"}}>
@@ -968,7 +998,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
                                 <div style={{width:32,height:32,borderRadius:8,background:sDone?C.green:sRunning?C.amber:C.darkCard,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:sDone||sRunning?"#fff":C.muted,flexShrink:0}}>{sDone?"✓":si+1}</div>
                                 <div style={{flex:1}}>
                                   <div style={{fontSize:12,fontWeight:700,color:sDone?C.green:C.text}}>{step.t}{step.store?" 🏪":""}{step.live?" 🔴":""}</div>
-                                  {step.i&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i}</div>}
+                                  {(step.i||step.desc)&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{step.i||step.desc}</div>}
                                   {sTm>0&&<div style={{marginTop:6}}>
                                     <div style={{height:8,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:3}}>
                                       <div style={{height:"100%",width:sPct+"%",background:sDone?C.green:C.amber,borderRadius:3,transition:"width .5s"}}/>

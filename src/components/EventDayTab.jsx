@@ -1367,7 +1367,7 @@ function EventDayTab({
                                   const gIdx = gi;
                                   const prevItem = gi > 0 ? prePrep[gi - 1] : null;
                                   const prevDone = gIdx === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
-                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
+                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||step.desc||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
@@ -1400,7 +1400,7 @@ function EventDayTab({
                                   const allPrev = nonStore.slice(0, nonStore.indexOf(item));
                                   const prevItem = allPrev.length > 0 ? allPrev[allPrev.length - 1] : null;
                                   const prevDone = allPrev.length === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
-                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
+                                  const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||step.desc||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
                                   return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done} running={started && !done} overdue={overdue}
