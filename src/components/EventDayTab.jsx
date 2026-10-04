@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
+import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
 import { getCatIdForDish, getCatForDish, isFruitSelectionDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel, getDishImageUrl } from '../data/recipeData.js';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -281,13 +281,11 @@ function EventDayTab({
   }
 
   // Aggregate ingredients across all dishes in a section (same yield scaling as per-dish card)
+  // Unit families to merge kg↔gm and L↔ml on the same ingredient, via the
+  // shared unitFamily/unitToBase (case/synonym-normalizing — hand-entered
+  // recipes mix "ml"/"ML"/"gm"/"GMS"/"gms" for the same unit).
   function aggSecIngredients(dishes) {
     const bucket = {}; let totalKg = 0;
-    // Unit families to merge kg↔gm and L↔ml on the same ingredient.
-    const WEIGHT_G  = { g: 1, gm: 1, kg: 1000 };
-    const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
-    const familyOf = (u) => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
-    const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
     dishes.forEach(dish => {
       const evObj = todayEvs.find(e => e.id === dish.fEvId);
       if (!evObj) return;
@@ -318,11 +316,11 @@ function EventDayTab({
       if (effKg) totalKg += effKg;
       if (!ing) return;
       ing.filter(i => i.q > 0).forEach(i => {
-        const fam = familyOf(i.u);
+        const fam = unitFamily(i.u);
         // Bucket key = name|family so kg + gm collapse to one row, ml + L collapse, pcs stays separate
         const k = (i.n || "").toLowerCase().trim() + "|" + fam;
         if (!bucket[k]) bucket[k] = { n: i.n, fam: fam, _base: 0, u: i.u, q: 0 };
-        bucket[k]._base += toBase(i.q, i.u);
+        bucket[k]._base += unitToBase(i.q, i.u);
       });
     });
     // Emit each bucket in the smartest unit for its magnitude

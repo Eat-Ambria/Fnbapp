@@ -287,6 +287,32 @@ function fmtQty(input, maybeU) {
   return Math.round(raw) + " " + unitIn;
 }
 
+// Same weight/volume synonym sets as fmtQty above, exposed standalone so
+// anything merging ingredients across dishes (kg<->gm, L<->ml) can bucket by
+// the real unit FAMILY instead of the raw unit string. Recipe data is
+// hand-entered and the same unit shows up as "ml"/"ML"/"gm"/"GMS"/"gms" across
+// different dishes — a bucket key built from the raw string (or an exact-case
+// lookup table) treats each spelling as a different ingredient, so "Milk"
+// used by three shakes silently becomes three separate rows instead of one
+// merged total. Always normalize through these two before bucketing.
+const _WEIGHT_RE = /^(g|gm|gms|gram|grams|kg|kgs|kilo|kilos|kilogram|kilograms)$/;
+const _KG_RE     = /^(kg|kgs|kilo|kilos|kilogram|kilograms)$/;
+const _VOLUME_RE = /^(ml|mls|millilitre|milliliter|millilitres|milliliters|l|lt|ltr|litre|liter|litres|liters)$/;
+const _L_RE      = /^(l|lt|ltr|litre|liter|litres|liters)$/;
+function unitFamily(u) {
+  const s = String(u || '').toLowerCase().trim();
+  if (_WEIGHT_RE.test(s)) return 'w';
+  if (_VOLUME_RE.test(s)) return 'v';
+  return s;
+}
+function unitToBase(q, u) {
+  const s = String(u || '').toLowerCase().trim();
+  const n = Number(q) || 0;
+  if (_KG_RE.test(s)) return n * 1000;
+  if (_L_RE.test(s)) return n * 1000;
+  return n;
+}
+
 // V74 — Heuristic ingredient → category classifier for the Collect from store view.
 // First-hit-wins: order matters. If nothing matches, returns 'Other'.
 // Categories chosen to roughly map to store walking order.
@@ -366,4 +392,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, normalizeAtt, calcHoursWorked, fmtHours, classifyDay, genPunchId, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };

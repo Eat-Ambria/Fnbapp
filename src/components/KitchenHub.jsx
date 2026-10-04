@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -2577,12 +2577,11 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         }
         function aggSecIngredientsD1(dishes) {
           const bucket = {}; let totalKg = 0;
-          // Unit families for merging kg↔gm and L↔ml on the same ingredient.
-          // WEIGHT_G / VOLUME_ML = multiplier to normalize into grams / millilitres.
-          const WEIGHT_G  = { g: 1, gm: 1, kg: 1000 };
-          const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
-          const familyOf = (u) => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
-          const toBase   = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
+          // Unit families for merging kg↔gm and L↔ml on the same ingredient,
+          // via the shared unitFamily/unitToBase (case/synonym-normalizing —
+          // hand-entered recipes mix "ml"/"ML"/"gm"/"GMS"/"gms" for the same
+          // unit, which an exact-case lookup here used to treat as different
+          // ingredients entirely, e.g. "Milk" splitting into two rows).
           dishes.forEach(dish => {
             if (dish.eventDayOnly) return;
             // Base-gravy pseudo-dishes already carry the correctly-summed
@@ -2596,12 +2595,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             if (effKg) totalKg += effKg;
             if (!ing) return;
             ing.filter(i => i.q > 0).forEach(i => {
-              const fam = familyOf(i.u);
+              const fam = unitFamily(i.u);
               // Bucket key is name|family so kg + gm collapse to one row, ml + L collapse, pcs stays separate
               const k = (i.n || "").toLowerCase().trim() + "|" + fam;
               if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", fam: fam, _base: 0, u: i.u, q: 0 };
               else if (!bucket[k].h && i.h) bucket[k].h = i.h;
-              bucket[k]._base += toBase(i.q, i.u);
+              bucket[k]._base += unitToBase(i.q, i.u);
             });
           });
           // Emit each bucket in the smartest unit for its magnitude

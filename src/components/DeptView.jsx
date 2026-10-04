@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState } from '../utils/helpers.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
@@ -54,17 +54,13 @@ function sectionForDish(name) {
 // planning state of its own.
 function aggBevIngredients(pax, dishNames) {
   const bucket = {};
-  const WEIGHT_G = { g: 1, gm: 1, kg: 1000 };
-  const VOLUME_ML = { ml: 1, l: 1000, L: 1000 };
-  const familyOf = u => WEIGHT_G[u] != null ? 'w' : VOLUME_ML[u] != null ? 'v' : (u || '');
-  const toBase = (q, u) => (Number(q) || 0) * (WEIGHT_G[u] != null ? WEIGHT_G[u] : VOLUME_ML[u] != null ? VOLUME_ML[u] : 1);
   dishNames.forEach(function(dishName){
     (getIngrForDish(dishName, pax) || []).filter(i => i.q > 0).forEach(function(i){
-      const fam = familyOf(i.u);
+      const fam = unitFamily(i.u);
       const k = (i.n || "").toLowerCase().trim() + "|" + fam;
       if (!bucket[k]) bucket[k] = { n: i.n, h: i.h || "", fam: fam, _base: 0, u: i.u, q: 0 };
       else if (!bucket[k].h && i.h) bucket[k].h = i.h;
-      bucket[k]._base += toBase(i.q, i.u);
+      bucket[k]._base += unitToBase(i.q, i.u);
     });
   });
   Object.values(bucket).forEach(function(b){
