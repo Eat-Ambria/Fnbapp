@@ -117,6 +117,8 @@ export default function App() {
   // early returns, so a hook down there would be conditional.
   const [navClosed,setNavClosed]       = useState({});
   const [userMenuOpen,setUserMenuOpen] = useState(false);
+  const [showPinReset,setShowPinReset] = useState(false);
+  const [pinResetForm,setPinResetForm] = useState({current:"",next:"",confirm:"",error:""});
   const userMenuRef = useRef(null);
   useEffect(()=>{
     if(!userMenuOpen) return;
@@ -690,6 +692,25 @@ export default function App() {
     if(action==='delete') await dbDelete('staff', 'staff_id', record.staff_id);
   }
 
+  // Self-service PIN reset from the account menu — anyone can change their
+  // own PIN here without going through Access Manager (admin-only screen).
+  async function savePinReset(){
+    const cur = pinResetForm.current.trim();
+    const next = pinResetForm.next.trim();
+    const confirmPin = pinResetForm.confirm.trim();
+    if(String(currentUser?.pin||"")!==cur){ setPinResetForm(f=>({...f,error:"Current PIN is incorrect."})); return; }
+    if(!/^\d{4,6}$/.test(next)){ setPinResetForm(f=>({...f,error:"New PIN must be 4-6 digits."})); return; }
+    if(next!==confirmPin){ setPinResetForm(f=>({...f,error:"New PINs don't match."})); return; }
+    const myId = currentUser.staffListId||currentUser.staff_id||currentUser.id;
+    const updated = {...currentUser, pin:next};
+    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===myId?{...s,pin:next}:s));
+    setCurrentUser(updated);
+    try{ localStorage.setItem("ambria_session_user", JSON.stringify(updated)); }catch(e){}
+    try{ await syncStaff('upsert', updated); }catch(e){ console.error('[savePinReset] sync failed:', e); }
+    setShowPinReset(false);
+    setPinResetForm({current:"",next:"",confirm:"",error:""});
+  }
+
   function handleLogin(emp){
     setCurrentUser(emp);
     try{ localStorage.setItem("ambria_session_user",JSON.stringify(emp)); }catch(e){}
@@ -1026,6 +1047,10 @@ export default function App() {
                     style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
                     <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
                   </button>
+                  <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);setPinResetForm({current:"",next:"",confirm:"",error:""});setShowPinReset(true);}}
+                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                    <Icon name="lock" size={15}/>{T2("Reset PIN")}
+                  </button>
                   <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
                     style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
                     <Icon name="logout" size={15}/>{T("Sign out",lang)}
@@ -1034,6 +1059,30 @@ export default function App() {
               )}
             </div>
 
+            {showPinReset && (
+              <div onClick={()=>setShowPinReset(false)} style={{position:"fixed",inset:0,zIndex:10050,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:K.surface,borderRadius:16,padding:"22px 22px 20px",maxWidth:360,width:"100%",boxShadow:K.shadowLift,border:`1px solid ${K.line}`}}>
+                  <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
+                  <div style={{fontSize:12,color:K.textMuted,marginBottom:16}}>{T2("Change the PIN you use to sign in.")}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Current PIN")} value={pinResetForm.current}
+                      onChange={e=>setPinResetForm(f=>({...f,current:e.target.value.replace(/\D/g,""),error:""}))}
+                      style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("New PIN (4-6 digits)")} value={pinResetForm.next}
+                      onChange={e=>setPinResetForm(f=>({...f,next:e.target.value.replace(/\D/g,""),error:""}))}
+                      style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
+                      onChange={e=>setPinResetForm(f=>({...f,confirm:e.target.value.replace(/\D/g,""),error:""}))}
+                      style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+                  </div>
+                  {pinResetForm.error&&<div style={{fontSize:12,color:"#C0392B",marginBottom:12}}>{pinResetForm.error}</div>}
+                  <div style={{display:"flex",gap:10}}>
+                    <button onClick={savePinReset} style={{flex:1,padding:"11px",borderRadius:10,background:K.gold,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Save")}</button>
+                    <button onClick={()=>setShowPinReset(false)} style={{padding:"11px 18px",borderRadius:10,background:"transparent",border:`1px solid ${K.line}`,color:K.textMuted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Footer plate — the wave, the artwork and the strapline are all
                 baked into the image, same as the admin sidebar. */}
@@ -1414,6 +1463,10 @@ export default function App() {
                 style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
                 <Icon name="globe" size={15}/>{lang==="en"?"हिंदी में बदलें":"Switch to English"}
               </button>
+              <button className="ash-menu-item kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);setPinResetForm({current:"",next:"",confirm:"",error:""});setShowPinReset(true);}}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
+                <Icon name="lock" size={15}/>{T2("Reset PIN")}
+              </button>
               <button className="ash-menu-item is-danger kh-rip" onPointerDown={ripple} onClick={()=>{setUserMenuOpen(false);handleLogout();}}
                 style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",borderRadius:8,border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left"}}>
                 <Icon name="logout" size={15}/>{T("Sign out",lang)}
@@ -1421,6 +1474,31 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {showPinReset && (
+          <div onClick={()=>setShowPinReset(false)} style={{position:"fixed",inset:0,zIndex:10050,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:K.surface,borderRadius:16,padding:"22px 22px 20px",maxWidth:360,width:"100%",boxShadow:K.shadowLift,border:`1px solid ${K.line}`}}>
+              <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
+              <div style={{fontSize:12,color:K.textMuted,marginBottom:16}}>{T2("Change the PIN you use to sign in.")}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Current PIN")} value={pinResetForm.current}
+                  onChange={e=>setPinResetForm(f=>({...f,current:e.target.value.replace(/\D/g,""),error:""}))}
+                  style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("New PIN (4-6 digits)")} value={pinResetForm.next}
+                  onChange={e=>setPinResetForm(f=>({...f,next:e.target.value.replace(/\D/g,""),error:""}))}
+                  style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
+                  onChange={e=>setPinResetForm(f=>({...f,confirm:e.target.value.replace(/\D/g,""),error:""}))}
+                  style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
+              </div>
+              {pinResetForm.error&&<div style={{fontSize:12,color:"#C0392B",marginBottom:12}}>{pinResetForm.error}</div>}
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={savePinReset} style={{flex:1,padding:"11px",borderRadius:10,background:K.gold,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Save")}</button>
+                <button onClick={()=>setShowPinReset(false)} style={{padding:"11px 18px",borderRadius:10,background:"transparent",border:`1px solid ${K.line}`,color:K.textMuted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Footer artwork ──
             Drop it at Fnbapp/public/sidebar-footer.webp. The wave, the plate art
