@@ -73,6 +73,18 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const [editVehId,   setEditVehId]   = useState(null);
   const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});
   const [delVehId,    setDelVehId]    = useState(null);
+  const [challanFor,  setChallanFor]  = useState(null); // {evId, vehicleId}
+
+  // Items currently tagged to this vehicle for this event that have been
+  // picked off "Ready" (i.e. actually loaded), newest-loaded last.
+  function loadedRowsFor(evId, vehicleId) {
+    const ev = safeEvs.find(e=>e.id===evId);
+    if(!ev) return [];
+    return (transportQueue||[]).filter(r=>{
+      const belongsToEv = r.evId ? r.evId===evId : (r.event===ev.guest && r.eventDate===ev.date);
+      return belongsToEv && r.vehicleId===vehicleId && r.status!=="Ready";
+    }).sort((a,b)=>(a.sec||"").localeCompare(b.sec||"")||(a.dish||"").localeCompare(b.dish||""));
+  }
 
   function updAsgn(evId,ai,field,val){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[field]:val})}));}
   function addVehicle(evId){
@@ -348,6 +360,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛",type:"dry"};
                     const sc=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
                     const loc=getVehicleLocation(asgn.vehicleId);
+                    const loadedCount=loadedRowsFor(ev.id,asgn.vehicleId).length;
                     return (
                       <div key={ai} style={{background:C.bg,borderRadius:10,padding:"8px 10px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:5}}>
                         <div style={{display:"flex",gap:5,alignItems:"center"}}>
@@ -379,6 +392,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         )}
                         {asgn.status==="Unloaded"&&<span style={{fontSize:11,fontWeight:700,color:C.green,textAlign:"center"}}>✅ {T2("Complete")}</span>}
                         {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:9.5,color:C.amber}}>⚠ {T2("Assign a driver first")}</div>}
+                        <button onClick={()=>setChallanFor({evId:ev.id,vehicleId:asgn.vehicleId})}
+                          style={{padding:"5px 8px",borderRadius:6,fontSize:10.5,fontWeight:700,cursor:"pointer",border:`1px solid ${C.border}`,minHeight:28,background:C.surface,color:C.text}}>
+                          📄 {T2("Challan")} ({loadedCount})
+                        </button>
                       </div>
                     );
                   })}
@@ -522,6 +539,90 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               <div style={{margin:"14px 0 8px",fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:0.8}}>🟡 {T2("Tomorrow")}</div>
             )}
             {tomorrowEvs.map(ev=>renderCard(ev,false))}
+          </div>
+        );
+      })()}
+
+      {/* ── DELIVERY CHALLAN — builds itself from whatever's been tapped past
+          "Ready" on this truck, so there's no separate manifest to keep in
+          sync by hand. ── */}
+      {challanFor&&(()=>{
+        const ev=safeEvs.find(e=>e.id===challanFor.evId);
+        if(!ev) return null;
+        const veh=fleetList.find(v=>v.id===challanFor.vehicleId)||{name:challanFor.vehicleId,icon:"🚛"};
+        const asgn=(dispatches.find(d=>d.evId===ev.id)?.assignments||[]).find(a=>a.vehicleId===challanFor.vehicleId)||{};
+        const rows=loadedRowsFor(ev.id,challanFor.vehicleId);
+        const now=new Date();
+        const nowStr=now.toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setChallanFor(null)}>
+            <style>{"@media print { body * { visibility: hidden; } .td-challan, .td-challan * { visibility: visible; } .td-challan { position: fixed !important; inset: 0 !important; margin: 0 !important; max-height: none !important; box-shadow: none !important; } .td-challan-hide { display: none !important; } }"}</style>
+            <div className="td-challan" onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,width:460,maxWidth:"100%",maxHeight:"90vh",overflow:"auto",padding:"22px 24px",color:"#1a1a1a"}}>
+              <div className="td-challan-hide" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontSize:15,fontWeight:700}}>📄 {T2("Delivery Challan")}</div>
+                <button onClick={()=>setChallanFor(null)} style={{background:"none",border:"none",fontSize:18,color:"#888",cursor:"pointer"}}>✕</button>
+              </div>
+
+              <div style={{textAlign:"center",marginBottom:14,borderBottom:"2px solid #1a1a1a",paddingBottom:10}}>
+                <div style={{fontSize:16,fontWeight:700}}>Ambria Cuisines</div>
+                <div style={{fontSize:11,color:"#666"}}>Get Your Venue Events Pvt Ltd</div>
+                <div style={{fontSize:13,fontWeight:700,marginTop:6,letterSpacing:1}}>DELIVERY CHALLAN</div>
+              </div>
+
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:12}}>
+                <div>
+                  <div><b>{T2("Event")}:</b> {ev.guest}</div>
+                  <div><b>{T2("Venue")}:</b> {ev.venue}</div>
+                  <div><b>{T2("Date")}:</b> {ev.date} · {ev.time}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div><b>{T2("Vehicle")}:</b> {veh.icon} {veh.name}</div>
+                  <div><b>{T2("Driver")}:</b> {asgn.driver||"—"}</div>
+                  <div><b>{T2("Printed")}:</b> {nowStr}</div>
+                </div>
+              </div>
+
+              {rows.length===0?(
+                <div style={{textAlign:"center",padding:"20px 0",color:"#888",fontSize:12}}>{T2("Nothing loaded onto this vehicle yet")}</div>
+              ):(
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginBottom:10}}>
+                  <thead>
+                    <tr style={{borderBottom:"1.5px solid #1a1a1a"}}>
+                      <th style={{textAlign:"left",padding:"5px 4px",width:26}}>#</th>
+                      <th style={{textAlign:"left",padding:"5px 4px"}}>{T2("Dish")}</th>
+                      <th style={{textAlign:"right",padding:"5px 4px"}}>{T2("Qty")}</th>
+                      <th style={{textAlign:"right",padding:"5px 4px"}}>{T2("Status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r,i)=>(
+                      <tr key={r.id} style={{borderBottom:"1px solid #ddd"}}>
+                        <td style={{padding:"5px 4px",color:"#888"}}>{i+1}</td>
+                        <td style={{padding:"5px 4px",fontWeight:600}}>{r.dish}</td>
+                        <td style={{padding:"5px 4px",textAlign:"right"}}>{r.qty!=null?`${r.qty}${r.unit?" "+r.unit:""}`:"—"}</td>
+                        <td style={{padding:"5px 4px",textAlign:"right",color:r.status==="Delivered"?"#2B8A50":"#185FA5"}}>{r.status==="Delivered"?"✓ "+T2("Delivered"):"📦 "+T2("Loaded")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              <div style={{fontSize:11,color:"#444",marginBottom:18}}>{T2("Total items")}: {rows.length}</div>
+
+              <div style={{display:"flex",justifyContent:"space-between",gap:20,marginTop:30,fontSize:11}}>
+                <div style={{flex:1,textAlign:"center"}}>
+                  <div style={{borderTop:"1px solid #888",paddingTop:4}}>{T2("Handed over by")}</div>
+                </div>
+                <div style={{flex:1,textAlign:"center"}}>
+                  <div style={{borderTop:"1px solid #888",paddingTop:4}}>{T2("Received by")}</div>
+                </div>
+              </div>
+
+              <div className="td-challan-hide" style={{display:"flex",gap:8,marginTop:20}}>
+                <button onClick={()=>window.print()} style={{flex:1,padding:"10px",borderRadius:8,background:C.wine,color:"#fff",border:"none",fontWeight:700,cursor:"pointer"}}>🖨 {T2("Print")}</button>
+                <button onClick={()=>setChallanFor(null)} style={{flex:1,padding:"10px",borderRadius:8,background:"#eee",border:"none",fontWeight:700,cursor:"pointer",color:"#333"}}>{T2("Close")}</button>
+              </div>
+            </div>
           </div>
         );
       })()}
