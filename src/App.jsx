@@ -19,7 +19,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, normalizeAtt, classifyDay, localDateStr, mergeDishState, isHiddenSmallRestroBooking } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, isHiddenSmallRestroBooking } from './utils/helpers.js';
 
 // Components
 import { K, type } from './utils/theme.js';
@@ -30,7 +30,6 @@ import { LoginScreen } from './components/LoginScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { DeptView } from './components/DeptView.jsx';
 import { StaffView } from './components/StaffView.jsx';
-import { KioskAttendance } from './components/KioskAttendance.jsx';
 import { ActivityLog } from './components/ActivityLog.jsx';
 import { NotificationCenter, isKitchenRole } from './components/NotificationCenter.jsx';
 
@@ -45,7 +44,6 @@ const StoreModule         = React.lazy(() => import('./components/StoreModule.js
 const MenuPackagesView    = React.lazy(() => import('./components/MenuPackagesView.jsx').then(m => ({ default: m.MenuPackagesView })));
 const VendorDirectory     = React.lazy(() => import('./components/VendorDirectory.jsx').then(m => ({ default: m.VendorDirectory })));
 const AccessManager       = React.lazy(() => import('./components/AccessManager.jsx').then(m => ({ default: m.AccessManager })));
-const GateKiosk           = React.lazy(() => import('./components/GateKiosk.jsx').then(m => ({ default: m.GateKiosk })));
 const ODCModule           = React.lazy(() => import('./components/ODCModule.jsx').then(m => ({ default: m.ODCModule })));
 const ProposalsView       = React.lazy(() => import('./components/ProposalsView.jsx').then(m => ({ default: m.ProposalsView })));
 const SalesCatalogueView  = React.lazy(() => import('./components/SalesCatalogueView.jsx').then(m => ({ default: m.SalesCatalogueView })));
@@ -176,27 +174,6 @@ export default function App() {
     if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
     else { window.location.reload(); }
   }
-
-  // ── Attendance ──
-  const [attendance,setAttendance_raw] = useState([]);
-  const setAttendance = (updater) => {
-    setAttendance_raw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Normalize every record to unified schema on the way in
-      const normalized = safeArr(next).map(normalizeAtt);
-      const prevByKey = new Map(safeArr(prev).map(a=>[(a.staff_id||a.staffId)+"_"+a.date, a]));
-      normalized.forEach(a => {
-        const key = (a.staff_id||a.staffId)+"_"+a.date;
-        const old = prevByKey.get(key);
-        if(!old || old.status!==a.status || old.in_time!==a.in_time || old.out_time!==a.out_time) {
-          dbUpsert("attendance",{staff_id:a.staff_id,staff_name:a.staff_name,section:a.section,
-            date:a.date,status:a.status||"Present",in_time:a.in_time||null,out_time:a.out_time||null},
-            "staff_id,date").catch(e=>console.error("att sync:",e));
-        }
-      });
-      return normalized;
-    });
-  };
 
   // ── Leaves ──
   const [leaves,setLeaves_raw]       = useState([]);
@@ -403,10 +380,9 @@ export default function App() {
         if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
 
-      const [staffData, eventsData, attData, lvData, ktData, tqData] = await Promise.all([
+      const [staffData, eventsData, lvData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),
         dbLoad('events', []),
-        dbLoad('attendance', []),
         dbLoad('leaves', []),
         dbLoad('kitchen_tracking', []),
         dbLoad('transport_queue', []),
@@ -464,40 +440,6 @@ export default function App() {
         if (!Array.isArray(extras)) extras = [];
         return {...e, menuPackage:pkg, menu, extras, outsourced_dishes:Array.isArray(e.outsourced_dishes)?e.outsourced_dishes:[], odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false, custom_menu_confirmed:e.custom_menu_confirmed??false, yield_multiplier:Number(e.yield_multiplier)||1.0};
       }));
-      // ── Auto-close stale attendance: in_time set but no out_time, older than 16 hours ──
-      var MAX_SHIFT_HOURS = 16;
-      var nowMs = Date.now();
-      var staleRecs = attData.filter(function(a){
-        if(!a.in_time || a.out_time) return false;
-        try {
-          var inMs = new Date(a.date+'T'+a.in_time).getTime();
-          return (nowMs - inMs) / 36e5 >= MAX_SHIFT_HOURS;
-        } catch(e){ return false; }
-      });
-      if(staleRecs.length > 0){
-        console.log('⏰ Auto-closing '+staleRecs.length+' stale attendance records (>'+MAX_SHIFT_HOURS+'h)');
-        staleRecs.forEach(function(rec){
-          try {
-            var inMs2 = new Date(rec.date+'T'+rec.in_time).getTime();
-            // Auto out_time = in_time + 16h (no midnight cap — staff can work past midnight)
-            var autoOutMs = inMs2 + MAX_SHIFT_HOURS * 36e5;
-            var outDt = new Date(autoOutMs);
-            var outTimeStr = outDt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-            var dayClass = classifyDay(rec.in_time, outTimeStr);
-            var autoStatus = dayClass.status;
-            rec.out_time = outTimeStr;
-            rec.status = autoStatus;
-            rec.auto_closed = true;
-            if(supabase){
-              supabase.from('attendance').update({out_time:outTimeStr, status:autoStatus})
-                .eq('staff_id',rec.staff_id).eq('date',rec.date)
-                .then(function(r){if(r.error)console.error('Auto-close err:',rec.staff_name,r.error);});
-            }
-          } catch(e){ console.warn('Auto-close skip:',rec.staff_name,e); }
-        });
-      }
-      const todayAtt = attData.filter(a=>a.date===TODAY);
-      setAttendance_raw(todayAtt.map(normalizeAtt));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       if(ktData.length>0){
         const ktObj={};
@@ -557,14 +499,6 @@ export default function App() {
       if(payload.eventType==='INSERT') setEmpDb(p=>{if(p.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id))return p;return[...p,{...payload.new,staffListId:payload.new.staff_id}];});
       if(payload.eventType==='UPDATE') setEmpDb(p=>p.map(s=>(s.staffListId||s.staff_id)===payload.new.staff_id?{...s,...payload.new,staffListId:payload.new.staff_id}:s));
       if(payload.eventType==='DELETE') setEmpDb(p=>p.filter(s=>(s.staffListId||s.staff_id)!==payload.old.staff_id));
-    });
-    const u2 = dbSubscribe('attendance', (payload) => {
-      if(payload.eventType==='INSERT'||payload.eventType==='UPDATE'){
-        if(payload.new?.date!==TODAY)return;
-        const r=normalizeAtt(payload.new);
-        setAttendance_raw(p=>{const key=r.staff_id;const ex=p.some(a=>(a.staff_id||a.staffId)===key&&a.date===r.date);return ex?p.map(a=>(a.staff_id||a.staffId)===key&&a.date===r.date?r:a):[...p,r];});
-      }
-      if(payload.eventType==='DELETE') setAttendance_raw(p=>p.filter(a=>(a.staff_id||a.staffId)!==payload.old.staff_id||a.date!==payload.old.date));
     });
     const u4 = dbSubscribe('events', (payload) => {
       // V84 — Postgres logical replication omits an unchanged TOASTed column
@@ -634,7 +568,7 @@ export default function App() {
     // V74: menu_packages had no realtime — Packages/Sections tab only refreshed on local save.
     // Full re-fetch is cheap (small table) and reuses the existing hydrate + event-dispatch plumbing.
     const u8 = dbSubscribe('menu_packages', () => { refreshMenuPackages(); });
-    return () => { u1(); u2(); u4(); u5(); u6(); u7(); u8(); };
+    return () => { u1(); u4(); u5(); u6(); u7(); u8(); };
   }, [appReady]);
 
   // ── Supabase connectivity indicator + offline queue replay ──
@@ -875,19 +809,7 @@ export default function App() {
   );
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
-  if(showStaffView) return <StaffView user={currentUser} attendance={attendance} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
-  // ── GATE KIOSK INTERCEPT ──
-  if(currentUser && currentUser.role === 'kiosk_gate') {
-    return (
-      <div style={{minHeight:'100vh',background:C.bg,padding:20}}>
-        <Suspense fallback={SCREEN_LOADING}>
-          <GateKiosk empDb={empDb} attendance={attendance}
-            setAttendance={setAttendance} currentUser={currentUser}
-            setCurrentUser={setCurrentUser} onLogout={handleLogout} lang={lang} setLang={setLang}/>
-        </Suspense>
-      </div>
-    );
-  }
+  if(showStaffView) return <StaffView user={currentUser} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
     const TABLET_NAV=[
@@ -905,7 +827,7 @@ export default function App() {
     const _title = currentUser.name || _catNames || currentUser.section || 'Kitchen';
     function tabletContent(scr){
       switch(scr){
-        case "dashboard": return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+        case "dashboard": return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
         case "kitchen": return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
         case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
         default: return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
@@ -1179,9 +1101,8 @@ export default function App() {
     if(currentUser?.role === 'admin') return null; // useEffect redirects to management dashboard
     return (
       <DeptView
-        attendance={attendance} setAttendance={setAttendance}
         events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}
-        lang={lang} setLang={setLang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb}
+        lang={lang} setLang={setLang} empDb={empDb} setEmpDb={setEmpDb}
         onSelectDept={(deptId)=>{if(deptId==="access"){setActiveDept("management");setScreen("access");}else{setActiveDept(deptId);setScreen("dashboard");}}}
         onLogout={handleLogout}
         currentUser={currentUser}
@@ -1202,19 +1123,19 @@ export default function App() {
   function renderScreen(s){
     if (!canAccessScreen(currentUser, s)) return LOCK_SCREEN;
     switch(s){
-      case "dashboard":      return <Dashboard attendance={attendance} events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
-      case "team":           return <TeamHub attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
+      case "dashboard":      return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      case "team":           return <TeamHub leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "vendors":        return <VendorDirectory lang={lang}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff} checklistsCfg={dbChecklists} setChecklistsCfg={setDbChecklists}/>;
-      case "logs":           return <ActivityLog lang={lang} currentUser={currentUser} empDb={empDb} attendance={attendance} kitchenTracking={kitchenTracking} events={events}/>;
-      case "dept_service":   return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" allocRules={allocRules} setAllocRules={setAllocRules} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
-      case "dept_crockery":  return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
-      case "dept_beverages": return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
-      case "dept_fruits":    return <DeptView attendance={attendance} setAttendance={setAttendance} events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} forceDept="fruits"/>;
+      case "logs":           return <ActivityLog lang={lang} currentUser={currentUser} empDb={empDb} kitchenTracking={kitchenTracking} events={events}/>;
+      case "dept_service":   return <DeptView events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" allocRules={allocRules} setAllocRules={setAllocRules} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
+      case "dept_crockery":  return <DeptView events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} empDb={empDb} setEmpDb={setEmpDb} forceDept="crockery"/>;
+      case "dept_beverages": return <DeptView events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} empDb={empDb} setEmpDb={setEmpDb} forceDept="beverages"/>;
+      case "dept_fruits":    return <DeptView events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} empDb={empDb} setEmpDb={setEmpDb} forceDept="fruits"/>;
       case "dept_odc":       return <ODCModule events={events} lang={lang} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
       case "proposals":         return <ProposalsView lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "sales_catalogue":   return <SalesCatalogueView lang={lang} currentUser={currentUser}/>;

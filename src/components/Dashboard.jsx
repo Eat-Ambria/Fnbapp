@@ -104,7 +104,7 @@ function Pager({page,pages,onPage,from,shown,total,T2}) {
   );
 }
 
-function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
+function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const isMobile = useIsMobile();
   const [lmsSyncing, setLmsSyncing] = useState(false);
@@ -277,12 +277,6 @@ function Dashboard({attendance,events,setEvents,kitchenTracking,lang="en",curren
   // Kitchen stats
   const kt = kitchenTracking&&typeof kitchenTracking==="object"?kitchenTracking:{};
 
-  // Staff stats
-  const attArr = safeArr(attendance).filter(r=>r.date===TODAY);
-  const staffPresent = attArr.filter(r=>r.status==="Present").length;
-  const staffAbsent = attArr.filter(r=>r.status==="Absent").length;
-  const totalActive = safeArr(empDb).filter(s=>s.is_active!==false&&s.role!=='kiosk_gate'&&s.role!=='admin'&&!s.role?.startsWith('section_')).length;
-  const totalStaff = totalActive || Math.max(staffPresent+staffAbsent, 1);
 
   // Helpers
   // V80 fix: used to derive the next id from the max numeric suffix seen in

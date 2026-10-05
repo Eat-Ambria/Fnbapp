@@ -10,7 +10,6 @@ import { canAccessScreen } from '../data/permissions.js';
 import { dbUpsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { RECIPE_DB } from '../data/recipeData.js';
-import { KioskAttendance } from './KioskAttendance.jsx';
 import { FruitSelectionPicker } from './FruitSelectionPicker.jsx';
 // Used by the ODC "Kitchen Tasks" tab further down. It was referenced without
 // ever being imported, so opening that tab threw "KitchenHub is not defined".
@@ -79,11 +78,10 @@ function calcDispatch(time){
   return `${String(dH<0?dH+24:dH).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 
-function DeptView({attendance, setAttendance, events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, leaves, setLeaves, empDb, setEmpDb, allocRules={}, setAllocRules, checklistsCfg={}}) {
+function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLang, onSelectDept, onLogout, currentUser, forceDept, empDb, setEmpDb, allocRules={}, setAllocRules, checklistsCfg={}}) {
   const T2 = s => T(s, lang);
   const [selDept, setSelDept] = useState(forceDept||null);
   const [deptTab, setDeptTab] = useState(null); // null = auto-pick first tab
-  const [kioskMode, setKioskMode] = useState(false);
   const [time, setTime] = useState(new Date());
   const [svcChecks, setSvcChecks] = useState({});
   const [crockChecks, setCrockChecks] = useState({});
@@ -109,8 +107,15 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   useEffect(()=>{const t=setInterval(()=>setTime(new Date()),30000);return()=>clearInterval(t);},[]);
   useEffect(()=>{if(forceDept){setSelDept(forceDept);setDeptTab(null);}},[forceDept]);
 
-  const todayAtts = safeArr(attendance).filter(a=>a.date===TODAY);
   const todayEvs = safeArr(events).filter(e=>e.date===TODAY);
+  // Service/Crockery/Beverages/Fruits Ops: a real date picker replacing the
+  // old hardcoded "today" assumption, so staff can check/prep for any day,
+  // not just today. Kitchen/Transport/ODC are untouched — they keep reading
+  // todayEvs directly. D-1 Store Req tabs keep their own wider "any upcoming
+  // function" scope (upcomingEvs below), since picking a day doesn't change
+  // what hasn't happened yet.
+  const [selDate, setSelDate] = useState(TODAY);
+  const selEvs = safeArr(events).filter(e=>e.date===selDate);
   // events.menu is a KITCHEN-only mirror of the real event_items table (see
   // EventMenuBuilderView.jsx's mirrorKitchenMenu) — Beverage/Bakery/Fruits
   // selections never land in it at all. Beverages Ops needs the same
@@ -118,11 +123,11 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // event and cached by event id (undefined = not loaded yet, so the empty
   // state below doesn't flash before the fetch resolves).
   const [bevItemsByEv, setBevItemsByEv] = useState({});
-  const todayEvIds = todayEvs.map(e=>e.id).join(',');
+  const selEvIds = selEvs.map(e=>e.id).join(',');
   useEffect(()=>{
     if(selDept!=="beverages") return;
     let cancelled = false;
-    todayEvs.forEach(ev=>{
+    selEvs.forEach(ev=>{
       if(bevItemsByEv[ev.id]!==undefined) return;
       getEventItemsByDept(ev).then(byDept=>{
         if(cancelled) return;
@@ -131,7 +136,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     });
     return ()=>{ cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selDept, todayEvIds]);
+  }, [selDept, selEvIds]);
   const tomorrowEvs = safeArr(events).filter(e=>e.date===TOMORROW);
   // Fruits' D-1 Store Req needs to cover today (edit a pick made late) and any
   // future function, not just tomorrow — the fruits actually needed can be
@@ -139,7 +144,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   const upcomingEvs = safeArr(events).filter(e=>e.date>=TODAY).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 
   // Service > Staff Allocation: the saved Waiters Ratio config (event_configs,
-  // dept_id='svc', config_key='waiter_ratio') for today's + tomorrow's events,
+  // dept_id='svc', config_key='waiter_ratio') for the picked date's events,
   // so the tab can use the real per-event ratio when one's been set instead of
   // only ever guessing from the menu package. Fetched once per visit to the
   // Service dept, keyed by event id (undefined = not loaded yet). Gated on
@@ -148,7 +153,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
   // reference it without being skipped on those renders, which is exactly the
   // "hooks ran a different number of times" crash fixed elsewhere in this file.
   const [waiterRatioByEv, setWaiterRatioByEv] = useState({});
-  const staffingEvIds = [...todayEvs, ...tomorrowEvs].map(e=>e.id).join(',');
+  const staffingEvIds = selEvs.map(e=>e.id).join(',');
   useEffect(()=>{
     if(selDept!=="service") return;
     const ids = staffingEvIds ? staffingEvIds.split(',') : [];
@@ -248,11 +253,6 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
     ? svcRows.map(r=>({id:r.item_key, label:r.label_en, h:r.label_hi||"", icon:r.icon||"📋"}))
     : SERVICE_CHECKLIST_FALLBACK;
 
-  // ── KIOSK OVERLAY ──
-  if(kioskMode) return (
-    <KioskAttendance staffList={safeArr(empDb).filter(s=>s.is_active!==false)} attendance={attendance} setAttendance={setAttendance} leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} onClose={()=>setKioskMode(false)} lang={lang} currentUser={currentUser}/>
-  );
-
   // ── DEPARTMENT SELECTOR ──
   if(!selDept && !forceDept) return (
     <div style={{minHeight:"100vh",background:`radial-gradient(ellipse at 30% 10%, #FFFFFF 0%, ${C.bg} 55%, #EFEEF6 100%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
@@ -307,20 +307,6 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       )}
 
-      {/* Gate Kiosk — admin and kiosk_gate role only */}
-      {(currentUser?.role==="admin"||currentUser?.role==="kiosk_gate")&&(
-        <div style={{marginTop:28,maxWidth:780,width:"100%"}}>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,boxShadow:`0 1px 2px ${C.shadow}, 0 8px 24px ${C.shadow}`,borderRadius:16,padding:"18px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16}}>
-            <div>
-              <div style={{fontSize:16,fontWeight:700,color:C.text}}> 🖥 {T2("Property Gate Kiosk")}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:3}}>{T2("Guard records attendance for ALL staff at property entrance")}</div>
-            </div>
-            <button onClick={()=>setKioskMode(true)} style={{padding:"12px 28px",borderRadius:12,background:C.gold,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,minHeight:48}}>
-              {T2("Launch Kiosk")} →
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -332,16 +318,16 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
 
   // Tabs per department
   const DEPT_TABS = {
-    kitchen:  [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
+    kitchen:  [{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     service:  [{v:"staffing",l:`👥 ${T2("Staff Allocation")}`},{v:"checklist",l:`📋 ${T2("Service Checklist")}`}],
-    crockery: [{v:"attendance",l:`✅ ${T2("Attendance")}`},{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
+    crockery: [{v:"requirements",l:`📦 ${T2("Requirements")}`},{v:"dispatch",l:`🚛 ${T2("Dispatch")}`}],
     beverages:[{v:"store_req",l:`📦 ${T2("Store Req")}`},{v:"live_prep",l:`🥤 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     fruits:   [{v:"store_req",l:`📦 ${T2("D-1 Store Req")}`},{v:"live_prep",l:`🍓 ${T2("Live Prep")}`},{v:"menu",l:`📜 ${T2("Menu")}`}],
     transport:[{v:"live",l:`📍 ${T2("Live Transport")}`},{v:"pickup",l:`🔔 ${T2("Kitchen Pickup")}`},{v:"checklist",l:`📋 ${T2("Loading Checklist")}`}],
     odc:      [{v:"bookings",l:`🏕️ ${T2("ODC Bookings")}`},{v:"kitchen",l:`👨‍🍳 ${T2("Kitchen Tasks")}`},{v:"checklist",l:`📋 ${T2("Site Checklist")}`}],
   };
   const tabs = DEPT_TABS[selDept]||DEPT_TABS.kitchen;
-  const activeTab = (deptTab && tabs.some(t=>t.v===deptTab)) ? deptTab : (tabs[0]?.v || "attendance");
+  const activeTab = (deptTab && tabs.some(t=>t.v===deptTab)) ? deptTab : (tabs[0]?.v || "kitchen");
 
   return (
     <div style={{padding:"4px 0"}}>
@@ -363,51 +349,26 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         </div>
       </div>
 
+      {/* ── Date picker (Service/Crockery/Beverages/Fruits only) — replaces the
+          old hardcoded "today" assumption so staff can check/prep any day. ── */}
+      {["service","crockery","beverages","fruits"].includes(selDept)&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+          <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
+            <button onClick={()=>setSelDate(TODAY)} style={{padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:selDate===TODAY?dept.color:"transparent",color:selDate===TODAY?"#fff":C.muted,minHeight:40}}>{T2("Today")}</button>
+            <button onClick={()=>setSelDate(TOMORROW)} style={{padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:selDate===TOMORROW?dept.color:"transparent",color:selDate===TOMORROW?"#fff":C.muted,minHeight:40}}>{T2("Tomorrow")}</button>
+          </div>
+          <input type="date" value={selDate} onChange={e=>e.target.value&&setSelDate(e.target.value)}
+            style={{padding:"8px 14px",borderRadius:20,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}/>
+          {selDate!==TODAY&&<span style={{fontSize:11,color:C.muted}}>{new Date(selDate+"T00:00").toLocaleDateString(lang==="hi"?"hi-IN":"en-IN",{weekday:"short",day:"numeric",month:"short"})}</span>}
+        </div>
+      )}
+
       {/* ── TABS (tablet: large touch targets) ── */}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         {tabs.map(t=>(
           <button key={t.v} onClick={()=>setDeptTab(t.v)} style={{padding:"10px 18px",borderRadius:24,fontSize:13,fontWeight:600,cursor:"pointer",background:activeTab===t.v?dept.color:"transparent",color:activeTab===t.v?"#fff":C.muted,border:`2px solid ${activeTab===t.v?dept.color:C.border}`,minHeight:44,transition:"all .15s"}}>{t.l}</button>
         ))}
       </div>
-
-      {/* ══════ ATTENDANCE TAB (shared across all depts) ══════ */}
-      {activeTab==="attendance"&&(()=>{
-        const curDeptConfig = DEPTS.find(d=>d.id===selDept);
-        const deptStaff = curDeptConfig ? safeArr(empDb).filter(function(s){return s.is_active!==false && curDeptConfig.staffFilter(s);}) : [];
-        const deptPresent = todayAtts.filter(a=>a.status==="Present"&&deptStaff.some(s=>String(s.staffListId||s.staff_id||s.id)===String(a.staffId||a.staff_id)));
-        return (
-          <div>
-            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:14}}>
-              <div style={{background:C.greenBg,border:`1px solid ${C.greenBorder}`,borderRadius:10,padding:"10px 18px",display:"flex",alignItems:"center",gap:8}}>
-                <div style={{fontSize:24,fontWeight:700,color:C.green}}>{deptPresent.length}</div>
-                <div style={{fontSize:11,color:C.green,fontWeight:600}}>/ {deptStaff.length} {T2("Present")}</div>
-              </div>
-            </div>
-            {deptPresent.length>0?(
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
-                {deptPresent.map((att,i)=>{
-                  const staff = deptStaff.find(s=>String(s.id)===String(att.staffId));
-                  return (
-                    <div key={i} style={{background:att.punchOut?C.surface:C.greenBg,border:`1px solid ${att.punchOut?C.border:C.greenBorder}`,borderRadius:12,padding:"12px",display:"flex",gap:10,alignItems:"center"}}>
-                      {att.photo?<img src={att.photo} style={{width:40,height:40,borderRadius:10,objectFit:"cover"}}/>
-                        :<div style={{width:40,height:40,borderRadius:10,background:C.green+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:C.green}}>✓</div>}
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:600,color:C.text}}>{att.staffName||staff?.name}</div>
-                        <div style={{fontSize:11,color:C.green}}>✅ {T2("In")}: {att.time}</div>
-                        {att.punchOut&&<div style={{fontSize:11,color:"#D06040"}}>👋 {T2("Out")}: {att.punchOut}</div>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ):(
-              <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
-                {deptStaff.length>0?T2("No staff checked in yet. Attendance is marked at Property Gate Kiosk."):T2("Staff roster for this department will be configured")+". "+T2("Use Kiosk for attendance")+"."}
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* ══════ KITCHEN: Kitchen Tasks ══════ */}
       {selDept==="kitchen"&&activeTab==="kitchen"&&(()=>{
@@ -499,7 +460,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           const total=base.staff+extra100+extra50;
           return{staff:total,base:base.staff,basePax:base.pax,extraPax:diff,extraStaff:extra100+extra50,per100:ab.per100,per50:ab.per50};
         }
-        const allEvs=[...todayEvs,...tomorrowEvs];
+        const allEvs=selEvs;
         let grandTotal=0;
         // Prefer the event's own saved Waiters Ratio config (Build Menu /
         // Booked Functions > Service > Configs) over the package/pax formula
@@ -523,19 +484,17 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
           <div>
             <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("Service Staff Allocation")}</div>
             <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Uses the event's Waiters Ratio config when set, otherwise estimated from menu package and guest count")}</div>
-            {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events today or tomorrow")}</div>}
+            {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events on this date")}</div>}
             {allEvs.map(ev=>{
               const pkg=ev.menuPackage||"";
               const pax=+ev.pax||0;
               const result=fromWaiterConfig(ev)||calcStaff(pkg,pax);
               if(result.staff)grandTotal+=result.staff;
-              const isToday=ev.date===TODAY;
               return(
                 <Card key={ev.id} style={{marginBottom:10,padding:0,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",background:C.bg,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
                       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                        <span style={{fontSize:12,fontWeight:700,color:isToday?C.gold:C.amber}}>{isToday?T2("Today"):T2("Tomorrow")}</span>
                         <span style={{fontSize:14,fontWeight:700,color:C.text}}>{ev.guest}</span>
                       </div>
                       <div style={{fontSize:12,color:C.muted,marginTop:2}}>{ev.venue} · {ev.time} · {pax} {T2("pax")} · 📜 {pkg||T2("Custom")}</div>
@@ -695,7 +654,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* ══════ SERVICE: Checklist ══════ */}
       {selDept==="service"&&activeTab==="checklist"&&(
         <div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             const checks = svcChecks[ev.id]||{};
             const doneCt = SERVICE_CHECKLIST.filter(c=>checks[c.id]).length;
             return (
@@ -722,14 +681,14 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {todayEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No events today")}</div>}
+          {selEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No events on this date")}</div>}
         </div>
       )}
 
       {/* ══════ CROCKERY: Requirements ══════ */}
       {selDept==="crockery"&&activeTab==="requirements"&&(
         <div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             const checks = crockChecks[ev.id]||{};
             const packed = CROCKERY_ITEMS.filter(c=>checks[c.name]).length;
             return (
@@ -762,14 +721,14 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {todayEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No events today")}</div>}
+          {selEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.bg,borderRadius:10,color:C.muted,fontSize:12}}>{T2("No events on this date")}</div>}
         </div>
       )}
 
       {/* ══════ CROCKERY: Dispatch ══════ */}
       {selDept==="crockery"&&activeTab==="dispatch"&&(
         <div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             const checks = crockChecks[ev.id]||{};
             const packed = CROCKERY_ITEMS.filter(c=>checks[c.name]).length;
             const pct = safePct(packed, CROCKERY_ITEMS.length);
@@ -794,20 +753,21 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       )}
 
       {/* ══════ BEVERAGES: Store Requirements — the actual SOP ingredients for
-          TODAY's beverage dishes (sugar, mint, fruit pulp, syrups...), not
-          just a checklist of dish names. Beverages has no D-1 prep day like
-          Kitchen — collection happens same-day as the function. One combined
-          "Collect from store" list per function, same pattern as Kitchen
-          Hub's Collect from store cards, stored in the shared kitchenTracking
-          state under ev.id/"__bevstore" so it persists and syncs the same way. ══════ */}
+          the selected date's beverage dishes (sugar, mint, fruit pulp,
+          syrups...), not just a checklist of dish names. Beverages has no D-1
+          prep day like Kitchen — collection happens same-day as the function.
+          One combined "Collect from store" list per function, same pattern as
+          Kitchen Hub's Collect from store cards, stored in the shared
+          kitchenTracking state under ev.id/"__bevstore" so it persists and
+          syncs the same way. ══════ */}
       {selDept==="beverages"&&activeTab==="store_req"&&(
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>{T2("Store Requirements")}</div>
-          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store for today's functions")}</div>
-          {todayEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Collect these ingredients from store for the selected date's functions")}</div>
+          {selEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
             <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12,fontStyle:"italic"}}>{T2("Loading beverage items…")}</div>
           )}
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             if(bevItemsByEv[ev.id]===undefined) return null;
             const bevItems = bevItemsByEv[ev.id]||[];
             if(bevItems.length===0) return null;
@@ -879,21 +839,21 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </Card>
             );
           })}
-          {todayEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && todayEvs.filter(ev=>(bevItemsByEv[ev.id]||[]).length>0).length===0&&(
-            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for today")}</div>
+          {selEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && selEvs.filter(ev=>(bevItemsByEv[ev.id]||[]).length>0).length===0&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverage requirements for this date")}</div>
           )}
         </div>
       )}
 
-      {/* ══════ BEVERAGES: Live Prep (Today — with timers) ══════ */}
+      {/* ══════ BEVERAGES: Live Prep ══════ */}
       {selDept==="beverages"&&activeTab==="live_prep"&&(
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>🥤 {T2("Live Beverage Prep")}</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Tap any beverage to start prep. Timers run until complete.")}</div>
-          {todayEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
+          {selEvs.some(ev=>bevItemsByEv[ev.id]===undefined)&&(
             <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12,fontStyle:"italic"}}>{T2("Loading beverage items…")}</div>
           )}
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             if(bevItemsByEv[ev.id]===undefined) return null;
             const bevItems = (bevItemsByEv[ev.id]||[]).map((d,i)=>({name:d,idx:i}));
             if(bevItems.length===0) return null;
@@ -973,8 +933,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </div>
             );
           })}
-          {todayEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && todayEvs.every(ev=>(bevItemsByEv[ev.id]||[]).length===0)&&(
-            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages in today's functions")}</div>
+          {selEvs.every(ev=>bevItemsByEv[ev.id]!==undefined) && selEvs.every(ev=>(bevItemsByEv[ev.id]||[]).length===0)&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages on this date")}</div>
           )}
         </div>
       )}
@@ -982,7 +942,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* ══════ BEVERAGES: Menu ══════ */}
       {selDept==="beverages"&&activeTab==="menu"&&(
         <div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             if(bevItemsByEv[ev.id]===undefined) return null;
             const bevItems = bevItemsByEv[ev.id]||[];
             if(bevItems.length===0) return null;
@@ -1034,7 +994,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
         <div>
           <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:4}}>🍓 {T2("Live Beverage Prep")}</div>
           <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{T2("Tap any beverage to start prep. Timers run until complete.")}</div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             const menu = safeArr(ev.menu);
             const fruitItems = menu.map((d,i)=>({name:d,idx:i})).filter(x=>sectionForDish(x.name)==="Fruits");
             if(fruitItems.length===0) return null;
@@ -1114,8 +1074,8 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
               </div>
             );
           })}
-          {todayEvs.every(ev=>!safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits"))&&(
-            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No beverages in today's functions")}</div>
+          {selEvs.every(ev=>!safeArr(ev.menu).some(d=>sectionForDish(d)==="Fruits"))&&(
+            <div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No fruits on this date's functions")}</div>
           )}
         </div>
       )}
@@ -1123,7 +1083,7 @@ function DeptView({attendance, setAttendance, events, kitchenTracking, setKitche
       {/* ══════ FRUITS: Menu ══════ */}
       {selDept==="fruits"&&activeTab==="menu"&&(
         <div>
-          {todayEvs.map(ev=>{
+          {selEvs.map(ev=>{
             const fruitItems = safeArr(ev.menu).filter(d=>sectionForDish(d)==="Fruits");
             if(fruitItems.length===0) return null;
             return (

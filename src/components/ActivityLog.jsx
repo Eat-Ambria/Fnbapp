@@ -21,7 +21,7 @@ async function logActivity(type, message, action, meta = {}, userId = null) {
   } catch (e) { console.warn('logActivity err:', e); }
 }
 
-function ActivityLog({ lang, currentUser, empDb, attendance, kitchenTracking, events }) {
+function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
   const T2 = s => T(s, lang || 'en');
   const [filter, setFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState(TODAY);
@@ -61,11 +61,6 @@ function ActivityLog({ lang, currentUser, empDb, attendance, kitchenTracking, ev
   // ── Derive client-side logs from props (live fallback for today) ──
   const clientLogs = [];
   if (dateFilter === TODAY) {
-    safeArr(attendance).forEach(a => {
-      if (a.in_time) clientLogs.push({ ts: a.date + 'T' + a.in_time, type: 'attendance', icon: '✅', color: C.green, msg: (a.staff_name || a.staff_id) + ' punched IN', detail: [a.venue, a.section].filter(Boolean).join(' · ') });
-      if (a.out_time) clientLogs.push({ ts: a.date + 'T' + a.out_time, type: 'attendance', icon: '🚪', color: C.red, msg: (a.staff_name || a.staff_id) + ' punched OUT', detail: [a.venue, a.section].filter(Boolean).join(' · ') });
-      if (a.is_vendor) clientLogs.push({ ts: a.date + 'T' + (a.in_time || '00:00'), type: 'vendor', icon: '🏢', color: C.amber, msg: 'Vendor: ' + (a.staff_name || 'Unknown') + (a.vendor_company ? ' (' + a.vendor_company + ')' : ''), detail: [a.vendor_purpose, a.venue].filter(Boolean).join(' · ') });
-    });
     const kt = kitchenTracking || {};
     Object.keys(kt).forEach(evId => {
       const evName = safeArr(events).find(e => e.id === evId)?.guest || evId;

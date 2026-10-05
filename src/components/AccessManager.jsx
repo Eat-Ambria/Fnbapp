@@ -48,8 +48,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     {v:"beverages",          l:"🥤 Beverages Dept"},
     {v:"fruits",             l:"🍓 Fruits Dept"},
     {v:"transport",          l:"🚛 Transport"},
-    {v:"kiosk_gate",         l:"🏛 Gate Kiosk"},
-    {v:"staff",              l:"👤 Basic Staff — Attendance only"},
+    {v:"staff",              l:"👤 Basic Staff"},
   ];
   const curatedKeys = CURATED_ROLE_ORDER.map(r=>r.v);
   const extraRoleOptions = Object.keys(PRESET_ROLES)
@@ -510,7 +509,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(filterStatus==="active" && (s.is_active===false||s.active===false)) return false;
     if(filterStatus==="inactive" && s.is_active!==false&&s.active!==false) return false;
     if(filterRole==="tablet" && !s.role?.startsWith("section_")) return false;
-    if(filterRole==="dept" && !["service","crockery","beverages","fruits","transport","kiosk_gate"].includes(s.role)) return false;
+    if(filterRole==="dept" && !["service","crockery","beverages","fruits","transport"].includes(s.role)) return false;
     // Any other non-"all" value is an exact role key — covers every role in
     // ROLE_OPTIONS (admin, head_chef, staff, sales, sales_manager, any
     // custom role from Manage Roles...), not just the handful that used to
@@ -609,7 +608,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <option value="odc">ODC</option>
         </select>
         {activeFilterCount>0&&<button onClick={()=>{setFilterRole("all");setFilterStatus("all");setFilterDept("all");}} style={{padding:"4px 10px",borderRadius:20,fontSize:10,cursor:"pointer",background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red}}>✕ {T2("Clear")} ({activeFilterCount})</button>}
-        <button onClick={()=>setShowBasicStaff(v=>!v)} title={T2("Basic Staff — Attendance only are hidden by default")} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:showBasicStaff?600:400,cursor:"pointer",background:showBasicStaff?C.goldBg:"transparent",border:`1px solid ${showBasicStaff?C.gold:C.border}`,color:showBasicStaff?C.gold:C.muted,transition:"all .15s"}}>{showBasicStaff?"👤 "+T2("Basic staff shown"):"👤 "+T2("Show basic staff")}</button>
+        <button onClick={()=>setShowBasicStaff(v=>!v)} title={T2("Basic Staff are hidden by default")} style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:showBasicStaff?600:400,cursor:"pointer",background:showBasicStaff?C.goldBg:"transparent",border:`1px solid ${showBasicStaff?C.gold:C.border}`,color:showBasicStaff?C.gold:C.muted,transition:"all .15s"}}>{showBasicStaff?"👤 "+T2("Basic staff shown"):"👤 "+T2("Show basic staff")}</button>
         <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{staff.length} {T2("shown")}</span>
       </div>
 
@@ -777,7 +776,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               {v:"section_tablet",l:"📱 Kitchen Tablet"},
             ]},
             {tier:"Special",roles:[
-              {v:"kiosk_gate",l:"🏛 Gate Kiosk"},{v:"staff",l:"👤 Basic Staff"},
+              {v:"staff",l:"👤 Basic Staff"},
             ]},
           ];
           return (
@@ -869,7 +868,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         <div style={{padding:"28px 24px",textAlign:"center"}}>
           <div style={{fontSize:28,marginBottom:10}}>⚠️</div>
           <div style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:6,fontFamily:"var(--font-display)"}}>{T2("Delete Staff Member?")}</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{T2("This removes their login access permanently. Attendance records are kept.")}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{T2("This removes their login access permanently.")}</div>
           <div style={{display:"flex",gap:10}}>
             <button onClick={()=>deleteStaff(delId)} style={{flex:1,padding:"12px",borderRadius:10,background:C.red,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑 {T2("Delete")}</button>
             <button onClick={()=>setDelId(null)} style={{flex:1,padding:"12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>

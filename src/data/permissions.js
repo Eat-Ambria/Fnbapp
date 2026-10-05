@@ -10,7 +10,7 @@ const SCREEN_PERMISSIONS = {
   store:          {label:"Store & Inventory",   icon:"📦", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
   transport:      {label:"Transport",           icon:"🚛", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
 
-  team:           {label:"Team & Attendance",   icon:"👥", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.attendance_mark",type:"action",label:"Mark attendance"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"},{id:"team.daily_wages",type:"action",label:"Add daily wages staff"},{id:"team.export_attendance",type:"action",label:"Export attendance"}]},
+  team:           {label:"Team",   icon:"👥", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"}]},
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
   vendors:        {label:"Vendor Directory",    icon:"📇", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
   dept_service:   {label:"Service Ops",         icon:"🍽", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
@@ -85,13 +85,6 @@ const PRESET_ROLES_DEFAULT = {
     tier: 2,
     screens: ["dashboard","transport"],
     elevated: [],
-  },
-  kiosk_gate: {
-    label: "Gate Kiosk",
-    icon: "🏛",
-    tier: 1,
-    screens: ["team"],
-    elevated: ["team.attendance_mark"],
   },
   section_tablet:      {label:"Section Tablet",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},
   section_indian:      {label:"Indian Section",       icon:"📱", tier:1, screens:["kitchen"], elevated:[]},

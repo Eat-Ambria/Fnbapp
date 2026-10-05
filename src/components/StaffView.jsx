@@ -2,20 +2,17 @@
 import React, { useState } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 // SectionHeader is used by the Request Leave block below — it was missing from
 // this import, so that section threw "SectionHeader is not defined".
 import { Avatar, Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 
-function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
+function StaffView({user, leaves, setLeaves, onLogout, lang="en"}) {
   const T2 = s => T(s, lang);
   if(!user || !(user.id||user.staffListId||user.staff_id)) return <div style={{padding:40,textAlign:"center",color:"#888"}}>No user session. Please log in.</div>;
   const [tab,setTab]       = useState("home");
   const [leaveForm,setLeaveForm] = useState({from:"",to:"",reason:""});
 
-  const sid = String(user.staffListId||user.staff_id||user.id||'');
-  const todayRec = safeArr(attendance).find(a=>(String(a.staff_id)===sid||String(a.staffId)===sid)&&a.date===TODAY);
   const myLeaves = (leaves||[]).filter(l=>l.staffName===user.name);
   const staffIdx = (function(){
     var s = String(user.staffListId||user.staff_id||user.id||user.name||'');
@@ -45,11 +42,7 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
 
       {/* Tab bar */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"0 20px",display:"flex",gap:6}}>
-        {[{id:"home",l:"🏠 Home"},{id:"attendance",l:"✅ Attendance"},{id:"leaves",l:"🌿 My Leaves"},{id:"profile",l:"👤 Profile"}].map(t=>(
-          // setAttStep("check") used to be called here. The state it set was
-          // removed in an earlier refactor and nothing reads it any more, so the
-          // call only threw "setAttStep is not defined" and took the whole
-          // screen down the moment anyone opened the Attendance tab.
+        {[{id:"home",l:"🏠 Home"},{id:"leaves",l:"🌿 My Leaves"},{id:"profile",l:"👤 Profile"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{
             padding:"12px 16px",border:"none",borderBottom:`2.5px solid ${tab===t.id?C.wine:"transparent"}`,
             background:"transparent",fontSize:12,fontWeight:tab===t.id?600:400,
@@ -64,13 +57,7 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
         {tab==="home"&&(
           <div>
             <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}, {(user.name||"").split(" ")[0]} 👋</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{background:todayRec?C.greenBg:C.redBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${todayRec?C.greenBorder:C.redBorder}`}}>
-                <div style={{fontSize:12,fontWeight:600,color:todayRec?C.green:C.red,marginBottom:4}}>Today's Attendance</div>
-                <div style={{fontSize:18,fontWeight:700,color:todayRec?C.green:C.red}}>{todayRec?"Present":"Not yet marked"}</div>
-                {todayRec&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>IN {todayRec.in_time||todayRec.time||"—"}{todayRec.out_time?" · OUT "+todayRec.out_time:""}</div>}
-                {!todayRec&&<div style={{fontSize:11,color:C.muted,marginTop:6}}>Attendance is marked at the property gate kiosk</div>}
-              </div>
+            <div style={{marginBottom:16}}>
               <div style={{background:C.blueBg,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.blueBorder}`}}>
                 <div style={{fontSize:12,fontWeight:600,color:C.blue,marginBottom:4}}>{T2("Leave Balance")}</div>
                 <div style={{fontSize:18,fontWeight:700,color:C.blue}}>{myLeaves.filter(l=>l.status==="Approved").length} taken</div>
@@ -81,37 +68,6 @@ function StaffView({user, attendance, leaves, setLeaves, onLogout, lang="en"}) {
               <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>Today's Events at Ambria</div>
               <div style={{padding:"12px 0",fontSize:12,color:C.muted}}>Event details available on the Dashboard.</div>
             </Card>
-          </div>
-        )}
-
-        {/* ── ATTENDANCE (read-only — marked at gate kiosk) ── */}
-        {tab==="attendance"&&(
-          <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:14}}>My Attendance — {TODAY_LABEL}</div>
-
-            {todayRec?(
-              <Card style={{textAlign:"center",padding:"24px 16px"}}>
-                <div style={{fontSize:48,marginBottom:10}}>{todayRec.out_time?"🏁":"✅"}</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.green,marginBottom:6}}>Present</div>
-                <div style={{display:"flex",justifyContent:"center",gap:20,marginBottom:12}}>
-                  <div style={{background:C.greenBg,borderRadius:10,padding:"10px 18px",border:`1px solid ${C.greenBorder}`}}>
-                    <div style={{fontSize:11,color:C.green,fontWeight:600}}>PUNCH IN</div>
-                    <div style={{fontSize:18,fontWeight:700,color:C.green,marginTop:2}}>{todayRec.in_time||todayRec.time||"—"}</div>
-                  </div>
-                  <div style={{background:todayRec.out_time?C.redBg:C.bg,borderRadius:10,padding:"10px 18px",border:`1px solid ${todayRec.out_time?C.redBorder:C.border}`}}>
-                    <div style={{fontSize:11,color:todayRec.out_time?C.red:C.muted,fontWeight:600}}>PUNCH OUT</div>
-                    <div style={{fontSize:18,fontWeight:700,color:todayRec.out_time?C.red:C.muted,marginTop:2}}>{todayRec.out_time||"—"}</div>
-                  </div>
-                </div>
-                {todayRec.venue&&<div style={{fontSize:12,color:C.muted}}>Venue: {todayRec.venue}</div>}
-              </Card>
-            ):(
-              <Card style={{textAlign:"center",padding:"24px 16px"}}>
-                <div style={{fontSize:48,marginBottom:10}}>⏳</div>
-                <div style={{fontSize:16,fontWeight:700,color:C.muted,marginBottom:6}}>Not yet marked</div>
-                <div style={{fontSize:13,color:C.muted}}>Attendance is recorded at the property gate kiosk when you arrive.</div>
-              </Card>
-            )}
           </div>
         )}
 

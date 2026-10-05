@@ -1482,9 +1482,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements — Day Sheet")}</div>
                 <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("One ordering sheet per day — every function on that day, combined.")}</div>
               </div>
-              <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
-                <button onClick={()=>setReqDay(TODAY)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TODAY?C.gold:"transparent",color:reqDay===TODAY?C.goldBg:C.muted}}>{T2("Today")} ({todayFnCount})</button>
-                <button onClick={()=>setReqDay(TOMORROW)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TOMORROW?C.gold:"transparent",color:reqDay===TOMORROW?C.goldBg:C.muted}}>{T2("Tomorrow")} ({tmrwFnCount})</button>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
+                  <button onClick={()=>setReqDay(TODAY)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TODAY?C.gold:"transparent",color:reqDay===TODAY?C.goldBg:C.muted}}>{T2("Today")} ({todayFnCount})</button>
+                  <button onClick={()=>setReqDay(TOMORROW)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TOMORROW?C.gold:"transparent",color:reqDay===TOMORROW?C.goldBg:C.muted}}>{T2("Tomorrow")} ({tmrwFnCount})</button>
+                </div>
+                <input type="date" value={reqDay} onChange={e=>e.target.value&&setReqDay(e.target.value)}
+                  style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}/>
               </div>
             </div>
 

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, calcHoursWorked, fmtHours, classifyDay, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
@@ -13,8 +13,8 @@ import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 
-function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
-  const [tab,setTab]             = useState("attendance");
+function TeamHub({leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
+  const [tab,setTab]             = useState("chefs");
   const T2 = s => T(s, lang);
 
   // Department-to-section mapping for filtering
@@ -45,44 +45,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const [newStaffForm,setNewStaffForm] = useState({name:"",section:"Beverages",role:"staff"});
   const [dirSearch,setDirSearch] = useState("");
   const [dirFilter,setDirFilter] = useState("All");
-  const [attDate,setAttDate] = useState(TODAY);
-  const [attDateData,setAttDateData] = useState(null);
-  const [attDateLoading,setAttDateLoading] = useState(false);
-  const [attSearch,setAttSearch] = useState('');
-  const [attStatusFilter,setAttStatusFilter] = useState('All');
-  const [attPage,setAttPage] = useState(1);
-  const ATT_PAGE_SIZE = 25;
-  function fetchAttDate(d){
-    if(!d||d===TODAY||!supabase){setAttDateData(null);return;}
-    setAttDateLoading(true);
-    supabase.from('attendance').select('*').eq('date',d).order('in_time',{ascending:true})
-      .then(function(res){setAttDateData(res.data||[]);setAttDateLoading(false);})
-      .catch(function(){setAttDateData([]);setAttDateLoading(false);});
-  }
-  const [monthStr,setMonthStr] = useState(TODAY.slice(0,7));
-  const [monthData,setMonthData] = useState(null);
-  const [monthLoading,setMonthLoading] = useState(false);
-  const [monthSearch,setMonthSearch] = useState('');
-  const [monthDeptFilter,setMonthDeptFilter] = useState('All');
-  const [monthSort,setMonthSort] = useState({col:'daysWorked',dir:'desc'});
-  const [monthDetailEmp,setMonthDetailEmp] = useState(null);
-  function fetchMonthData(m){
-    if(!m||!supabase){setMonthData(null);return;}
-    setMonthLoading(true);
-    var start=m+'-01';
-    var y=+m.split('-')[0],mo=+m.split('-')[1];
-    var lastDay=new Date(y,mo,0).getDate();
-    var end=m+'-'+String(lastDay).padStart(2,'0');
-    if(end>TODAY) end=TODAY;
-    fetchAllRows(function(){
-      return supabase.from('attendance').select('*')
-        .gte('date',start).lte('date',end)
-        .order('date',{ascending:true}).order('in_time',{ascending:true});
-    })
-      .then(function(rows){ setMonthData(rows); })
-      .catch(function(err){ console.error('fetchMonthData failed:',err); setMonthData([]); })
-      .finally(function(){ setMonthLoading(false); });
-  }
   const [showAddEmp,setShowAddEmp] = useState(false);
   const [showPins,setShowPins] = useState(false);
   const [selEmp,setSelEmp]       = useState(null);
@@ -115,15 +77,12 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
   const deptStaffList = deptSections ? allEmpDb.filter(e=>deptSections.includes(e.section)) : allEmpDb;
   const deptEmpDb = deptStaffList;
   const deptStaffIds = new Set(deptStaffList.map(s=>String(s.staff_id||s.id||'')));
-  const todayRecs  = (attendance||[]).filter(a=>a.date===TODAY && (!deptSections || deptSections.includes(a.section)));
   const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(l.staffSection)) : safeArr(leaves);
   const pending    = deptLeaves.filter(l=>l.status==="Pending");
   const approved   = deptLeaves.filter(l=>l.status==="Approved");
   const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
   const allSecs    = deptSections ? ["All",...deptSections] : ["All",...ALL_DEPARTMENTS];
   const totalActive = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');}).length;
-  const punchedIn  = todayRecs.filter(function(a){return a.in_time && !a.is_vendor && a.dept!=='vendor';}).length;
-  const present    = punchedIn;
   const dirFiltered = deptEmpDb.filter(e=>{
     const ms = dirFilter==="All"||e.section===dirFilter||e.role===dirFilter;
     const mt = !dirSearch.trim()||(e.name||'').toLowerCase().includes(dirSearch.toLowerCase())||(e.id||e.staff_id||e.staffListId||'').toLowerCase().includes(dirSearch.toLowerCase());
@@ -241,8 +200,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
 
   // Icons, not emoji — same set the rest of the app uses.
   const TABS = [
-    {id:"attendance", l:"Attendance",               icon:"check"},
-    {id:"monthly",    l:"Monthly",                  icon:"chart"},
     {id:"chefs",      l:"Outside Staff & Vendors",  icon:"contact"},
     {id:"directory",  l:"Team",                     icon:"users"},
   ];
@@ -265,17 +222,14 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
               <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="calendar" size={13} strokeWidth={2}/>{TODAY_LABEL}</span>
               <span style={{color:K.textFaint}}>·</span>
               <span style={{fontVariantNumeric:"tabular-nums"}}>
-                <b style={{color:K.hdrMetaStrong,fontWeight:700}}>{punchedIn}</b>/{totalActive} {T2("present")}
+                <b style={{color:K.hdrMetaStrong,fontWeight:700}}>{totalActive}</b> {T2("active staff")}
               </span>
             </div>
           </div>
         </div>
-        {/* Counts read as data: tone-tinted tiles with tabular figures, not
-            three flat blocks in three unrelated colours. */}
+        {/* Counts read as data: tone-tinted tiles with tabular figures. */}
         <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
           {[
-            {v:present, l:T2("Present"), t:tone("ok")},
-            {v:todayRecs.filter(a=>a.status==="Absent").length, l:T2("Absent"), t:tone("danger")},
             {v:pending.length, l:T2("Pending"), t:tone("warn")},
           ].map((s,i)=>(
             <div key={i} style={{minWidth:76,padding:"9px 16px",borderRadius:K.rMd,textAlign:"center",
@@ -320,345 +274,6 @@ function TeamHub({attendance,setAttendance,leaves,setLeaves,empDb,setEmpDb,event
       <div className="kh-scope">
         <KTabs items={TABS.map(t=>({v:t.id,l:T2(t.l),icon:t.icon}))} value={tab} onChange={setTab}/>
       </div>
-
-      {/* ── ATTENDANCE ── */}
-      {tab==="attendance" && (()=>{
-        var allStaff = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');});
-        var viewDate = attDate||TODAY;
-        var isToday = viewDate===TODAY;
-        var viewLabel = isToday ? TODAY_LABEL : new Date(viewDate+'T12:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-        var todayAtt = isToday ? safeArr(attendance).filter(function(a){return a.date===TODAY;}) : safeArr(attDateData||[]);
-        var staffAtt = todayAtt.filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
-        var vendorAtt = todayAtt.filter(function(a){return a.is_vendor || a.dept==='vendor';});
-        // Build merged rows: every active staff member + their attendance record
-        var merged = allStaff.map(function(s){
-          var sid = String(s.staff_id||s.staffListId||s.id);
-          var rec = staffAtt.find(function(a){return String(a.staff_id||a.staffId)===sid;});
-          var status = 'Absent';
-          var hrs = null;
-          if(rec && rec.in_time){
-            if(rec.out_time){
-              var cl = classifyDay(rec.in_time, rec.out_time);
-              status = cl.status;
-              hrs = cl.hours;
-            } else { status = 'Incomplete'; }
-          }
-          return {id:sid, code:s.staff_id||s.staffListId||'', name:s.name||'', dept:s.dept||'', section:s.section||'',
-            inTime:rec?rec.in_time||'':'', outTime:rec?rec.out_time||'':'', status:status, hours:hrs,
-            venue:rec?rec.venue||'':'', photo:rec?(rec.in_photo_url||rec.in_photo||rec.photo||null):null, rec:rec};
-        });
-        // Departments for filter
-        var depts = ['All'].concat([...new Set(merged.map(function(r){return r.dept||r.section;}).filter(Boolean))].sort());
-        // Counts
-        var cPresent = merged.filter(function(r){return r.status==='Present';}).length;
-        var cAbsent = merged.filter(function(r){return r.status==='Absent';}).length;
-        var cIncomplete = merged.filter(function(r){return r.status==='Incomplete';}).length;
-        var cHalf = merged.filter(function(r){return r.status==='Half Day';}).length;
-        // Filters
-        var fDept = secFilter==='All'?merged:merged.filter(function(r){return r.dept===secFilter||r.section===secFilter;});
-        var attStatusColors = {Present:C.green, Absent:C.red, Incomplete:'#E67E22', 'Half Day':C.amber};
-        var attStatuses = ['All','Present','Absent','Incomplete','Half Day'];
-        var fStatus = attStatusFilter==='All'?fDept:fDept.filter(function(r){return r.status===attStatusFilter;});
-        var fSearch = attSearch?fStatus.filter(function(r){return (r.name||'').toLowerCase().includes(attSearch.toLowerCase())||(r.code||'').toLowerCase().includes(attSearch.toLowerCase());}):fStatus;
-        var rows = fSearch.sort(function(a,b){return a.name.localeCompare(b.name);});
-        var attTotalPages = Math.max(1, Math.ceil(rows.length/ATT_PAGE_SIZE));
-        var attCurPage = Math.min(Math.max(1,attPage), attTotalPages);
-        var pageStart = (attCurPage-1)*ATT_PAGE_SIZE;
-        var pageRows = rows.slice(pageStart, pageStart+ATT_PAGE_SIZE);
-        return (
-        <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4,flexWrap:'wrap',gap:8}}>
-            <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📋 Daily Attendance</div>
-            <div style={{display:'flex',gap:8,alignItems:'center'}}>
-              <input type="date" value={viewDate} max={TODAY} onChange={function(e){var d=e.target.value;if(d){setAttDate(d);setAttPage(1);if(d!==TODAY)fetchAttDate(d);else setAttDateData(null);}}}
-                style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
-              {!isToday&&<button onClick={function(){setAttDate(TODAY);setAttDateData(null);setAttPage(1);}}
-                style={{padding:'6px 14px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',background:C.gold,color:'#fff',border:'none'}}>Today</button>}
-            </div>
-          </div>
-          <div style={{fontSize:12,color:isToday?C.muted:C.amber,marginBottom:14,fontWeight:isToday?400:600}}>{viewLabel}{!isToday?' (historical)':''}{attDateLoading?' — loading…':''}</div>
-          {/* Filters */}
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>
-            <select value={secFilter} onChange={function(e){setSecFilter(e.target.value);setAttPage(1);}} style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:120}}>
-              {depts.map(function(d){return <option key={d} value={d}>{d}</option>;})}
-            </select>
-            <div style={{display:'flex',gap:3}}>
-              {attStatuses.map(function(st){
-                var active = attStatusFilter===st;
-                return <button key={st} onClick={function(){setAttStatusFilter(st);setAttPage(1);}} style={{padding:'6px 12px',borderRadius:8,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?attStatusColors[st]||C.gold:C.border),background:active?(attStatusColors[st]||C.gold):'transparent',color:active?'#fff':(attStatusColors[st]||C.muted)}}>{st}</button>;
-              })}
-            </div>
-            <input value={attSearch} onChange={function(e){setAttSearch(e.target.value);setAttPage(1);}} placeholder="Search name or code…" style={{padding:'8px 12px',borderRadius:10,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,flex:1,minWidth:140}}/>
-          </div>
-          {/* Summary cards */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8,marginBottom:16}}>
-            {[{l:'Total',v:merged.length,c:C.text},{l:'Present',v:cPresent,c:C.green},{l:'Absent',v:cAbsent,c:C.red},{l:'Incomplete',v:cIncomplete,c:'#E67E22'},{l:'Half Day',v:cHalf,c:C.amber}].map(function(card){
-              return <div key={card.l} style={{background:C.surface,borderRadius:10,padding:'10px 12px',textAlign:'center',border:'1px solid '+C.border}}>
-                <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>{card.l}</div>
-                <div style={{fontSize:22,fontWeight:700,color:card.c,marginTop:2}}>{card.v}</div>
-              </div>;
-            })}
-          </div>
-          {/* Table header */}
-          <div style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'10px 12px',background:C.bg,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'2px solid '+C.border,fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
-            <div>Code</div><div></div><div>Name</div><div>Dept</div><div>IN</div><div>OUT</div><div>Status</div><div>Hrs</div><div>Venue</div>
-          </div>
-          {/* Table rows */}
-          <div style={{border:'1px solid '+C.border,borderTop:'none',borderRadius:rows.length===0?'0 0 10px 10px':0,overflow:'hidden'}}>
-            {pageRows.length===0?<div style={{padding:28,textAlign:'center',color:C.muted,fontSize:12}}>No records match filters</div>
-            :pageRows.map(function(r,ri){
-              var sc = attStatusColors[r.status]||C.muted;
-              return <div key={r.id} style={{display:'grid',gridTemplateColumns:'92px 40px 1fr 120px 70px 70px 80px 60px 100px',gap:4,padding:'11px 12px',alignItems:'center',background:ri%2===0?C.bg:C.surface,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12,transition:'background .12s'}}>
-                <div title={r.code} style={{color:C.muted,fontSize:11,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{/^STF-\d{8,}$/.test(r.code)?'STF·'+r.code.slice(-4):r.code}</div>
-                <div>{r.photo?<img src={r.photo} style={{width:28,height:28,borderRadius:'50%',objectFit:'cover'}}/>:<Avatar name={r.name} size={28} index={ri}/>}</div>
-                <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
-                <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept||r.section}</div>
-                <div style={{color:r.inTime?C.green:C.muted,fontWeight:600}}>{r.inTime||'—'}</div>
-                <div style={{color:r.outTime?C.red:C.muted,fontWeight:600}}>{r.outTime||'—'}</div>
-                <div><span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:6,background:sc+'18',color:sc}}>{r.status.toUpperCase()}</span></div>
-                <div style={{fontSize:11,color:C.muted,fontWeight:600}}>{r.hours!=null?fmtHours(r.hours):'—'}</div>
-                <div style={{fontSize:10,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.venue||'—'}</div>
-              </div>;
-            })}
-          </div>
-          {/* Pagination */}
-          {rows.length>0&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,padding:'10px 2px',border:'1px solid '+C.border,borderTop:'none',borderRadius:'0 0 10px 10px',background:C.surface}}>
-            <div style={{fontSize:11,color:C.muted,paddingLeft:10}}>
-              Showing {pageStart+1}–{Math.min(pageStart+ATT_PAGE_SIZE,rows.length)} of {rows.length}
-            </div>
-            <div style={{display:'flex',gap:6,alignItems:'center',paddingRight:10}}>
-              <button onClick={function(){setAttPage(function(p){return Math.max(1,p-1);});}} disabled={attCurPage<=1}
-                style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.border,background:attCurPage<=1?C.bg:C.surface,color:attCurPage<=1?C.faint:C.text,fontSize:11,fontWeight:600,cursor:attCurPage<=1?'default':'pointer'}}>← Prev</button>
-              <div style={{fontSize:11,color:C.muted,minWidth:70,textAlign:'center'}}>Page {attCurPage} of {attTotalPages}</div>
-              <button onClick={function(){setAttPage(function(p){return Math.min(attTotalPages,p+1);});}} disabled={attCurPage>=attTotalPages}
-                style={{padding:'5px 12px',borderRadius:7,border:'1px solid '+C.border,background:attCurPage>=attTotalPages?C.bg:C.surface,color:attCurPage>=attTotalPages?C.faint:C.text,fontSize:11,fontWeight:600,cursor:attCurPage>=attTotalPages?'default':'pointer'}}>Next →</button>
-            </div>
-          </div>}
-          {/* Vendor section */}
-          {vendorAtt.length>0&&<div style={{marginTop:16}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:8}}>🏢 Outside Vendors ({vendorAtt.length})</div>
-            {vendorAtt.map(function(a,i){
-              return <div key={a.id||i} style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',marginBottom:4,background:C.surface,borderRadius:10,border:'1px solid '+C.border}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{a.staff_name||'Unknown'}</div>
-                  <div style={{fontSize:11,color:'#9060C8'}}>{a.vendor_company||''}{a.vendor_purpose?' · '+a.vendor_purpose:''}</div>
-                </div>
-                <div style={{fontSize:12,fontWeight:700,color:a.in_time?C.green:C.red}}>{a.in_time?'IN: '+a.in_time:a.out_time?'OUT: '+a.out_time:'—'}</div>
-              </div>;
-            })}
-          </div>}
-        
-        </div>);
-      })()}
-
-      {/* ── MONTHLY ── */}
-      {tab==="monthly" && (()=>{
-        // Auto-fetch on first open
-        if(!monthData&&!monthLoading){fetchMonthData(monthStr);return <div style={{padding:30,textAlign:'center',color:C.muted}}>Loading…</div>;}
-        var allStaff = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');});
-        var recs = safeArr(monthData).filter(function(a){return !a.is_vendor && a.dept!=='vendor';});
-        // Compute date range
-        var y=+monthStr.split('-')[0],mo=+monthStr.split('-')[1];
-        var lastDay=new Date(y,mo,0).getDate();
-        var endDate=monthStr+'-'+String(lastDay).padStart(2,'0');
-        if(endDate>TODAY) endDate=TODAY;
-        var daysInRange=+endDate.split('-')[2];
-        // Build per-employee stats
-        var rows = allStaff.map(function(s){
-          var sid=String(s.staff_id||s.staffListId||s.id);
-          var myRecs=recs.filter(function(a){return String(a.staff_id||a.staffId)===sid;});
-          var present=0,halfDay=0,incomplete=0,totalHrs=0;
-          myRecs.forEach(function(r){
-            if(!r.in_time) return;
-            if(!r.out_time){incomplete++;return;}
-            var cl=classifyDay(r.in_time,r.out_time);
-            if(cl.status==='Present') present++;
-            else if(cl.status==='Half Day') halfDay++;
-            if(cl.hours) totalHrs+=cl.hours;
-          });
-          var daysWorked=present+halfDay+incomplete;
-          var absent=Math.max(0,daysInRange-daysWorked);
-          var avgHrs=daysWorked>0?totalHrs/daysWorked:0;
-          return {id:sid,name:s.name||'',dept:s.dept||s.section||'',section:s.section||'',
-            present:present,halfDay:halfDay,incomplete:incomplete,absent:absent,
-            daysWorked:daysWorked,totalHrs:totalHrs,avgHrs:avgHrs};
-        });
-        // Sort by selected column
-        rows.sort(function(a,b){
-          var col=monthSort.col,dir=monthSort.dir==='asc'?1:-1;
-          var av=a[col],bv=b[col];
-          if(typeof av==='string') return av.localeCompare(bv)*dir;
-          return ((av||0)-(bv||0))*dir;
-        });
-        // Totals
-        var totPresent=rows.reduce(function(a,r){return a+r.present;},0);
-        var totHalf=rows.reduce(function(a,r){return a+r.halfDay;},0);
-        var totInc=rows.reduce(function(a,r){return a+r.incomplete;},0);
-        var avgAtt=rows.length>0?(rows.reduce(function(a,r){return a+r.daysWorked;},0)/rows.length).toFixed(1):0;
-        var monthLabel=new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
-        var deptOpts=Array.from(new Set(rows.map(function(r){return r.dept;}).filter(Boolean))).sort();
-        var q=monthSearch.trim().toLowerCase();
-        var filteredRows=rows.filter(function(r){
-          if(monthDeptFilter!=='All' && r.dept!==monthDeptFilter) return false;
-          if(q && !r.name.toLowerCase().includes(q)) return false;
-          return true;
-        });
-        var fPresent=filteredRows.reduce(function(a,r){return a+r.present;},0);
-        var fHalf=filteredRows.reduce(function(a,r){return a+r.halfDay;},0);
-        var fInc=filteredRows.reduce(function(a,r){return a+r.incomplete;},0);
-        var fAvgAtt=filteredRows.length>0?(filteredRows.reduce(function(a,r){return a+r.daysWorked;},0)/filteredRows.length).toFixed(1):0;
-        return (
-        <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}}>
-            <div>
-              <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>📊 Monthly Attendance</div>
-              <div style={{fontSize:12,color:C.muted}}>{monthLabel} · {daysInRange} days · {filteredRows.length}/{rows.length} staff</div>
-            </div>
-            <input type="month" value={monthStr} max={TODAY.slice(0,7)}
-              onChange={function(e){var m=e.target.value;if(m){setMonthStr(m);setMonthData(null);fetchMonthData(m);}}}
-              style={{padding:'6px 10px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface}}/>
-          </div>
-          <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
-            <input type="text" placeholder="🔍 Search name…" value={monthSearch}
-              onChange={function(e){setMonthSearch(e.target.value);}}
-              style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,minWidth:200,flex:'0 1 260px'}}/>
-            <select value={monthDeptFilter} onChange={function(e){setMonthDeptFilter(e.target.value);}}
-              style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,fontSize:12,color:C.text,background:C.surface,cursor:'pointer'}}>
-              <option value="All">All Depts</option>
-              {deptOpts.map(function(d){return <option key={d} value={d}>{d}</option>;})}
-            </select>
-            {(monthSearch||monthDeptFilter!=='All')&&
-              <button onClick={function(){setMonthSearch('');setMonthDeptFilter('All');}}
-                style={{padding:'7px 12px',borderRadius:8,border:'1px solid '+C.border,background:'transparent',color:C.muted,fontSize:11,cursor:'pointer'}}>✕ Clear</button>}
-            <div style={{flex:1}}></div>
-            <button onClick={function(){
-              var esc=function(v){var s=String(v==null?'':v);return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
-              var fmtHrs=function(h){var m=Math.round((h||0)*60);return Math.floor(m/60)+'h '+(m%60)+'m';};
-              var lines=[];
-              lines.push(['Monthly Attendance']);
-              lines.push([monthLabel, daysInRange+' days', filteredRows.length+'/'+rows.length+' staff', 'Dept: '+monthDeptFilter]);
-              lines.push([]);
-              lines.push(['Summary']);
-              lines.push(['Avg Days/Person', fAvgAtt]);
-              lines.push(['Total Present Days', fPresent]);
-              lines.push(['Half Days', fHalf]);
-              lines.push(['Incomplete', fInc]);
-              lines.push([]);
-              lines.push(['Name','Dept','Section','Present','Half','Absent','Incomplete','Total Hrs','Avg Hrs/Day']);
-              filteredRows.forEach(function(r){
-                lines.push([r.name, r.dept, r.section||'', r.present, r.halfDay, r.absent, r.incomplete, fmtHrs(r.totalHrs), (r.avgHrs||0).toFixed(1)]);
-              });
-              lines.push([]);
-              lines.push(['Totals', filteredRows.length+' staff', '', fPresent, fHalf, filteredRows.reduce(function(a,r){return a+r.absent;},0), fInc,
-                fmtHrs(filteredRows.reduce(function(a,r){return a+(r.totalHrs||0);},0)), '']);
-              var csv='\ufeff'+lines.map(function(row){return row.map(esc).join(',');}).join('\r\n');
-              var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-              var url=URL.createObjectURL(blob);
-              var a=document.createElement('a');
-              var slug=monthStr+(monthDeptFilter!=='All'?'_'+monthDeptFilter.toLowerCase().replace(/\s+/g,'-'):'');
-              a.href=url; a.download='attendance_'+slug+'.csv';
-              document.body.appendChild(a); a.click(); document.body.removeChild(a);
-              setTimeout(function(){URL.revokeObjectURL(url);},100);
-            }}
-              style={{padding:'7px 14px',borderRadius:8,border:'1px solid '+C.green,background:C.greenBg,color:C.green,fontSize:11,fontWeight:600,cursor:'pointer'}}>
-              📥 Export Excel
-            </button>
-          </div>
-          {monthLoading&&<div style={{padding:30,textAlign:'center',color:C.muted,fontSize:12}}>Loading…</div>}
-          {!monthLoading&&monthData&&<div>
-            {/* Summary */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}}>
-              {[{l:'Avg Days/Person',v:fAvgAtt,c:C.text},{l:'Total Present Days',v:fPresent,c:C.green},{l:'Half Days',v:fHalf,c:C.amber},{l:'Incomplete',v:fInc,c:'#E67E22'}].map(function(card){
-                return <div key={card.l} style={{background:C.surface,borderRadius:10,padding:'10px 12px',textAlign:'center',border:'1px solid '+C.border}}>
-                  <div style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>{card.l}</div>
-                  <div style={{fontSize:22,fontWeight:700,color:card.c,marginTop:2}}>{card.v}</div>
-                </div>;
-              })}
-            </div>
-            {/* Table */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'8px 12px',background:C.surface,borderRadius:'10px 10px 0 0',border:'1px solid '+C.border,borderBottom:'none',fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5}}>
-              {[{k:'name',l:'Name',a:'left'},{k:'dept',l:'Dept',a:'left'},{k:'present',l:'Present',a:'center'},{k:'halfDay',l:'Half',a:'center'},{k:'absent',l:'Absent',a:'center'},{k:'incomplete',l:'Inc.',a:'center'},{k:'totalHrs',l:'Hrs',a:'center'},{k:'avgHrs',l:'Avg/d',a:'center'}].map(function(h){
-                var active=monthSort.col===h.k;
-                return <div key={h.k} onClick={function(){setMonthSort(function(p){return{col:h.k,dir:p.col===h.k&&p.dir==='desc'?'asc':'desc'};});}}
-                  style={{textAlign:h.a,cursor:'pointer',userSelect:'none',color:active?C.text:C.muted,display:'flex',alignItems:'center',justifyContent:h.a==='center'?'center':'flex-start',gap:3}}>
-                  <span>{h.l}</span>
-                  <span style={{fontSize:9,opacity:active?1:0.3}}>{active?(monthSort.dir==='desc'?'▼':'▲'):'⇅'}</span>
-                </div>;
-              })}
-            </div>
-            <div style={{border:'1px solid '+C.border,borderRadius:'0 0 10px 10px',overflow:'hidden'}}>
-              {filteredRows.length===0?<div style={{padding:20,textAlign:'center',color:C.muted,fontSize:12}}>{rows.length===0?'No data for this month':'No staff match your filters'}</div>
-              :filteredRows.map(function(r,ri){
-                var _rowBg = ri%2===0?C.bg:C.surface;
-                return <div key={r.id} onClick={function(){setMonthDetailEmp(r);}} onMouseEnter={function(e){e.currentTarget.style.background=C.goldBg;}} onMouseLeave={function(e){e.currentTarget.style.background=_rowBg;}} style={{display:'grid',gridTemplateColumns:'1fr 100px 55px 55px 55px 55px 65px 60px',gap:4,padding:'10px 12px',alignItems:'center',background:_rowBg,borderTop:ri>0?'1px solid '+C.border:'none',fontSize:12,cursor:'pointer',transition:'background .15s'}}>
-                  <div style={{fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
-                  <div style={{color:C.muted,fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.dept}</div>
-                  <div style={{color:C.green,fontWeight:700,textAlign:'center'}}>{r.present}</div>
-                  <div style={{color:C.amber,fontWeight:700,textAlign:'center'}}>{r.halfDay||'—'}</div>
-                  <div style={{color:C.red,fontWeight:700,textAlign:'center'}}>{r.absent}</div>
-                  <div style={{color:'#E67E22',fontWeight:700,textAlign:'center'}}>{r.incomplete||'—'}</div>
-                  <div style={{color:C.text,fontWeight:600,textAlign:'center'}}>{r.totalHrs>0?fmtHours(r.totalHrs):'—'}</div>
-                  <div style={{color:r.avgHrs>=6?C.green:r.avgHrs>=4?C.amber:C.red,fontWeight:600,textAlign:'center',fontSize:11}}>{r.avgHrs>0?r.avgHrs.toFixed(1)+'h':'—'}</div>
-                </div>;
-              })}
-            </div>
-          </div>}
-          {monthDetailEmp && (
-            <div onClick={function(){setMonthDetailEmp(null);}} style={{position:'fixed',inset:0,background:'rgba(12,20,16,.55)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-              <div onClick={function(e){e.stopPropagation();}} style={{background:C.surface,borderRadius:14,padding:'20px 24px',maxWidth:560,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,paddingBottom:12,borderBottom:'1px solid '+C.border}}>
-                  <div>
-                    <div style={{fontSize:18,fontWeight:700,color:C.text,fontFamily:'var(--font-display)'}}>{monthDetailEmp.name}</div>
-                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{monthDetailEmp.dept} · {monthLabel}</div>
-                  </div>
-                  <button onClick={function(){setMonthDetailEmp(null);}} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:8,width:28,height:28,cursor:'pointer',color:C.muted,fontSize:16,lineHeight:1,padding:0}}>×</button>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginBottom:14}}>
-                  <div style={{background:C.greenBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Present</div><div style={{fontSize:20,color:C.green,fontWeight:700}}>{monthDetailEmp.present}</div></div>
-                  <div style={{background:C.amberBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Half</div><div style={{fontSize:20,color:C.amber,fontWeight:700}}>{monthDetailEmp.halfDay}</div></div>
-                  <div style={{background:'#F5E7DE',borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Inc.</div><div style={{fontSize:20,color:'#E67E22',fontWeight:700}}>{monthDetailEmp.incomplete}</div></div>
-                  <div style={{background:C.redBg,borderRadius:8,padding:'8px 6px',textAlign:'center'}}><div style={{fontSize:9,color:C.muted,textTransform:'uppercase',fontWeight:600,letterSpacing:0.5}}>Absent</div><div style={{fontSize:20,color:C.red,fontWeight:700}}>{monthDetailEmp.absent}</div></div>
-                </div>
-                <div style={{flex:1,overflow:'auto',border:'1px solid '+C.border,borderRadius:8}}>
-                  <div style={{display:'grid',gridTemplateColumns:'90px 1fr 1fr 65px 90px',gap:4,padding:'8px 12px',background:C.bg,fontSize:9,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:0.5,borderBottom:'1px solid '+C.border,position:'sticky',top:0}}>
-                    <div>Date</div><div>In</div><div>Out</div><div>Hrs</div><div>Status</div>
-                  </div>
-                  {(function(){
-                    var myRecs = recs.filter(function(a){return String(a.staff_id||a.staffId)===monthDetailEmp.id;});
-                    var days=[];
-                    for(var d=1; d<=daysInRange; d++){
-                      var ds = monthStr+'-'+String(d).padStart(2,'0');
-                      var rec = myRecs.find(function(a){return a.date===ds;});
-                      days.push({date:ds, rec:rec});
-                    }
-                    return days.map(function(dd,di){
-                      var r=dd.rec;
-                      var stColor=C.muted, stText='ABSENT', hrsStr='—';
-                      if(r&&r.in_time){
-                        if(!r.out_time){stText='INCOMPLETE'; stColor='#E67E22';}
-                        else{
-                          var cl=classifyDay(r.in_time,r.out_time);
-                          stText=(cl.status||'—').toUpperCase();
-                          stColor=cl.status==='Present'?C.green:cl.status==='Half Day'?C.amber:C.muted;
-                          if(cl.hours) hrsStr=fmtHours(cl.hours);
-                        }
-                      }
-                      var dow=new Date(dd.date+'T00:00').toLocaleDateString('en-IN',{weekday:'short'});
-                      return <div key={dd.date} style={{display:'grid',gridTemplateColumns:'90px 1fr 1fr 65px 90px',gap:4,padding:'9px 12px',alignItems:'center',background:di%2===0?C.bg:C.surface,borderTop:di>0?'1px solid '+C.border:'none',fontSize:12}}>
-                        <div style={{color:C.text,fontWeight:600}}><span style={{color:C.muted,fontSize:10,marginRight:4}}>{dow}</span>{dd.date.slice(-2)}</div>
-                        <div style={{color:r&&r.in_time?C.green:C.muted,fontWeight:600,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{r&&r.in_time?r.in_time.slice(0,5):'—'}</div>
-                        <div style={{color:r&&r.out_time?C.red:C.muted,fontWeight:600,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{r&&r.out_time?r.out_time.slice(0,5):'—'}</div>
-                        <div style={{color:C.text,fontWeight:600}}>{hrsStr}</div>
-                        <div><span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:5,background:stColor+'22',color:stColor}}>{stText}</span></div>
-                      </div>;
-                    });
-                  })()}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>);
-      })()}
 
 
       {/* ── OUTSIDE STAFF & VENDORS ── */}
