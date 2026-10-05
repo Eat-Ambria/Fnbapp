@@ -36,6 +36,7 @@ const PATHS = {
   globe:     <><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></>,
   panelLeft: <><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9.5 4v16"/></>,
   note:      <><path d="M4 5.5a2 2 0 0 1 2-2h8.5L20 9v9.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3.5V9h5.5"/><path d="M8 13.5h7M8 17h5"/></>,
+  copy:      <><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/></>,
 
   // ── navigation ──
   home:      <><path d="M3.5 10.5L12 3.5l8.5 7"/><path d="M5.5 9.5v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-10"/><path d="M9.5 20.5v-6h5v6"/></>,

@@ -65,9 +65,21 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var selectedSet = new Set(selected.map(function(s) { return s.toLowerCase().trim(); }));
   var q = search.toLowerCase().trim();
 
+  // This editor writes straight to events.menu, Kitchen Hub's OWN flat dish
+  // list — Beverages and Fruits are tracked separately (event_items, via each
+  // dept's own Ops tab / the Items tab in Booked Functions) and must never
+  // land in here, or they'd silently show up as something Kitchen needs to
+  // cook. Hiding them from "Available" stops that mistake before it happens,
+  // rather than only catching it after a "+" click.
+  var NON_KITCHEN_CATS = ['beverages', 'fruits'];
+  var nonKitCatIds = (RECIPE_DB.cats || [])
+    .filter(function(c) { return NON_KITCHEN_CATS.indexOf((c.name || '').trim().toLowerCase()) >= 0; })
+    .map(function(c) { return c.id; });
+
   // Available = all dishes NOT in selected, filtered by search + type filter
   var available = allDishes.filter(function(d) {
     if (selectedSet.has(d.name.toLowerCase().trim())) return false;
+    if (nonKitCatIds.indexOf(d.catId) >= 0) return false;
     if (typeFilter !== 'all' && d.type !== typeFilter) return false;
     if (q) {
       var nameHit = d.name.toLowerCase().includes(q);
@@ -340,6 +352,9 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>📋 {T2("Available")} ({available.length})</span>
               <span style={{ fontSize: 10, color: C.faint, fontWeight: 400 }}>{T2("from Dish library")}</span>
+            </div>
+            <div style={{ fontSize: 10.5, color: C.faint, marginTop: 4 }}>
+              {T2("Kitchen dishes only — Beverages & Fruits are managed in their own Ops tabs.")}
             </div>
             <input value={search} onChange={function(e) { setSearch(e.target.value); }}
               placeholder={"🔍 " + T2("Search name or Hindi…")}

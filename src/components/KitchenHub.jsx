@@ -242,6 +242,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [catMenuId, setCatMenuId] = useState(null);
   const [recipeMenu, setRecipeMenu] = useState(null);
   const [recipeMoveFor, setRecipeMoveFor] = useState(null); // rk of the card whose "..." menu is showing its Move-to category list, not Edit/Delete
+  const [dupModal, setDupModal] = useState(null); // {recipe, catId, name} — Duplicate recipe name prompt
   const [stepDragIdx, setStepDragIdx] = useState(null);
   // The shell renders the header slot; its DOM node only exists after that
   // commit, so it is read in an effect rather than during render.
@@ -1341,6 +1342,29 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     logActivity('kitchen','SOP category deleted: '+catId,'sop_category_delete',{catId:catId},currentUser?.id);
     setSopCat(null);
   }
+  // Full copy — steps, ingredients and yield all carry over, not just the
+  // name, so "two near-identical recipes" (e.g. a no-onion-garlic variant)
+  // starts from a working baseline instead of retyping everything. Lands the
+  // chef straight in the new copy to make the quick tweaks right away.
+  function duplicateRecipe(recipe,catId,newName){
+    const trimmed=(newName||'').trim();
+    if(!trimmed) return;
+    const recObj={
+      n:trimmed,
+      sub:recipe.sub||'',
+      bg:!!recipe.bg,
+      steps:JSON.parse(JSON.stringify(safeArr(recipe.steps))),
+      ingredients:recipe.ingredients?JSON.parse(JSON.stringify(recipe.ingredients)):null,
+      yield:recipe.yield?JSON.parse(JSON.stringify(recipe.yield)):null,
+    };
+    if(!RECIPE_DB.recipes[catId])RECIPE_DB.recipes[catId]=[];
+    RECIPE_DB.recipes[catId].push(recObj);
+    RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+    supabase.from('recipes').insert({dish_name:recObj.n,category_id:catId,sub:recObj.sub,steps:recObj.steps,ingredients:recObj.ingredients,yield:recObj.yield,bg:recObj.bg}).then(r=>{if(r.error)console.error('Duplicate SOP err:',r.error);else console.log('✅ SOP duplicated:',recObj.n);});
+    logActivity('kitchen','SOP duplicated: '+recipe.n+' → '+trimmed,'sop_duplicate',{from:recipe.n,to:trimmed,catId:catId},currentUser?.id);
+    setDupModal(null);
+    setSopRecipe(recObj);
+  }
   function moveRecipe(recipe,fromCatId,toCatId){
     if(!toCatId||toCatId===fromCatId) return;
     var fromArr=RECIPE_DB.recipes[fromCatId]||[];
@@ -1816,6 +1840,30 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         cancelLabel={T2("Cancel")}
         onConfirm={resetModal?.onConfirm}
         onClose={()=>setResetModal(null)}
+      />
+
+      {/* -- Duplicate recipe: name prompt. Steps, ingredients and yield all
+          copy over silently; the only thing asked here is what to call the
+          new one. -- */}
+      <KModal
+        open={!!dupModal}
+        toneName="brand"
+        icon="copy"
+        title={T2("Duplicate recipe")}
+        subhead={dupModal&&(
+          <div style={{fontSize:13,color:K.hdrMeta}}>{T2("Copying")} <b style={{color:K.hdrTitle}}>{dupModal.recipe.n}</b> — {T2("steps, ingredients and yield all carry over")}.</div>
+        )}
+        body={dupModal&&(
+          <input autoFocus value={dupModal.name} onChange={e=>setDupModal(p=>({...p,name:e.target.value}))}
+            placeholder={T2("New recipe name")}
+            style={{width:"100%",padding:"10px 12px",borderRadius:K.rSm,border:`1px solid ${K.cardWarmLine}`,fontSize:14,
+              color:K.text,background:K.surface,boxSizing:"border-box",fontFamily:K.fontBody}}/>
+        )}
+        confirmLabel={T2("Duplicate")}
+        cancelLabel={T2("Cancel")}
+        confirmDisabled={!dupModal||!dupModal.name.trim()}
+        onConfirm={()=>duplicateRecipe(dupModal.recipe,dupModal.catId,dupModal.name)}
+        onClose={()=>setDupModal(null)}
       />
 
 
@@ -3667,6 +3715,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
                                     border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
                                   <Icon name="note" size={15}/>{T2("Edit")}
+                                </button>
+                                <button className="ash-menu-item kh-rip" onPointerDown={ripple}
+                                  onClick={e=>{e.stopPropagation();setRecipeMenu(null);setDupModal({recipe,catId:sopCat,name:recipe.n+' '+T2("(Copy)")});}}
+                                  style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"9px 11px",borderRadius:8,
+                                    border:"none",background:"transparent",color:K.textBody,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:K.fontBody}}>
+                                  <Icon name="copy" size={15}/>{T2("Duplicate")}
                                 </button>
                                 <button className="ash-menu-item kh-rip" onPointerDown={ripple}
                                   onClick={e=>{e.stopPropagation();setRecipeMoveFor(rk);}}
