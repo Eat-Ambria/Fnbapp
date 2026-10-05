@@ -575,7 +575,10 @@ function getIngrForYield(dishName, targetKg, sectionFactors) {
   const items = rec?.ingredients?.items;
   if (!items?.length) return null;
   const baseKg = rec.ingredients.base_yield?.kg;
-  const globalFactor = (baseKg && targetKg) ? targetKg / baseKg : null;
+  // targetKg===0 is a real pin ("make none of this") — baseKg && targetKg
+  // treated 0 as falsy and silently fell through to null (no ingredients),
+  // which then sent callers back to pax-based scaling instead of zeroing out.
+  const globalFactor = (baseKg && targetKg != null) ? targetKg / baseKg : null;
   if (globalFactor == null && !sectionFactors) return null;
   let currentSectionFactor = globalFactor;
   // 9A — skip type='bg' rows; 9B adds recursive resolution
@@ -622,7 +625,8 @@ function getBgDemandForYield(dishName, targetKg, sectionFactors) {
   const items = rec?.ingredients?.items;
   if (!items?.length) return [];
   const baseKg = rec.ingredients.base_yield?.kg;
-  const globalFactor = (baseKg && targetKg) ? targetKg / baseKg : null;
+  // targetKg===0 is a real pin ("make none of this") — see getIngrForYield.
+  const globalFactor = (baseKg && targetKg != null) ? targetKg / baseKg : null;
   if (globalFactor == null && !sectionFactors) return [];
   let currentSectionFactor = globalFactor;
   const out = [];

@@ -877,6 +877,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const [planCalYr, setPlanCalYr] = useState(()=>new Date().getFullYear());
   const [planRows, setPlanRows] = useState({});          // {dishName: row}
   const [planDrafts, setPlanDrafts] = useState({});      // {dishName: string being edited}
+  const [planPcsDrafts, setPlanPcsDrafts] = useState({}); // {dishName: pieces string being edited} — mirrors planDrafts' kg value, converted via the recipe's base_yield kg/pcs ratio
   const [planSaving, setPlanSaving] = useState(new Set());// dishNames currently saving
   const [planLoading, setPlanLoading] = useState(false);
   const [planIngrModal, setPlanIngrModal] = useState(null); // V74: {dish, effKg, mult, isOverride, yieldAdjustPct, pax}
@@ -984,7 +985,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         event_date: ctx.evDate,
         venue: ctx.venue,
         dish_name: dish,
-        planned_kg: evPlanRows[ctx.evId]?.[dish]?.target_yield_kg || existing?.planned_kg || null,
+        planned_kg: evPlanRows[ctx.evId]?.[dish]?.target_yield_kg ?? existing?.planned_kg ?? null,
         leftover_kg: 'leftover_kg' in patch ? (normNum(patch.leftover_kg) ?? 0) : (existing?.leftover_kg ?? 0),
         leftover_pcs: 'leftover_pcs' in patch ? normNum(patch.leftover_pcs) : (existing?.leftover_pcs ?? null),
         notes: 'notes' in patch ? (String(patch.notes||'').trim() || null) : (existing?.notes ?? null),
@@ -1046,11 +1047,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     setPlanSaving(p=>{const s=new Set(p);s.add(savingKey);return s;});
     try{
       if(section){
-        // Section update: merge into existing section_yields; delete key if empty
+        // Section update: merge into existing section_yields; delete key if empty.
+        // A typed 0 is a real pin (chef is saying "skip this section"), not a
+        // blank — only an actual empty/invalid entry clears it.
         const existing = planRows[dish] || {};
         const existSY = existing.section_yields || {};
         const nextSY = {...existSY};
-        if(num===null || isNaN(num) || num<=0) delete nextSY[section];
+        if(num===null || isNaN(num) || num<0) delete nextSY[section];
         else nextSY[section] = num;
         const anyLeft = Object.keys(nextSY).length>0;
         if(!anyLeft && !existing.id){
@@ -1061,7 +1064,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const payload = {
           event_id: ctx.evId, event_date: ctx.evDate, venue: ctx.venue,
           dish_name: dish, recipe_id: ctx.recipe?.id || null,
-          target_yield_kg: sumKg>0?sumKg:null,
+          target_yield_kg: anyLeft?sumKg:null,
           section_yields: anyLeft?nextSY:null,
           planned_by: currentUser?.name || currentUser?.id || 'Unknown',
           status: 'draft'
@@ -1069,7 +1072,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         const {data, error} = await supabase.from('production_plans').upsert(payload, {onConflict:'event_id,dish_name'}).select();
         if(error) throw error;
         if(data && data[0]) setPlanRows(p=>({...p,[dish]:data[0]}));
-      } else if(num===null || isNaN(num) || num<=0){
+      } else if(num===null || isNaN(num) || num<0){
         if(planRows[dish]){
           const {error} = await supabase.from('production_plans').delete().eq('event_id',ctx.evId).eq('dish_name',dish);
           if(error) throw error;
@@ -1103,7 +1106,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // number of events, not just whichever one planEvId currently points at.
   async function saveProductionPlanRow(evObj, dish, num, recipe){
     try{
-      if(num===null || num===undefined || isNaN(num) || num<=0){
+      if(num===null || num===undefined || isNaN(num) || num<0){
         const existing = evPlanRows?.[evObj.id]?.[dish];
         if(existing){
           const {error} = await supabase.from('production_plans').delete().eq('event_id',evObj.id).eq('dish_name',dish);
@@ -1619,8 +1622,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   const evById = useMemo(()=>Object.fromEntries((evList||[]).map(e=>[e.id,e])),[evList]);
   function getScaledIngredients(dishName, evOrId, opts){
     opts = opts || {};
-    // 9C — bg pseudo-dishes bypass pax scaling; totalKg is authoritative
-    if (opts.overrideKg && opts.overrideKg > 0) {
+    // 9C — bg pseudo-dishes bypass pax scaling; totalKg is authoritative.
+    // A summed 0 (every contributing function pinned this dish to 0) is a
+    // real target, not "no override" — only null/undefined means that.
+    if (opts.overrideKg != null) {
       const ing = getIngrForYield(dishName, opts.overrideKg);
       if (ing && ing.length) return { ing, effKg: opts.overrideKg, warn: null, planned: true };
       // Fallback if bg recipe missing base_yield: still return the pax-scaled version
@@ -1637,12 +1642,15 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
     // Yield-based path (preferred): base_yield.kg is set on the recipe
     if(baseKg){
       const planRow = evPlanRows?.[ev?.id]?.[dishName] || null;
-      const planned = Number(planRow?.target_yield_kg) || null;
+      // A pinned 0 means "skip this dish" and must stay 0, not fall back to
+      // the auto default — Number(x)||null would otherwise collapse it to null.
+      const rawPlanned = planRow?.target_yield_kg;
+      const planned = (rawPlanned===null || rawPlanned===undefined) ? null : Number(rawPlanned);
       const sectionYieldsPlan = planRow?.section_yields || null;
       // Default when chef hasn't planned: base_yield — pax ratio (preserves prior auto-pax behavior)
       const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
       // Pin (planned) is authoritative — slider only scales auto-computed defaults
-      const effKg = planned ? planned : (defaultYield!=null ? defaultYield * mult : null);
+      const effKg = planned!=null ? planned : (defaultYield!=null ? defaultYield * mult : null);
       // Build per-section factors when both SOP and plan define section yields
       let sectionFactors = null;
       if(sectionYieldsPlan){
@@ -1655,7 +1663,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         if(Object.keys(acc).length>0) sectionFactors = acc;
       }
       const ing = getIngrForYield(dishName, effKg, sectionFactors);
-      if(ing && ing.length) return {ing, effKg, warn:null, planned:!!planned};
+      if(ing && ing.length) return {ing, effKg, warn:null, planned:planned!=null};
     }
     // Fallback: no base_yield configured — legacy pax-based scaling, multiplier applied as pax bump.
     // opts.overridePax carries the multi-function-summed pax when the caller has one (same idea as
@@ -1685,11 +1693,12 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
       const ev = evById[fn.evId];
       const mult = Number(ev?.yield_multiplier) || 1.0;
       const evPax = Number(ev?.pax ?? fn.p) || 0;
-      const planned = Number(evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg) || null;
+      const rawPlanned = evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg;
+      const planned = (rawPlanned===null || rawPlanned===undefined) ? null : Number(rawPlanned);
       const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
       total += (planned!=null ? planned : defaultYield) * mult;
     });
-    return total>0 ? total : null;
+    return total;
   }
 
   // Same idea as sumEffKgAcrossFns, for recipes that have no base_yield.kg —
@@ -2867,9 +2876,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
               let bgs = [];
               if (baseKg) {
                 const planRow = evPlanRows?.[fn.evId]?.[d.name] || null;
-                const planned = Number(planRow?.target_yield_kg) || null;
+                const rawPlanned = planRow?.target_yield_kg;
+                const planned = (rawPlanned===null || rawPlanned===undefined) ? null : Number(rawPlanned);
                 const defaultYield = evPax > 0 ? (baseKg * evPax / (rec.ingredients.base_pax||300)) : baseKg;
-                const effKg = (planned || defaultYield) * mult;
+                const effKg = (planned!=null ? planned : defaultYield) * mult;
                 const sectionYieldsPlan = planRow?.section_yields || null;
                 let sectionFactors = null;
                 if (sectionYieldsPlan) {
@@ -5252,7 +5262,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                     </button>
                     {isOpen && (<div className="kh-closegrid" style={{padding:"0 16px 16px"}}>{group.items.map(dish=>{
                       const row = closeRows[dish];
-                      const planKg = evPlanRows[closeEventId]?.[dish]?.target_yield_kg || null;
+                      const planKg = evPlanRows[closeEventId]?.[dish]?.target_yield_kg ?? null;
                       const lkg = row?.leftover_kg;
                       const lpcs = row?.leftover_pcs;
                       const notes = row?.notes || "";
@@ -5263,7 +5273,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           <div style={{padding:"13px 14px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                             <div style={{flex:1,minWidth:180}}>
                               <div style={{fontSize:14.5,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle}}>{dishLabel(dish, lang)}</div>
-                              {planKg && <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,borderRadius:K.rPill,padding:"3px 10px",marginTop:5,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
+                              {planKg!=null && <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,borderRadius:K.rPill,padding:"3px 10px",marginTop:5,fontWeight:600}}>🎯 {T2("Planned")}: {planKg} kg</div>}
                             </div>
                             <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:isSaving?K.warn:isClosed?K.ok:K.textFaint}}>{isSaving?<><Icon name="refresh" size={13} strokeWidth={2.1}/>{T2("Saving")}…</>:isClosed?<><Icon name="check" size={13} strokeWidth={2.3}/>{T2("Closed")}</>:null}</div>
                           </div>
@@ -5389,11 +5399,13 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
         // — same resolver Menu Packages uses, so mappings shown there apply here too.
         function dishStatus(lmsName) {
           const found = findRecipeForDish(lmsName);
-          if(!found) return { state:"missing", color:C.red, catId:null, baseYield:null };
+          if(!found) return { state:"missing", color:C.red, catId:null, baseYield:null, basePcs:null };
           const catId = found.cat?.id || null;
           const y = found.ingredients?.base_yield?.kg;
           const baseYield = (typeof y==="number" && y>0) ? y : null;
-          return { state:baseYield?"ready":"noyield", color:baseYield?C.green:C.amber, recipe:found, catId, baseYield };
+          const yp = found.ingredients?.base_yield?.pcs;
+          const basePcs = (typeof yp==="number" && yp>0) ? yp : null;
+          return { state:baseYield?"ready":"noyield", color:baseYield?C.green:C.amber, recipe:found, catId, baseYield, basePcs };
         }
 
         // planRows (the hook state) is single-event-scoped, loaded for
@@ -5422,8 +5434,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             let anyOverride=false, total=0;
             fns.forEach(ev=>{
               const row = evPlanRows?.[ev.id]?.[dish];
-              const overrideKg = Number(row?.target_yield_kg);
-              if(row && overrideKg>0){ anyOverride=true; total+=overrideKg; }
+              const rawOverride = row?.target_yield_kg;
+              const hasOverride = row!=null && rawOverride!=null;
+              if(hasOverride){ anyOverride=true; total+=Number(rawOverride); }
               else total += autoKgForEv(dish, ev, st);
             });
             combinedPlanRows[dish] = { target_yield_kg: Math.round(total*10)/10, section_yields:null, __auto:!anyOverride };
@@ -5543,9 +5556,10 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
             let bgs = [];
             if (baseKg) {
               const planRow = evPlanRows?.[ev.id]?.[dishName] || null;
-              const planned = Number(planRow?.target_yield_kg) || null;
+              const rawPlanned = planRow?.target_yield_kg;
+              const planned = (rawPlanned===null || rawPlanned===undefined) ? null : Number(rawPlanned);
               const defaultYield = ev.pax>0 ? (baseKg*ev.pax/(rec.ingredients.base_pax||300)) : baseKg;
-              const effKg = planned || defaultYield;
+              const effKg = planned!=null ? planned : defaultYield;
               const sectionYieldsPlan = planRow?.section_yields || null;
               let sectionFactors = null;
               if (sectionYieldsPlan) {
@@ -5907,8 +5921,9 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                 {dishes.length>0 && (()=>{
                   // Total = overrides + auto suggestions for every mapped dish (mirrors what ingredient calc uses)
                   const plannedKgTotal = dishes.reduce((s,d)=>{
-                    const override = Number(viewPlanRows[d]?.target_yield_kg);
-                    if(override>0) return s+override;
+                    const row = viewPlanRows[d];
+                    const rawOverride = row?.target_yield_kg;
+                    if(row!=null && rawOverride!=null) return s+Number(rawOverride);
                     const st = dishStatus(d);
                     if(!st.baseYield) return s;
                     const bp = st.recipe?.ingredients?.base_pax || 300;
@@ -6366,7 +6381,14 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                           const overrideEff = overrideKgRaw!=null ? Math.round(overrideKgRaw * mult * 10)/10 : null;
                           const currentVal = planDrafts[it.dish] ?? (isOverride ? String(overrideKgRaw ?? "") : "");
                           const isSaving = planSaving.has(it.dish);
-                          const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); saveYield(it.dish, "", rowCtx); };
+                          // Recipe yields that carry a pieces count alongside their kg (e.g. "10 kg ~ 400 pcs")
+                          // have a fixed pcs-per-kg ratio at base_pax — reuse it both ways: show pieces next
+                          // to kg, and let typing a piece count drive the kg value that's actually persisted.
+                          const pcsPerKg = (st.baseYield && st.basePcs) ? st.basePcs/st.baseYield : null;
+                          const suggestedPcs = (pcsPerKg!=null && suggested!=null) ? Math.round(suggested*pcsPerKg) : null;
+                          const overridePcsRaw = (pcsPerKg!=null && overrideKgRaw!=null) ? Math.round(overrideKgRaw*pcsPerKg) : null;
+                          const currentPcsVal = planPcsDrafts[it.dish] ?? (isOverride ? String(overridePcsRaw ?? "") : "");
+                          const revertToAuto = ()=>{ setPlanDrafts(p=>{const c={...p};delete c[it.dish];return c;}); setPlanPcsDrafts(p=>{const c={...p};delete c[it.dish];return c;}); saveYield(it.dish, "", rowCtx); };
                           // V74: click dish name → open scaled ingredient modal
                           const effKg = isOverride ? overrideEff : suggested;
                           const canOpen = st.recipe && !!st.recipe?.ingredients?.items?.length && effKg != null;
@@ -6386,7 +6408,7 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                               <input type="number" step="any" inputMode="decimal" min="0"
                                 className="kh-planinput"
                                 value={currentVal}
-                                onChange={e=>setPlanDrafts(p=>({...p,[it.dish]:e.target.value}))}
+                                onChange={e=>{setPlanDrafts(p=>({...p,[it.dish]:e.target.value})); setPlanPcsDrafts(p=>{const c={...p};delete c[it.dish];return c;});}}
                                 onBlur={()=>onYieldBlur(it.dish, rowCtx)}
                                 onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                 placeholder={suggested!=null?String(suggested):"—"}
@@ -6402,6 +6424,27 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
                                   <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.ok,background:K.okBg,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Auto")}</span>
                                 )}
                               </div>
+                              {pcsPerKg!=null && (
+                                <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8,marginTop:2}}>
+                                  <span style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta}}>{T2("Pieces")}</span>
+                                  <input type="number" step="1" inputMode="numeric" min="0"
+                                    className="kh-planinput"
+                                    value={currentPcsVal}
+                                    onChange={e=>{
+                                      const v = e.target.value;
+                                      setPlanPcsDrafts(p=>({...p,[it.dish]:v}));
+                                      const n = parseFloat(v);
+                                      const kgVal = v.trim()==="" ? "" : (isNaN(n) ? (planDrafts[it.dish] ?? "") : String(Math.round((n/pcsPerKg) * 10)/10));
+                                      setPlanDrafts(p=>({...p,[it.dish]:kgVal}));
+                                    }}
+                                    onBlur={()=>{onYieldBlur(it.dish, rowCtx); setPlanPcsDrafts(p=>{const c={...p};delete c[it.dish];return c;});}}
+                                    onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                                    placeholder={suggestedPcs!=null?String(suggestedPcs):"—"}
+                                    disabled={isSaving}
+                                    style={{width:90,padding:"6px 9px",borderRadius:9,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
+                                  <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>{T2("pcs")}</span>
+                                </div>
+                              )}
                             </div>
                           )];
                         })}

@@ -259,11 +259,14 @@ function EventDayTab({
       const ev = todayEvs.find(e => e.id === fn.evId);
       const mult = Number(ev?.yield_multiplier) || 1.0;
       const evPax = Number(ev?.pax ?? fn.p) || 0;
-      const planned = Number(evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg) || null;
+      // A pinned 0 means "skip this dish" and must stay 0 — Number(x)||null
+      // would otherwise collapse a real zero pin back to the auto default.
+      const rawPlanned = evPlanRows?.[fn.evId]?.[dishName]?.target_yield_kg;
+      const planned = (rawPlanned === null || rawPlanned === undefined) ? null : Number(rawPlanned);
       const defaultYield = evPax > 0 ? (baseKg * evPax / basePax) : baseKg;
       total += (planned != null ? planned : defaultYield) * mult;
     });
-    return total > 0 ? total : null;
+    return total;
   }
 
   // Same idea, for recipes with no base_yield.kg — the legacy pax-based scaling
@@ -300,10 +303,11 @@ function EventDayTab({
         if (summedKg != null) {
           effKg = summedKg;
         } else {
-          const plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+          const rawPlannedKg = evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg;
+          const plannedKg = (rawPlannedKg === null || rawPlannedKg === undefined) ? null : Number(rawPlannedKg);
           const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
           // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-          effKg = plannedKg ? plannedKg : defaultYield * mult;
+          effKg = plannedKg != null ? plannedKg : defaultYield * mult;
         }
         ing = getIngrForYield(dish.name, effKg);
       }
@@ -490,9 +494,10 @@ function EventDayTab({
         const mult = Number(evObj.yield_multiplier) || 1.0;
         let bgs = [];
         if (baseKg) {
-          const plannedKg = Number(evPlanRows?.[evObj.id]?.[d.name]?.target_yield_kg) || null;
+          const rawPlannedKg = evPlanRows?.[evObj.id]?.[d.name]?.target_yield_kg;
+          const plannedKg = (rawPlannedKg === null || rawPlannedKg === undefined) ? null : Number(rawPlannedKg);
           const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
-          const effKg = plannedKg ? plannedKg : defaultYield * mult;
+          const effKg = plannedKg != null ? plannedKg : defaultYield * mult;
           bgs = getBgDemandForYield(d.name, effKg);
         } else {
           const adjPax = Math.round(pax * mult);
@@ -1257,13 +1262,14 @@ function EventDayTab({
                               if (summedKg != null) {
                                 effKg = summedKg;
                               } else {
-                                plannedKg = Number(evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg) || null;
+                                const rawPlannedKg = evPlanRows?.[evObj.id]?.[dish.name]?.target_yield_kg;
+                                plannedKg = (rawPlannedKg === null || rawPlannedKg === undefined) ? null : Number(rawPlannedKg);
                                 const defaultYield = pax > 0 ? (baseKg * pax / basePax) : baseKg;
                                 // Pin (plannedKg) is authoritative — slider only scales the auto-computed default
-                                effKg = plannedKg ? plannedKg : defaultYield * mult;
+                                effKg = plannedKg != null ? plannedKg : defaultYield * mult;
                               }
                               ing = getIngrForYield(dish.name, effKg);
-                              planned = !!plannedKg;
+                              planned = plannedKg != null;
                             }
                             if (!ing || ing.length === 0) {
                               const summedPax = sumAdjPaxAcrossFns(dish.fns);
