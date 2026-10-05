@@ -6259,18 +6259,71 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   </div>
                 )}
 
+                {/* Unmapped bucket — surfaced ABOVE the category grid, not below it.
+                    A chef scanning this screen for "what needs an SOP" shouldn't have
+                    to scroll past every category tile first to find out there even
+                    is one; this is the most actionable item on the page. */}
+                {unmapped.length>0 && (()=>{
+                  const dn = tone("danger");
+                  return(
+                  <div style={{marginBottom:14,borderRadius:16,backgroundColor:K.cardWarm,
+                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    {/* Folded by default — the header alone says how many and where to fix them; click to see the list. */}
+                    <div onClick={()=>setPlanUnmappedOpen(o=>!o)} role="button" tabIndex={0} aria-expanded={planUnmappedOpen}
+                      onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setPlanUnmappedOpen(o=>!o);}}}
+                      style={{padding:"12px 18px",display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+                      <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:dn.bg,border:`1px solid ${dn.border}`,
+                        color:dn.fg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <Icon name="alert" size={16} strokeWidth={1.9}/>
+                      </span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{...type.cardTitle,fontSize:14.5,color:K.hdrTitle}}>{T2("Unmapped")}</span>
+                          <span style={{padding:"1px 8px",borderRadius:999,fontFamily:K.fontBody,fontSize:11,fontWeight:700,
+                            background:dn.bg,color:dn.fg,border:`1px solid ${dn.border}`,fontVariantNumeric:"tabular-nums"}}>{unmapped.length}</span>
+                        </div>
+                        <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>
+                          {T2("No recipe yet — fix via Dish Map")}
+                        </div>
+                      </div>
+                      <span style={{color:K.textFaint,display:"flex",transform:planUnmappedOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                        <Icon name="chevronD" size={16} strokeWidth={2.1}/>
+                      </span>
+                    </div>
+                    {planUnmappedOpen&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8,padding:"4px 18px 16px"}}>
+                        {unmapped.map((it,i)=>(
+                          <span key={i} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px",borderRadius:999,
+                            background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,
+                            fontWeight:500,color:K.textBody}}>
+                            <span style={{width:6,height:6,borderRadius:"50%",background:dn.fg,flexShrink:0}}/>
+                            {it.dish}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>);
+                })()}
+
                 {/* Grouped sections — tiles, four to a row (.kh-plangrid in theme.js). A tile
                     opens that section's dish table in PlanSectionModal; editing there works
                     exactly as it did inline. */}
                 <div className="kh-plangrid">
                 {orderedGroups.map(g=>{
                   const overrideInGroup = g.items.filter(it=>isRealOverride(it.dish)).length;
-                  const autoInGroup = g.items.length - overrideInGroup;
+                  // A recipe that exists but has no base_yield.kg set still lands in this
+                  // tile (it has a catId), not in Unmapped — it was silently counted as
+                  // "auto" even though there's no computed number behind it, so the tile
+                  // never showed chefs it needed an SOP fix. Split it out as its own chip.
+                  const noYieldInGroup = g.items.filter(it=>!isRealOverride(it.dish) && !it.st.baseYield).length;
+                  const autoInGroup = g.items.length - overrideInGroup - noYieldInGroup;
                   const chips = (<>
                           {autoInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
                             background:K.okBg,color:K.ok,border:`1px solid ${K.okBorder}`}}>{autoInGroup} {T2("auto")}</span>}
                           {overrideInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
                             background:K.brandBg,color:K.brandText,border:`1px solid ${K.brandBorder}`}}>{overrideInGroup} {T2("pinned")}</span>}
+                          {noYieldInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
+                            background:K.warnBg,color:K.warn,border:`1px solid ${K.warnBorder}`}}>⚠ {noYieldInGroup} {T2("no yield")}</span>}
                   </>);
                   return(
                     <div key={g.cat.id} style={{borderRadius:18,border:`1px solid ${K.cardWarmLine}`,
@@ -6464,51 +6517,6 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   );
                 })}
                 </div>{/* end .kh-plangrid */}
-
-                {/* Unmapped bucket — the same warm card as the summary and yield cards
-                    above, dishes as chips. A "No recipe" badge on every row said the
-                    same thing seven times; the header says it once. */}
-                {unmapped.length>0 && (()=>{
-                  const dn = tone("danger");
-                  return(
-                  <div style={{marginBottom:14,borderRadius:16,backgroundColor:K.cardWarm,
-                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
-                    {/* Folded by default — the header alone says how many and where to fix them; click to see the list. */}
-                    <div onClick={()=>setPlanUnmappedOpen(o=>!o)} role="button" tabIndex={0} aria-expanded={planUnmappedOpen}
-                      onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setPlanUnmappedOpen(o=>!o);}}}
-                      style={{padding:"12px 18px",display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-                      <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:dn.bg,border:`1px solid ${dn.border}`,
-                        color:dn.fg,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <Icon name="alert" size={16} strokeWidth={1.9}/>
-                      </span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <span style={{...type.cardTitle,fontSize:14.5,color:K.hdrTitle}}>{T2("Unmapped")}</span>
-                          <span style={{padding:"1px 8px",borderRadius:999,fontFamily:K.fontBody,fontSize:11,fontWeight:700,
-                            background:dn.bg,color:dn.fg,border:`1px solid ${dn.border}`,fontVariantNumeric:"tabular-nums"}}>{unmapped.length}</span>
-                        </div>
-                        <div style={{fontFamily:K.fontBody,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>
-                          {T2("No recipe yet — fix via Dish Map")}
-                        </div>
-                      </div>
-                      <span style={{color:K.textFaint,display:"flex",transform:planUnmappedOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
-                        <Icon name="chevronD" size={16} strokeWidth={2.1}/>
-                      </span>
-                    </div>
-                    {planUnmappedOpen&&(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:8,padding:"4px 18px 16px"}}>
-                        {unmapped.map((it,i)=>(
-                          <span key={i} style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 12px",borderRadius:999,
-                            background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,
-                            fontWeight:500,color:K.textBody}}>
-                            <span style={{width:6,height:6,borderRadius:"50%",background:dn.fg,flexShrink:0}}/>
-                            {it.dish}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>);
-                })()}
               </div>);
             })()}
             </div>{/* end .kh-an-below */}
