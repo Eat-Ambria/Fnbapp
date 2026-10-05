@@ -144,12 +144,24 @@ async function fetchOpsEquipmentItems() {
 // so "Edit unit" here can never write a unit the recipe editor wouldn't.
 const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"];
 
-// Requirements tab's "Add to Order list" destinations — keys match store_order_lists.list_key.
-const ORDER_LIST_META = {
-  dairy:     { label: "Dairy",     icon: "🥛", bg: "#E4F5FE", color: "#0EA5E9", border: "#B6E5FB" },
-  grocery:   { label: "Grocery",   icon: "🛒", bg: "#FDF3E2", color: "#C4790C", border: "#F5DBA6" },
-  vegetable: { label: "Vegetable", icon: "🥕", bg: "#E6F7F0", color: "#129A6C", border: "#B4E8D3" },
+// Order Lists / Requirements grouping — mirrors the Ops inventory system's own
+// categories (Bakery, Dairy, Fruits, Grocery, ...) instead of a fixed 3-list
+// guess, so a store buyer sees the same breakdown here as in the Inventory
+// tab. Icons are cosmetic only; any category not in this map still works,
+// it just falls back to a generic tag icon.
+const CATEGORY_ICONS = {
+  "Bakery": "🍞", "Dairy": "🥛", "Fruits": "🍓", "Grocery": "🛒",
+  "Ice Creams": "🍨", "Non Food Items": "📦", "Non-Veg Items": "🍗",
+  "Vegetables": "🥕", "Water & Beverages": "🥤", "Uncategorized": "🏷",
 };
+// store_order_lists.list_key predates per-Ops-category grouping and already
+// has rows saved as "vegetable" (singular) — fold that into the new
+// "vegetables" bucket instead of orphaning old data.
+const ORDER_LIST_KEY_ALIASES = { vegetable: "vegetables" };
+function slugifyCat(name) {
+  var s = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return s || "uncategorized";
+}
 
 function normalizeIngName(s) {
   return String(s || '')
@@ -282,7 +294,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
-  const [reqPicker, setReqPicker] = useState(null); // ingredient name currently showing its inline Dairy/Grocery/Veg picker
   const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
   const [orderListLoading, setOrderListLoading] = useState(false);
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
@@ -1089,6 +1100,27 @@ function StoreModule({events, lang="en", currentUser=null}) {
   /* ── Derived: unique categories & venues from live data ── */
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
   const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
+
+  // Requirements/Order Lists grouping — one bucket per live Ops category, plus
+  // a catch-all for ingredients that aren't linked to a store item yet.
+  const orderListCats = useMemo(() => {
+    const list = itemCategories.map(name => {
+      const code = (items.find(i => i.cat === name) || {}).catCode || "";
+      const dot = catDotColor(code);
+      return { key: slugifyCat(name), label: name, icon: CATEGORY_ICONS[name] || "🏷", color: dot, bg: dot + "15", border: dot + "55" };
+    });
+    list.push({ key: "uncategorized", label: T2("Uncategorized"), icon: "🏷", color: C.muted, bg: C.bg, border: C.border });
+    return list;
+  }, [itemCategories, items]);
+  const orderListCatByKey = useMemo(() => {
+    const m = {};
+    orderListCats.forEach(c => { m[c.key] = c; });
+    return m;
+  }, [orderListCats]);
+  function resolveOrderListCat(key) {
+    const k = ORDER_LIST_KEY_ALIASES[key] || key;
+    return orderListCatByKey[k] || orderListCatByKey.uncategorized;
+  }
   // Add-item form only writes to catering_store_items, so its category picker is
   // scoped to categories that already have a source:"store" item — that's the only
   // way we can resolve a valid category_id without a separate categories-table fetch.
@@ -1474,6 +1506,22 @@ function StoreModule({events, lang="en", currentUser=null}) {
           if(orderListFor(row.name)) orderedRowCount++;
         });
 
+        // Group into one bucket per live Ops category — same breakdown a
+        // buyer sees in the Order Lists tab, instead of one raw alphabetical
+        // list. An ingredient not yet linked to a store item (see "link to
+        // store" below) falls into Uncategorized until it is.
+        const rowGroups = (function(){
+          const buckets = {};
+          rows.forEach(row=>{
+            const {stock} = resolveStock(row);
+            const catName = stock && stock.item && stock.item.cat;
+            const meta = catName ? resolveOrderListCat(slugifyCat(catName)) : orderListCatByKey.uncategorized;
+            (buckets[meta.key] = buckets[meta.key] || {meta, rows:[]}).rows.push(row);
+          });
+          return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
+        })();
+        const tableColSpan = 2 + stations.length + 3;
+
         return(
           <div>
             {/* Header + day picker */}
@@ -1565,62 +1613,64 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map(row=>{
-                          const {isMapped, stock, requiredSU} = resolveStock(row);
-                          const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
-                          const done = rowIssued(row);
-                          const list = orderListFor(row.name);
-                          const pickerOpen = reqPicker===row.name;
-                          const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
-                          return (
-                            <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                              <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160}} title={fullTitle}>
-                                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                  <input type="checkbox" checked={!!ingSelected[row.name]}
-                                    onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
-                                    title={T2("Select to merge with other ingredients")}
-                                    style={{width:13,height:13,flexShrink:0,cursor:"pointer",accentColor:C.gold}}/>
-                                  <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
-                                </div>
-                              </td>
-                              <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
-                              {stations.map(st=>{
-                                const cell = row.byCat[st.name];
-                                return <td key={st.id} style={{textAlign:"right",padding:"3px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
-                              })}
-                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
-                              <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
-                                {!isMapped
-                                  ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:9.5,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
-                                  : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
-                              </td>
-                              <td style={{padding:"3px 8px",verticalAlign:"middle",borderLeft:`1px solid ${C.borderLight}`}}>
-                                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
-                                  {done ? (
-                                    <div title={T2("Issued from store")} style={{width:24,height:24,borderRadius:7,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
-                                  ) : (
-                                    hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
-                                  )}
-                                  {list ? (
-                                    <span title={ORDER_LIST_META[list.list_key].label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:ORDER_LIST_META[list.list_key].bg,color:ORDER_LIST_META[list.list_key].color,whiteSpace:"nowrap",flexShrink:0}}>
-                                      {ORDER_LIST_META[list.list_key].icon}
-                                      <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
-                                    </span>
-                                  ) : pickerOpen ? (
-                                    <div style={{display:"flex",alignItems:"center",gap:2}}>
-                                      {Object.entries(ORDER_LIST_META).map(([key,meta])=>(
-                                        <button key={key} onClick={()=>addToOrderList(row,key)} title={meta.label} style={{width:22,height:22,borderRadius:6,cursor:"pointer",background:meta.bg,border:`1px solid ${meta.border}`,fontSize:11,lineHeight:1,padding:0}}>{meta.icon}</button>
-                                      ))}
-                                      <button onClick={()=>setReqPicker(null)} aria-label={T2("Cancel")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"0 1px"}}>×</button>
-                                    </div>
-                                  ) : (
-                                    <button onClick={()=>setReqPicker(row.name)} title={T2("Add to an order list")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
-                                  )}
-                                </div>
+                        {rowGroups.map(group=>(
+                          <React.Fragment key={group.meta.key}>
+                            <tr>
+                              <td colSpan={tableColSpan} style={{padding:"7px 10px",fontWeight:700,fontSize:10.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.4,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.borderLight}`}}>
+                                {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
                               </td>
                             </tr>
-                          );
-                        })}
+                            {group.rows.map(row=>{
+                              const {isMapped, stock, requiredSU} = resolveStock(row);
+                              const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                              const done = rowIssued(row);
+                              const list = orderListFor(row.name);
+                              const listMeta = list ? resolveOrderListCat(list.list_key) : null;
+                              const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
+                              return (
+                                <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
+                                  <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160}} title={fullTitle}>
+                                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                      <input type="checkbox" checked={!!ingSelected[row.name]}
+                                        onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
+                                        title={T2("Select to merge with other ingredients")}
+                                        style={{width:13,height:13,flexShrink:0,cursor:"pointer",accentColor:C.gold}}/>
+                                      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
+                                  {stations.map(st=>{
+                                    const cell = row.byCat[st.name];
+                                    return <td key={st.id} style={{textAlign:"right",padding:"3px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
+                                  })}
+                                  <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
+                                  <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
+                                    {!isMapped
+                                      ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:9.5,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
+                                      : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
+                                  </td>
+                                  <td style={{padding:"3px 8px",verticalAlign:"middle",borderLeft:`1px solid ${C.borderLight}`}}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
+                                      {done ? (
+                                        <div title={T2("Issued from store")} style={{width:24,height:24,borderRadius:7,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
+                                      ) : (
+                                        hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
+                                      )}
+                                      {list ? (
+                                        <span title={listMeta.label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:listMeta.bg,color:listMeta.color,whiteSpace:"nowrap",flexShrink:0}}>
+                                          {listMeta.icon}
+                                          <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
+                                        </span>
+                                      ) : (
+                                        <button onClick={()=>addToOrderList(row,group.meta.key)} title={T2("Add to")+" "+group.meta.label+" "+T2("order list")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -1631,31 +1681,38 @@ function StoreModule({events, lang="en", currentUser=null}) {
         );
       })()}
 
-      {/* ── ORDER LISTS (Dairy / Grocery / Vegetable) ── */}
+      {/* ── ORDER LISTS — one card per live Ops category ── */}
       {tab==="orderlists"&&(()=>{
-        const grouped = {dairy:[],grocery:[],vegetable:[]};
+        const grouped = {};
         orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
-          if(grouped[r.list_key]) grouped[r.list_key].push(r);
+          const key = ORDER_LIST_KEY_ALIASES[r.list_key] || r.list_key;
+          (grouped[key] = grouped[key] || []).push(r);
         });
+        // Only show categories that actually have something on order — a
+        // card per Ops category (9+) sitting empty is more clutter than help.
+        const visibleGroups = orderListCats.map(c=>({meta:c, list:grouped[c.key]||[]})).filter(g=>g.list.length>0);
         return(
           <div>
             <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧺 {T2("Order Lists")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Items sent here from the Requirements sheet — split by what the buyer actually orders from.")}</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Items sent here from the Requirements sheet — grouped by the same inventory category as Store & Inventory.")}</div>
 
             {orderListLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading…")}</div>}
 
+            {!orderListLoading&&visibleGroups.length===0&&(
+              <div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>
+                {T2("Nothing added to an order list yet — use + in Requirements to send an item here.")}
+              </div>
+            )}
+
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start"}}>
-              {Object.entries(ORDER_LIST_META).map(([key,meta])=>{
-                const list = grouped[key];
-                return (
-                  <Card key={key} style={{padding:0,overflow:"hidden"}}>
+              {visibleGroups.map(({meta,list})=>(
+                  <Card key={meta.key} style={{padding:0,overflow:"hidden"}}>
                     <div style={{padding:"14px 16px",background:meta.bg,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:meta.color}}>
-                        <span>{meta.icon}</span><span>{T2(meta.label)}</span>
+                        <span>{meta.icon}</span><span>{meta.label}</span>
                       </div>
                       <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
                     </div>
-                    {list.length===0 && <div style={{padding:"30px 16px",textAlign:"center",color:C.muted,fontSize:12}}>{T2("Nothing added to this list yet.")}</div>}
                     {list.map(item=>(
                       <div key={item.order_date+item.ingredient_name} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,display:"flex",alignItems:"flex-start",gap:10}}>
                         <button onClick={()=>toggleOrdered(item)} aria-label={T2("Mark ordered")} style={{width:20,height:20,flexShrink:0,marginTop:1,borderRadius:6,border:`1.5px solid ${item.ordered?meta.color:C.border}`,background:item.ordered?meta.color:"transparent",color:"#fff",fontSize:12,lineHeight:"17px",textAlign:"center",cursor:"pointer",padding:0}}>{item.ordered?"✓":""}</button>
@@ -1666,8 +1723,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </div>
                     ))}
                   </Card>
-                );
-              })}
+              ))}
             </div>
           </div>
         );
