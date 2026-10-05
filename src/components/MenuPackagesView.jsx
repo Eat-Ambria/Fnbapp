@@ -12,6 +12,7 @@ import { SALES_DEPTS } from '../data/salesConfig.js';
 import { K, type } from '../utils/theme.js';
 import { Icon } from './KitchenUI.jsx';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
@@ -111,6 +112,25 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // "View FP" on a list card — a lightweight peek at the Function Plan print
   // view without leaving the list for the full item-builder (selEvId's flow).
   var [fpViewEvId, setFpViewEvId] = useState(null);
+  // Same FP status read as Booked Functions — not made / made / locked — so
+  // this list doesn't need opening the FP just to find out it's locked.
+  var [fpMap, setFpMap] = useState({});
+  function loadFpStatuses() {
+    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked, locked_by'); })
+      .then(function(rows){
+        var map = {};
+        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '' }; });
+        setFpMap(map);
+      })
+      .catch(function(e){ console.error('[MenuPackages] loadFpStatuses failed:', e); });
+  }
+  useEffect(function(){ loadFpStatuses(); }, []);
+  function fpStatusFor(ev) {
+    var row = fpMap[ev.id];
+    if (!row) return { key: 'none', label: T2('Not made'), color: C.muted, bg: "#FFFFFF", border: K.cardWarmLine };
+    if (row.locked) return { key: 'locked', label: T2('Locked'), color: C.green, bg: C.greenBg, border: C.greenBorder };
+    return { key: 'made', label: T2('Made'), color: C.amber, bg: C.amberBg, border: C.amberBorder };
+  }
   // V80 — this list used to filter/sort/classify (per-dish SOP-category lookup,
   // an expensive multi-tier scan) EVERY upcoming event on EVERY render, which is
   // what made opening this tab slow once there were 100+ upcoming functions.
@@ -1209,6 +1229,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   var stats = menuStats(ev);
                   var hasMenu = stats.total > 0;
                   var isLms = !!ev.lms_source;
+                  var fpSt = fpStatusFor(ev);
                   return (
                     <div key={ev.id} style={{ position: "relative", marginBottom: 12 }}>
                     <button onClick={function() { setSelEvId(ev.id); }}
@@ -1243,6 +1264,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>{T2("Tomorrow")}</span>}
                           {isLms && <span style={{ padding: "3px 9px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
                             fontWeight: 700, background: "#FFFFFF", color: K.hdrMeta, border: "1px solid " + K.cardWarmLine }}>LMS</span>}
+                          <span style={{ padding: "3px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
+                            fontWeight: 700, background: fpSt.bg, color: fpSt.color, border: "1px solid " + fpSt.border, whiteSpace: "nowrap" }}>
+                            {T2("FP")}: {fpSt.label}
+                          </span>
                         </span>
                         {/* Icons instead of middot separators — four facts run
                             together by dots read as one long string. */}
@@ -1297,10 +1322,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         list for the full item-builder — top-right, same corner
                         the SOP cards use for their own overlaid actions. */}
                     <button onClick={function(e) { e.stopPropagation(); setFpViewEvId(ev.id); }}
-                      title={T2("View Function Plan")}
+                      title={T2("View Function Plan") + " — " + fpSt.label}
                       style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6,
                         padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
-                        background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.hdrMeta, cursor: "pointer" }}>
+                        background: fpSt.bg, border: "1px solid " + fpSt.border, color: fpSt.color, cursor: "pointer" }}>
                       <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
                     </button>
                     </div>
@@ -2040,7 +2065,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         if (!fpEv) { setFpViewEvId(null); return null; }
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>
-            <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); }}
+            <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); loadFpStatuses(); }}
               lang={lang} currentUser={currentUser} autoOpenPrint={true} />
           </div>
         );
