@@ -527,25 +527,31 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       {mode !== 'list' && (
         <div onClick={saving ? undefined : cancelForm}
           style={{ position: "fixed", inset: 0, zIndex: 9999, background: K.modalScrim,
-            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "16px 20px", overflowY: "auto" }}>
+            display: "flex", alignItems: isMobile ? "stretch" : "flex-start", justifyContent: "center",
+            padding: isMobile ? 0 : "16px 20px", overflowY: "auto" }}>
           <div onClick={function(e){ e.stopPropagation(); }} role="dialog" aria-modal="true"
-            style={{ position: "relative", background: K.modalBg, border: "1px solid " + K.modalLine,
-              borderRadius: K.modalRadius, boxShadow: K.shadowLift, maxWidth: 1180, width: "100%", overflow: "hidden" }}>
+            style={{ position: "relative", background: K.modalBg, border: isMobile ? "none" : "1px solid " + K.modalLine,
+              borderRadius: isMobile ? 0 : K.modalRadius, boxShadow: isMobile ? "none" : K.shadowLift,
+              maxWidth: isMobile ? "100%" : 1180, width: "100%", minHeight: isMobile ? "100%" : undefined, overflow: "hidden" }}>
             <ModalWatermark />
 
-            <div style={{ position: "relative", zIndex: 1, padding: "16px 24px 12px", display: "flex", alignItems: "center", gap: 14 }}>
-              <span style={{ width: 46, height: 46, borderRadius: 14, flexShrink: 0, backgroundColor: K.cardWarm,
-                border: "1px solid " + K.hdrLine, color: K.sbGold,
-                display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name="note" size={22} strokeWidth={1.6} />
-              </span>
+            <div style={{ position: "relative", zIndex: 1, padding: isMobile ? "14px 14px 10px" : "16px 24px 12px", display: "flex", alignItems: "center", gap: 14 }}>
+              {!isMobile && (
+                <span style={{ width: 46, height: 46, borderRadius: 14, flexShrink: 0, backgroundColor: K.cardWarm,
+                  border: "1px solid " + K.hdrLine, color: K.sbGold,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="note" size={22} strokeWidth={1.6} />
+                </span>
+              )}
               <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: "block", ...type.sectionHead, fontSize: 23, color: K.hdrTitle }}>
+                <span style={{ display: "block", ...type.sectionHead, fontSize: isMobile ? 18 : 23, color: K.hdrTitle }}>
                   {mode === 'edit' ? T2("Edit Proposal") : T2("New Proposal")}
                 </span>
-                <span style={{ display: "block", fontSize: 13, color: K.hdrMeta, marginTop: 1 }}>
-                  {T2("Update guest details, event information and menu preferences.")}
-                </span>
+                {!isMobile && (
+                  <span style={{ display: "block", fontSize: 13, color: K.hdrMeta, marginTop: 1 }}>
+                    {T2("Update guest details, event information and menu preferences.")}
+                  </span>
+                )}
               </span>
               <button onClick={cancelForm} disabled={saving} aria-label={T2("Cancel")}
                 className="kh-modal-x kh-rip" onPointerDown={ripple}
@@ -556,8 +562,8 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
               </button>
             </div>
 
-            <div style={{ position: "relative", zIndex: 1, padding: "0 24px 18px" }}>
-              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "15px 18px", marginBottom: 12 }}>
+            <div style={{ position: "relative", zIndex: 1, padding: isMobile ? "0 14px 18px" : "0 24px 18px" }}>
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: isMobile ? "12px 14px" : "15px 18px", marginBottom: 12 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(225px, 1fr))", gap: 12 }}>
                   <Field label={T2("Guest name")} required icon="contact" value={form.guest_name}
                     onChange={function(v){ updateForm('guest_name', v); }} placeholder={T2("Full name")} />
@@ -582,7 +588,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                 </div>
               </div>
 
-              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: "14px 18px 16px", marginBottom: 12 }}>
+              <div style={{ background: "#FFFFFF", border: "1px solid " + K.line, borderRadius: 18, padding: isMobile ? "12px 14px 14px" : "14px 18px 16px", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
                     <span style={{ width: 34, height: 34, borderRadius: 11, flexShrink: 0, background: K.brandBg,
@@ -699,25 +705,25 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
               </div>
             </div>
 
-            <div style={{ position: "relative", zIndex: 1, padding: "18px 28px 24px", borderTop: "1px solid " + K.modalLine,
-              display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <KButton onClick={cancelForm} disabled={saving}
-                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.surface, borderColor: K.modalLine }}>
-                {T2("Cancel")}
-              </KButton>
-              <KButton icon="check" onClick={function(){ saveProposal(); }} disabled={saving}
-                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.brandBg,
-                  borderColor: K.brandBorder, color: K.brandText }}>
-                {saving ? T2("Saving…") : (mode === 'edit' ? T2("Save changes") : T2("Save as draft"))}
-              </KButton>
+            <div style={{ position: "relative", zIndex: 1, padding: isMobile ? "14px 14px 18px" : "18px 28px 24px", borderTop: "1px solid " + K.modalLine,
+              display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
               {mode === 'edit' && (
                 <KButton variant="brand" icon="utensils" disabled={saving}
                   onClick={function(){ var p = proposals.find(function(x){ return x.id === editingId; }); if (p) openMenuBuilder(p); }}
                   title={T2("Open the Menu Builder for this proposal")}
-                  style={{ padding: "14px 26px", borderRadius: K.rPill, fontSize: 14.5 }}>
+                  style={{ padding: "14px 26px", borderRadius: K.rPill, fontSize: 14.5, width: isMobile ? "100%" : undefined, order: isMobile ? -1 : 0 }}>
                   {T2("Build Menu")}
                 </KButton>
               )}
+              <KButton icon="check" onClick={function(){ saveProposal(); }} disabled={saving}
+                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.brandBg,
+                  borderColor: K.brandBorder, color: K.brandText, width: isMobile ? "100%" : undefined }}>
+                {saving ? T2("Saving…") : (mode === 'edit' ? T2("Save changes") : T2("Save as draft"))}
+              </KButton>
+              <KButton onClick={cancelForm} disabled={saving}
+                style={{ padding: "14px 24px", borderRadius: K.rPill, fontSize: 14.5, background: K.surface, borderColor: K.modalLine, width: isMobile ? "100%" : undefined }}>
+                {T2("Cancel")}
+              </KButton>
             </div>
           </div>
         </div>

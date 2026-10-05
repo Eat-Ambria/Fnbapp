@@ -17,6 +17,7 @@ import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
 import { KButton, KToast } from './KitchenUI.jsx';
+import { useIsMobile } from '../utils/useIsMobile.js';
 
 // V90 — a dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise
 // fall back to the dish library's veg/non-veg classification (dishes_master.is_veg)
@@ -30,6 +31,7 @@ function dietForDish(d, meta) {
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
+  var isMobile = useIsMobile();
 
   var [activeDept, setActiveDept]   = useState('kit');
   var [activeSubTab, setActiveSubTab] = useState('items'); // 'items' | 'configs' | 'total'
@@ -1167,13 +1169,13 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       {/* ── Top bar ──
           A plate, not a flat strip: this view takes over the whole window, so it
           has to carry its own identity the way the shell's header does. */}
-      <div className="kh-plateart kh-rise" style={{ position: "relative", zIndex: 1, flexShrink: 0, margin: "12px 16px 0", padding: "13px 18px",
+      <div className="kh-plateart kh-rise" style={{ position: "relative", zIndex: 1, flexShrink: 0, margin: isMobile ? "8px 8px 0" : "12px 16px 0", padding: isMobile ? "11px 12px" : "13px 18px",
         borderRadius: 20, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
         boxShadow: K.shadowCard, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 260 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: isMobile ? 0 : 260 }}>
           <span style={{ width: 44, height: 44, borderRadius: 14, flexShrink: 0, background: K.brandBg,
             border: "1px solid " + K.brandBorder, color: K.brand,
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
+            display: isMobile ? "none" : "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="utensils" size={21} strokeWidth={1.8} />
           </span>
           <div style={{ minWidth: 0 }}>
@@ -1191,8 +1193,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                 this screen is. type.pageTitle, because this IS the page title.
                 700 rather than the scale value of 600: Cormorant is a light
                 face, and at 600 on a plate this wide the name did not hold. */}
-            <div style={{ ...type.pageTitle, fontSize: 28, fontWeight: 700, color: K.hdrTitle,
-              marginTop: 8, overflowWrap: "anywhere" }}>
+            <div style={{ ...type.pageTitle, fontSize: isMobile ? 19 : 28, fontWeight: 700, color: K.hdrTitle,
+              marginTop: isMobile ? 2 : 8, overflowWrap: "anywhere" }}>
               {proposal.guest_name || T2("Untitled proposal")}
             </div>
             {/* Each fact is its own chip. The old line ran them together with
@@ -1236,13 +1238,48 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
       </div>
 
       {/* ── Body: sidebar + main ── */}
-      <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", overflow: "hidden", gap: 16, padding: "14px 16px 16px", minHeight: 0 }}>
-        {/* ── Dept sidebar ── */}
-        {/* The artwork is a real image layer here, not the 20% wash the cards
+      <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden", gap: isMobile ? 8 : 16, padding: isMobile ? "8px 8px 8px" : "14px 16px 16px", minHeight: 0 }}>
+        {/* ── Dept picker — a vertical sidebar on desktop (room for the full
+            label + count), a horizontally-scrollable chip row on mobile
+            (switching department is a constant action while building a menu
+            on-site, so this wants to stay a single tap away, not tucked
+            behind a drawer the way an occasional-use nav would be). ── */}
+        {isMobile ? (
+          <div style={{ flexShrink: 0, display: "flex", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+            {SALES_DEPTS.map(function(d){
+              var isActive = activeDept === d.id;
+              var counts = deptCounts[d.id] || { sel: 0, total: 0 };
+              var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+              var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+              var isFunctional   = deptHasItems || deptHasConfigs;
+              return (
+                <button key={d.id} className={"kh-btn kh-deptbtn kh-rip" + (isActive ? " is-on" : "")} onPointerDown={ripple}
+                  onClick={function(){ setActiveDept(d.id); setActiveSubTab(deptHasItems ? 'items' : 'configs'); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+                    padding: "8px 12px", borderRadius: 999,
+                    background: isActive ? K.sageSel : K.cardWarm,
+                    border: "1px solid " + (isActive ? K.sage : K.cardWarmLine),
+                    color: isActive ? K.sageText : K.textBody,
+                    fontSize: 12.5, fontWeight: isActive ? 700 : 600,
+                    cursor: "pointer", whiteSpace: "nowrap", fontFamily: K.fontBody,
+                    opacity: isFunctional ? 1 : 0.6,
+                  }}>
+                  <Icon name={d.glyph || "utensils"} size={14} strokeWidth={1.9} color={d.color || K.brand} />
+                  {d.name}
+                  {isFunctional && counts.sel > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: K.brandText }}>{counts.sel}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+        /* The artwork is a real image layer here, not the 20% wash the cards
             use. This panel is tall and narrow - the same shape the image was
             drawn for - so its leaves land in the corners where they belong
             instead of being cropped to a meaningless patch. overflow:hidden so
-            the picture is clipped by the card's radius rather than squaring it. */}
+            the picture is clipped by the card's radius rather than squaring it. */
         <div className="kh-thinscroll" style={{ position: "relative", flexShrink: 0, width: 232, borderRadius: 20,
           backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard,
           padding: "16px 14px", overflowY: "auto", overflowX: "hidden" }}>
@@ -1304,6 +1341,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             );
           })}
         </div>
+        )}
 
         {/* ── Main area ── */}
         <div className="kh-thinscroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: 2 }}>
@@ -1375,8 +1413,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
         {/* ── V77: live totals — one always-visible per-dept count list (mirrors the
             left sidebar's badges), replacing the old per-tab "Total" sub-tab so
-            sales don't have to click into every dept just to see what's picked. ── */}
-        {!railOpen && (
+            sales don't have to click into every dept just to see what's picked.
+            On mobile this collapses to a floating pill + full bottom sheet —
+            the edge tab/232px rail pattern below has nowhere to go on a phone. ── */}
+        {!isMobile && !railOpen && (
           // Closed: a slim tab on the right edge, label only.
           <button onClick={function(){ setRailOpen(true); }} className="kh-btn kh-rip" onPointerDown={ripple}
             title={T2("Show live total")}
@@ -1396,7 +1436,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
             </span>
           </button>
         )}
-        {railOpen && (
+        {!isMobile && railOpen && (
         <div style={{ flexShrink: 0, width: 232, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }} className="kh-thinscroll">
           <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
             border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "16px 16px 12px" }}>
@@ -1411,49 +1451,90 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                 <Icon name="chevronR" size={14} strokeWidth={2.2} />
               </button>
             </div>
-            {SALES_DEPTS.map(function(d){
-              var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-              var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
-              var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
-              if (!deptHasItems && !deptHasConfigs) return null;
-              var addon = deptAddonTotal[d.id] || 0;
-              return (
-                <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 2px" }}>
-                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: K.text,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-                  {addon > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: d.color }}>₹{addon}</span>}
-                  {/* A zero is deliberately faint: the eye should land on the
-                      departments that actually have something in them. */}
-                  <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                    color: counts.sel > 0 ? K.hdrTitle : K.textFaint }}>{counts.sel}</span>
-                </div>
-              );
-            })}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 2px 4px", marginTop: 8,
-              borderTop: "1px solid " + K.cardWarmLine }}>
-              <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: K.hdrTitle }}>{T2("Total items")}</span>
-              <span style={{ fontSize: 19, fontWeight: 800, color: K.hdrTitle, fontVariantNumeric: "tabular-nums" }}>
-                {grandTotal}
-              </span>
-            </div>
-            {(function(){
-              var grandAddon = SALES_DEPTS.reduce(function(sum, d){ return sum + (deptAddonTotal[d.id] || 0); }, 0);
-              if (grandAddon <= 0) return null;
-              return (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 2px 4px" }}>
-                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: K.hdrMeta }}>{T2("Add-on total")}</span>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: K.warn, fontVariantNumeric: "tabular-nums" }}>₹{grandAddon}</span>
-                </div>
-              );
-            })()}
+            <LiveTotalRows T2={T2} deptCounts={deptCounts} deptAddonTotal={deptAddonTotal} grandTotal={grandTotal} />
           </div>
         </div>
         )}
       </div>
+
+      {/* ── Mobile live-total: floating pill + bottom sheet ── */}
+      {isMobile && (
+        <button onClick={function(){ setRailOpen(true); }} className="kh-rip" onPointerDown={ripple}
+          style={{ position: "fixed", right: 14, bottom: 14, zIndex: 40, display: "flex", alignItems: "center", gap: 8,
+            padding: "11px 16px", borderRadius: 999, backgroundColor: K.brand, color: "#FFFFFF",
+            border: "none", boxShadow: K.shadowLift, cursor: "pointer", fontFamily: K.fontBody }}>
+          <Icon name="chart" size={16} strokeWidth={2} />
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{grandTotal} {T2("items")}</span>
+        </button>
+      )}
+      {isMobile && railOpen && (
+        <div onClick={function(){ setRailOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(10,16,12,.45)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={function(e){ e.stopPropagation(); }} style={{ width: "100%", maxHeight: "75vh", overflowY: "auto",
+            backgroundColor: K.cardWarm, borderRadius: "20px 20px 0 0", border: "1px solid " + K.cardWarmLine,
+            boxShadow: K.shadowLift, padding: "16px 16px 20px" }} className="kh-thinscroll">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <span style={{ color: K.sbGold, display: "flex" }}><Icon name="chart" size={18} strokeWidth={2} /></span>
+              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle, flex: 1, minWidth: 0 }}>{T2("Live total")}</span>
+              <button onClick={function(){ setRailOpen(false); }} className="kh-btn kh-iconbtn kh-rip" onPointerDown={ripple}
+                title={T2("Close")}
+                style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, padding: 0, cursor: "pointer",
+                  background: "transparent", border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="close" size={16} strokeWidth={2.2} />
+              </button>
+            </div>
+            <LiveTotalRows T2={T2} deptCounts={deptCounts} deptAddonTotal={deptAddonTotal} grandTotal={grandTotal} />
+          </div>
+        </div>
+      )}
       <KToast open={!!toast} toneName={toast && toast.tone} title={toast && toast.title}
         body={toast && toast.body} onClose={function(){ setToast(null); }} />
     </div>
+  );
+}
+
+// Per-dept selected-count breakdown + grand total, shared by the desktop rail
+// and the mobile bottom sheet so the two stay in sync with no duplicated markup.
+function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
+  return (
+    <>
+      {SALES_DEPTS.map(function(d){
+        var counts = deptCounts[d.id] || { sel: 0, total: 0 };
+        var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+        var deptHasConfigs = d.id !== 'kit' && !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+        if (!deptHasItems && !deptHasConfigs) return null;
+        var addon = deptAddonTotal[d.id] || 0;
+        return (
+          <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 2px" }}>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: K.text,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+            {addon > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: d.color }}>₹{addon}</span>}
+            {/* A zero is deliberately faint: the eye should land on the
+                departments that actually have something in them. */}
+            <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+              color: counts.sel > 0 ? K.hdrTitle : K.textFaint }}>{counts.sel}</span>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 2px 4px", marginTop: 8,
+        borderTop: "1px solid " + K.cardWarmLine }}>
+        <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: K.hdrTitle }}>{T2("Total items")}</span>
+        <span style={{ fontSize: 19, fontWeight: 800, color: K.hdrTitle, fontVariantNumeric: "tabular-nums" }}>
+          {grandTotal}
+        </span>
+      </div>
+      {(function(){
+        var grandAddon = SALES_DEPTS.reduce(function(sum, d){ return sum + (deptAddonTotal[d.id] || 0); }, 0);
+        if (grandAddon <= 0) return null;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 2px 4px" }}>
+            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: K.hdrMeta }}>{T2("Add-on total")}</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: K.warn, fontVariantNumeric: "tabular-nums" }}>₹{grandAddon}</span>
+          </div>
+        );
+      })()}
+    </>
   );
 }
 
@@ -1461,6 +1542,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
 function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+  var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
   // Kept here rather than deleted so uncommenting that block is a single edit:
@@ -1636,24 +1718,28 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   var deptMeta = SALES_DEPT_MAP[activeDept] || {};
   return (
     <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
-      border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "18px 20px 20px" }}>
+      border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: isMobile ? "14px 12px 14px" : "18px 20px 20px" }}>
       {/* Department header — says which department you are in and how much of it
           is picked, so the left rail is not the only place that answers it. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
-        <span style={{ color: K.sbGold, display: "flex", flexShrink: 0 }}>
-          <Icon name="chefHat" size={26} strokeWidth={1.7} />
-        </span>
+      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 14, flexWrap: "wrap", marginBottom: isMobile ? 10 : 16 }}>
+        {!isMobile && (
+          <span style={{ color: K.sbGold, display: "flex", flexShrink: 0 }}>
+            <Icon name="chefHat" size={26} strokeWidth={1.7} />
+          </span>
+        )}
         <span style={{ minWidth: 0 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ ...type.sectionHead, fontSize: 21, color: K.hdrTitle }}>{deptMeta.name || T2("Department")}</span>
+            <span style={{ ...type.sectionHead, fontSize: isMobile ? 17 : 21, color: K.hdrTitle }}>{deptMeta.name || T2("Department")}</span>
             <span style={{ fontSize: 12.5, fontWeight: 700, padding: "4px 11px", borderRadius: K.rPill,
               background: K.brandBg, border: "1px solid " + K.brandBorder, color: K.brandText, whiteSpace: "nowrap" }}>
               {deptTotal} {T2("items")}
             </span>
           </span>
-          <span style={{ display: "block", fontSize: 13.5, color: K.hdrMeta, marginTop: 2 }}>
-            {T2("Explore and select dishes for this department")}
-          </span>
+          {!isMobile && (
+            <span style={{ display: "block", fontSize: 13.5, color: K.hdrMeta, marginTop: 2 }}>
+              {T2("Explore and select dishes for this department")}
+            </span>
+          )}
         </span>
         {/* Carries the marginLeft:auto that used to sit on the search field, so
             this whole group still pushes right as one block. Guarded on the
@@ -1663,15 +1749,16 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
         {templateInfo.name && onLoadDefaults && (
           <KButton size="sm" icon="refresh" onClick={onLoadDefaults} disabled={!!seeding}
             title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
-            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, marginLeft: "auto",
+            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, marginLeft: isMobile ? 0 : "auto",
               background: "#FFFFFF", borderColor: K.sageBorder, color: K.sageText }}>
             {seeding ? T2("Loading…") : T2("Load defaults")}
           </KButton>
         )}
         {/* Sized to what a dish name needs, not to whatever is left over: at
             flex 1 it stretched across half the page for a field that takes a
-            word or two. */}
-        <div style={{ position: "relative", flex: "0 1 320px", minWidth: 190 }}>
+            word or two. Full-width on mobile instead — one clear row, rather
+            than wrapping mid-way between the buttons either side of it. */}
+        <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: isMobile ? 0 : 190 }}>
           <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
             color: K.textFaint, display: "flex", pointerEvents: "none" }}>
             <Icon name="search" size={16} strokeWidth={1.9} />
