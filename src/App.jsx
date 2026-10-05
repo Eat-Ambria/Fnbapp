@@ -193,6 +193,16 @@ export default function App() {
   };
 
   // ── Events ──
+  // Full candidate DB record for one event row — same construction for both
+  // the previous and next local copy, so the diff below (setEvents) compares
+  // like with like, including the LMS "auto-resolved menu stores as []" rule.
+  function buildEventRecord(e) {
+    const isLms = !!(e.lms_source);
+    const pkgDishes = e.menuPackage && MENU_PACKAGES[e.menuPackage] ? MENU_PACKAGES[e.menuPackage] : null;
+    const isAutoResolved = isLms && pkgDishes && Array.isArray(e.menu) && e.menu.length === pkgDishes.length && e.menu.every(function(d,i){ return d === pkgDishes[i]; });
+    const menuToStore = isAutoResolved ? [] : (e.menu||[]);
+    return {id:e.id,guest:e.guest,venue:e.venue,date:e.date,time:e.time,type:e.type,pax:+e.pax||0,veg:+e.veg||0,nonveg:+e.nonveg||0,menu_package:e.menuPackage||null,menu:menuToStore,menu_section_overrides:e.menu_section_overrides||{},special:e.special||null,extras:e.extras||[],odc_location:e.odc_location||null,odc_address:e.odc_address||null,odc_contact_phone:e.odc_contact_phone||null,odc_transport_cost:e.odc_transport_cost||null,odc_lead:e.odc_lead||null,site_recce:e.site_recce||null,odc_menu_confirmed:e.odc_menu_confirmed??null,outsourced_dishes:e.outsourced_dishes||[]};
+  }
   const [events,setEvents_raw]       = useState([]);
   const setEvents = (updater) => {
     setEvents_raw(prev => {
@@ -200,15 +210,29 @@ export default function App() {
       const prevMap = new Map(safeArr(prev).map(e=>[e.id, e]));
       const nextMap = new Map(safeArr(next).map(e=>[e.id, e]));
       nextMap.forEach((ev, id) => {
-        if(!prevMap.has(id) || prevMap.get(id) !== ev) {
-          // For LMS events: only keep menu:[] if it was auto-resolved from package (no manual edit).
-          // If admin has customized the menu (menuPackage cleared or menu differs from package), persist it.
-          const isLms = !!(ev.lms_source);
-          const pkgDishes = ev.menuPackage && MENU_PACKAGES[ev.menuPackage] ? MENU_PACKAGES[ev.menuPackage] : null;
-          const isAutoResolved = isLms && pkgDishes && Array.isArray(ev.menu) && ev.menu.length === pkgDishes.length && ev.menu.every(function(d,i){ return d === pkgDishes[i]; });
-          const menuToStore = isAutoResolved ? [] : (ev.menu||[]);
-          dbUpsert("events",{id:ev.id,guest:ev.guest,venue:ev.venue,date:ev.date,time:ev.time,type:ev.type,pax:+ev.pax||0,veg:+ev.veg||0,nonveg:+ev.nonveg||0,menu_package:ev.menuPackage||null,menu:menuToStore,menu_section_overrides:ev.menu_section_overrides||{},special:ev.special||null,extras:ev.extras||[],odc_location:ev.odc_location||null,odc_address:ev.odc_address||null,odc_contact_phone:ev.odc_contact_phone||null,odc_transport_cost:ev.odc_transport_cost||null,odc_lead:ev.odc_lead||null,site_recce:ev.site_recce||null,odc_menu_confirmed:ev.odc_menu_confirmed??null,outsourced_dishes:ev.outsourced_dishes||[]},"id").catch(e=>console.error("ev sync:",e));
-        }
+        if(prevMap.has(id) && prevMap.get(id) === ev) return;
+        const prevEv = prevMap.get(id);
+        const full = buildEventRecord(ev);
+        if(!prevEv) { dbUpsert("events", full, "id").catch(e=>console.error("ev sync:",e)); return; }
+        // Only send columns that actually changed vs this tab's OWN previous
+        // copy. Several columns here (menu, menu_section_overrides,
+        // outsourced_dishes) are also written directly and independently by
+        // other tools (EventMenuBuilderView's mirrorKitchenMenu, Build Menu's
+        // syncEventItemsFromKitchenMenu) that bypass this local `events`
+        // state entirely. Sending the FULL row on every unrelated edit (e.g.
+        // updating pax from Dashboard) used to re-send whatever stale copy
+        // of those columns this tab still had cached — silently undoing the
+        // other tool's fresher write the moment it landed before this tab's
+        // own realtime echo caught up. Omitting an unchanged column from the
+        // upsert leaves the DB's existing value alone instead.
+        const prevFull = buildEventRecord(prevEv);
+        const patch = { id: full.id };
+        let changed = false;
+        Object.keys(full).forEach(function(k){
+          if(k === 'id') return;
+          if(JSON.stringify(full[k]) !== JSON.stringify(prevFull[k])) { patch[k] = full[k]; changed = true; }
+        });
+        if(changed) dbUpsert("events", patch, "id").catch(e=>console.error("ev sync:",e));
       });
       prevMap.forEach((_,id) => {
         if(!nextMap.has(id)) {

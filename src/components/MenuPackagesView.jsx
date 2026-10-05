@@ -158,7 +158,63 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // instead, gating the actual save until the user explicitly confirms.
   var [pendingMenuDrop, setPendingMenuDrop] = useState(null); // { dishes, prevCount, nextCount } | null
 
-  function commitMenu(dishes) {
+  // A single add/remove click must only ever touch THAT one dish against the
+  // freshest server copy — never trust this screen's own local `dishes`
+  // array as "the complete truth". This events array is independently loaded
+  // (fetchAllRows on mount) from whatever Booked Functions' Items tab/
+  // EventMenuBuilderView is doing to the SAME event's events.menu/event_items
+  // right now; if this screen's copy predates that edit even briefly, a full
+  // array resend here would silently delete it the moment any unrelated
+  // dish gets toggled in Build Menu. Re-reading right before merging closes
+  // that window — a stale-vs-fresh race becomes a no-op instead of data loss.
+  async function applyMenuDelta(eventId, delta) {
+    try {
+      var res = await supabase.from('events').select('menu').eq('id', eventId).single();
+      if (res.error) throw res.error;
+      var current = Array.isArray(res.data.menu) ? res.data.menu.slice() : [];
+      var next = delta.action === 'add'
+        ? (current.indexOf(delta.name) >= 0 ? current : current.concat([delta.name]))
+        : current.filter(function(n) { return n !== delta.name; });
+      var upd = await supabase.from('events').update({ menu: next }).eq('id', eventId);
+      if (upd.error) throw upd.error;
+      // Reconcile this tab's own view with the authoritative merged result —
+      // a no-op most of the time, a self-heal the rare time it wasn't.
+      setEvents(function(prev) {
+        return (prev || []).map(function(e) { return e.id !== eventId ? e : { ...e, menu: next }; });
+      });
+    } catch (e) {
+      console.error('[MenuPackages] applyMenuDelta failed:', e);
+    }
+  }
+
+  // Same reasoning as applyMenuDelta, for the event_items side: insert/delete
+  // exactly the one dish named in delta, never diff this screen's whole
+  // local dish list against the DB's current rows.
+  async function applyEventItemsDelta(eventId, delta) {
+    try {
+      if (delta.action === 'add') {
+        var insRes = await supabase.from('event_items').upsert(
+          [{ event_id: eventId, dish_name: delta.name, is_addon: false, ordering: 9999 }],
+          { onConflict: 'event_id,dish_name', ignoreDuplicates: true }
+        );
+        if (insRes.error) console.error('[MenuPackages] event_items delta insert failed:', insRes.error);
+      } else {
+        // Only remove it if it's actually classified kit-dept — mirrors the
+        // old bulk-diff's own isKit rule, so a non-kit dish sharing this name
+        // is never touched from here.
+        var metaRes = await supabase.from('sales_items_meta').select('sales_dept').eq('dish_name', delta.name).maybeSingle();
+        var dept = (metaRes.data && metaRes.data.sales_dept) || 'kit';
+        if (dept === 'kit') {
+          await supabase.from('event_items').delete().eq('event_id', eventId).eq('dish_name', delta.name);
+        }
+      }
+      await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
+    } catch (e) {
+      console.error('[MenuPackages] applyEventItemsDelta failed:', e);
+    }
+  }
+
+  function commitMenu(dishes, delta) {
     // Used to clear menuPackage entirely on every save — so swapping even one
     // dish in a "Luxury Veg" function turned it into a bare "Custom" menu
     // everywhere (Dashboard, Dept Ops, Transport), losing the base package
@@ -172,7 +228,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         return { ...e, menu: dishes };
       });
     });
-    syncEventItemsFromKitchenMenu(selEv.id, dishes);
+    if (delta && delta.name) {
+      applyMenuDelta(selEv.id, delta);
+      applyEventItemsDelta(selEv.id, delta);
+    } else {
+      // Bulk replace (quick-start from package / clear all) — a genuine full
+      // replace is the correct, intended behavior here, already gated behind
+      // an explicit confirm when it would shrink the menu a lot.
+      syncEventItemsFromKitchenMenu(selEv.id, dishes);
+    }
   }
 
   // Per-event tag for which of the package's sections a dish (usually one not
@@ -200,7 +264,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
   }
 
-  function saveMenu(dishes) {
+  function saveMenu(dishes, delta) {
     if (!selEv || !setEvents) return;
     // Belt-and-suspenders: this editor only ever adds/removes one dish per
     // click, so a save that drops the menu by far more than that in one shot
@@ -215,10 +279,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var prevCount = effectivePrev.length;
     var nextCount = (dishes || []).length;
     if (prevCount >= 5 && nextCount < prevCount - 3 && nextCount < prevCount * 0.5) {
-      setPendingMenuDrop({ dishes: dishes, prevCount: prevCount, nextCount: nextCount });
+      setPendingMenuDrop({ dishes: dishes, prevCount: prevCount, nextCount: nextCount, delta: delta });
       return;
     }
-    commitMenu(dishes);
+    commitMenu(dishes, delta);
   }
 
   // Kitchen's flat "Build menu" edits used to only ever touch events.menu, leaving
@@ -333,6 +397,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // ── Local editor state (5c — no writes yet, wires up in 5d) ────────
   var [editorSections, setEditorSections] = useState([]);
   var [dirty, setDirty]                   = useState(false);
+  // What this tab last loaded/saved for the CURRENT selPkg — compared against
+  // the live DB row right before every save (see savePackage) so a second
+  // admin/tab's save in between can't be silently overwritten by this tab's
+  // now-stale editorSections. Holds {dishes, sections} JSON strings, or null
+  // before the first load.
+  var lastKnownPkgRef = useRef(null);
+  var [pkgConflict, setPkgConflict] = useState(null); // {remoteSections, remoteDishes} | null
   // V89 — dnd-kit's SortableContext takes its `items` array by reference; a
   // brand-new array (from `.map()`) on every render — even one that only
   // edited a dish inside ONE section, leaving every section's id/order
@@ -376,6 +447,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       // (legacy pre-sections data), park them in an "Other" section so the
       // user sees the full package. Save will re-flatten and make both consistent.
       var flat = MENU_PACKAGES[selPkg] || [];
+      // Baseline for the conflict check in savePackage — captured from what
+      // this tab just loaded, BEFORE the orphan-reconciliation below mutates
+      // `loaded` with a local-only, not-yet-saved change.
+      lastKnownPkgRef.current = { sections: JSON.stringify(loaded), dishes: JSON.stringify(flat) };
       var inSections = {};
       loaded.forEach(function(s) {
         (s.dishes || []).forEach(function(d) { inSections[d] = true; });
@@ -812,8 +887,32 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     } catch(e) {}
   }
 
-  async function savePackage() {
+  // Autosave (below) fires ~1.2s after the user stops editing — easily long
+  // enough for a second admin/tab to have saved this SAME package in between,
+  // especially on a shared "Luxury Veg"-style package several people touch.
+  // Blindly writing this tab's editorSections would silently replace their
+  // save with this tab's, dropping whatever they'd changed (e.g. a
+  // catalogue-section link/resync this tab never loaded). Re-check the live
+  // row right before writing unless `force` says the user already confirmed
+  // the overwrite.
+  async function savePackage(force) {
     if (!selPkg || saving) return;
+    if (!force && lastKnownPkgRef.current) {
+      try {
+        var checkRes = await supabase.from('menu_packages').select('sections, dishes').eq('name', selPkg).single();
+        if (checkRes.error) throw checkRes.error;
+        var remoteSections = Array.isArray(checkRes.data.sections) ? checkRes.data.sections
+          : (typeof checkRes.data.sections === 'string' ? JSON.parse(checkRes.data.sections || '[]') : []);
+        var remoteDishes = Array.isArray(checkRes.data.dishes) ? checkRes.data.dishes
+          : (typeof checkRes.data.dishes === 'string' ? JSON.parse(checkRes.data.dishes || '[]') : []);
+        if (JSON.stringify(remoteSections) !== lastKnownPkgRef.current.sections || JSON.stringify(remoteDishes) !== lastKnownPkgRef.current.dishes) {
+          setPkgConflict({ remoteSections: remoteSections, remoteDishes: remoteDishes });
+          return;
+        }
+      } catch (e) {
+        console.warn('[MenuPackages] conflict check failed, saving anyway:', e);
+      }
+    }
     var serialized = serializeSections(editorSections);
     var flatDishes = flattenSectionsToDishes(serialized);
     setSaving(true);
@@ -823,6 +922,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         .eq('name', selPkg);
       if (res.error) throw res.error;
       setPackageSections(selPkg, serialized, flatDishes);
+      lastKnownPkgRef.current = { sections: JSON.stringify(serialized), dishes: JSON.stringify(flatDishes) };
 
       clearMenuPackageCaches();
       await refreshMenuPackages();
@@ -834,6 +934,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     } finally {
       setSaving(false);
     }
+  }
+
+  // "Reload their version" — discard this tab's unsaved edits and pick up
+  // whatever the other save actually wrote, instead of fighting it.
+  function discardForRemotePkg() {
+    if (!pkgConflict) return;
+    setEditorSections(pkgConflict.remoteSections);
+    lastKnownPkgRef.current = { sections: JSON.stringify(pkgConflict.remoteSections), dishes: JSON.stringify(pkgConflict.remoteDishes) };
+    setDirty(false);
+    setPkgConflict(null);
   }
 
   // V80 — autosave: debounce persisting editorSections instead of requiring an
@@ -1357,7 +1467,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
           <MenuEditor
             selected={selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
-            onChange={function(dishes) { saveMenu(dishes); }}
+            onChange={function(dishes, delta) { saveMenu(dishes, delta); }}
             pkgName={selEv.menuPackage || ""}
             sectionOverrides={selEv.menu_section_overrides || {}}
             onSectionOverridesChange={function(next) { saveSectionOverrides(next); }}
@@ -1380,7 +1490,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                     {T2("Cancel")}
                   </button>
-                  <button onClick={function() { commitMenu(pendingMenuDrop.dishes); setPendingMenuDrop(null); }}
+                  <button onClick={function() { commitMenu(pendingMenuDrop.dishes, pendingMenuDrop.delta); setPendingMenuDrop(null); }}
                     style={{ padding: "7px 16px", borderRadius: 8, background: C.red, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                     {T2("Save anyway")}
                   </button>
@@ -2070,6 +2180,31 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           </div>
         );
       })()}
+
+      {/* Someone else saved this package since this tab loaded it — don't let
+          autosave silently pick a winner. */}
+      {pkgConflict && (
+        <div onClick={function() { setPkgConflict(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e) { e.stopPropagation(); }}
+            style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 440, width: "100%", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.amber, marginBottom: 8 }}>⚠ {T2("This package changed elsewhere")}</div>
+            <div style={{ fontSize: 13, color: C.text, marginBottom: 18, lineHeight: 1.5 }}>
+              {T2("Someone (or another tab) saved")} "{selPkg}" {T2("since you opened it here. Overwriting now would discard their changes — e.g. a catalogue-section link or resync.")}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={discardForRemotePkg}
+                style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                {T2("Reload their version")}
+              </button>
+              <button onClick={function() { setPkgConflict(null); savePackage(true); }}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.red, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {T2("Overwrite anyway")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

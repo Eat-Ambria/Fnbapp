@@ -204,14 +204,21 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     finally { setRecatSaving(false); }
   }
 
+  // The 2nd onChange arg is a single-dish delta ({action, name}) — a save
+  // triggered by one add/remove click should only ever touch that ONE dish
+  // against the freshest server copy, never blindly resend this whole local
+  // array (which can be stale relative to another tool's concurrent edit of
+  // the same event — see MenuPackagesView.jsx's commitMenu/applyMenuDelta).
+  // Bulk actions (quick-start/clear, below) still pass no delta: those are
+  // deliberately full replaces, already gated behind an explicit confirm.
   function addDish(name) {
     if (!selectedSet.has(name.toLowerCase())) {
-      onChange([...selected, name]);
+      onChange([...selected, name], { action: 'add', name: name });
     }
   }
 
   function removeDish(name) {
-    onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }));
+    onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }), { action: 'remove', name: name });
     if (onOutsourcedChange && outsourcedSet.has(name)) {
       onOutsourcedChange(outsourcedDishes.filter(function(n) { return n !== name; }));
     }
@@ -276,7 +283,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       }
     } catch (e) { console.warn('Custom dish library add failed:', e); }
     finally { setCustomSaving(false); }
-    onChange([...selected, name]);
+    onChange([...selected, name], { action: 'add', name: name });
     // Tag which of the event's package sections it goes into — this event
     // only, never written to the shared package definition.
     if (pendingCustom.sectionId && onSectionOverridesChange) {
