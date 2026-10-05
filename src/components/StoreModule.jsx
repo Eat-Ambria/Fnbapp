@@ -294,6 +294,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
+  const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
+  const [printReq, setPrintReq] = useState(null); // null | {mode:"all"} | {mode:"one", key} — Order Lists print preview
   const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
   const [orderListLoading, setOrderListLoading] = useState(false);
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
@@ -1121,6 +1123,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const k = ORDER_LIST_KEY_ALIASES[key] || key;
     return orderListCatByKey[k] || orderListCatByKey.uncategorized;
   }
+  // Shared by the Order Lists tab's cards and the print view, so what you
+  // print always matches what's on screen.
+  function buildOrderListGroups() {
+    const grouped = {};
+    orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
+      const key = ORDER_LIST_KEY_ALIASES[r.list_key] || r.list_key;
+      (grouped[key] = grouped[key] || []).push(r);
+    });
+    return orderListCats.map(c=>({meta:c, list:grouped[c.key]||[]})).filter(g=>g.list.length>0);
+  }
   // Add-item form only writes to catering_store_items, so its category picker is
   // scoped to categories that already have a source:"store" item — that's the only
   // way we can resolve a valid category_id without a separate categories-table fetch.
@@ -1613,14 +1625,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         </tr>
                       </thead>
                       <tbody>
-                        {rowGroups.map(group=>(
+                        {rowGroups.map(group=>{
+                          const closed = !!reqCatClosed[group.meta.key];
+                          return (
                           <React.Fragment key={group.meta.key}>
-                            <tr>
-                              <td colSpan={tableColSpan} style={{padding:"7px 10px",fontWeight:700,fontSize:10.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.4,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.borderLight}`}}>
+                            <tr onClick={()=>setReqCatClosed(p=>({...p,[group.meta.key]:!closed}))} style={{cursor:"pointer"}}>
+                              <td colSpan={tableColSpan} style={{padding:"7px 10px",fontWeight:700,fontSize:10.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.4,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.borderLight}`,userSelect:"none"}}>
+                                <span style={{display:"inline-block",width:12,transition:"transform .15s",transform:closed?"rotate(-90deg)":"rotate(0deg)"}}>▾</span>{" "}
                                 {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
                               </td>
                             </tr>
-                            {group.rows.map(row=>{
+                            {!closed && group.rows.map(row=>{
                               const {isMapped, stock, requiredSU} = resolveStock(row);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
                               const done = rowIssued(row);
@@ -1670,7 +1685,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               );
                             })}
                           </React.Fragment>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1683,18 +1699,22 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* ── ORDER LISTS — one card per live Ops category ── */}
       {tab==="orderlists"&&(()=>{
-        const grouped = {};
-        orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
-          const key = ORDER_LIST_KEY_ALIASES[r.list_key] || r.list_key;
-          (grouped[key] = grouped[key] || []).push(r);
-        });
         // Only show categories that actually have something on order — a
         // card per Ops category (9+) sitting empty is more clutter than help.
-        const visibleGroups = orderListCats.map(c=>({meta:c, list:grouped[c.key]||[]})).filter(g=>g.list.length>0);
+        const visibleGroups = buildOrderListGroups();
         return(
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🧺 {T2("Order Lists")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>{T2("Items sent here from the Requirements sheet — grouped by the same inventory category as Store & Inventory.")}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:4}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧺 {T2("Order Lists")}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:4}}>{T2("Items sent here from the Requirements sheet — grouped by the same inventory category as Store & Inventory.")}</div>
+              </div>
+              {visibleGroups.length>0&&(
+                <button onClick={()=>setPrintReq({mode:"all"})} style={{padding:"8px 16px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  🖨 {T2("Print all")} ({visibleGroups.length} {T2("pages")})
+                </button>
+              )}
+            </div>
 
             {orderListLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading…")}</div>}
 
@@ -1704,14 +1724,18 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
             )}
 
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start",marginTop:16}}>
               {visibleGroups.map(({meta,list})=>(
                   <Card key={meta.key} style={{padding:0,overflow:"hidden"}}>
                     <div style={{padding:"14px 16px",background:meta.bg,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:meta.color}}>
                         <span>{meta.icon}</span><span>{meta.label}</span>
                       </div>
-                      <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
+                        <button onClick={()=>setPrintReq({mode:"one",key:meta.key})} title={T2("Print this category's order list")}
+                          style={{width:26,height:26,borderRadius:7,cursor:"pointer",background:C.surface,color:meta.color,border:`1.5px solid ${meta.color}55`,fontSize:12,lineHeight:1}}>🖨</button>
+                      </div>
                     </div>
                     {list.map(item=>(
                       <div key={item.order_date+item.ingredient_name} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,display:"flex",alignItems:"flex-start",gap:10}}>
@@ -2240,6 +2264,64 @@ function StoreModule({events, lang="en", currentUser=null}) {
           </div>
         </div>
       )}
+
+      {/* ── Order Lists print view — one category per printed page, vendor-
+          ready (S.No / Item / Qty / For / a blank Received column), same
+          data the on-screen cards show so nothing drifts between the two. ── */}
+      {printReq&&(()=>{
+        const allGroups = buildOrderListGroups();
+        const toPrint = printReq.mode==="all" ? allGroups : allGroups.filter(g=>g.meta.key===printReq.key);
+        const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
+        return (
+          <div style={{position:"fixed",inset:0,zIndex:9999,background:"#fff",overflow:"auto"}}>
+            <style>{"@media print { .ol-print-toolbar{display:none !important;} .ol-print-page{page-break-after:always;} .ol-print-page:last-child{page-break-after:auto;} }"}</style>
+            <div className="ol-print-toolbar" style={{position:"sticky",top:0,background:"#fff",borderBottom:"1px solid #ddd",padding:"10px 16px",display:"flex",justifyContent:"flex-end",gap:8,zIndex:1}}>
+              <button onClick={()=>window.print()} style={{padding:"8px 16px",borderRadius:8,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>🖨 {T2("Print")}</button>
+              <button onClick={()=>setPrintReq(null)} style={{padding:"8px 16px",borderRadius:8,background:"#eee",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",color:"#333"}}>{T2("Close")}</button>
+            </div>
+            {toPrint.length===0&&<div style={{padding:40,textAlign:"center",color:"#888"}}>{T2("Nothing to print.")}</div>}
+            {toPrint.map(group=>(
+              <div key={group.meta.key} className="ol-print-page" style={{padding:"28px 32px",color:"#1a1a1a",maxWidth:800,margin:"0 auto"}}>
+                <div style={{textAlign:"center",marginBottom:16,borderBottom:"2px solid #1a1a1a",paddingBottom:10}}>
+                  <div style={{fontSize:18,fontWeight:700}}>Ambria Cuisines</div>
+                  <div style={{fontSize:11,color:"#666"}}>Get Your Venue Events Pvt Ltd</div>
+                  <div style={{fontSize:14,fontWeight:700,marginTop:8,letterSpacing:1}}>{T2("ORDERING SHEET")} — {group.meta.label.toUpperCase()}</div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:12}}>
+                  <div><b>{T2("Date")}:</b> {today}</div>
+                  <div><b>{T2("Items")}:</b> {group.list.length}</div>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:"1.5px solid #1a1a1a"}}>
+                      <th style={{textAlign:"left",padding:"5px 4px",width:34}}>{T2("S.No")}</th>
+                      <th style={{textAlign:"left",padding:"5px 4px"}}>{T2("Item")}</th>
+                      <th style={{textAlign:"right",padding:"5px 4px",width:80}}>{T2("Qty")}</th>
+                      <th style={{textAlign:"left",padding:"5px 4px",width:140}}>{T2("For")}</th>
+                      <th style={{textAlign:"center",padding:"5px 4px",width:80}}>{T2("Received")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.list.map((item,i)=>(
+                      <tr key={item.order_date+item.ingredient_name} style={{borderBottom:"1px solid #ccc"}}>
+                        <td style={{padding:"7px 4px",color:"#888"}}>{i+1}</td>
+                        <td style={{padding:"7px 4px",fontWeight:600}}>{item.ingredient_name}{item.ingredient_hindi?" ("+item.ingredient_hindi+")":""}</td>
+                        <td style={{padding:"7px 4px",textAlign:"right"}}>{fmtIssueQty(item.qty,item.unit)}</td>
+                        <td style={{padding:"7px 4px",fontSize:11,color:"#555"}}>{item.source||"—"}</td>
+                        <td style={{padding:"7px 4px"}}></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{display:"flex",justifyContent:"space-between",gap:20,marginTop:46,fontSize:11}}>
+                  <div style={{flex:1,textAlign:"center"}}><div style={{borderTop:"1px solid #888",paddingTop:4}}>{T2("Ordered by")}</div></div>
+                  <div style={{flex:1,textAlign:"center"}}><div style={{borderTop:"1px solid #888",paddingTop:4}}>{T2("Vendor signature")}</div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
     </div>
   );
