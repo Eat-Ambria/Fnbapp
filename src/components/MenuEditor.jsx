@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getExtrasCatId, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
+import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 
@@ -188,11 +188,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     if (!recat) return;
     setRecatSaving(true);
     try {
-      // Left blank (or pointing at a dead category id — see isRealCatId), a
-      // dish falls back into the "Extras" SOP category (if one's been set up)
-      // rather than truly uncategorized — same rule the custom-dish-add
-      // modal uses.
-      var catId = isRealCatId(recat.catId) ? recat.catId : getExtrasCatId();
+      // Left blank (or pointing at a dead category id — see isRealCatId), the
+      // dish goes back to genuinely uncategorized — it shows up in Kitchen
+      // Hub Planning's "Unmapped" list instead of being silently folded into
+      // a catch-all category it was never actually given a recipe for.
+      var catId = isRealCatId(recat.catId) ? recat.catId : '';
       var res = catId
         ? await supabase.from('dish_categories').upsert({ dish_name: recat.name, category_id: catId }, { onConflict: 'dish_name' })
         : await supabase.from('dish_categories').delete().eq('dish_name', recat.name);
@@ -260,10 +260,12 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   async function confirmCustom() {
     if (!pendingCustom) return;
     var name = pendingCustom.name;
-    // Left untagged, a dish falls into the "Extras" SOP category (if one's
-    // been set up) so kitchen/store see it exists and can plan for it,
-    // instead of having no classification anywhere.
-    var catId = pendingCustom.catId || getExtrasCatId();
+    // Left untagged (no pill picked), the dish stays genuinely uncategorized
+    // — no recipe stub, no silent catch-all bucket. It shows up in Kitchen
+    // Hub Planning's "Unmapped" list, so the kitchen team sees plainly that
+    // it has no SOP recipe instead of it quietly looking like a normal
+    // Add-On Counters item.
+    var catId = pendingCustom.catId || '';
     setCustomSaving(true);
     try {
       // Upsert into dishes_master so this dish becomes part of the library (idempotent on 23505)

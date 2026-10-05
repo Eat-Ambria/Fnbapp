@@ -20,6 +20,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 // Utils
 import './utils/styles.js';
 import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, isHiddenSmallRestroBooking } from './utils/helpers.js';
+import { syncAllKitchenMenuMirrors } from './lib/eventItems.js';
 
 // Components
 import { K, type } from './utils/theme.js';
@@ -464,6 +465,23 @@ export default function App() {
         if (!Array.isArray(extras)) extras = [];
         return {...e, menuPackage:pkg, menu, extras, outsourced_dishes:Array.isArray(e.outsourced_dishes)?e.outsourced_dishes:[], odc_location:e.odc_location||null, odc_address:e.odc_address||null, odc_contact_phone:e.odc_contact_phone||null, odc_transport_cost:e.odc_transport_cost||null, odc_lead:e.odc_lead||null, site_recce:e.site_recce||null, odc_menu_confirmed:e.odc_menu_confirmed??false, custom_menu_confirmed:e.custom_menu_confirmed??false, yield_multiplier:Number(e.yield_multiplier)||1.0};
       }));
+      // Self-heal events.menu (the Kitchen-only mirror of event_items) for
+      // every upcoming event right at boot — a menu changed anywhere
+      // (Items tab, Build Menu, anywhere else) then shows up correctly in
+      // Kitchen Hub (Planning, Event Day, Prep Day, Analytics...) from the
+      // moment the app loads, with nothing extra to click. Uses the RAW
+      // stored menu (not the package-default display fallback above) so the
+      // drift check compares against what's actually in the DB. Fire-and-
+      // forget — never blocks the rest of boot.
+      syncAllKitchenMenuMirrors(
+        finalEvents
+          .filter(e => e.date && e.date >= TODAY)
+          .map(e => {
+            let m = e.menu;
+            if (!Array.isArray(m)) { if (typeof m === 'string' && m) { try { m = JSON.parse(m); } catch(err) { m = []; } } else { m = []; } }
+            return { ...e, menu: m };
+          })
+      ).catch(e => console.error('[App] syncAllKitchenMenuMirrors failed:', e));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       if(ktData.length>0){
         const ktObj={};

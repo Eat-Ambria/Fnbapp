@@ -22,6 +22,7 @@ import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanne
 import { EventDayTab } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
+import { syncKitchenMenuMirror } from '../lib/eventItems.js';
 
 // Tints for the SOP library's tiles — category circles and recipe monograms.
 // Rotated by position, because neither a category nor a recipe carries a colour
@@ -854,6 +855,21 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
 
   // -- Planning (Phase 4) --
   const [planEvId, setPlanEvId] = useState(null);
+  // Self-heal events.menu (the Kitchen-only mirror) the moment Planning opens
+  // a function — otherwise a dish swapped in Items/FP only shows up here once
+  // someone separately opens that event's Items or FP tab (which runs its own
+  // self-heal). Combined-day mode spans multiple events; heal each of them.
+  useEffect(function(){
+    if(!planEvId) return;
+    const COMBINED_PREFIX = '__combined__:';
+    if(typeof planEvId==='string' && planEvId.startsWith(COMBINED_PREFIX)){
+      const d = planEvId.slice(COMBINED_PREFIX.length);
+      safeArr(events).filter(e=>e.date===d).forEach(function(e){ syncKitchenMenuMirror(e); });
+    } else {
+      const ev = safeArr(events).find(e=>e.id===planEvId);
+      if(ev) syncKitchenMenuMirror(ev);
+    }
+  },[planEvId]);
   const [planSelDate, setPlanSelDate] = useState(null);
   const [planCalMo, setPlanCalMo] = useState(()=>new Date().getMonth());
   const [planUnmappedOpen, setPlanUnmappedOpen] = useState(false); // Planning: the "Unmapped" list starts folded

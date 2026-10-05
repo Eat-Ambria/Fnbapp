@@ -14,6 +14,7 @@
 // since that logic otherwise only exists wired into that one component's
 // React state.
 import { supabase } from './supabase.js';
+import { fetchAllRows } from './db.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { getAllDishes } from '../data/recipeData.js';
 import { DEFAULT_DEPT } from '../data/salesConfig.js';
@@ -45,6 +46,36 @@ function deptForOverrideTarget(rawId, pkgSecs, sectionsArr) {
   return null;
 }
 
+// Per-event maps that feed resolveDeptForDish — computed once per event from
+// shared (cross-event) lookups plus this one event's own package/overrides.
+function buildEventDeptContext(event, sectionsArr) {
+  const pkgName = resolvePkgName(event.menu_package || event.menuPackage);
+  const pkgSecs = pkgName ? MENU_PACKAGE_SECTIONS[pkgName] : null;
+  const dishNameToPkgDept = {};
+  if (pkgSecs) {
+    pkgSecs.forEach(sec => {
+      const dept = sec.sales_dept || 'kit';
+      (sec.dishes || []).forEach(name => { if (name) dishNameToPkgDept[name] = dept; });
+    });
+  }
+  const sectionOverrides = event.menu_section_overrides || {};
+  const sectionOverrideDept = {};
+  Object.keys(sectionOverrides).forEach(name => {
+    const targetId = sectionOverrides[name];
+    if (!targetId) return;
+    const dept = deptForOverrideTarget(targetId, pkgSecs, sectionsArr);
+    if (dept) sectionOverrideDept[name] = dept;
+  });
+  return { dishNameToPkgDept, sectionOverrideDept };
+}
+
+function resolveDeptForDish(name, ctx) {
+  const { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept } = ctx;
+  const d = allDishesByName[name];
+  const catalogueDept = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;
+  return sectionOverrideDept[name] || dishNameToPkgDept[name] || catalogueDept || metaDeptByName[name] || DEFAULT_DEPT;
+}
+
 // Returns { kit:[names], bev:[names], bak:[names], frt:[names], svc:[names], crk:[names], trn:[names] }
 export async function getEventItemsByDept(event) {
   const out = { kit: [], bev: [], bak: [], frt: [], svc: [], crk: [], trn: [] };
@@ -68,32 +99,95 @@ export async function getEventItemsByDept(event) {
   const allDishesByName = {};
   (getAllDishes({ includeInactive: true }) || []).forEach(d => { allDishesByName[d.dish_name] = d; });
 
-  const pkgName = resolvePkgName(event.menu_package || event.menuPackage);
-  const pkgSecs = pkgName ? MENU_PACKAGE_SECTIONS[pkgName] : null;
-  const dishNameToPkgDept = {};
-  if (pkgSecs) {
-    pkgSecs.forEach(sec => {
-      const dept = sec.sales_dept || 'kit';
-      (sec.dishes || []).forEach(name => { if (name) dishNameToPkgDept[name] = dept; });
-    });
-  }
-
-  const sectionOverrides = event.menu_section_overrides || {};
-  const sectionOverrideDept = {};
-  Object.keys(sectionOverrides).forEach(name => {
-    const targetId = sectionOverrides[name];
-    if (!targetId) return;
-    const dept = deptForOverrideTarget(targetId, pkgSecs, sectionsArr);
-    if (dept) sectionOverrideDept[name] = dept;
-  });
+  const { dishNameToPkgDept, sectionOverrideDept } = buildEventDeptContext(event, sectionsArr);
+  const ctx = { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept };
 
   items.forEach(it => {
-    const name = it.dish_name;
-    const d = allDishesByName[name];
-    const catalogueDept = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;
-    const dept = sectionOverrideDept[name] || dishNameToPkgDept[name] || catalogueDept || metaDeptByName[name] || DEFAULT_DEPT;
+    const dept = resolveDeptForDish(it.dish_name, ctx);
     if (!out[dept]) out[dept] = [];
-    out[dept].push(name);
+    out[dept].push(it.dish_name);
   });
   return out;
+}
+
+// Re-derive events.menu (the Kitchen-only mirror) from the CURRENT event_items
+// and write it back if it's drifted — the same repair EventMenuBuilderView.jsx
+// already does for itself right after it loads an event (see its "self-heal"
+// effect calling mirrorKitchenMenu). That only ever ran when someone happened
+// to open THAT specific screen for the event, so Kitchen Hub's Planning tab
+// and Build Menu could sit showing a stale mirror indefinitely unless someone
+// separately opened the Items/FP tab first. Call this wherever an event is
+// selected for viewing in either of those screens so they self-heal on their
+// own, the same way.
+export async function syncKitchenMenuMirror(event) {
+  if (!event || !event.id) return;
+  // event_items only becomes the authoritative source once this event has
+  // actually been opened in the Items tab at least once (event_items_initialized
+  // — same flag EventMenuBuilderView.jsx sets). Before that, event_items is
+  // legitimately empty and events.menu (or the package-default fallback) is
+  // all there is — healing from an empty event_items here would silently wipe
+  // a perfectly fine, simply-not-yet-touched menu.
+  if (!event.event_items_initialized) return;
+  try {
+    const byDept = await getEventItemsByDept(event);
+    const kitNames = byDept.kit || [];
+    const current = Array.isArray(event.menu) ? event.menu : [];
+    const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
+    if (same) return;
+    const { error } = await supabase.from('events').update({ menu: kitNames }).eq('id', event.id);
+    if (error) console.error('[eventItems] syncKitchenMenuMirror failed:', error);
+  } catch (e) {
+    console.error('[eventItems] syncKitchenMenuMirror err:', e);
+  }
+}
+
+// Batch version of syncKitchenMenuMirror — one shared set of queries for every
+// event instead of N round trips, so this is cheap enough to run proactively
+// on every app boot (see App.jsx) rather than only when a screen happens to
+// open one specific event. A menu changed in the Items tab, Build Menu, or
+// anywhere else then shows up correctly everywhere (Planning, Event Day, Prep
+// Day, Analytics...) the moment the app loads, with no extra click required.
+export async function syncAllKitchenMenuMirrors(events) {
+  const initialized = (events || []).filter(e => e && e.id && e.event_items_initialized);
+  if (initialized.length === 0) return;
+  const ids = initialized.map(e => e.id);
+
+  try {
+    const [itemRows, sectionsRes, metaRes] = await Promise.all([
+      fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids)),
+      supabase.from('dish_catalogue_sections').select('id, sales_dept, parent_section_id'),
+      supabase.from('sales_items_meta').select('dish_name, sales_dept'),
+    ]);
+
+    const itemsByEvent = {};
+    (itemRows || []).forEach(r => { (itemsByEvent[r.event_id] = itemsByEvent[r.event_id] || []).push(r.dish_name); });
+
+    const sectionsArr = sectionsRes.data || [];
+    const sectionSalesDeptMap = {};
+    sectionsArr.forEach(s => { sectionSalesDeptMap[s.id] = s.sales_dept || 'kit'; });
+
+    const metaDeptByName = {};
+    (metaRes.data || []).forEach(r => { metaDeptByName[r.dish_name] = r.sales_dept || DEFAULT_DEPT; });
+
+    const allDishesByName = {};
+    (getAllDishes({ includeInactive: true }) || []).forEach(d => { allDishesByName[d.dish_name] = d; });
+
+    const updates = [];
+    initialized.forEach(event => {
+      const items = itemsByEvent[event.id] || [];
+      const { dishNameToPkgDept, sectionOverrideDept } = buildEventDeptContext(event, sectionsArr);
+      const ctx = { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept };
+      const kitNames = items.filter(name => resolveDeptForDish(name, ctx) === 'kit');
+      const current = Array.isArray(event.menu) ? event.menu : [];
+      const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
+      if (!same) updates.push({ id: event.id, menu: kitNames });
+    });
+    if (updates.length === 0) return;
+    // Partial-column upsert — only id/menu are touched on each row, every
+    // other column is left exactly as it is.
+    const { error } = await supabase.from('events').upsert(updates, { onConflict: 'id' });
+    if (error) console.error('[eventItems] syncAllKitchenMenuMirrors upsert failed:', error);
+  } catch (e) {
+    console.error('[eventItems] syncAllKitchenMenuMirrors err:', e);
+  }
 }

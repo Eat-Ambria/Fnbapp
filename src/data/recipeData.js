@@ -803,23 +803,6 @@ function setPackageSections(pkgName, sections, flatDishes) {
   if (Array.isArray(flatDishes)) MENU_PACKAGES[pkgName] = flatDishes;
 }
 
-// V89 — "Extras" is an admin-created SOP category (Kitchen Hub -> SOPs ->
-// Add Category) meant as the catch-all for add-ons with no real recipe —
-// resolved by name since there's no dedicated config slot for "the default
-// fallback category" (rename it and this stops matching; that's expected).
-// The catch-all SOP category for a custom dish added with no category chosen.
-// Different installations have named this differently over time ("Extras",
-// "Add-On Counters") — match either so the fallback actually has somewhere
-// to land instead of silently no-op'ing (see createCustomDishInLibrary below,
-// which bails with no recipe/category row at all when this returns null).
-function getExtrasCatId() {
-  var cat = (RECIPE_DB.cats || []).find(function(c) {
-    var n = (c.name || '').trim().toLowerCase();
-    return n === 'extras' || n === 'add-on counters' || n === 'add on counters' || n === 'addon counters';
-  });
-  return cat ? cat.id : null;
-}
-
 // V87 — shared "add a brand-new dish to the library" flow, used by every
 // custom-dish-add entry point (Build Menu's MenuEditor, the Proposal Menu
 // Builder, the Booked Functions menu editor) so a new dish always gets the
@@ -831,10 +814,12 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
   if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
   upsertDishMaster(name, { is_active: true });
-  // catId is optional — a dish left untagged falls into the "Extras" SOP
-  // category (if one's been set up) so kitchen/store still see it exists and
-  // can plan for it, instead of silently having no classification anywhere.
-  catId = catId || getExtrasCatId();
+  // catId is optional — a dish added with none picked stays genuinely
+  // uncategorized (no recipe stub, no silent catch-all bucket). It then shows
+  // up in Kitchen Hub Planning's "Unmapped" list, which is the whole point:
+  // the kitchen team needs to see "this dish has no SOP recipe" plainly, not
+  // have it quietly folded into a normal-looking category tile where it's
+  // easy to miss.
   if (!catId) return;
   var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
   if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
@@ -852,4 +837,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary, getExtrasCatId };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };

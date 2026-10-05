@@ -7,6 +7,7 @@ import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
+import { syncKitchenMenuMirror } from '../lib/eventItems.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import { SALES_DEPTS } from '../data/salesConfig.js';
 import { K, type } from '../utils/theme.js';
@@ -109,6 +110,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // BUILD MENU TAB — preserved verbatim from V62
   // ════════════════════════════════════════════════════════════
   var [selEvId, setSelEvId] = useState(null);
+  // Self-heal events.menu (the Kitchen-only mirror) the moment Build Menu
+  // opens a function — otherwise a dish swapped in the Items/FP tab only
+  // shows up here once someone separately opens that event's Items or FP
+  // tab (which runs its own self-heal).
+  useEffect(function(){
+    if (!selEvId) return;
+    var ev = safeArr(events).find(function(e){ return e.id === selEvId; });
+    if (ev) syncKitchenMenuMirror(ev);
+  }, [selEvId]);
   // "View FP" on a list card — a lightweight peek at the Function Plan print
   // view without leaving the list for the full item-builder (selEvId's flow).
   var [fpViewEvId, setFpViewEvId] = useState(null);
