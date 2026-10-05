@@ -38,6 +38,12 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var [searchQ, setSearchQ]     = useState('');
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
   var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
+  var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by}
+
+  // Only admins may open the Menu Builder from here — Head Chef (and
+  // everyone else) can still view this list and jump into the Function
+  // Plan, just not re-edit the menu post-booking.
+  var isAdmin = !!(currentUser && currentUser.role === 'admin');
 
   async function loadEvents() {
     setLoading(true);
@@ -56,22 +62,51 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
     }
   }
 
-  useEffect(function(){ loadEvents(); }, []);
+  async function loadFpStatuses() {
+    try {
+      var rows = await fetchAllRows(function(){
+        return supabase.from('event_function_plans').select('event_id, locked, locked_by');
+      });
+      var map = {};
+      (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '' }; });
+      setFpMap(map);
+    } catch (e) {
+      console.error('[BookedFunctions] loadFpStatuses failed:', e);
+    }
+  }
+
+  useEffect(function(){ loadEvents(); loadFpStatuses(); }, []);
+
+  // not created (no row yet) → made, editable → locked/finalized
+  function fpStatusFor(ev) {
+    var row = fpMap[ev.id];
+    if (!row) return { key: 'none', label: T2('Not made'), color: C.muted, bg: C.bg, border: C.border };
+    if (row.locked) return { key: 'locked', label: T2('Locked'), color: C.green, bg: C.greenBg, border: C.greenBorder };
+    return { key: 'made', label: T2('Made'), color: C.amber, bg: C.amberBg, border: C.amberBorder };
+  }
 
   function openMenuBuilder(ev, tab) {
+    if (tab !== 'fp' && !isAdmin) return; // menu edits are admin-only from this list
     setMenuBuilderTab(tab || 'items');
     setMenuBuilderEvent(ev);
   }
   function closeMenuBuilder() {
     loadEvents();
+    loadFpStatuses();
     setMenuBuilderEvent(null);
     setMenuBuilderTab('items');
   }
 
   var filteredList = useMemo(function(){
     var q = searchQ.trim().toLowerCase();
+    var qDigits = searchQ.replace(/\D/g, '');
     var base = !q ? events : events.filter(function(e){
-      return (e.guest || '').toLowerCase().includes(q) || (e.venue || '').toLowerCase().includes(q);
+      if ((e.guest || '').toLowerCase().includes(q) || (e.venue || '').toLowerCase().includes(q)) return true;
+      if (qDigits.length >= 3) {
+        var phone = ((e.lms_raw && e.lms_raw.fisc_client_mobile) || '').replace(/\D/g, '');
+        if (phone && phone.includes(qDigits)) return true;
+      }
+      return false;
     });
     var todayTs = parseEventDate(TODAY);
     return base.slice().sort(function(a, b){
@@ -109,7 +144,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
-          placeholder={T2("Search guest name or venue…")}
+          placeholder={T2("Search guest name, venue or contact number…")}
           style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
         <span style={{ fontSize: 12, color: C.muted, marginLeft: 4 }}>
           {filteredList.length} {filteredList.length === 1 ? T2("function") : T2("functions")}
@@ -143,10 +178,18 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
            fields instead of shrinking columns past readability. ── */
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filteredList.map(function(ev){
+            var fpSt = fpStatusFor(ev);
             return (
               <div key={ev.id} style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, padding: "14px 14px" }}>
-                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.text }}>{ev.guest || T2("Function")}</div>
-                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, color: C.text }}>{ev.guest || T2("Function")}</div>
+                    <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
+                  </div>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 20, color: fpSt.color, background: fpSt.bg, border: "1px solid " + fpSt.border, whiteSpace: "nowrap" }}>
+                    {T2("FP")}: {fpSt.label}
+                  </span>
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 10px", marginTop: 12, paddingTop: 12, borderTop: "1px solid " + C.border }}>
                   <div>
                     <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Venue")}</div>
@@ -166,12 +209,12 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }}
-                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }} disabled={!isAdmin} title={isAdmin ? '' : T2("Admin only")}
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: isAdmin ? "pointer" : "not-allowed", opacity: isAdmin ? 1 : 0.4 }}>
                     🍽 {T2("Menu")}
                   </button>
                   <button onClick={function(){ openMenuBuilder(ev, 'fp'); }}
-                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: C.wine, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: fpSt.color, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
                     📋 {T2("FP")}
                   </button>
                 </div>
@@ -183,19 +226,21 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
 
       {!loading && filteredList.length > 0 && !isMobile && (
         <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.9fr 0.45fr 0.9fr 0.9fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
             <div>{T2("Guest / Event")}</div>
             <div>{T2("Venue")}</div>
             <div>{T2("Date")}</div>
             <div style={{ textAlign: "right" }}>{T2("Pax")}</div>
             <div>{T2("Menu Package")}</div>
+            <div>{T2("FP Status")}</div>
             <div style={{ textAlign: "right" }}>{T2("Actions")}</div>
           </div>
 
           {filteredList.map(function(ev){
+            var fpSt = fpStatusFor(ev);
             return (
               <div key={ev.id}
-                style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1fr 0.5fr 1fr 1.4fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
+                style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.9fr 0.45fr 0.9fr 0.9fr 1.4fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{ev.guest || T2("Function")}</div>
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
@@ -204,13 +249,18 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                 <div style={{ fontSize: 12 }}>{ev.date || <span style={{color:C.muted}}>—</span>}</div>
                 <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{ev.pax != null ? ev.pax : '—'}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{ev.menu_package || ev.menuPackage || <span>—</span>}</div>
+                <div>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 20, color: fpSt.color, background: fpSt.bg, border: "1px solid " + fpSt.border, whiteSpace: "nowrap" }}>
+                    {fpSt.label}
+                  </span>
+                </div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }} title={T2("Open Menu Builder")}
-                    style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                  <button onClick={function(){ openMenuBuilder(ev, 'items'); }} disabled={!isAdmin} title={isAdmin ? T2("Open Menu Builder") : T2("Admin only")}
+                    style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: isAdmin ? "pointer" : "not-allowed", opacity: isAdmin ? 1 : 0.4 }}>
                     🍽 {T2("Menu")}
                   </button>
                   <button onClick={function(){ openMenuBuilder(ev, 'fp'); }} title={T2("Open Function Plan")}
-                    style={{ padding: "5px 10px", borderRadius: 6, background: C.wine, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    style={{ padding: "5px 10px", borderRadius: 6, background: fpSt.color, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     📋 {T2("FP")}
                   </button>
                 </div>
