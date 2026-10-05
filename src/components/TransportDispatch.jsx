@@ -269,7 +269,9 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             const sent=uniqDishes.length;
             const deliveredAll = rows.length>0 && rows.every(r=>r.status==="Delivered");
             const allDone = sent>0 && sent>=total && deliveredAll;
-            return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0};
+            const vehIds=[...new Set(rows.map(r=>r.vehicleId).filter(Boolean))];
+            const assignedVehicleId = vehIds.length===1?vehIds[0]:"";
+            return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0, assignedVehicleId};
           });
           const startedStations = stationsMeta.filter(s=>s.started);
           const notStartedStations = stationsMeta.filter(s=>!s.started);
@@ -277,6 +279,20 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           const readyDishes = stationsMeta.reduce((n,s)=>n+s.sent,0);
           const readyPct = safePct(readyDishes,totalDishes);
           function toggleSecOpen(secKey, currentOpen){ setTdSecOpen(p=>({...p,[secKey]:!currentOpen})); }
+          // People load a station's dishes onto one truck together, so the
+          // truck assignment lives at the station level, not per dish —
+          // tags every transportQueue row for this event+station with the
+          // chosen vehicleId.
+          function setStationVehicle(sec, vehicleId){
+            if(!setTransportQueue) return;
+            setTransportQueue(prev=>prev.map(r=>{
+              const belongsToEv = r.evId ? r.evId===ev.id : (r.event===ev.guest && r.eventDate===ev.date);
+              if(!belongsToEv) return r;
+              const rowSec = r.sec || getCatIdForDish(r.dish) || "other";
+              if(rowSec!==sec) return r;
+              return {...r, vehicleId};
+            }));
+          }
 
           return (
             <Card style={{marginBottom:14,padding:0,overflow:"hidden",border:`2px solid ${p.c}18`}}>
@@ -408,6 +424,17 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                 {startedStations.map(st=>{
                   const secKey=ev.id+"_"+st.sec;
                   const open = tdSecOpen[secKey]!==undefined?tdSecOpen[secKey]:!st.allDone;
+                  const assignedVeh = st.assignedVehicleId ? (fleetList.find(v=>v.id===st.assignedVehicleId)||{name:st.assignedVehicleId,icon:"🚛"}) : null;
+                  const truckPicker = dispatch.assignments.length>0 && (
+                    <select value={st.assignedVehicleId} onClick={e=>e.stopPropagation()} onChange={e=>setStationVehicle(st.sec,e.target.value)}
+                      style={{marginLeft:"auto",fontSize:10.5,fontWeight:600,padding:"3px 6px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:st.assignedVehicleId?C.text:C.muted,maxWidth:150}}>
+                      <option value="">🚛 {T2("Assign truck")}</option>
+                      {dispatch.assignments.map(a=>{
+                        const v=fleetList.find(x=>x.id===a.vehicleId)||{name:a.vehicleId,icon:"🚛"};
+                        return <option key={a.vehicleId} value={a.vehicleId}>{v.icon} {v.name}</option>;
+                      })}
+                    </select>
+                  );
                   if(!open){
                     return (
                       <div key={st.sec} onClick={()=>toggleSecOpen(secKey,open)}
@@ -415,16 +442,20 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         <span style={{width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0}}/>
                         <span style={{fontSize:12,fontWeight:700,color:C.green}}>{st.icon} {st.name}</span>
                         <span style={{fontSize:11,color:C.green}}>{st.sent}/{st.total} {T2("delivered")}</span>
-                        <span style={{marginLeft:"auto",fontSize:10,color:C.green}}>▸ {T2("collapsed")}</span>
+                        {assignedVeh&&<span style={{fontSize:10.5,color:C.green,fontWeight:600}}>{assignedVeh.icon} {assignedVeh.name}</span>}
+                        <span style={{marginLeft:assignedVeh?8:"auto",fontSize:10,color:C.green}}>▸ {T2("collapsed")}</span>
                       </div>
                     );
                   }
                   return (
                     <div key={st.sec} style={{marginBottom:12}}>
-                      <div onClick={()=>toggleSecOpen(secKey,open)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,cursor:"pointer"}}>
-                        <span style={{width:8,height:8,borderRadius:"50%",background:st.color,flexShrink:0}}/>
-                        <span style={{fontSize:12.5,fontWeight:700,color:st.color}}>{st.icon} {st.name}</span>
-                        <span style={{fontSize:11,color:C.muted}}>{st.sent}/{st.total} {T2("ready")}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                        <div onClick={()=>toggleSecOpen(secKey,open)} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                          <span style={{width:8,height:8,borderRadius:"50%",background:st.color,flexShrink:0}}/>
+                          <span style={{fontSize:12.5,fontWeight:700,color:st.color}}>{st.icon} {st.name}</span>
+                          <span style={{fontSize:11,color:C.muted}}>{st.sent}/{st.total} {T2("ready")}</span>
+                        </div>
+                        {truckPicker}
                       </div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:7,paddingLeft:16}}>
                         {st.rows.map(row=>{
