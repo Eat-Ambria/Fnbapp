@@ -369,6 +369,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }, [dishItems]);
 
   async function toggleFoc(dishName) {
+    if (blockIfMenuLocked()) return;
     var cur = dishItems.find(function(x){ return x.dish_name === dishName; });
     if (!cur) return;
     var next = !cur.foc;
@@ -394,6 +395,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var s = {}; outsourcedDishes.forEach(function(n){ s[n] = true; }); return s;
   }, [outsourcedDishes]);
   async function toggleOutsourced(dishName) {
+    if (blockIfMenuLocked()) return;
     var isOut = !!outsourcedSet[dishName];
     var next = isOut ? outsourcedDishes.filter(function(n){ return n !== dishName; }) : outsourcedDishes.concat([dishName]);
     var prev = outsourcedDishes;
@@ -552,6 +554,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var isOwnLock = !!(fp && fp.locked_by && currentUser && currentUser.name && fp.locked_by === currentUser.name);
   var requiredUnlockCode = isOwnLock ? '' : getFpUnlockCode();
 
+  // A locked FP has to freeze the menu too — otherwise "locking" only
+  // protects the text fields while dishes keep changing underneath it,
+  // which is no protection at all. Unlocking (via the existing flow above —
+  // free for whoever locked it, code-gated for anyone else) is the one gate
+  // for both; there's no separate bypass for menu edits specifically.
+  function blockIfMenuLocked() {
+    if (!(fp && fp.locked)) return false;
+    alert(T2('This Function Plan is locked. Unlock it first to change the menu.'));
+    return true;
+  }
+
   async function writeFpLockState(patch, histEntry) {
     var next = { ...(fp || { event_id: event.id }), ...patch,
       lock_history: [ ...((fp && fp.lock_history) || []), histEntry ] };
@@ -663,6 +676,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
+    if (blockIfMenuLocked()) return;
     var isSelected = !!selectedSet[dishName];
     var inTemplate = !!templateSet[dishName];
     var dept = effectiveDeptForDish(dishName);
@@ -714,6 +728,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // select it for this event, and tag which section/subsection pill it shows
   // under (this event only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
+    if (blockIfMenuLocked()) return;
     await createCustomDishInLibrary(supabase, name, catId);
     setDishLibBump(function(n){ return n + 1; });
     var row = { event_id: event.id, dish_name: name, is_addon: true, ordering: dishItems.length };
@@ -728,6 +743,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Same as addCustomDish, minus the library-creation step — for a dish the
   // chef picked from the existing library search instead of typing a new one.
   async function addExistingDish(name, sectionId) {
+    if (blockIfMenuLocked()) return;
     var row = { event_id: event.id, dish_name: name, is_addon: true, ordering: dishItems.length };
     var res = await supabase.from('event_items').insert(row).select().single();
     if (res.error) throw res.error;
@@ -757,6 +773,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // under the chosen pill — no event_items insert, so nothing is auto-picked;
   // the user selects individual dishes from there via the normal onToggle.
   async function addSectionFromLibrary(catSectionId, targetId) {
+    if (blockIfMenuLocked()) return;
     if (!targetId) return; // nothing to browse under without a target pill
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
     var ids = [catSectionId].concat(subIds);
@@ -776,6 +793,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // dish's tag pointing at it (and its subsection buckets) — metadata-only,
   // mirrors MenuBuilderView.jsx's removeAdHocSection.
   async function removeAdHocSection(grp) {
+    if (blockIfMenuLocked()) return;
     var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
     var next = { ...sectionOverrides };
     var changed = false;
@@ -788,6 +806,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
   async function loadPackageDefaults() {
+    if (blockIfMenuLocked()) return;
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
     var have = {};
     dishItems.forEach(function(x){ have[x.dish_name] = true; });
@@ -1337,6 +1356,15 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               onRequestLock={function(){ setFpLockModal('lock'); }}
               onRequestUnlock={function(){ setFpLockModal('unlock'); }} />
           )}
+        </div>
+      )}
+
+      {activeSubTab === 'items' && fp && fp.locked && (
+        <div style={{ margin: "0 16px", padding: "10px 16px", borderRadius: 10, background: C.warnBg || '#FFF3E0', border: "1px solid " + (C.warnBorder || '#FFD9A8'), color: C.warn || '#A15C00', fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          🔒 {T2("This Function Plan is locked — the menu can't be changed until it's unlocked.")}
+          <button onClick={function(){ setActiveSubTab('fp'); }} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "inherit", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 12.5 }}>
+            {T2("Go to Function Plan")}
+          </button>
         </div>
       )}
 

@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase.js';
 // { [dishName]: sectionId } tag for dishes not natively listed in any of the
 // package's sections (custom additions, or catalogue dishes outside it) — it
 // never touches the shared package definition, only this one event's menu.
-function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange, outsourcedDishes = [], onOutsourcedChange }) {
+function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange, outsourcedDishes = [], onOutsourcedChange, locked = false }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
   var [selSearch, setSelSearch] = useState("");
@@ -211,13 +211,19 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // the same event — see MenuPackagesView.jsx's commitMenu/applyMenuDelta).
   // Bulk actions (quick-start/clear, below) still pass no delta: those are
   // deliberately full replaces, already gated behind an explicit confirm.
+  function warnLocked() {
+    alert(T2("This event's Function Plan is locked. Unlock it first to change the menu."));
+  }
+
   function addDish(name) {
+    if (locked) { warnLocked(); return; }
     if (!selectedSet.has(name.toLowerCase())) {
       onChange([...selected, name], { action: 'add', name: name });
     }
   }
 
   function removeDish(name) {
+    if (locked) { warnLocked(); return; }
     onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }), { action: 'remove', name: name });
     if (onOutsourcedChange && outsourcedSet.has(name)) {
       onOutsourcedChange(outsourcedDishes.filter(function(n) { return n !== name; }));
@@ -229,6 +235,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // KitchenHub.jsx/EventDayTab.jsx and buildEventBags() in StoreModule.jsx.
   var outsourcedSet = new Set(outsourcedDishes || []);
   function toggleOutsourced(name) {
+    if (locked) { warnLocked(); return; }
     if (!onOutsourcedChange) return;
     var isOut = outsourcedSet.has(name);
     onOutsourcedChange(isOut ? outsourcedDishes.filter(function(n) { return n !== name; }) : [...outsourcedDishes, name]);
@@ -243,6 +250,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var [pendingCustom, setPendingCustom] = useState(null); // { name, catId } | null
 
   function openCustomModal() {
+    if (locked) { warnLocked(); return; }
     var name = customDish.trim();
     if (!name) return;
     if (selectedSet.has(name.toLowerCase())) { setCustomDish(""); return; }
@@ -303,6 +311,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var [pendingDestructive, setPendingDestructive] = useState(null); // { kind: 'package'|'clear', pkgName?, count } | null
 
   function selectPackage(pkgName) {
+    if (locked) { warnLocked(); return; }
     if (selected.length > 0) {
       setPendingDestructive({ kind: 'package', pkgName: pkgName, count: (MENU_PACKAGES[pkgName] || []).length });
       return;
@@ -334,6 +343,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   return (
     <div>
+      {locked && (
+        <div style={{ marginBottom: 10, padding: "10px 14px", background: C.redBg, borderRadius: 10, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12.5, fontWeight: 600 }}>
+          🔒 {T2("This event's Function Plan is locked — unlock it to change the menu.")}
+        </div>
+      )}
       {/* Quick start from package */}
       <div style={{ marginBottom: 10, padding: "10px 14px", background: C.bg, borderRadius: 10, border: "1px solid " + C.border }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: "uppercase" }}>{T2("Quick start from package")}</div>
@@ -341,8 +355,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           {Object.keys(MENU_PACKAGES).map(function(pkg) {
             var count = (MENU_PACKAGES[pkg] || []).length;
             return (
-              <button key={pkg} onClick={function() { selectPackage(pkg); }}
-                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer", background: "transparent", border: "1px solid " + C.border, color: C.text, whiteSpace: "nowrap" }}>
+              <button key={pkg} onClick={function() { selectPackage(pkg); }} disabled={locked}
+                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, cursor: locked ? "not-allowed" : "pointer", background: "transparent", border: "1px solid " + C.border, color: C.text, whiteSpace: "nowrap", opacity: locked ? 0.5 : 1 }}>
                 {pkg} <span style={{ color: C.muted }}>({count})</span>
               </button>
             );
@@ -351,7 +365,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       </div>
 
       {/* Two-column layout */}
-      <div style={{ display: "flex", gap: 12, minHeight: 400 }}>
+      <div style={{ display: "flex", gap: 12, minHeight: 400, opacity: locked ? 0.7 : 1 }}>
 
         {/* LEFT: Available dishes */}
         <div style={{ ...COL, flex: 1 }}>
@@ -440,7 +454,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           <div style={{ ...COLHEAD, background: C.greenBg, color: C.green }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>✅ {T2("Selected menu")} ({selected.length})</span>
-              {selected.length > 0 && (
+              {selected.length > 0 && !locked && (
                 <button onClick={function() { setPendingDestructive({ kind: 'clear', count: 0 }); }}
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
               )}

@@ -1455,7 +1455,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         </div>
       )}
 
-      {mainTab === "events" && selEv && (
+      {mainTab === "events" && selEv && (() => {
+        var evLocked = !!(fpMap[selEv.id] && fpMap[selEv.id].locked);
+        return (
         <div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
             <button onClick={function() { setSelEvId(null); }}
@@ -1465,6 +1467,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
               <div style={{ fontSize: 12, color: C.muted }}>{selEv.venue} · {selEv.date} · {selEv.time || "TBD"} · {selEv.pax || "?"} pax</div>
             </div>
           </div>
+
+          {evLocked && (
+            <div style={{ marginBottom: 14, padding: "10px 16px", borderRadius: 10, background: C.greenBg, border: "1px solid " + C.greenBorder, color: C.green, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+              🔒 {T2("This event's Function Plan is locked — the menu can't be changed here until it's unlocked.")}
+              <button onClick={function() { setFpViewEvId(selEv.id); }} style={{ marginLeft: "auto", background: "transparent", border: "none", color: "inherit", fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontSize: 12.5 }}>
+                {T2("View Function Plan")}
+              </button>
+            </div>
+          )}
+
           <MenuEditor
             selected={selEv.menu && selEv.menu.length > 0 ? selEv.menu : (selEv.menuPackage && MENU_PACKAGES[selEv.menuPackage] ? MENU_PACKAGES[selEv.menuPackage] : [])}
             onChange={function(dishes, delta) { saveMenu(dishes, delta); }}
@@ -1473,6 +1485,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             onSectionOverridesChange={function(next) { saveSectionOverrides(next); }}
             outsourcedDishes={selEv.outsourced_dishes || []}
             onOutsourcedChange={function(next) { saveOutsourced(next); }}
+            locked={evLocked}
             lang={lang}
           />
 
@@ -1499,7 +1512,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ════════════════════════════════════════════════════════ */}
       {/* PACKAGES TAB — 5b left rail                              */}
