@@ -119,25 +119,35 @@ export async function getEventItemsByDept(event) {
 // separately opened the Items/FP tab first. Call this wherever an event is
 // selected for viewing in either of those screens so they self-heal on their
 // own, the same way.
+//
+// Returns the corrected `menu` array when a write happened, or null when
+// nothing needed fixing — this ONLY writes the database. Callers hold the
+// `events` React state this came from, not this module, so each one is
+// responsible for merging the returned menu into its own local state; a
+// caller that skips that merge keeps rendering the pre-heal menu until a
+// full reload re-fetches the now-corrected row (the DB is right immediately,
+// the open screen isn't, until someone refreshes).
 export async function syncKitchenMenuMirror(event) {
-  if (!event || !event.id) return;
+  if (!event || !event.id) return null;
   // event_items only becomes the authoritative source once this event has
   // actually been opened in the Items tab at least once (event_items_initialized
   // — same flag EventMenuBuilderView.jsx sets). Before that, event_items is
   // legitimately empty and events.menu (or the package-default fallback) is
   // all there is — healing from an empty event_items here would silently wipe
   // a perfectly fine, simply-not-yet-touched menu.
-  if (!event.event_items_initialized) return;
+  if (!event.event_items_initialized) return null;
   try {
     const byDept = await getEventItemsByDept(event);
     const kitNames = byDept.kit || [];
     const current = Array.isArray(event.menu) ? event.menu : [];
     const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
-    if (same) return;
+    if (same) return null;
     const { error } = await supabase.from('events').update({ menu: kitNames }).eq('id', event.id);
-    if (error) console.error('[eventItems] syncKitchenMenuMirror failed:', error);
+    if (error) { console.error('[eventItems] syncKitchenMenuMirror failed:', error); return null; }
+    return kitNames;
   } catch (e) {
     console.error('[eventItems] syncKitchenMenuMirror err:', e);
+    return null;
   }
 }
 
@@ -147,9 +157,14 @@ export async function syncKitchenMenuMirror(event) {
 // open one specific event. A menu changed in the Items tab, Build Menu, or
 // anywhere else then shows up correctly everywhere (Planning, Event Day, Prep
 // Day, Analytics...) the moment the app loads, with no extra click required.
+//
+// Returns the list of {id, menu} rows it actually corrected (or [] when
+// nothing drifted) — this only writes the database; App.jsx's own local
+// `events` state has to be merged by the caller or the running session keeps
+// showing the pre-heal menu until a refresh re-fetches the now-fixed rows.
 export async function syncAllKitchenMenuMirrors(events) {
   const initialized = (events || []).filter(e => e && e.id && e.event_items_initialized);
-  if (initialized.length === 0) return;
+  if (initialized.length === 0) return [];
   const ids = initialized.map(e => e.id);
 
   try {
@@ -182,12 +197,14 @@ export async function syncAllKitchenMenuMirrors(events) {
       const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
       if (!same) updates.push({ id: event.id, menu: kitNames });
     });
-    if (updates.length === 0) return;
+    if (updates.length === 0) return [];
     // Partial-column upsert — only id/menu are touched on each row, every
     // other column is left exactly as it is.
     const { error } = await supabase.from('events').upsert(updates, { onConflict: 'id' });
-    if (error) console.error('[eventItems] syncAllKitchenMenuMirrors upsert failed:', error);
+    if (error) { console.error('[eventItems] syncAllKitchenMenuMirrors upsert failed:', error); return []; }
+    return updates;
   } catch (e) {
     console.error('[eventItems] syncAllKitchenMenuMirrors err:', e);
+    return [];
   }
 }

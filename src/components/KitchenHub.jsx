@@ -167,7 +167,7 @@ function PlanSectionModal({ open, onClose, icon, title, meta, children }) {
   );
 }
 
-function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
+function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, lang="en", odcOnly=false, currentUser=null, transportQueue=[], setTransportQueue }) {
   const T2 = s => T(s, lang);
 
   // Safe menu array — handles JSONB array or stringified JSON from Supabase.
@@ -861,13 +861,23 @@ function KitchenHub({ events, kitchenTracking, setKitchenTracking, lang="en", od
   // self-heal). Combined-day mode spans multiple events; heal each of them.
   useEffect(function(){
     if(!planEvId) return;
+    // syncKitchenMenuMirror only writes the DB — without patching this tab's
+    // own `events` copy too, Planning kept showing the pre-heal menu (the
+    // category counts wouldn't catch up) until a full page reload re-fetched
+    // the already-corrected row. setEvents here is the raw local setter, not
+    // the DB-writing wrapper — this is reflecting what's already in the DB.
+    function heal(e){
+      syncKitchenMenuMirror(e).then(function(menu){
+        if(menu && setEvents) setEvents(function(prev){ return safeArr(prev).map(function(x){ return x.id===e.id ? {...x, menu:menu} : x; }); });
+      });
+    }
     const COMBINED_PREFIX = '__combined__:';
     if(typeof planEvId==='string' && planEvId.startsWith(COMBINED_PREFIX)){
       const d = planEvId.slice(COMBINED_PREFIX.length);
-      safeArr(events).filter(e=>e.date===d).forEach(function(e){ syncKitchenMenuMirror(e); });
+      safeArr(events).filter(e=>e.date===d).forEach(heal);
     } else {
       const ev = safeArr(events).find(e=>e.id===planEvId);
-      if(ev) syncKitchenMenuMirror(ev);
+      if(ev) heal(ev);
     }
   },[planEvId]);
   const [planSelDate, setPlanSelDate] = useState(null);

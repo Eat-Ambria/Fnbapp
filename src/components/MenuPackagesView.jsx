@@ -117,7 +117,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   useEffect(function(){
     if (!selEvId) return;
     var ev = safeArr(events).find(function(e){ return e.id === selEvId; });
-    if (ev) syncKitchenMenuMirror(ev);
+    if (!ev) return;
+    // syncKitchenMenuMirror only writes the DB — without patching this tab's
+    // own `events` copy too, Build Menu kept showing the pre-heal list until
+    // a full page reload re-fetched the already-corrected row.
+    syncKitchenMenuMirror(ev).then(function(menu){
+      if (menu && setEvents) setEvents(function(prev){ return safeArr(prev).map(function(x){ return x.id===ev.id ? {...x, menu:menu} : x; }); });
+    });
   }, [selEvId]);
   // "View FP" on a list card — a lightweight peek at the Function Plan print
   // view without leaving the list for the full item-builder (selEvId's flow).

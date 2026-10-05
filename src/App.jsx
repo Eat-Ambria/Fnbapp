@@ -481,7 +481,17 @@ export default function App() {
             if (!Array.isArray(m)) { if (typeof m === 'string' && m) { try { m = JSON.parse(m); } catch(err) { m = []; } } else { m = []; } }
             return { ...e, menu: m };
           })
-      ).catch(e => console.error('[App] syncAllKitchenMenuMirrors failed:', e));
+      ).then(updates => {
+        // This only wrote the DB — without also patching the local copy, this
+        // tab keeps rendering the pre-heal menu (Planning, Event Day...) until
+        // a full reload re-fetches the now-corrected rows. setEvents_raw, not
+        // setEvents — this is reflecting what the DB already has, not a new
+        // edit to push back out.
+        if (updates && updates.length) {
+          const byId = new Map(updates.map(u => [u.id, u.menu]));
+          setEvents_raw(prev => prev.map(e => byId.has(e.id) ? {...e, menu: byId.get(e.id)} : e));
+        }
+      }).catch(e => console.error('[App] syncAllKitchenMenuMirrors failed:', e));
       setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       if(ktData.length>0){
         const ktObj={};
@@ -870,9 +880,9 @@ export default function App() {
     function tabletContent(scr){
       switch(scr){
         case "dashboard": return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
-        case "kitchen": return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+        case "kitchen": return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
         case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
-        default: return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+        default: return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       }
     }
     return (
@@ -1167,7 +1177,7 @@ export default function App() {
     switch(s){
       case "dashboard":      return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
-      case "kitchen":        return <KitchenHub events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+      case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
