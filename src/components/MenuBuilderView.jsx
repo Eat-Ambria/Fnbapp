@@ -7,7 +7,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary } from '../data/recipeData.js';
+import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary, findRecipeForDish } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -2192,6 +2192,11 @@ function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourc
   var dietMeta = DIET_TAGS.find(function(x){ return x.id === diet; });
   var desc = (meta && meta.sales_description) || '';
   var img = (meta && meta.hero_image_url) || d.image || '';
+  // A selected dish with no SOP recipe can never get an auto-calculated yield
+  // or ingredient list — it silently lands in Kitchen Hub's "Unmapped" bucket
+  // and Store can't order for it at all. Surface that right here, at the
+  // point of picking it, instead of only discovering it later in Planning.
+  var hasNoRecipe = isSel && !d.isPhantom && !findRecipeForDish(d.name);
 
   // Four states, and each one has to be legible at a glance in a grid of forty:
   //   in template + picked  → included, brand green
@@ -2228,6 +2233,15 @@ function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourc
             padding: "3px 9px", borderRadius: K.rPill, background: K.warnBg, border: "1px solid " + K.warnBorder,
             color: K.warn, fontSize: 10, fontWeight: 700, letterSpacing: ".4px" }}>
           <Icon name="alert" size={10} strokeWidth={2.4} />{"NO CAT"}
+        </span>
+      )}
+      {/* NO RECIPE badge — selected, in the catalogue, but no SOP written yet */}
+      {!d.isPhantom && hasNoRecipe && (
+        <span title="No recipe/SOP yet — won't appear in Kitchen Hub Planning under its section, and Store can't calculate ingredients for it until one is added"
+          style={{ position: "absolute", top: 10, left: 10, zIndex: 2, display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "3px 9px", borderRadius: K.rPill, background: K.warnBg, border: "1px solid " + K.warnBorder,
+            color: K.warn, fontSize: 10, fontWeight: 700, letterSpacing: ".4px" }}>
+          <Icon name="alert" size={10} strokeWidth={2.4} />{"NO RECIPE"}
         </span>
       )}
       {/* Checkbox */}
@@ -2387,5 +2401,5 @@ function DietChip({ active, onClick, color, label }) {
 // V78 — ItemsTab/DietChip/ComingSoonPlaceholder/SubTabStrip are pure, prop-driven
 // (no proposal-specific coupling) and shared with EventMenuBuilderView.jsx (Booked
 // Functions editor) so the item-picking UI stays a single source of truth.
-export { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip };
+export { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows };
 export default MenuBuilderView;

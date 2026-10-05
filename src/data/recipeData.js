@@ -807,8 +807,16 @@ function setPackageSections(pkgName, sections, flatDishes) {
 // Add Category) meant as the catch-all for add-ons with no real recipe —
 // resolved by name since there's no dedicated config slot for "the default
 // fallback category" (rename it and this stops matching; that's expected).
+// The catch-all SOP category for a custom dish added with no category chosen.
+// Different installations have named this differently over time ("Extras",
+// "Add-On Counters") — match either so the fallback actually has somewhere
+// to land instead of silently no-op'ing (see createCustomDishInLibrary below,
+// which bails with no recipe/category row at all when this returns null).
 function getExtrasCatId() {
-  var cat = (RECIPE_DB.cats || []).find(function(c) { return (c.name || '').trim().toLowerCase() === 'extras'; });
+  var cat = (RECIPE_DB.cats || []).find(function(c) {
+    var n = (c.name || '').trim().toLowerCase();
+    return n === 'extras' || n === 'add-on counters' || n === 'add on counters' || n === 'addon counters';
+  });
   return cat ? cat.id : null;
 }
 

@@ -14,12 +14,16 @@ import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCusto
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
-import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip } from './MenuBuilderView.jsx';
+import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows } from './MenuBuilderView.jsx';
 import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 import { KModal } from './KitchenUI.jsx';
 import { getFpUnlockCode } from '../data/appSettings.js';
+import { K, type } from '../utils/theme.js';
+import { ripple } from '../utils/ripple.js';
+import { Icon } from './Icons.jsx';
+import { useIsMobile } from '../utils/useIsMobile.js';
 
 // V79 — events.menu_package is free text (LMS sync, manual entry...) and often
 // doesn't match a MENU_PACKAGES key byte-for-byte (e.g. "Multi-Cuisine Veg" vs
@@ -40,8 +44,13 @@ function dietForDish(d, meta) {
 
 export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false }) {
   var T2 = function(s) { return T(s, lang); };
+  var isMobile = useIsMobile();
 
   var [activeDept, setActiveDept]   = useState('kit');
+  // The live-total rail starts closed on every visit, same as the Proposal
+  // builder — it's a reference reached for now and then, not something read
+  // while picking dishes, and open by default it takes 232px permanently.
+  var [railOpen, setRailOpen] = useState(false);
   var [activeSubTab, setActiveSubTab] = useState(initialTab); // 'items' | 'fp'
   // V88 — dept-scoped choice between the item-picker and the Configs panel
   // (Service/Crockery/Transport), same pattern as MenuBuilderView.jsx's proposal
@@ -370,6 +379,31 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     } catch (e) {
       console.error('[EventMenuBuilder] toggleFoc failed:', e);
       setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: !next } : x; }); });
+    }
+  }
+
+  // Outsourced (vendor-supplied) dishes — same events.outsourced_dishes array
+  // Kitchen Hub, Transport & Dispatch and Store already read to keep a vendor
+  // item out of production tracking/ordering (see TransportDispatch.jsx's
+  // menuArr / KitchenHub.jsx), so toggling it here takes effect everywhere,
+  // not just in this builder.
+  var [outsourcedDishes, setOutsourcedDishes] = useState(function(){
+    return (event && Array.isArray(event.outsourced_dishes)) ? event.outsourced_dishes : [];
+  });
+  var outsourcedSet = useMemo(function(){
+    var s = {}; outsourcedDishes.forEach(function(n){ s[n] = true; }); return s;
+  }, [outsourcedDishes]);
+  async function toggleOutsourced(dishName) {
+    var isOut = !!outsourcedSet[dishName];
+    var next = isOut ? outsourcedDishes.filter(function(n){ return n !== dishName; }) : outsourcedDishes.concat([dishName]);
+    var prev = outsourcedDishes;
+    setOutsourcedDishes(next);
+    try {
+      var res = await supabase.from('events').update({ outsourced_dishes: next }).eq('id', event.id);
+      if (res.error) throw res.error;
+    } catch (e) {
+      console.error('[EventMenuBuilder] toggleOutsourced failed:', e);
+      setOutsourcedDishes(prev);
     }
   }
 
@@ -816,6 +850,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return totals;
   }, [dishItems, allDishesByName, sectionAddonPriceMap, salesMeta, sectionOverrideDept, dishNameToPkgDept, event]);
+
+  // Shown both inside the rail and on the closed tab, so it is summed once
+  // rather than the same reduce being written in two places.
+  var grandTotal = useMemo(function(){
+    return SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0);
+  }, [deptCounts]);
 
   var deptDishes = useMemo(function(){
     // Bug fix — a dish belonging to the currently selected package but with
@@ -1302,10 +1342,49 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
       {/* ── Body: sidebar + main ── */}
       {activeSubTab === 'items' && (
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* ── Dept sidebar ── */}
-        <div style={{ flexShrink: 0, width: 200, background: C.surface, borderRight: "1px solid " + C.border, padding: "12px 8px", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, padding: "6px 10px", marginBottom: 4 }}>
+      <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden", gap: isMobile ? 8 : 16, padding: isMobile ? "8px 8px 8px" : "14px 16px 16px", minHeight: 0 }}>
+        {/* ── Dept picker — a vertical sidebar on desktop, a horizontally-
+            scrollable chip row on mobile (switching department is a constant
+            action while building a menu, so it stays a single tap away). ── */}
+        {isMobile ? (
+          <div style={{ flexShrink: 0, display: "flex", gap: 8, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 2 }}>
+            {SALES_DEPTS.map(function(d){
+              var isActive = activeDept === d.id;
+              var counts = deptCounts[d.id] || { sel: 0, total: 0 };
+              var deptHasItems   = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
+              var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
+              var isFunctional   = deptHasItems || deptHasConfigs;
+              return (
+                <button key={d.id} className={"kh-btn kh-deptbtn kh-rip" + (isActive ? " is-on" : "")} onPointerDown={ripple}
+                  onClick={function(){ setActiveDept(d.id); setActiveDeptTab(deptHasItems ? 'items' : 'configs'); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+                    padding: "8px 12px", borderRadius: 999,
+                    background: isActive ? K.sageSel : K.cardWarm,
+                    border: "1px solid " + (isActive ? K.sage : K.cardWarmLine),
+                    color: isActive ? K.sageText : K.textBody,
+                    fontSize: 12.5, fontWeight: isActive ? 700 : 600,
+                    cursor: "pointer", whiteSpace: "nowrap", fontFamily: K.fontBody,
+                    opacity: isFunctional ? 1 : 0.6,
+                  }}>
+                  <Icon name={d.glyph || "utensils"} size={14} strokeWidth={1.9} color={d.color || K.brand} />
+                  {d.name}
+                  {isFunctional && counts.sel > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: K.brandText }}>{counts.sel}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+        <div className="kh-thinscroll" style={{ position: "relative", flexShrink: 0, width: 232, borderRadius: 20,
+          backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard,
+          padding: "16px 14px", overflowY: "auto", overflowX: "hidden" }}>
+          <img src={`${import.meta.env.BASE_URL}leaf-bg.webp`} alt="" aria-hidden="true" draggable="false"
+            onError={function(e){ e.currentTarget.style.display = "none"; }}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+              objectPosition: "center top", opacity: .5, pointerEvents: "none", userSelect: "none", zIndex: 0 }} />
+          <div style={{ position: "relative", zIndex: 1, ...type.label, fontSize: 10.5, color: K.hdrMeta, padding: "0 6px", marginBottom: 12 }}>
             {T2("Departments")}
           </div>
           {SALES_DEPTS.map(function(d){
@@ -1315,40 +1394,51 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
             var deptHasConfigs = !!(DEPT_CONFIGS[d.id] && DEPT_CONFIGS[d.id].length > 0);
             var isFunctional   = deptHasItems || deptHasConfigs;
             return (
-              <button key={d.id} onClick={function(){
+              <button key={d.id} className={"kh-btn kh-deptbtn kh-rip" + (isActive ? " is-on" : "")} onPointerDown={ripple}
+                onClick={function(){
                   setActiveDept(d.id);
                   setActiveDeptTab(deptHasItems ? 'items' : 'configs');
                 }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
-                  padding: "10px 12px", marginBottom: 3, borderRadius: 8,
-                  background: isActive ? d.bg : "transparent",
-                  border: "1px solid " + (isActive ? d.color : "transparent"),
-                  color: C.text, fontSize: 13, fontWeight: isActive ? 700 : 500,
-                  cursor: "pointer", textAlign: "left",
-                  opacity: isFunctional ? 1 : 0.75,
+                  position: "relative", zIndex: 1,
+                  display: "flex", alignItems: "center", gap: 11, width: "100%",
+                  padding: "10px 12px", marginBottom: 5, borderRadius: 13,
+                  background: isActive ? K.sageSel : "transparent",
+                  border: "1px solid " + (isActive ? K.sage : "transparent"),
+                  color: isActive ? K.sageText : K.textBody,
+                  ...type.rowTitle, fontWeight: isActive ? 700 : 600,
+                  cursor: "pointer", textAlign: "left", fontFamily: K.fontBody,
+                  opacity: isFunctional ? 1 : 0.6,
                 }}>
-                <span style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
-                <span style={{ flex: 1 }}>{d.icon} {d.name}</span>
+                <span style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+                  background: (d.color || K.brand) + "1A", color: d.color || K.brand,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name={d.glyph || "utensils"} size={17} strokeWidth={1.9} />
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
                 {isFunctional && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: counts.sel > 0 ? d.color : C.muted, background: isActive ? "#fff" : C.bg, padding: "2px 6px", borderRadius: 10 }}>
-                    {counts.sel}
-                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, flexShrink: 0,
+                    color: counts.sel > 0 ? K.brandText : K.textFaint,
+                    fontVariantNumeric: "tabular-nums" }}>{counts.sel}</span>
                 )}
                 {!isFunctional && (
-                  <span style={{ fontSize: 9, color: C.muted, fontStyle: "italic" }}>{T2("soon")}</span>
+                  <span style={{ fontSize: 11, color: K.textFaint, flexShrink: 0 }}>{T2("soon")}</span>
                 )}
               </button>
             );
           })}
         </div>
+        )}
 
         {/* ── Main area ── */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+        <div className="kh-thinscroll" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: 2 }}>
           {loading && (
-            <div style={{ padding: "60px 20px", textAlign: "center", color: C.muted }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>{seeding ? '🌱' : '⏳'}</div>
-              <div style={{ fontSize: 13 }}>{seeding ? T2("Loading existing menu…") : T2("Loading menu builder…")}</div>
+            <div className="kh-cardart-sm" style={{ padding: "60px 20px", textAlign: "center", color: K.hdrMeta,
+              borderRadius: 20, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard }}>
+              <div style={{ color: K.textFaint, display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <Icon name={seeding ? "layers" : "refresh"} size={28} strokeWidth={1.7} />
+              </div>
+              <div style={{ fontSize: 14 }}>{seeding ? T2("Loading existing menu…") : T2("Loading menu builder…")}</div>
             </div>
           )}
 
@@ -1372,6 +1462,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
                   templateSet={templateSet}
                   selectedSet={selectedSet}
+                  outsourcedSet={outsourcedSet}
+                  onToggleOutsourced={toggleOutsourced}
                   salesMeta={salesMeta}
                   onToggle={toggleDish}
                   focSet={focSet}
@@ -1407,43 +1499,74 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           )}
         </div>
 
-        {/* ── Live totals — mirrors the left sidebar's badges ── */}
-        <div style={{ flexShrink: 0, width: 190, background: C.surface, borderLeft: "1px solid " + C.border, padding: "12px 10px", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.6, padding: "6px 4px", marginBottom: 4 }}>
-            🧾 {T2("Live total")}
-          </div>
-          {SALES_DEPTS.map(function(d){
-            var counts = deptCounts[d.id] || { sel: 0, total: 0 };
-            var deptHasItems = ITEM_HAVING_DEPTS.indexOf(d.id) >= 0;
-            if (!deptHasItems) return null;
-            var addon = deptAddonTotal[d.id] || 0;
-            return (
-              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }}></span>
-                <span style={{ flex: 1, fontSize: 12, color: C.text }}>{d.name}</span>
-                {addon > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: d.color }}>₹{addon}</span>}
-                <span style={{ fontSize: 12, fontWeight: 700, color: counts.sel > 0 ? d.color : C.faint }}>{counts.sel}</span>
-              </div>
-            );
-          })}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 4px 6px", marginTop: 6, borderTop: "1px solid " + C.border }}>
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: C.text }}>{T2("Total items")}</span>
-            <span style={{ fontSize: 13, fontWeight: 800, color: C.text }}>
-              {SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0)}
+        {/* ── Live totals — collapsible: a slim edge tab until opened, same as
+            the Proposal builder, so it doesn't take permanent width away from
+            the dish grid. ── */}
+        {!isMobile && !railOpen && (
+          <button onClick={function(){ setRailOpen(true); }} className="kh-btn kh-rip" onPointerDown={ripple}
+            title={T2("Show live total")}
+            style={{ flexShrink: 0, alignSelf: "flex-start", width: 42, padding: "14px 0 16px",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
+              borderRadius: 16, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
+              boxShadow: K.shadowCard, cursor: "pointer", fontFamily: K.fontBody }}>
+            <Icon name="chevronL" size={15} strokeWidth={2.2} />
+            <span style={{ writingMode: "vertical-rl", flexShrink: 0, whiteSpace: "nowrap",
+              ...type.label, fontSize: 10, color: K.hdrMeta }}>
+              {T2("Live total")}
             </span>
+          </button>
+        )}
+        {!isMobile && railOpen && (
+        <div style={{ flexShrink: 0, width: 232, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }} className="kh-thinscroll">
+          <div className="kh-leafwash" style={{ borderRadius: 20, backgroundColor: K.cardWarm,
+            border: "1px solid " + K.cardWarmLine, boxShadow: K.shadowCard, padding: "16px 16px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <span style={{ color: K.sbGold, display: "flex" }}><Icon name="chart" size={18} strokeWidth={2} /></span>
+              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle, flex: 1, minWidth: 0 }}>{T2("Live total")}</span>
+              <button onClick={function(){ setRailOpen(false); }} className="kh-btn kh-iconbtn kh-rip" onPointerDown={ripple}
+                title={T2("Hide")}
+                style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, padding: 0, cursor: "pointer",
+                  background: "transparent", border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="chevronR" size={14} strokeWidth={2.2} />
+              </button>
+            </div>
+            <LiveTotalRows T2={T2} deptCounts={deptCounts} deptAddonTotal={deptAddonTotal} grandTotal={grandTotal} />
           </div>
-          {(function(){
-            var grandAddon = SALES_DEPTS.reduce(function(sum, d){ return sum + (deptAddonTotal[d.id] || 0); }, 0);
-            if (grandAddon <= 0) return null;
-            return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 6px" }}>
-                <span style={{ flex: 1, fontSize: 11.5, fontWeight: 700, color: C.muted }}>{T2("Add-on total")}</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.amber }}>₹{grandAddon}</span>
-              </div>
-            );
-          })()}
         </div>
+        )}
       </div>
+      )}
+
+      {/* ── Mobile live-total: floating pill + bottom sheet ── */}
+      {activeSubTab === 'items' && isMobile && !railOpen && (
+        <button onClick={function(){ setRailOpen(true); }} className="kh-rip" onPointerDown={ripple}
+          style={{ position: "fixed", right: 14, bottom: 14, zIndex: 40, display: "flex", alignItems: "center", gap: 8,
+            padding: "11px 16px", borderRadius: 999, backgroundColor: K.brand, color: "#FFFFFF",
+            border: "none", boxShadow: K.shadowLift, cursor: "pointer", fontFamily: K.fontBody }}>
+          <Icon name="chart" size={16} strokeWidth={2} />
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{grandTotal} {T2("items")}</span>
+        </button>
+      )}
+      {activeSubTab === 'items' && isMobile && railOpen && (
+        <div onClick={function(){ setRailOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(10,16,12,.45)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={function(e){ e.stopPropagation(); }} style={{ width: "100%", maxHeight: "75vh", overflowY: "auto",
+            backgroundColor: K.cardWarm, borderRadius: "20px 20px 0 0", border: "1px solid " + K.cardWarmLine,
+            boxShadow: K.shadowLift, padding: "16px 16px 20px" }} className="kh-thinscroll">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <span style={{ color: K.sbGold, display: "flex" }}><Icon name="chart" size={18} strokeWidth={2} /></span>
+              <span style={{ ...type.sectionHead, fontSize: 19, color: K.hdrTitle, flex: 1, minWidth: 0 }}>{T2("Live total")}</span>
+              <button onClick={function(){ setRailOpen(false); }} className="kh-btn kh-iconbtn kh-rip" onPointerDown={ripple}
+                title={T2("Close")}
+                style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, padding: 0, cursor: "pointer",
+                  background: "transparent", border: "1px solid " + K.cardWarmLine, color: K.textMuted,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="close" size={16} strokeWidth={2.2} />
+              </button>
+            </div>
+            <LiveTotalRows T2={T2} deptCounts={deptCounts} deptAddonTotal={deptAddonTotal} grandTotal={grandTotal} />
+          </div>
+        </div>
       )}
 
       <KModal open={fpLockModal === 'lock'} toneName="brand" icon="lock"
