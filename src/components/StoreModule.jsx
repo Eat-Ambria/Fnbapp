@@ -11,6 +11,7 @@ import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
+import { K } from '../utils/theme.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 
@@ -295,6 +296,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [editVal,  setEditVal]  =useState("");
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
+  const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
+  const [reqListAllAsk, setReqListAllAsk] = useState(false); // in-app confirm for "+ All" (order list)
+  const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
+  const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
   const [printReq, setPrintReq] = useState(null); // null | {mode:"all"} | {mode:"one", key} — Order Lists print preview
   const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
   const [orderListLoading, setOrderListLoading] = useState(false);
@@ -426,11 +431,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
     async function loadIssueState() {
       setIssueLoading(true);
       try {
+        // Each table on its own: one failing fetch used to reject the whole
+        // Promise.all, leaving ingredient_item_map empty — every Day Sheet
+        // row then read "no stock" and fell into Uncategorized.
+        const soft = (label, p) => p.catch(e => { console.error("Issue state: " + label + " failed:", e); return null; });
         const [aData, iData, mData, fData] = await Promise.all([
-          fetchAllRows(() => supabase.from('store_issue_assignments').select('*')),
-          fetchAllRows(() => supabase.from('store_issues').select('*')),
-          fetchAllRows(() => supabase.from('ingredient_item_map').select('*')),
-          fetchAllRows(() => supabase.from('event_fruit_selections').select('*')),
+          soft('store_issue_assignments', fetchAllRows(() => supabase.from('store_issue_assignments').select('*'))),
+          soft('store_issues', fetchAllRows(() => supabase.from('store_issues').select('*'))),
+          soft('ingredient_item_map', fetchAllRows(() => supabase.from('ingredient_item_map').select('*'))),
+          soft('event_fruit_selections', fetchAllRows(() => supabase.from('event_fruit_selections').select('*'))),
         ]);
         const aRes = { data: aData }, iRes = { data: iData }, mRes = { data: mData };
         setFruitSelections(fData || []);
@@ -641,6 +650,37 @@ function StoreModule({events, lang="en", currentUser=null}) {
     setReqPicker(null);
     const { error } = await supabase.from('store_order_lists').upsert(rec, { onConflict: 'order_date,ingredient_name' });
     if (error) console.error("Add to order list failed:", error);
+  }
+  // Many at once (station modal "+ All"): one state update and one bulk upsert,
+  // not a network round-trip per ingredient. Reports a failed save in the UI.
+  async function addManyToOrderList(list) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const now = new Date().toISOString();
+    const recs = list.map(({row, listKey}) => ({
+      order_date: reqDay,
+      ingredient_name: row.name,
+      ingredient_hindi: row.hindi || null,
+      unit: row.unit,
+      qty: row.total,
+      list_key: listKey,
+      source: [...new Set(row.evBreak.map(b => b.evName))].join(', '),
+      ordered: false,
+      added_by: staffId,
+      added_at: now,
+    }));
+    if (recs.length === 0) return;
+    setOrderListItems(prev => {
+      const names = new Set(recs.map(r => r.ingredient_name));
+      return [...prev.filter(r => !(r.order_date === reqDay && names.has(r.ingredient_name))), ...recs];
+    });
+    const { error } = await supabase.from('store_order_lists').upsert(recs, { onConflict: 'order_date,ingredient_name' });
+    if (error) {
+      console.error("Add all to order list failed:", error);
+      setReqNote({ tone: "err", text: T2("Could not save the order list") + ": " + (error.message || error.code || "") });
+    } else {
+      setReqNote({ tone: "ok", text: recs.length + " " + T2("ingredients added to the order list") });
+    }
+    setTimeout(() => setReqNote(null), 5000);
   }
   async function removeFromOrderList(row) {
     setOrderListItems(prev => prev.filter(r => !(r.order_date === reqDay && r.ingredient_name === row.name)));
@@ -1277,7 +1317,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
           {/* Source toggle */}
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Type:</span>
+            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Type:</span>
             {[
               {k:"all",   l:"All",        v:items.length},
               {k:"store", l:"Consumables", v:items.filter(i=>i.source==="store").length},
@@ -1285,7 +1325,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             ].map(s=>(
               <button key={s.k} onClick={()=>setSourceFil(f=>f===s.k?"all":s.k)}
                 style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:sourceFil===s.k?600:400,cursor:"pointer",
-                  background:sourceFil===s.k?C.wine+"15":"transparent",color:sourceFil===s.k?C.wine:C.muted,
+                  backgroundColor:"#FFFFFF",backgroundImage:sourceFil===s.k?`linear-gradient(${C.wine}15,${C.wine}15)`:"none",color:sourceFil===s.k?C.wine:K.textBody,
                   border:sourceFil===s.k?`1.5px solid ${C.wine}`:`1px solid ${C.border}`,transition:"all .15s"}}>
                 {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
               </button>
@@ -1294,7 +1334,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
           {/* Stock status pills */}
           <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Stock:</span>
+            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Stock:</span>
             {[
               {k:"all",   l:T2("All"),          v:items.length, c:C.text},
               {k:"instock",l:T2("In stock"),     v:items.filter(i=>i.available>0 && (i.reorderQty<=0 || i.available>i.reorderQty)).length, c:C.green},
@@ -1303,7 +1343,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             ].map(s=>(
               <button key={s.k} onClick={()=>setStockFil(f=>f===s.k?"all":s.k)}
                 style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:stockFil===s.k?600:400,cursor:"pointer",
-                  background:stockFil===s.k?s.c+"15":"transparent",color:stockFil===s.k?s.c:C.muted,
+                  backgroundColor:"#FFFFFF",backgroundImage:stockFil===s.k?`linear-gradient(${s.c}15,${s.c}15)`:"none",color:stockFil===s.k?s.c:K.textBody,
                   border:stockFil===s.k?`1.5px solid ${s.c}`:`1px solid ${C.border}`,transition:"all .15s"}}>
                 {s.k!=="all"&&<span style={{width:7,height:7,borderRadius:"50%",background:s.c}}/>}
                 {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
@@ -1313,10 +1353,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
           {/* Category pills */}
           <div style={{display:"flex",gap:5,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11,color:C.muted,marginRight:2}}>Category:</span>
+            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Category:</span>
             <button onClick={()=>setCatFil("All")}
               style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil==="All"?600:400,cursor:"pointer",
-                background:catFil==="All"?C.surface:"transparent",color:catFil==="All"?C.text:C.muted,
+                backgroundColor:"#FFFFFF",color:catFil==="All"?C.text:K.textBody,
                 border:catFil==="All"?`1.5px solid ${C.border}`:`1px solid ${C.borderLight}`}}>
               All
             </button>
@@ -1326,7 +1366,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
               return (
                 <button key={ct} onClick={()=>setCatFil(f=>f===ct?"All":ct)}
                   style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil===ct?600:400,cursor:"pointer",
-                    background:catFil===ct?dot+"15":"transparent",color:catFil===ct?dot:C.muted,
+                    backgroundColor:"#FFFFFF",backgroundImage:catFil===ct?`linear-gradient(${dot}15,${dot}15)`:"none",color:catFil===ct?dot:K.textBody,
                     border:catFil===ct?`1.5px solid ${dot}`:`1px solid ${C.borderLight}`}}>
                   <span style={{width:6,height:6,borderRadius:"50%",background:dot}}/>
                   {ct}
@@ -1335,7 +1375,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             })}
             {itemVenues.length > 1 && <>
               <span style={{width:1,height:16,background:C.borderLight,margin:"0 4px"}}/>
-              <span style={{fontSize:11,color:C.muted,marginRight:2}}>Venue:</span>
+              <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Venue:</span>
               <select value={venueFil} onChange={e=>setVenueFil(e.target.value)}
                 style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,appearance:"auto"}}>
                 <option value="All">All</option>
@@ -1345,7 +1385,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           </div>
 
           {/* ── Table ── */}
-          <div style={{border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+          <div style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:18,overflow:"hidden",backgroundColor:K.cardWarm,boxShadow:K.shadowCard}}>
             <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",fontSize:13}}>
               <colgroup>
                 <col style={{width:"36%"}}/>
@@ -1355,9 +1395,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <col style={{width:"14%"}}/>
               </colgroup>
               <thead>
-                <tr style={{background:C.bg}}>
+                <tr style={{background:"#F4F2EC"}}>
                   {[{l:"Item",a:"left"},{l:"Category",a:"left"},{l:"Venue stock",a:"left"},{l:"Total",a:"right"},{l:"Status",a:"center"}].map(h=>(
-                    <th key={h.l} style={{textAlign:h.a,padding:"9px 14px",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:.5,borderBottom:`1px solid ${C.border}`}}>{T2(h.l)}</th>
+                    <th key={h.l} style={{textAlign:h.a,padding:"9px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2(h.l)}</th>
                   ))}
                 </tr>
               </thead>
@@ -1368,12 +1408,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   const out = item.available <= 0;
                   const sc = out ? C.red : low ? C.amber : C.green;
                   return (
-                    <tr key={item.id} style={{borderBottom:`1px solid ${C.borderLight}`,background:out?C.redBg+"60":"transparent"}}>
+                    <tr key={item.id} style={{borderBottom:`1px solid ${K.lineSoft}`,background:out?K.dangerBg:"transparent"}}>
                       {/* Item */}
                       <td style={{padding:"10px 14px",verticalAlign:"top"}}>
-                        <div style={{fontSize:13,fontWeight:500,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
-                        {item.h&&<div style={{fontSize:11,color:C.muted,marginTop:1}}>{item.h}</div>}
-                        <div style={{fontSize:10,color:C.faint,marginTop:2}}>
+                        <div style={{fontSize:13.5,fontWeight:600,color:K.hdrTitle,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
+                        {item.h&&<div style={{fontSize:12,color:K.hdrMeta,marginTop:1}}>{item.h}</div>}
+                        <div style={{fontSize:11,color:K.textMuted,marginTop:2}}>
                           {item.brand?item.brand:""}
                           {item.packSize?(item.brand?" · ":"")+item.packSize:""}
                           {item.inventoryId&&<span style={{marginLeft:4,fontFamily:"monospace",fontSize:10,color:C.muted,background:C.bg,padding:"1px 5px",borderRadius:4}}>{item.inventoryId}</span>}
@@ -1381,8 +1421,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </td>
                       {/* Category */}
                       <td style={{padding:"10px 14px",verticalAlign:"top"}}>
-                        <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:C.muted}}>
-                          <span style={{width:6,height:6,borderRadius:"50%",background:catDotColor(item.catCode),flexShrink:0}}/>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:K.textBody}}>
+                          <span style={{width:7,height:7,borderRadius:"50%",background:catDotColor(item.catCode),flexShrink:0}}/>
                           {item.cat}
                         </span>
                       </td>
@@ -1401,8 +1441,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </td>
                       {/* Total */}
                       <td style={{padding:"10px 14px",textAlign:"right",verticalAlign:"top"}}>
-                        <div style={{fontSize:15,fontWeight:500,color:sc}}>{item.available}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{item.unit}</div>
+                        <div style={{fontSize:16,fontWeight:700,color:sc,fontVariantNumeric:"tabular-nums"}}>{item.available}</div>
+                        <div style={{fontSize:11,color:K.hdrMeta}}>{item.unit}</div>
                       </td>
                       {/* Status */}
                       <td style={{padding:"10px 14px",textAlign:"center",verticalAlign:"top"}}>
@@ -1532,7 +1572,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
           });
           return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
         })();
-        const tableColSpan = 2 + stations.length + 3;
+        // Stations are cards above the table now (click → modal), not columns.
+        const tableColSpan = 2 + 3;
+        const openStation = stations.find(st=>st.id===reqStation) || null;
+        const openStationRows = openStation ? rows.filter(r=>r.byCat[openStation.name]) : [];
+        // Station modal actions: the same ✓ issue / + order-list buttons as the
+        // table, per row, plus an "all" version of each for the whole station.
+        const groupKeyByRow = {};
+        rowGroups.forEach(g=>g.rows.forEach(r=>{ groupKeyByRow[r.name] = g.meta.key; }));
+        const canIssueStock = hasPerm(currentUser,"store.smart_issue");
+        const stPending = openStationRows.filter(r=>!rowIssued(r));
+        const stUnlisted = openStationRows.filter(r=>!orderListFor(r.name));
+        async function issueAllStation(){
+          setReqIssueAllAsk(false);
+          for(const r of stPending) await toggleRowIssue(r);
+        }
+        async function listAllStation(){
+          setReqListAllAsk(false);
+          await addManyToOrderList(stUnlisted.map(r=>({row:r, listKey:groupKeyByRow[r.name]})));
+        }
 
         return(
           <div>
@@ -1610,18 +1668,40 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   </div>
                 )}
 
+                {/* Stations as cards — one per kitchen section that needs ingredients
+                    today. A card opens a modal with that section's own list. */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:12,marginBottom:14}}>
+                  {stations.map(st=>{
+                    const n = rows.filter(r=>r.byCat[st.name]).length;
+                    return(
+                      <button key={st.id} onClick={()=>setReqStation(st.id)}
+                        style={{display:"flex",alignItems:"center",gap:12,padding:"13px 15px",borderRadius:16,cursor:"pointer",textAlign:"left",
+                          background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                        <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
+                          fontSize:19,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>{st.icon}</span>
+                        <span style={{flex:1,minWidth:0}}>
+                          <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.hdrTitle,lineHeight:1.25}}>{st.name}</span>
+                          <span style={{display:"block",fontSize:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{n} {T2("ingredients")}</span>
+                        </span>
+                        <span style={{color:K.textFaint,fontSize:16,flexShrink:0}}>›</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Table */}
-                <div style={{border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden",background:C.surface}}>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+                <div style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:18,overflow:"hidden",background:K.cardWarm,boxShadow:K.shadowCard}}>
+                  {/* Scrolls inside the card so the column heads stay in view
+                      over a few hundred ingredient rows. */}
+                  <div style={{overflow:"auto",maxHeight:"72vh"}}>
+                    <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,width:"100%",fontFamily:K.fontBody}}>
                       <thead>
-                        <tr style={{background:C.bg}}>
-                          <th style={{position:"sticky",left:0,background:C.bg,zIndex:2,textAlign:"left",padding:"6px 10px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,borderBottom:`2px solid ${C.border}`,minWidth:160,maxWidth:160}}>{T2("Item")}</th>
-                          <th style={{textAlign:"center",padding:"6px 6px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("UM")}</th>
-                          {stations.map(st=><th key={st.id} style={{textAlign:"right",padding:"6px 6px",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.2,borderBottom:`2px solid ${C.border}`,minWidth:50,whiteSpace:"normal",lineHeight:1.15}} title={st.name}>{st.icon} {st.name}</th>)}
-                          <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.text,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Total")}</th>
-                          <th style={{textAlign:"right",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`}}>{T2("Stock")}</th>
-                          <th style={{textAlign:"center",padding:"6px 8px",fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",borderBottom:`2px solid ${C.border}`,borderLeft:`1px solid ${C.border}`,minWidth:110}}>{T2("Actions")}</th>
+                        <tr>
+                          <th style={{position:"sticky",top:0,left:0,background:"#F4F2EC",zIndex:7,textAlign:"left",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:190,maxWidth:190}}>{T2("Item")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 6px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("UM")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:K.brandSoft,textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Total")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Stock")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:110}}>{T2("Actions")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1630,12 +1710,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           return (
                           <React.Fragment key={group.meta.key}>
                             <tr onClick={()=>setReqCatClosed(p=>({...p,[group.meta.key]:!closed}))} style={{cursor:"pointer"}}>
-                              <td colSpan={tableColSpan} style={{padding:"7px 10px",fontWeight:700,fontSize:10.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.4,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.borderLight}`,userSelect:"none"}}>
+                              <td colSpan={tableColSpan} style={{padding:"10px 14px",fontWeight:700,fontSize:11.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.6,borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.meta.color}`,userSelect:"none"}}>
                                 <span style={{display:"inline-block",width:12,transition:"transform .15s",transform:closed?"rotate(-90deg)":"rotate(0deg)"}}>▾</span>{" "}
                                 {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
                               </td>
                             </tr>
-                            {!closed && group.rows.map(row=>{
+                            {!closed && group.rows.map((row,ri)=>{
                               const {isMapped, stock, requiredSU} = resolveStock(row);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
                               const done = rowIssued(row);
@@ -1643,33 +1723,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               const listMeta = list ? resolveOrderListCat(list.list_key) : null;
                               const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
                               return (
-                                <tr key={row.name} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-                                  <td style={{position:"sticky",left:0,background:C.surface,padding:"3px 10px",fontWeight:600,color:C.text,verticalAlign:"middle",maxWidth:160}} title={fullTitle}>
-                                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <tr key={row.name} className="req-row" style={{background:ri%2?"rgba(0,0,0,.018)":"transparent"}}>
+                                  <td style={{position:"sticky",left:0,background:ri%2?"#F9F8F3":K.cardWarm,padding:"9px 14px",fontWeight:600,fontSize:13,color:K.hdrTitle,verticalAlign:"middle",maxWidth:190,borderBottom:`1px solid ${K.lineSoft}`,zIndex:2}} title={fullTitle}>
+                                    <div style={{display:"flex",alignItems:"center",gap:9}}>
                                       <input type="checkbox" checked={!!ingSelected[row.name]}
                                         onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
                                         title={T2("Select to merge with other ingredients")}
-                                        style={{width:13,height:13,flexShrink:0,cursor:"pointer",accentColor:C.gold}}/>
+                                        style={{width:15,height:15,flexShrink:0,cursor:"pointer",accentColor:K.brand}}/>
                                       <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
                                     </div>
                                   </td>
-                                  <td style={{textAlign:"center",padding:"3px 6px",color:C.faint,verticalAlign:"middle"}}>{row.unit}</td>
-                                  {stations.map(st=>{
-                                    const cell = row.byCat[st.name];
-                                    return <td key={st.id} style={{textAlign:"right",padding:"3px 6px",color:C.muted,verticalAlign:"middle"}}>{cell?fmtIssueQty(cell.totalQty,cell.unit):"—"}</td>;
-                                  })}
-                                  <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:C.text,verticalAlign:"middle"}}>{fmtIssueQty(row.total,row.unit)}</td>
-                                  <td style={{textAlign:"right",padding:"3px 8px",fontWeight:700,color:!isMapped?C.faint:short?C.red:C.text,verticalAlign:"middle"}}>
+                                  <td style={{textAlign:"center",padding:"9px 6px",color:K.textFaint,fontSize:11.5,verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>{row.unit}</td>
+                                  <td style={{textAlign:"right",padding:"9px 14px",fontWeight:700,fontSize:13,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",verticalAlign:"middle",background:K.brandSoft,borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(row.total,row.unit)}</td>
+                                  <td style={{textAlign:"right",padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     {!isMapped
-                                      ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:9.5,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
-                                      : stock ? fmtIssueQty(stock.available,stock.unit) : "—"}
+                                      ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:11,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
+                                      : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
+                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,
+                                          border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock ? fmtIssueQty(stock.available,stock.unit) : "—"}</span>}
                                   </td>
-                                  <td style={{padding:"3px 8px",verticalAlign:"middle",borderLeft:`1px solid ${C.borderLight}`}}>
+                                  <td style={{padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
                                       {done ? (
-                                        <div title={T2("Issued from store")} style={{width:24,height:24,borderRadius:7,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
+                                        <div title={T2("Issued from store")} style={{width:30,height:30,borderRadius:9,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
                                       ) : (
-                                        hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
+                                        hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
                                       )}
                                       {list ? (
                                         <span title={listMeta.label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:listMeta.bg,color:listMeta.color,whiteSpace:"nowrap",flexShrink:0}}>
@@ -1677,7 +1755,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                           <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
                                         </span>
                                       ) : (
-                                        <button onClick={()=>addToOrderList(row,group.meta.key)} title={T2("Add to")+" "+group.meta.label+" "+T2("order list")} style={{width:24,height:24,borderRadius:7,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
+                                        <button onClick={()=>addToOrderList(row,group.meta.key)} title={T2("Add to")+" "+group.meta.label+" "+T2("order list")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
                                       )}
                                     </div>
                                   </td>
@@ -1691,6 +1769,115 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     </table>
                   </div>
                 </div>
+
+                {/* Station details modal */}
+                {openStation && (
+                  <div onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);setReqListAllAsk(false);}} role="presentation"
+                    style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                    <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
+                      style={{position:"relative",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,boxShadow:K.shadowLift,
+                        width:"100%",maxWidth:760,maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:K.fontBody}}>
+                      <div style={{display:"flex",alignItems:"center",gap:12,padding:"18px 22px",borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                        <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.sageBg,border:`1px solid ${K.sageBorder}`,fontSize:20,lineHeight:1,
+                          display:"flex",alignItems:"center",justifyContent:"center"}}>{openStation.icon}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{openStation.name}</div>
+                          <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2}}>{openStationRows.length} {T2("ingredients")} · {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} · {reqDay}</div>
+                        </div>
+                        <button onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);setReqListAllAsk(false);}} aria-label={T2("Close")}
+                          style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                      </div>
+                      {reqNote && (
+                        <div style={{padding:"9px 22px",fontSize:12.5,fontWeight:600,
+                          background:reqNote.tone==="err"?K.dangerBg:K.okBg,color:reqNote.tone==="err"?K.danger:K.ok,
+                          borderBottom:`1px solid ${reqNote.tone==="err"?K.dangerBorder:K.okBorder}`}}>{reqNote.text}</div>
+                      )}
+                      <div style={{overflowY:"auto",minHeight:0}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                          <thead>
+                            <tr>
+                              {[{l:"Ingredient",a:"left"},{l:"Needed",a:"right"},{l:"Stock",a:"right"}].map(h=>(
+                                <th key={h.l} style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:h.a,padding:"10px 22px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2(h.l)}</th>
+                              ))}
+                              <th style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:"center",padding:"8px 16px",borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`1px solid ${K.lineSoft}`,whiteSpace:"nowrap"}}>
+                                <div style={{fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,marginBottom:5}}>{T2("Actions")}</div>
+                                <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+                                  {canIssueStock && <button onClick={()=>setReqIssueAllAsk(true)} disabled={stPending.length===0}
+                                    title={T2("Issue all from store")}
+                                    style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stPending.length?"pointer":"not-allowed",
+                                      background:"#FFFFFF",color:stPending.length?C.green:K.textFaint,border:`1.5px solid ${stPending.length?C.greenBorder:K.cardWarmLine}`}}>✓ {T2("All")}</button>}
+                                  <button onClick={()=>setReqListAllAsk(true)} disabled={stUnlisted.length===0}
+                                    title={T2("Add all to order list")}
+                                    style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stUnlisted.length?"pointer":"not-allowed",
+                                      background:"#FFFFFF",color:stUnlisted.length?C.gold:K.textFaint,border:`1.5px solid ${stUnlisted.length?C.goldBorder:K.cardWarmLine}`}}>+ {T2("All")}</button>
+                                </div>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {openStationRows.map(row=>{
+                              const cell = row.byCat[openStation.name];
+                              const {isMapped, stock, requiredSU} = resolveStock(row);
+                              const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                              return(
+                                <tr key={row.name}>
+                                  <td style={{padding:"10px 22px",fontWeight:600,color:K.hdrTitle,borderBottom:`1px solid ${K.lineSoft}`}}>{row.name}{row.hindi&&<span style={{display:"block",fontSize:11.5,fontWeight:400,color:K.hdrMeta}}>{row.hindi}</span>}</td>
+                                  <td style={{padding:"10px 22px",textAlign:"right",fontWeight:700,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(cell.totalQty,cell.unit)}</td>
+                                  <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {!isMapped
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
+                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock?fmtIssueQty(stock.available,stock.unit):"—"}</span>}
+                                  </td>
+                                  <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                                      {rowIssued(row) ? (
+                                        <div title={T2("Issued from store")} style={{width:30,height:30,borderRadius:9,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</div>
+                                      ) : (
+                                        canIssueStock && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
+                                      )}
+                                      {orderListFor(row.name) ? (
+                                        <span title={T2("On order list")} style={{display:"flex",alignItems:"center",gap:3,fontSize:12,fontWeight:700,padding:"4px 7px",borderRadius:9,background:C.goldBg,color:C.gold,flexShrink:0}}>
+                                          ✓<button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:12,padding:0,lineHeight:1}}>×</button>
+                                        </span>
+                                      ) : (
+                                        <button onClick={()=>addToOrderList(row,groupKeyByRow[row.name])} title={T2("Add to order list")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:14,lineHeight:1}}>+</button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    {(reqIssueAllAsk||reqListAllAsk) && (
+                      <div onClick={e=>{e.stopPropagation();setReqIssueAllAsk(false);setReqListAllAsk(false);}} role="presentation"
+                        style={{position:"fixed",inset:0,zIndex:9100,background:"rgba(20,28,24,.35)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                        <div role="alertdialog" aria-modal="true" onClick={e=>e.stopPropagation()}
+                          style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowLift,width:"100%",maxWidth:400,padding:"22px 24px",fontFamily:K.fontBody}}>
+                          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                            <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.warnBg,border:`1px solid ${K.warnBorder}`,color:K.warn,fontSize:18,
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>{reqListAllAsk?"+":"✓"}</span>
+                            <div style={{fontSize:17,fontWeight:700,color:K.hdrTitle}}>{reqListAllAsk?T2("Add all to order list?"):T2("Issue all from store?")}</div>
+                          </div>
+                          <div style={{fontSize:13.5,color:K.textBody,lineHeight:1.5,marginBottom:18}}>
+                            {reqListAllAsk
+                              ? <>{T2("This adds")} <b>{stUnlisted.length}</b> {T2("ingredients from")} <b>{openStation.name}</b> {T2("to the order list for")} <b>{reqDay}</b>.</>
+                              : <>{T2("This marks")} <b>{stPending.length}</b> {T2("ingredients as issued for")} <b>{openStation.name}</b>.</>}
+                          </div>
+                          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                            <button onClick={()=>{setReqIssueAllAsk(false);setReqListAllAsk(false);}}
+                              style={{padding:"9px 18px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textBody,fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>
+                            <button onClick={reqListAllAsk?listAllStation:issueAllStation}
+                              style={{padding:"9px 20px",borderRadius:999,border:"none",background:K.brand,color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{reqListAllAsk?T2("Add all"):T2("Issue all")}</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
