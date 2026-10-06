@@ -3,13 +3,14 @@ import React, { useState } from "react";
 import { createPortal } from "react-dom";
 import { C, SECTION_META, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, safeArr, safePct } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, CUR_YEAR, relDate, safeArr, safePct } from '../utils/helpers.js';
 import { Avatar, DonutChart, Card, Btn, Chip } from './SharedUI.jsx';
 import { K, type } from '../utils/theme.js';
 import { Icon, KToast, ModalWatermark } from './KitchenUI.jsx';
 import { ripple } from '../utils/ripple.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
+import DishMappingModal from './DishMappingModal.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { guessSectionForDish, findRecipeForDish, resolveDishStore } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -204,6 +205,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   const [closureRemark, setClosureRemark] = useState("");
   const [closureRating, setClosureRating] = useState("");
   const [noSopOpen, setNoSopOpen] = useState(true); // the no-SOP alert below starts expanded — it's meant to be seen, not clicked open
+  const [mapDishName, setMapDishName] = useState(''); // dish currently open in DishMappingModal, from the no-SOP banner's "Map" button
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
@@ -318,6 +320,16 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
 
   return (
     <div>
+      {/* ── Shared Dish Mapping modal, opened from the no-SOP banner's "Map dish" button ── */}
+      <DishMappingModal
+        dishName={mapDishName}
+        lang={lang}
+        currentUser={currentUser}
+        onClose={()=>setMapDishName('')}
+        onChange={()=>{}}
+        allowDeactivate={false}
+      />
+
       {/* ── Delete modal ── */}
       {deleteId&&(()=>{
         // This dialog was still on the old cool-grey tokens while the Edit
@@ -872,20 +884,31 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
           is issued from store" definition Planning's Unmapped bucket uses,
           so the two never disagree about what counts as missing. */}
       {(()=>{
+        // Scanning all ~280 upcoming functions' full menus on every Dashboard
+        // render was the actual cost — narrowed to the next 7 days (where a
+        // missing SOP is actually urgent) instead of every booked function.
+        const weekOut = relDate(7);
+        // findRecipeForDish re-scans the whole recipe catalogue on every call
+        // (no caching) — the actual cost was calling it once per (event, dish)
+        // pair across ~280 functions' full menus. Collect every distinct dish
+        // first, THEN run the expensive lookup once per unique name — popular
+        // package dishes repeat across many functions, so this alone cuts the
+        // call count far more than the 7-day window does on its own.
         const byDish = new Map(); // dish name -> events that need it
-        safeEvs.filter(ev=>ev.date>=todayStr).forEach(ev=>{
+        safeEvs.filter(ev=>ev.date>=todayStr && ev.date<=weekOut).forEach(ev=>{
           const menu = Array.isArray(ev.menu) ? ev.menu : [];
           if(menu.length===0) return;
           const outsourced = Array.isArray(ev.outsourced_dishes) ? new Set(ev.outsourced_dishes) : null;
           menu.forEach(dish=>{
             if(!dish || (outsourced && outsourced.has(dish))) return;
-            if(findRecipeForDish(dish) || resolveDishStore(dish)) return;
             if(!byDish.has(dish)) byDish.set(dish, []);
             const list = byDish.get(dish);
             if(!list.some(e=>e.id===ev.id)) list.push(ev);
           });
         });
-        const entries = [...byDish.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+        const entries = [...byDish.entries()]
+          .filter(([dish])=>!findRecipeForDish(dish) && !resolveDishStore(dish))
+          .sort((a,b)=>a[0].localeCompare(b[0]));
         if(entries.length===0) return null;
         return (
           <div style={{marginBottom:18,borderRadius:16,backgroundColor:K.dangerBg,
@@ -920,10 +943,22 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
                   <div key={dish} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
                     padding:"10px 14px",borderRadius:12,background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,flexWrap:"wrap"}}>
                     <span style={{fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:K.hdrTitle}}>{dish}</span>
-                    <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,textAlign:"right"}}>
-                      {evs.slice(0,3).map(e=>e.guest||e.venue).filter(Boolean).join(", ")}{evs.length>3?` +${evs.length-3} ${T2("more")}`:""}
-                      {" · "}{evs.length} {evs.length===1?T2("function"):T2("functions")}
-                    </span>
+                    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,textAlign:"right"}}>
+                        {evs.slice(0,3).map(e=>e.guest||e.venue).filter(Boolean).join(", ")}{evs.length>3?` +${evs.length-3} ${T2("more")}`:""}
+                        {" · "}{evs.length} {evs.length===1?T2("function"):T2("functions")}
+                      </span>
+                      {/* Opens the shared Dish Mapping modal right here — link it to an
+                          existing SOP, link it to a store item instead, or mark it as
+                          deliberately needing no SOP — so this banner is where the gap
+                          actually gets closed, not just where it gets noticed. */}
+                      <button onClick={()=>setMapDishName(dish)} className="kh-calnav"
+                        style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 13px",borderRadius:999,
+                          background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,color:K.danger,
+                          fontFamily:K.fontBody,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                        <Icon name="link" size={13} strokeWidth={2.1}/>{T2("Map dish")}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
