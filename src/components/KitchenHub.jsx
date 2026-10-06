@@ -14,7 +14,7 @@ import { fetchAllRows } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, describeEventMenu } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -5530,6 +5530,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         const grouped = new Map();
         const unmapped = [];
         dishes.forEach((dish,idx)=>{
+          // Explicitly marked "no SOP needed" — skip it from Planning entirely,
+          // the same way a store-issued dish is skipped below. Without this,
+          // marking a dish __none__ could never actually clear it from Unmapped:
+          // findRecipeForDish also returns null for that case (nothing TO find),
+          // so dishStatus().catId would still read as missing.
+          if(isDishNoSopMarked(dish)) return;
           const st = dishStatus(dish);
           if(!st.catId){
             // No recipe. If it has a store mapping, it's issued from store — skip from planning entirely.
@@ -5617,6 +5623,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
         // Plan-based stats: auto = using computed default; override = chef pinned; fromStore = issued from store (no prep); unmapped = no recipe AND no store link
         const stats = dishes.reduce((acc,d)=>{
+          if(isDishNoSopMarked(d)) return acc; // explicitly resolved — doesn't belong in any bucket
           const st = dishStatus(d);
           if(!st.catId){
             if(resolveDishStore(d)) acc.fromStore++;

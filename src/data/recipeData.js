@@ -151,12 +151,29 @@ function normDish(name) {
     .toLowerCase().trim();
 }
 
+// Case/whitespace-insensitive DISH_NAME_MAP lookup — shared by findRecipeForDish's
+// Tier 0 and by isDishNoSopMarked, so both agree on what counts as "mapped".
+function lookupDishNameMap(dishName) {
+  return DISH_NAME_MAP[dishName] || (Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim()) && DISH_NAME_MAP[Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim())]);
+}
+
+// findRecipeForDish returns null both for "nothing has been mapped yet" and for
+// "deliberately marked __none__ — no SOP needed", since neither has a recipe to
+// return. Callers that need to tell those apart (an Unmapped bucket, a Dashboard
+// alert — anywhere a dish shows up specifically BECAUSE it lacks a recipe) must
+// check this first and skip a dish it returns true for, or marking a dish
+// "no SOP needed" would never actually clear it from that list.
+function isDishNoSopMarked(dishName) {
+  if (!dishName) return false;
+  return lookupDishNameMap(dishName) === '__none__';
+}
+
 function findRecipeForDish(dishName) {
   if(!dishName || typeof RECIPE_DB === "undefined") return null;
   try {
     const all = RECIPE_DB.cats.flatMap(cat => (RECIPE_DB.recipes[cat.id]||[]).map(r=>({...r,cat})));
     // Tier 0: explicit mapping from dish_name_map table
-    const mapped = DISH_NAME_MAP[dishName] || Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim()) && DISH_NAME_MAP[Object.keys(DISH_NAME_MAP).find(k => k.toLowerCase().trim() === dishName.toLowerCase().trim())];
+    const mapped = lookupDishNameMap(dishName);
     // Explicitly marked "no SOP" — authoritative, must not fall through to the
     // fuzzy tiers below (which can false-match short names as substrings of
     // unrelated recipes, e.g. "Tea" ⊂ "S-tea-med Chicken Dimsum").
@@ -841,4 +858,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };

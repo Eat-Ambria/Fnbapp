@@ -7,7 +7,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary, findRecipeForDish } from '../data/recipeData.js';
+import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary, findRecipeForDish, isDishNoSopMarked } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -2196,7 +2196,7 @@ function DishCard({ d, templateSet, selectedSet, outsourcedSet, onToggleOutsourc
   // or ingredient list — it silently lands in Kitchen Hub's "Unmapped" bucket
   // and Store can't order for it at all. Surface that right here, at the
   // point of picking it, instead of only discovering it later in Planning.
-  var hasNoRecipe = isSel && !d.isPhantom && !findRecipeForDish(d.name);
+  var hasNoRecipe = isSel && !d.isPhantom && !findRecipeForDish(d.name) && !isDishNoSopMarked(d.name);
 
   // Four states, and each one has to be legible at a glance in a grid of forty:
   //   in template + picked  → included, brand green

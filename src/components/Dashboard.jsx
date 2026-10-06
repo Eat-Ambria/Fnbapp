@@ -12,7 +12,7 @@ import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
-import { guessSectionForDish, findRecipeForDish, resolveDishStore } from '../data/recipeData.js';
+import { guessSectionForDish, findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
 
@@ -907,7 +907,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
           });
         });
         const entries = [...byDish.entries()]
-          .filter(([dish])=>!findRecipeForDish(dish) && !resolveDishStore(dish))
+          .filter(([dish])=>!findRecipeForDish(dish) && !resolveDishStore(dish) && !isDishNoSopMarked(dish))
           .sort((a,b)=>a[0].localeCompare(b[0]));
         if(entries.length===0) return null;
         return (
