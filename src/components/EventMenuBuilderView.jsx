@@ -1076,6 +1076,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var groupedByPkgSection = useMemo(function(){
     var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
     if (!pkgSecs || pkgSecs.length === 0) return null;
+    var qLower = (searchQ || '').trim().toLowerCase();
 
     var byExact = {};
     var byLoose = {};
@@ -1154,6 +1155,20 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
         list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
+      }
+
+      // resolveOrSynth fills in any package dish name missing from the
+      // (already search-filtered) catalogue pool by SYNTHESIZING a phantom
+      // entry — right for a genuinely uncatalogued dish, wrong when it's
+      // only missing because the search query filtered it out (see the
+      // matching fix in MenuBuilderView.jsx).
+      if (qLower) {
+        var matchesQ = function(d){ return d.name.toLowerCase().includes(qLower) || (d.hindi || '').toLowerCase().includes(qLower); };
+        list = list.filter(matchesQ);
+        if (subGroups) {
+          subGroups = subGroups.map(function(sg){ return { ...sg, dishes: sg.dishes.filter(matchesQ) }; }).filter(function(sg){ return sg.dishes.length > 0; });
+          if (subGroups.length === 0) subGroups = null;
+        }
       }
 
       if (list.length === 0) return;
@@ -1276,7 +1291,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
     if (extrasGroup.dishes.length === 0) out.splice(out.indexOf(extrasGroup), 1);
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections, searchQ]);
 
   var dietMeta = templateInfo.diet
     ? {
