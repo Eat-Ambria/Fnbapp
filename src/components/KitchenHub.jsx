@@ -1268,6 +1268,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
     const blankStepIdx=f.steps.findIndex(s=>!s.t.trim());
     if(blankStepIdx>=0)return alert(`Step ${blankStepIdx+1} needs a title`);
+    // Same guard as Duplicate: a new recipe (or a rename) landing on a name
+    // another recipe already has doesn't become a second, independent entry —
+    // findRecipeForDish only ever resolves one of the two, by scan order.
+    const selfId=sopModal.mode==="edit"?sopModal.origId:null;
+    if(recipeNameTaken(f.name,selfId))return alert(T2("A recipe is already named this — pick a different name."));
     const recObj={n:f.name.trim(),sub:f.sub.trim(),bg:!!f.bg,steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0,ccp:sb.ccp||""}))}:{})};})};
     // Update local RECIPE_DB — matched by id (sopModal.origId), not name: two
     // recipes can share a dish_name (even in the same category), and finding
@@ -1371,13 +1376,23 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     logActivity('kitchen','SOP category deleted: '+catId,'sop_category_delete',{catId:catId},currentUser?.id);
     setSopCat(null);
   }
+  // Recipe names aren't unique anywhere in this app — findRecipeForDish just
+  // takes whichever same-named recipe it meets first while scanning every
+  // category, so a second recipe sharing a name doesn't get its own identity,
+  // it silently shadows (or gets shadowed by) the first one depending on scan
+  // order. excludeId lets a save re-check without a recipe flagging itself.
+  function recipeNameTaken(name,excludeId){
+    const n=(name||'').toLowerCase().trim();
+    if(!n) return false;
+    return RECIPE_DB.cats.some(c=>(RECIPE_DB.recipes[c.id]||[]).some(r=>r.n.toLowerCase().trim()===n && r.id!==excludeId));
+  }
   // Full copy — steps, ingredients and yield all carry over, not just the
   // name, so "two near-identical recipes" (e.g. a no-onion-garlic variant)
   // starts from a working baseline instead of retyping everything. Lands the
   // chef straight in the new copy to make the quick tweaks right away.
   function duplicateRecipe(recipe,catId,newName){
     const trimmed=(newName||'').trim();
-    if(!trimmed) return;
+    if(!trimmed || recipeNameTaken(trimmed)) return;
     const recObj={
       n:trimmed,
       sub:recipe.sub||'',
@@ -1888,15 +1903,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         subhead={dupModal&&(
           <div style={{fontSize:13,color:K.hdrMeta}}>{T2("Copying")} <b style={{color:K.hdrTitle}}>{dupModal.recipe.n}</b> — {T2("steps, ingredients and yield all carry over")}.</div>
         )}
-        body={dupModal&&(
+        body={dupModal&&(()=>{
+          const clash=recipeNameTaken(dupModal.name);
+          return(<>
           <input autoFocus value={dupModal.name} onChange={e=>setDupModal(p=>({...p,name:e.target.value}))}
             placeholder={T2("New recipe name")}
-            style={{width:"100%",padding:"10px 12px",borderRadius:K.rSm,border:`1px solid ${K.cardWarmLine}`,fontSize:14,
+            style={{width:"100%",padding:"10px 12px",borderRadius:K.rSm,border:`1px solid ${clash?K.dangerBorder:K.cardWarmLine}`,fontSize:14,
               color:K.text,background:K.surface,boxSizing:"border-box",fontFamily:K.fontBody}}/>
-        )}
+          {clash&&<div style={{marginTop:7,fontSize:12,color:K.danger,fontWeight:600}}>⚠ {T2("A recipe is already named this — pick a different name.")}</div>}
+          </>);
+        })()}
         confirmLabel={T2("Duplicate")}
         cancelLabel={T2("Cancel")}
-        confirmDisabled={!dupModal||!dupModal.name.trim()}
+        confirmDisabled={!dupModal||!dupModal.name.trim()||recipeNameTaken(dupModal&&dupModal.name)}
         onConfirm={()=>duplicateRecipe(dupModal.recipe,dupModal.catId,dupModal.name)}
         onClose={()=>setDupModal(null)}
       />
