@@ -36,6 +36,15 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var [events, setEvents]       = useState([]);
   var [loading, setLoading]     = useState(true);
   var [searchQ, setSearchQ]     = useState('');
+  // null = the default upcoming-first date order; clicking a header switches
+  // to sorting by that column, clicking it again flips asc/desc.
+  var [sortKey, setSortKey]     = useState(null);
+  var [sortDir, setSortDir]     = useState(1);
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(function(d){ return -d; });
+    else { setSortKey(key); setSortDir(1); }
+  }
+  var FP_RANK = { none: 0, made: 1, locked: 2 };
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
   var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
   var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by}
@@ -108,6 +117,29 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       }
       return false;
     });
+    if (sortKey) {
+      var dir = sortDir;
+      var valueFor = function(e) {
+        if (sortKey === 'guest') return (e.guest || '').toLowerCase();
+        if (sortKey === 'venue') return (e.venue || '').toLowerCase();
+        if (sortKey === 'date') return parseEventDate(e.date);
+        if (sortKey === 'pax') return Number(e.pax) || 0;
+        if (sortKey === 'menu_package') return (e.menu_package || e.menuPackage || '').toLowerCase();
+        if (sortKey === 'fp') return FP_RANK[fpStatusFor(e).key] != null ? FP_RANK[fpStatusFor(e).key] : 0;
+        return 0;
+      };
+      return base.slice().sort(function(a, b){
+        var va = valueFor(a), vb = valueFor(b);
+        // Nulls (no date / no package) always sort last, in either direction —
+        // "no menu package yet" isn't meaningfully before or after any named one.
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+    }
     var todayTs = parseEventDate(TODAY);
     return base.slice().sort(function(a, b){
       var ta = parseEventDate(a.date), tb = parseEventDate(b.date);
@@ -119,7 +151,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       if (tb == null) return -1;
       return aUp ? (ta - tb) : (tb - ta); // upcoming: soonest first · past: most recent first
     });
-  }, [events, searchQ]);
+  }, [events, searchQ, sortKey, sortDir]);
 
   if (menuBuilderEvent) {
     return (
@@ -224,15 +256,28 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
         </div>
       )}
 
-      {!loading && filteredList.length > 0 && !isMobile && (
+      {!loading && filteredList.length > 0 && !isMobile && (()=>{
+        var sortHead = function(key, label, align) {
+          var on = sortKey === key;
+          return (
+            <button onClick={function(){ toggleSort(key); }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none", padding: 0,
+                cursor: "pointer", font: "inherit", color: on ? C.text : "inherit", letterSpacing: "inherit",
+                textTransform: "inherit", justifyContent: align === "right" ? "flex-end" : "flex-start", width: "100%" }}>
+              {label}
+              <span style={{ fontSize: 9, opacity: on ? 1 : 0.35 }}>{on && sortDir < 0 ? "▼" : "▲"}</span>
+            </button>
+          );
+        };
+        return (
         <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.9fr 0.45fr 0.9fr 0.9fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
-            <div>{T2("Guest / Event")}</div>
-            <div>{T2("Venue")}</div>
-            <div>{T2("Date")}</div>
-            <div style={{ textAlign: "right" }}>{T2("Pax")}</div>
-            <div>{T2("Menu Package")}</div>
-            <div>{T2("FP Status")}</div>
+            <div>{sortHead('guest', T2("Guest / Event"))}</div>
+            <div>{sortHead('venue', T2("Venue"))}</div>
+            <div>{sortHead('date', T2("Date"))}</div>
+            <div style={{ textAlign: "right" }}>{sortHead('pax', T2("Pax"), "right")}</div>
+            <div>{sortHead('menu_package', T2("Menu Package"))}</div>
+            <div>{sortHead('fp', T2("FP Status"))}</div>
             <div style={{ textAlign: "right" }}>{T2("Actions")}</div>
           </div>
 
@@ -268,7 +313,8 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       {/* Footer */}
       <div style={{ marginTop: 18, textAlign: "center", fontSize: 11, color: C.muted }}>
