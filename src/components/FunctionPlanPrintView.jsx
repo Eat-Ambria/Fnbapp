@@ -103,6 +103,27 @@ function dayNameFor(dateStr) {
   } catch (e) { return ''; }
 }
 
+function ordinalSuffix(n) {
+  var v = n % 100;
+  if (v >= 11 && v <= 13) return n + 'th';
+  switch (n % 10) {
+    case 1: return n + 'st';
+    case 2: return n + 'nd';
+    case 3: return n + 'rd';
+    default: return n + 'th';
+  }
+}
+
+// "9th Oct 2026" — used for every date printed on this sheet.
+function prettyDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    var d = new Date(dateStr + 'T00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return ordinalSuffix(d.getDate()) + ' ' + d.toLocaleDateString('en-US', { month: 'short' }) + ' ' + d.getFullYear();
+  } catch (e) { return dateStr; }
+}
+
 // A boxed field: the filled-in value sits above a small uppercase label at
 // the bottom edge of its own cell — same convention as the paper prospectus,
 // where an empty cell is left as a ruled box to fill in by hand.
@@ -188,6 +209,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
   var lmsRaw = event.lms_raw || null;
   var functionTypeLabel = (lmsRaw && LMS_FUNCTION_TYPES[Number(lmsRaw.fiscd_function_type)]) || event.type || '';
   var mgrName = lmsRaw ? LMS_STAFF_NAMES[Number(lmsRaw.fisc_entryby)] : null;
+  // address1 from LMS is the specific lawn/hall within the venue property
+  // (e.g. "EMERALD LAWN + GLASS HOUSE" at "Manaktala Farm") — not captured
+  // anywhere else in this app, so it only ever shows up on the FP print.
+  var subVenue = (lmsRaw && lmsRaw.address1 && lmsRaw.address1.trim()) || '';
 
   var lmsPlate = getLmsPlateInfo(event);
   if (lmsPlate) {
@@ -203,7 +228,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
     });
   });
 
-  var attnChefText = [fp && fp.allergies, fp && fp.service_notes, fp && fp.general_notes].filter(Boolean).join('\n');
+  var attnChefLines = [fp && fp.allergies, fp && fp.service_notes, fp && fp.general_notes]
+    .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
@@ -233,13 +259,14 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
         {/* ── Header grid — DATE/DAY/FUNCTION, GUEST/ADDRESS/CONTACT, GTD/PAYMENT/RATE, DIRECT/REPEAT ── */}
         <div style={{ border: "2px solid #000" }}>
           <FRow>
-            <FCell value={event.date || ''} label="DATE" />
+            <FCell value={prettyDate(event.date)} label="DATE" />
             <FCell value={dayNameFor(event.date)} label="DAY" />
             <FCell value={functionTypeLabel} label="FUNCTION" last />
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
             <FCell value={event.venue || ''} label="ADDRESS" />
+            {subVenue && <FCell value={subVenue} label="SUB-VENUE" />}
             <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
           <FRow>
@@ -315,12 +342,16 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
-            {attnChefText && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{attnChefText}</div>}
+            {attnChefLines.length > 1 ? (
+              attnChefLines.map(function(line, i){ return <Bullet key={i}><span style={{ color: "#B3281F", fontWeight: 600 }}>{line}</span></Bullet>; })
+            ) : attnChefLines.length === 1 ? (
+              <div style={{ fontSize: 12.5, color: "#B3281F", fontWeight: 600 }}>{attnChefLines[0]}</div>
+            ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", padding: "10px 16px", gap: 16, flexWrap: "wrap" }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", flex: "1 1 220px" }}>{T2("PROSPECTUS CHECKED / APPROVED / CIRCULATED")}</div>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: {mgrName || '_______________'}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: {localDateStr(new Date())}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: {prettyDate(localDateStr(new Date()))}</div>
           </div>
         </div>
       </div>
