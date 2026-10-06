@@ -904,6 +904,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var groupedByPkgSection = useMemo(function(){
     var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
     if (!pkgSecs || pkgSecs.length === 0) return null;
+    var qLower = (searchQ || '').trim().toLowerCase();
 
     var byExact = {};
     var byLoose = {};
@@ -990,6 +991,22 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
         list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
         list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
+      }
+
+      // resolveOrSynth fills in any package dish name missing from the
+      // (already search-filtered) catalogue pool by SYNTHESIZING a phantom
+      // entry for it — right for a genuinely uncatalogued dish, wrong when
+      // the real reason it's missing is that the search query filtered it
+      // out. Without this, searching "shahi tukda" showed every OTHER dish
+      // in a section too, since none of them matched the catalogue pool
+      // either and all got synthesized back in regardless of the query.
+      if (qLower) {
+        var matchesQ = function(d){ return d.name.toLowerCase().includes(qLower) || (d.hindi || '').toLowerCase().includes(qLower); };
+        list = list.filter(matchesQ);
+        if (subGroups) {
+          subGroups = subGroups.map(function(sg){ return { ...sg, dishes: sg.dishes.filter(matchesQ) }; }).filter(function(sg){ return sg.dishes.length > 0; });
+          if (subGroups.length === 0) subGroups = null;
+        }
       }
 
       if (list.length === 0) return;
@@ -1122,7 +1139,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
     if (extrasGroup.dishes.length === 0) out.splice(out.indexOf(extrasGroup), 1);
     return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections]);
+  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections, searchQ]);
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
