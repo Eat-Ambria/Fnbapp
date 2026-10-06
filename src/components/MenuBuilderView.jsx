@@ -5,12 +5,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi, createCustomDishInLibrary, findRecipeForDish, isDishNoSopMarked } from '../data/recipeData.js';
+import { RECIPE_DB, createCustomDishInLibrary, findRecipeForDish, isDishNoSopMarked } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import * as menuItemOps from '../lib/menuItemOps.js';
+import { useMenuItemGrouping, dietForDish } from '../utils/useMenuItemGrouping.js';
 import ConfigsPanel from './ConfigsPanel.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 import { K, type } from '../utils/theme.js';
@@ -18,16 +20,6 @@ import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
 import { KButton, KToast } from './KitchenUI.jsx';
 import { useIsMobile } from '../utils/useIsMobile.js';
-
-// V90 — a dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise
-// fall back to the dish library's veg/non-veg classification (dishes_master.is_veg)
-// so an unclassified sales tag doesn't silently default every non-veg dish to "Veg".
-// Only truly unclassified-everywhere dishes fall through to DEFAULT_DIET.
-function dietForDish(d, meta) {
-  if (meta && meta.diet_tag) return meta.diet_tag;
-  if (d && d.is_veg != null) return d.is_veg ? 'veg' : 'nonveg';
-  return DEFAULT_DIET;
-}
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
   var T2 = function(s) { return T(s, lang); };
@@ -104,43 +96,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // eslint-disable-next-line
   }, [templateInfo.name]);
 
-  var templateSet = useMemo(function(){
-    var s = {}; templateInfo.dishes.forEach(function(d){ s[d] = true; }); return s;
-  }, [templateInfo.dishes]);
-
-  // ── All dishes (from dishes_master via getAllDishes) ──
   // dishLibBump forces a re-read after addCustomDish adds a brand-new dish —
   // getAllDishes() reads DISH_MASTER, a plain in-memory object createCustomDish
-  // mutates directly (not React state), so without this the empty dep array
-  // below would keep serving the mount-time snapshot forever: the new dish
-  // would get selected but never appear in any section group, since the
-  // grouped-by-section views look it up by name in here (see the matching
-  // fix/comment in EventMenuBuilderView.jsx).
+  // mutates directly (not React state), so without this useMenuItemGrouping's
+  // allDishes would keep serving the mount-time snapshot forever.
   var [dishLibBump, setDishLibBump] = useState(0);
-  var allDishes = useMemo(function(){
-    var raw = getAllDishes ? getAllDishes({ includeInactive: false }) : [];
-    // Enrich each dish with resolved category + hindi + section metadata
-    return raw.map(function(d){
-      var catId = getCatIdForDish(d.dish_name) || 'other';
-      var catObj = (RECIPE_DB.cats || []).find(function(c){ return c.id === catId; });
-      return {
-        name:            d.dish_name,
-        hindi:           resolveDishHindi ? resolveDishHindi(d.dish_name) : '',
-        catId:           catId,
-        catName:         catObj ? catObj.name : 'Other',
-        catIcon:         catObj ? (catObj.icon || '🍽') : '🍽',
-        image:           d.image_url || '',
-        notes:           d.notes || '',
-        section_id:      d.section_id || null,
-        sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
-        is_veg:          d.is_veg,
-      };
-    });
-  // eslint-disable-next-line
-  }, [dishLibBump]);
-  var allDishesByName = useMemo(function(){
-    var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
-  }, [allDishes]);
 
   // ── V72/V73: dish_catalogue_sections (all depts) ──
   // Fetched once on mount. Each section may carry a sales_dept override that routes
@@ -163,67 +123,15 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return function(){ cancelled = true; };
   }, []);
 
-  // V90 — section_id -> its add-on price/pax (set in Menu > Pricing).
-  var sectionAddonPriceMap = useMemo(function(){
-    var m = {};
-    sections.forEach(function(s){ m[s.id] = Number(s.addon_price_per_pax) || 0; });
-    return m;
-  }, [sections]);
-
-  // V73: sectionId → effective sales_dept (override or 'kit' default)
-  var sectionSalesDeptMap = useMemo(function(){
-    var m = {};
-    sections.forEach(function(s){ m[s.id] = s.sales_dept || 'kit'; });
-    return m;
-  }, [sections]);
-
-  // V86 — catalogue sections can now have one level of subsections (Dish
-  // Library → Sections). parentId → its subsection rows, for groupedByPkgSection
-  // to pool a linked section's FULL catalogue (parent + subsections), not just
-  // whatever's directly on the parent row itself.
-  var catSubsByParent = useMemo(function(){
-    var m = {};
-    sections.forEach(function(s){
-      if (s.parent_section_id) { (m[s.parent_section_id] = m[s.parent_section_id] || []).push(s); }
-    });
-    return m;
-  }, [sections]);
-
-  // V87 — "Add section from library" picker: every top-level catalogue
-  // section routed to the active dept tab, with its subsections listed right
-  // after (indented) — same ordering convention as MenuPackagesView's own
-  // catalogue picker. Dish counts come from allDishes (already loaded), no
-  // extra query needed.
-  var catalogueSectionOptions = useMemo(function(){
-    var countFor = function(id){ return allDishes.filter(function(d){ return d.section_id === id; }).length; };
-    var deptTop = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
-    var out = [];
-    deptTop.forEach(function(s){
-      out.push({ id: s.id, label: s.name, count: countFor(s.id) });
-      (catSubsByParent[s.id] || []).forEach(function(sub){ out.push({ id: sub.id, label: '— ' + sub.name, count: countFor(sub.id) }); });
-    });
-    return out;
-  }, [sections, activeDept, catSubsByParent, allDishes]);
-
   // V88 — bring in a chosen catalogue section (its own direct dishes plus, if
   // it's a parent, all of its subsections') as browsable, UNselected cards
   // under the chosen pill — the user picks which ones to actually add from
   // there, same as any other card (onToggle). Tagging alone (no proposal_items/
   // event_items insert) is what makes them show without being pre-checked —
   // see the sectionOverrides carve-out in visibleDishes/visibleDishesAnyDept.
-  async function addSectionFromLibrary(catSectionId, targetId) {
-    if (!targetId) return; // nothing to browse under without a target pill
+  function addSectionFromLibrary(catSectionId, targetId) {
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
-    var ids = [catSectionId].concat(subIds);
-    var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
-    if (res.error) throw res.error;
-    var names = (res.data || []).map(function(r){ return r.dish_name; });
-    if (names.length === 0) return;
-    var next = { ...sectionOverrides };
-    names.forEach(function(n){ next[n] = targetId; });
-    setSectionOverrides(next);
-    var updRes = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
-    if (updRes.error) console.error('[MenuBuilder] saveSectionOverride (bulk) failed:', updRes.error);
+    return menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
   }
 
   // V88 — remove an ad-hoc pill (one created by "Add section from library",
@@ -232,43 +140,9 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // metadata-only operation as adding it. Nothing is deselected/deleted —
   // any dish also individually chosen keeps its proposal_items row, it just
   // falls back to wherever it naturally resolves once untagged.
-  async function removeAdHocSection(grp) {
-    var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
-    var next = { ...sectionOverrides };
-    var changed = false;
-    Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
-    if (!changed) return;
-    setSectionOverrides(next);
-    var res = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
-    if (res.error) console.error('[MenuBuilder] removeAdHocSection failed:', res.error);
+  function removeAdHocSection(grp) {
+    return menuItemOps.removeAdHocSection(itemsOpsConfig, sectionOverrides, grp, setSectionOverrides);
   }
-
-  // ── V72 Phase 2: phantom dishes ──
-  // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
-  // sales can see catalogue mismatches without losing the pre-seeded proposal item.
-  // V75 — dept-agnostic now (also feeds visibleDishesAnyDept for package-section
-  // grouping); the kit-only restriction moved to deptDishes, its only other consumer.
-  var phantomDishes = useMemo(function(){
-    if (!templateInfo.dishes || templateInfo.dishes.length === 0) return [];
-    var nameSet = {};
-    allDishes.forEach(function(d){ nameSet[d.name] = true; });
-    return templateInfo.dishes
-      .filter(function(name){ return !nameSet[name]; })
-      .map(function(name){
-        return {
-          name:            name,
-          hindi:           '',
-          catId:           'other',
-          catName:         'Extras',
-          catIcon:         '⚠',
-          image:           '',
-          notes:           '',
-          section_id:      null,
-          sort_in_section: null,
-          isPhantom:       true,
-        };
-      });
-  }, [allDishes, templateInfo.dishes]);
 
   // ── Load sales_items_meta ──
   async function loadSalesMeta() {
@@ -388,10 +262,6 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   function sayFail(title, err){ say('danger', title, String((err && err.message) || err || '')); }
 
   // ── Selection lookups ──
-  var selectedSet = useMemo(function(){
-    var s = {}; dishItems.forEach(function(x){ s[x.dish_name] = true; }); return s;
-  }, [dishItems]);
-
   // Outsourced (vendor-supplied) dishes — carried into events.outsourced_dishes
   // when this proposal converts to a booking (see ProposalsView.jsx), so they
   // stay excluded from Kitchen Hub tracking and Store & Inventory ordering.
@@ -414,65 +284,24 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // V90 — FOC (free of cost): an add-on dish a sales person waives the charge
   // on for this client. Only meaningful on add-ons — template dishes are
   // already covered by the package's own per-head budget.
-  var focSet = useMemo(function(){
-    var s = {}; dishItems.forEach(function(x){ if (x.foc) s[x.dish_name] = true; }); return s;
-  }, [dishItems]);
-  async function toggleFoc(dishName) {
-    var next = !focSet[dishName];
-    setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: next } : x; }); });
-    try {
-      var res = await supabase.from('proposal_items').update({ foc: next }).eq('proposal_id', proposal.id).eq('dish_name', dishName);
-      if (res.error) throw res.error;
-    } catch (e) {
-      console.error('[MenuBuilder] toggleFoc failed:', e);
-      setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? { ...x, foc: !next } : x; }); });
-      sayFail(T2('Could not update that dish'), e);
-    }
+  function toggleFoc(dishName) {
+    return menuItemOps.toggleFocItem(itemsOpsConfig, dishItems, dishName, setDishItems);
   }
 
   // ── Toggle dish: insert or delete ──
   async function toggleDish(dishName) {
-    var isSelected = !!selectedSet[dishName];
-    var inTemplate = !!templateSet[dishName];
-    if (isSelected) {
-      // Optimistic remove
-      setDishItems(function(prev){ return prev.filter(function(x){ return x.dish_name !== dishName; }); });
-      try {
-        var res = await supabase.from('proposal_items').delete().eq('proposal_id', proposal.id).eq('dish_name', dishName);
-        if (res.error) throw res.error;
-      } catch (e) {
-        console.error('[MenuBuilder] toggle-off failed:', e);
-        // Rollback
-        await loadItems().then(setDishItems);
-        sayFail(T2('Could not remove that dish'), e);
-      }
-    } else {
-      var row = { proposal_id: proposal.id, dish_name: dishName, is_addon: !inTemplate, ordering: dishItems.length };
-      // Optimistic add
-      setDishItems(function(prev){ return prev.concat([row]); });
-      try {
-        var res2 = await supabase.from('proposal_items').insert(row).select().single();
-        if (res2.error) throw res2.error;
-        setDishItems(function(prev){ return prev.map(function(x){ return x.dish_name === dishName ? res2.data : x; }); });
-      } catch (e) {
-        console.error('[MenuBuilder] toggle-on failed:', e);
-        await loadItems().then(setDishItems);
-        sayFail(T2('Could not add that dish'), e);
-      }
+    try {
+      await menuItemOps.toggleDishItem(itemsOpsConfig, dishItems, dishName, !!templateSet[dishName], setDishItems);
+    } catch (e) {
+      console.error('[MenuBuilder] toggle failed:', e);
+      await loadItems().then(setDishItems);
+      sayFail(T2('Could not update that dish'), e);
     }
   }
 
   // V87 — persist a dish's section/subsection tag for this proposal only.
-  async function saveSectionOverride(dishName, sectionId) {
-    var next = { ...sectionOverrides };
-    if (sectionId) next[dishName] = sectionId; else delete next[dishName];
-    setSectionOverrides(next);
-    try {
-      var res = await supabase.from('proposals').update({ menu_section_overrides: next }).eq('id', proposal.id);
-      if (res.error) throw res.error;
-    } catch (e) {
-      console.error('[MenuBuilder] saveSectionOverride failed:', e);
-    }
+  function saveSectionOverride(dishName, sectionId) {
+    return menuItemOps.saveSectionOverride(itemsOpsConfig, sectionOverrides, dishName, sectionId, setSectionOverrides);
   }
 
   // V87 — add a brand-new dish: library entry + SOP stub (shared helper),
@@ -481,20 +310,14 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   async function addCustomDish(name, catId, sectionId) {
     await createCustomDishInLibrary(supabase, name, catId);
     setDishLibBump(function(n){ return n + 1; });
-    var row = { proposal_id: proposal.id, dish_name: name, is_addon: true, ordering: dishItems.length };
-    var res = await supabase.from('proposal_items').insert(row).select().single();
-    if (res.error) throw res.error;
-    setDishItems(function(prev){ return prev.concat([res.data]); });
+    await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
     if (sectionId) await saveSectionOverride(name, sectionId);
   }
 
   // Same as addCustomDish, minus the library-creation step — for a dish the
   // chef picked from the existing library search instead of typing a new one.
   async function addExistingDish(name, sectionId) {
-    var row = { proposal_id: proposal.id, dish_name: name, is_addon: true, ordering: dishItems.length };
-    var res = await supabase.from('proposal_items').insert(row).select().single();
-    if (res.error) throw res.error;
-    setDishItems(function(prev){ return prev.concat([res.data]); });
+    await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
     if (sectionId) await saveSectionOverride(name, sectionId);
   }
 
@@ -506,17 +329,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // ever ADDS missing template dishes, never touches existing selections.
   async function loadPackageDefaults() {
     if (!proposal || !proposal.id || templateInfo.dishes.length === 0 || seeding) return;
-    var have = {};
-    dishItems.forEach(function(x){ have[x.dish_name] = true; });
-    var toAdd = templateInfo.dishes.filter(function(d){ return !have[d]; });
-    if (toAdd.length === 0) { say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.')); return; }
     setSeeding(true);
     try {
-      var rows = toAdd.map(function(d, i){ return { proposal_id: proposal.id, dish_name: d, is_addon: false, ordering: dishItems.length + i }; });
-      var ins = await supabase.from('proposal_items').insert(rows).select();
-      if (ins.error) throw ins.error;
-      setDishItems(function(prev){ return prev.concat(ins.data || []); });
-      await supabase.from('proposals').update({ menu_initialized: true }).eq('id', proposal.id);
+      var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, templateInfo.dishes, setDishItems);
+      if (result.added.length === 0) say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.'));
     } catch (e) {
       console.error('[MenuBuilder] loadPackageDefaults failed:', e);
       sayFail(T2('Could not load the package defaults'), e);
@@ -525,621 +341,31 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     }
   }
 
-  // V77 — dish name → its PACKAGE section's own sales_dept, for the currently
-  // selected package. groupedByPkgSection already treats a package section's
-  // sales_dept as the authoritative dept for its dishes (not the shared catalogue
-  // section, which is just a quick-fill convenience) — counting has to agree with
-  // that or the sidebar/live-total numbers won't match what's actually shown under
-  // each dept tab.
-  var dishNameToPkgDept = useMemo(function(){
-    var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
-    var m = {};
-    if (pkgSecs) {
-      pkgSecs.forEach(function(sec){
-        var dept = sec.sales_dept || 'kit';
-        (sec.dishes || []).forEach(function(name){ if (name) m[name] = dept; });
-      });
-    }
-    return m;
-  }, [templateInfo.name]);
+  var itemsOpsConfig = {
+    itemsTable: 'proposal_items', itemsFk: 'proposal_id', itemsFkValue: proposal.id,
+    parentTable: 'proposals', parentIdValue: proposal.id, initializedColumn: 'menu_initialized',
+  };
 
-  // V88 — a dish tagged via sectionOverrides to a section (e.g. a custom
-  // dish placed under a Fruits-dept pill) isn't in dishNameToPkgDept at all —
-  // that map only knows the package's OWN static dish list, not per-proposal
-  // ad-hoc tags. Without this, the sidebar/live-total counts silently
-  // attribute such a dish to Kitchen (DEFAULT_DEPT) even though
-  // groupedByPkgSection already renders it correctly under its tagged dept.
-  var sectionOverrideDept = useMemo(function(){
-    var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
-    function deptForTargetId(rawId) {
-      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
-      var ps = pkgSecs.find(function(s){ return s.id === id; });
-      if (ps) return ps.sales_dept || 'kit';
-      var cs = sections.find(function(s){ return s.id === id; });
-      if (cs) {
-        if (cs.sales_dept) return cs.sales_dept;
-        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
-        return (parent && parent.sales_dept) || 'kit';
-      }
-      return null;
-    }
-    var m = {};
-    Object.keys(sectionOverrides || {}).forEach(function(name){
-      var targetId = sectionOverrides[name];
-      if (!targetId) return;
-      var dept = deptForTargetId(targetId);
-      if (dept) m[name] = dept;
-    });
-    return m;
-  }, [sectionOverrides, templateInfo.name, sections]);
-
-  // ── Selected counts per dept ──
-  var deptCounts = useMemo(function(){
-    var counts = {};
-    SALES_DEPTS.forEach(function(d){ counts[d.id] = { sel: 0, total: 0 }; });
-    var counted = {};
-    allDishes.forEach(function(d){
-      var meta = salesMeta[d.name];
-      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
-      if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
-      counts[dept].total += 1;
-      if (selectedSet[d.name]) counts[dept].sel += 1;
-      counted[d.name] = true;
-    });
-    // V74 — Phantoms: selected dishes not present in the catalogue (retired,
-    // renamed, or template-only names never added to dishes_master). Attribute
-    // them to their package section's dept, saved dept, or DEFAULT_DEPT so the
-    // sidebar sel badge is honest.
-    Object.keys(selectedSet).forEach(function(name){
-      if (counted[name]) return;
-      var meta = salesMeta[name];
-      var dept = sectionOverrideDept[name] || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
-      if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
-      counts[dept].sel += 1;
-    });
-    return counts;
-  }, [allDishes, salesMeta, selectedSet, dishNameToPkgDept, sectionOverrideDept]);
-
-  // V90 — per-dept add-on ₹ total: only dishes picked beyond the package
-  // (is_addon) and not marked FOC, priced via their catalogue section's
-  // add-on price/pax (set in Menu > Pricing) × this proposal's pax.
-  var deptAddonTotal = useMemo(function(){
-    var totals = {};
-    var pax = Number(proposal && proposal.pax) || 0;
-    dishItems.forEach(function(row){
-      if (!row.is_addon || row.foc) return;
-      var d = allDishesByName[row.dish_name];
-      var price = d && d.section_id ? (sectionAddonPriceMap[d.section_id] || 0) : 0;
-      if (price <= 0) return;
-      var meta = salesMeta[row.dish_name];
-      var dept = sectionOverrideDept[row.dish_name] || dishNameToPkgDept[row.dish_name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
-      totals[dept] = (totals[dept] || 0) + price * pax;
-    });
-    return totals;
-  }, [dishItems, allDishesByName, sectionAddonPriceMap, salesMeta, sectionOverrideDept, dishNameToPkgDept, proposal]);
-
-  // Resolves any section to where the Dish Library files it.
-  //
-  // The pills are built from the PACKAGE's section list, which is flat: a
-  // package that includes "Tandoori Snacks" lists it at the top level even
-  // though the library files it under "Pass Around Snacks". That is why the
-  // strip ran to thirty-odd pills — twenty-five of the fifty catalogue sections
-  // are subsections, and every one of them was getting its own pill.
-  //
-  // This used to match a package section to the catalogue by NAME, which only
-  // works for the ones spelled identically in both places. Across the packages
-  // that is 57 of 282 sections; 175 carry an explicit catalogue_section_id, and
-  // 73 of those resolve by id but NOT by name — so the sections that most need
-  // grouping were exactly the ones being missed. "Chatori Chaat", "Awadh-E-
-  // Khaas" and "Nawab-E- Hyderabad" each got their own top-level pill instead
-  // of nesting under Chaat Station and Indian Main Course.
-  //
-  // So: read the link id-first and name-second, then walk it up to the
-  // top-level ancestor. Every section resolves the same way, rather than the
-  // grouping working for whichever names happen to agree.
-  var catalogueTree = useMemo(function(){
-    var byId = {}, byName = {};
-    sections.forEach(function(s){
-      byId[s.id] = s;
-      var n = (s.name || '').toLowerCase().trim();
-      if (n && !byName[n]) byName[n] = s;
-    });
-    // The depth guard is not paranoia — parent_section_id is a plain
-    // self-referencing column with nothing stopping a row from being dragged
-    // under its own descendant, and a cycle here would hang the render rather
-    // than just misdraw it.
-    function topOf(row) {
-      var cur = row, hops = 0;
-      while (cur && cur.parent_section_id && hops++ < 12) {
-        var next = byId[cur.parent_section_id];
-        if (!next || next.id === cur.id) break;
-        cur = next;
-      }
-      return cur || null;
-    }
-    return {
-      // catSectionId is authoritative (it is what "From catalogue" wrote); the
-      // name is consulted only for sections that carry no link at all.
-      resolveTop: function(catSectionId, name) {
-        var row = (catSectionId && byId[catSectionId]) || byName[(name || '').toLowerCase().trim()];
-        return row ? topOf(row) : null;
-      },
-    };
-  }, [sections]);
-
-  // Shown both inside the rail and on the closed tab, so it is summed once
-  // rather than the same reduce being written in two places.
-  var grandTotal = useMemo(function(){
-    return SALES_DEPTS.reduce(function(sum, d){ return sum + ((deptCounts[d.id] || {}).sel || 0); }, 0);
-  }, [deptCounts]);
-
-  // ── Dishes for active dept ──
-  // V73: effective dept = section's sales_dept override (if dish is in a routed section)
-  // else dish's own meta.sales_dept else DEFAULT_DEPT ('kit').
-  var deptDishes = useMemo(function(){
-    var base = allDishes.filter(function(d){
-      // Bug fix — a dish belonging to the currently selected package (e.g.
-      // Virgin Mojito under a Beverage section) but with no catalogue
-      // section_id and no sales_meta override used to fall all the way to
-      // DEFAULT_DEPT ('kit') here, even though dishNameToPkgDept already
-      // knows its real, correct department (deptCounts/templateDishesInDept
-      // already prioritize it the same way) — it showed correctly under its
-      // real dept AND bled into Kitchen's Extras as an unclaimed leftover.
-      var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
-      var meta = salesMeta[d.name];
-      var dept = dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
-      return dept === activeDept;
-    });
-    // Phantom (catalogue-missing) dishes used to always surface in Kitchen
-    // regardless of which dept they actually belong to — now routed by the
-    // same dishNameToPkgDept priority as everything else, so e.g. a missing
-    // Beverage dish's ⚠ warning shows under Beverage, not Kitchen.
-    var phantomsForDept = phantomDishes.filter(function(p){ return (dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
-    if (phantomsForDept.length > 0) return base.concat(phantomsForDept);
-    return base;
-  }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept]);
-
-  // ── Template dishes scoped to active dept ──
-  var templateDishesInDept = useMemo(function(){
-    return templateInfo.dishes.filter(function(name){
-      var meta = salesMeta[name];
-      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
-      return dept === activeDept;
-    });
-  }, [templateInfo.dishes, salesMeta, activeDept, dishNameToPkgDept]);
-
-  // ── Diet-annotated + filtered + searched ──
-  var visibleDishes = useMemo(function(){
-    var q = (searchQ || '').trim().toLowerCase();
-    return deptDishes.filter(function(d){
-      // Hide dishes that aren't in template AND aren't selected, unless showAddons is
-      // true — or the dish was explicitly placed here via "Add section from
-      // library" (V87): that adds the whole section as browsable, unselected
-      // cards, not auto-picked, so it must stay visible regardless of showAddons.
-      var inT = !!templateSet[d.name];
-      var isSel = !!selectedSet[d.name];
-      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
-      // Already-selected/overridden dishes bypass the diet filter too — a
-      // brand-new custom dish has no sales_meta yet, so dietForDish falls
-      // back to the app default ('veg'); on a non-veg proposal that silently
-      // hid it from this exact list, which is what the section-grouping
-      // lookup reads, so the dish vanished from every section even though
-      // it saved correctly.
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
-      if (!inT && !isSel && !showAddons && !hasOverride) return false;
-      return true;
-    });
-  }, [deptDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
-
-  // ── Group visible dishes by category ──
-  var groupedByCat = useMemo(function(){
-    var groups = {};
-    visibleDishes.forEach(function(d){
-      if (!groups[d.catId]) groups[d.catId] = { name: d.catName, icon: d.catIcon, dishes: [] };
-      groups[d.catId].dishes.push(d);
-    });
-    // Sort by RECIPE_DB.cats order
-    var order = (RECIPE_DB.cats || []).map(function(c){ return c.id; });
-    var sorted = order.filter(function(id){ return !!groups[id]; }).map(function(id){ return { id: id, ...groups[id] }; });
-    // Append any groups not in the cats order (e.g., 'other')
-    Object.keys(groups).forEach(function(id){ if (order.indexOf(id) < 0) sorted.push({ id: id, ...groups[id] }); });
-    return sorted;
-  }, [visibleDishes]);
-
-  // ── V72 Phase 2: group visible dishes by dish_catalogue_sections (kitchen only) ──
-  // Returns null when not applicable — caller falls back to groupedByCat.
-  // Within each section: pinned block (template dishes in package order) first, then rest.
-  // Rest sorted by sort_in_section (nullish last), then alphabetical.
-  // Unassigned + phantom + orphaned dishes fall into an Extras bucket at the bottom.
-  var groupedBySection = useMemo(function(){
-    if (!sections || sections.length === 0) return null;
-    // Bug fix — this used to filter+list EVERY catalogue row (parents AND
-    // subsections alike) as its own flat top-level pill, ordered by sort_order.
-    // But sort_order is only ever comparable among SIBLINGS (a subsection's
-    // own reorder-drag resets it relative to its sisters, same for a parent
-    // among other parents) — a parent's sort_order routinely lands numerically
-    // BEFORE its own children's, so subsections of different parents ended up
-    // interleaved ahead of any parent pill at all. Only top-level sections
-    // become their own pill now; subsections are pooled into it (dishes) and
-    // rendered as subGroups, same shape groupedByPkgSection already uses.
-    var topSections = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
-    if (topSections.length === 0) return null;
-
-    // Package dish → order index (for pinned block ordering)
-    var pkgOrder = {};
-    (templateInfo.dishes || []).forEach(function(d, i){ pkgOrder[d] = i; });
-
-    // Valid section id set (dishes with section_id not in this set fall to
-    // Extras) — a subsection counts here purely via its PARENT's dept, not
-    // its own (usually unset) sales_dept.
-    var validSectionIds = {};
-    topSections.forEach(function(s){
-      validSectionIds[s.id] = true;
-      (catSubsByParent[s.id] || []).forEach(function(sub){ validSectionIds[sub.id] = true; });
-    });
-
-    // Bucket
-    var bySection = {};
-    var extras = [];
-    visibleDishes.forEach(function(d){
-      if (d.section_id && validSectionIds[d.section_id]) {
-        if (!bySection[d.section_id]) bySection[d.section_id] = [];
-        bySection[d.section_id].push(d);
-      } else {
-        extras.push(d);
-      }
-    });
-
-    function sortWithin(list) {
-      var pinned = [];
-      var rest = [];
-      list.forEach(function(d){
-        if (d.name in pkgOrder) pinned.push(d);
-        else rest.push(d);
-      });
-      pinned.sort(function(a, b){ return pkgOrder[a.name] - pkgOrder[b.name]; });
-      rest.sort(function(a, b){
-        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
-        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
-        if (sa !== sb) return sa - sb;
-        return a.name.localeCompare(b.name);
-      });
-      return pinned.concat(rest);
-    }
-
-    // Resolve section icon from sop_category_hint (via RECIPE_DB.cats lookup)
-    function iconFor(s) {
-      if (!s.sop_category_hint) return '🍽';
-      var cat = (RECIPE_DB.cats || []).find(function(c){
-        return c.name === s.sop_category_hint || c.id === s.sop_category_hint;
-      });
-      return (cat && cat.icon) ? cat.icon : '🍽';
-    }
-
-    var out = [];
-    topSections.forEach(function(s){
-      var subs = catSubsByParent[s.id] || [];
-      var direct = bySection[s.id] || [];
-      var pooled = direct.slice();
-      var subGroups = null;
-      if (subs.length > 0) {
-        subGroups = [];
-        if (direct.length > 0) subGroups.push({ id: s.id, name: s.name, dishes: sortWithin(direct) });
-        subs.forEach(function(sub){
-          var subList = bySection[sub.id] || [];
-          if (subList.length === 0) return;
-          pooled = pooled.concat(subList);
-          subGroups.push({ id: sub.id, name: sub.name, dishes: sortWithin(subList) });
-        });
-        if (subGroups.length === 0) subGroups = null;
-      }
-      if (pooled.length === 0) return; // skip empty sections
-      // Already a catalogue row, so it is its own link — carried explicitly
-      // anyway so every group shape answers "where does the library file this?"
-      // the same way.
-      out.push({ id: s.id, name: s.name, icon: iconFor(s), catSectionId: s.id, dishes: sortWithin(pooled), subGroups: subGroups });
-    });
-    if (extras.length > 0) {
-      out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
-    }
-    return out;
-  }, [activeDept, sections, visibleDishes, templateInfo.dishes, catSubsByParent]);
-
-  // ── V75: same visibility rules as visibleDishes (diet filter, search, template/
-  // selected/add-on visibility) but WITHOUT the per-dept restriction — needed so a
-  // package section can be matched against its dishes regardless of which dept tab
-  // those dishes' own catalogue rows happen to route to. Which dept TAB a package
-  // section shows up under is now a single explicit choice (sec.sales_dept, set in
-  // the Packages tab) — not re-derived from the catalogue.
-  var visibleDishesAnyDept = useMemo(function(){
-    var q = (searchQ || '').trim().toLowerCase();
-    return allDishes.concat(phantomDishes).filter(function(d){
-      var inT = !!templateSet[d.name];
-      var isSel = !!selectedSet[d.name];
-      var hasOverride = !!(sectionOverrides && sectionOverrides[d.name]);
-      // Already-selected/overridden dishes bypass the diet filter — see the
-      // matching comment on visibleDishes above.
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter && !isSel && !hasOverride) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
-      if (!inT && !isSel && !showAddons && !hasOverride) return false;
-      return true;
-    });
-  }, [allDishes, phantomDishes, salesMeta, dietFilter, searchQ, templateSet, selectedSet, showAddons, sectionOverrides]);
-
-  // ── V76: every catalogue dish (diet filter + search still apply, since those are
-  // explicit choices) with NO template/selected/showAddons gate — a package-linked
-  // section's browse list must show every alternative in that catalogue section
-  // regardless of "Show add-ons", since browsing IS the point of linking a section
-  // to the catalogue. "Show add-ons" still gates truly unrelated catalogue dishes
-  // (the Extras bucket, via visibleDishes/visibleDishesAnyDept above).
-  var catalogueBrowsePool = useMemo(function(){
-    var q = (searchQ || '').trim().toLowerCase();
-    return allDishes.filter(function(d){
-      var meta = salesMeta[d.name];
-      var diet = dietForDish(d, meta);
-      if (dietFilter !== 'all' && diet !== dietFilter) return false;
-      if (q && !d.name.toLowerCase().includes(q) && !(d.hindi || '').toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [allDishes, salesMeta, dietFilter, searchQ]);
-
-  // ── V76: group by the SELECTED PACKAGE's own sections (as configured in the
-  // Packages tab) instead of the shared catalogue taxonomy directly — so section
-  // NAMES, ORDER and dept routing (sec.sales_dept) always follow the package, not
-  // the shared catalogue. But membership is browse-friendly: when a section was
-  // built "From catalogue" (sec.catalogue_section_id set), sales sees the FULL
-  // catalogue section (e.g. all 6 Refreshing Station dishes) with the package's own
-  // subset (e.g. 2) pinned first and already selected (seedTemplateIfNeeded handles
-  // the actual pre-selection) — so they can swap in any catalogue alternative
-  // without leaving the section. A section with no catalogue link (hand-built, or
-  // a dish typed in with no catalogue row) just shows its own dish list, same as
-  // before — there's no broader set to browse from.
-  // Returns null when the package has no sections overlay yet (legacy packages),
-  // so the caller falls back to groupedBySection / groupedByCat.
-  var groupedByPkgSection = useMemo(function(){
-    var pkgSecs = templateInfo.name ? MENU_PACKAGE_SECTIONS[templateInfo.name] : null;
-    if (!pkgSecs || pkgSecs.length === 0) return null;
-    var qLower = (searchQ || '').trim().toLowerCase();
-
-    var byExact = {};
-    var byLoose = {};
-    visibleDishesAnyDept.forEach(function(d){
-      byExact[d.name] = d;
-      var k = (d.name || '').toLowerCase().trim();
-      if (!byLoose[k]) byLoose[k] = d;
-    });
-    var byCatSectionId = {};
-    catalogueBrowsePool.forEach(function(d){
-      if (d.section_id) { if (!byCatSectionId[d.section_id]) byCatSectionId[d.section_id] = []; byCatSectionId[d.section_id].push(d); }
-    });
-    var consumed = {};
-
-    function iconFor(sopCat) {
-      if (!sopCat) return '🍽';
-      var cat = (RECIPE_DB.cats || []).find(function(c){ return c.name === sopCat || c.id === sopCat; });
-      return (cat && cat.icon) ? cat.icon : '🍽';
-    }
-    function resolveOrSynth(name, sec) {
-      var match = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
-      if (match) {
-        // Clear any stale phantom flag from the old catalogue-diff check — this
-        // dish's identity is the package's own name, shown normally here.
-        return match.isPhantom ? { ...match, catName: sec.name, catIcon: iconFor(sec.sop_category), isPhantom: false } : match;
-      }
-      return { name: name, hindi: '', catId: 'other', catName: sec.name, catIcon: iconFor(sec.sop_category),
-        image: '', notes: '', section_id: null, sort_in_section: null };
-    }
-
-    function pinnedRest(dishList, pkgDishNames) {
-      var pinned = [], rest = [];
-      dishList.forEach(function(d){ (pkgDishNames.indexOf(d.name) >= 0 ? pinned : rest).push(d); });
-      pinned.sort(function(a, b){ return pkgDishNames.indexOf(a.name) - pkgDishNames.indexOf(b.name); });
-      rest.sort(function(a, b){
-        var sa = a.sort_in_section == null ? 999999 : a.sort_in_section;
-        var sb = b.sort_in_section == null ? 999999 : b.sort_in_section;
-        if (sa !== sb) return sa - sb;
-        return a.name.localeCompare(b.name);
-      });
-      return pinned.concat(rest);
-    }
-
-    var out = [];
-    pkgSecs.forEach(function(sec){
-      if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
-      var pkgDishNames = (sec.dishes || []).filter(Boolean);
-      var directCatDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
-      // V86 — the linked catalogue section may itself have subsections (Dish
-      // Library → Sections), each holding its own slice of the full catalogue
-      // list (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental). Pool
-      // ALL of them, grouped by subsection, instead of only whatever's
-      // directly on the parent row — otherwise a fully-subsectioned catalogue
-      // section (0 dishes of its own) resolves to nothing to browse at all.
-      var catSubs = sec.catalogue_section_id ? (catSubsByParent[sec.catalogue_section_id] || []) : [];
-
-      var list;
-      var subGroups = null;
-      if (catSubs.length > 0) {
-        subGroups = [];
-        var allCatDishes = (directCatDishes || []).slice();
-        if (directCatDishes && directCatDishes.length > 0) {
-          subGroups.push({ id: sec.catalogue_section_id, name: sec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
-        }
-        catSubs.forEach(function(sub){
-          var subDishes = byCatSectionId[sub.id] || [];
-          if (subDishes.length === 0) return;
-          allCatDishes = allCatDishes.concat(subDishes);
-          subGroups.push({ id: sub.id, name: sub.name, dishes: pinnedRest(subDishes, pkgDishNames) });
-        });
-        var foundInSubs = {};
-        allCatDishes.forEach(function(d){ foundInSubs[d.name] = true; });
-        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        if (missingFromSubs.length > 0) subGroups.unshift({ id: sec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
-        if (subGroups.length === 0) subGroups = null;
-        list = missingFromSubs.concat(allCatDishes);
-      } else if (directCatDishes && directCatDishes.length > 0) {
-        // Package dish names that don't exist among this catalogue section's own
-        // dishes (name mismatch, or added to the package from elsewhere) — resolve
-        // or synthesize them too, so the package's own count is never short.
-        var foundNames = {};
-        directCatDishes.forEach(function(d){ foundNames[d.name] = true; });
-        var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
-      } else {
-        list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
-      }
-
-      // resolveOrSynth fills in any package dish name missing from the
-      // (already search-filtered) catalogue pool by SYNTHESIZING a phantom
-      // entry for it — right for a genuinely uncatalogued dish, wrong when
-      // the real reason it's missing is that the search query filtered it
-      // out. Without this, searching "shahi tukda" showed every OTHER dish
-      // in a section too, since none of them matched the catalogue pool
-      // either and all got synthesized back in regardless of the query.
-      if (qLower) {
-        var matchesQ = function(d){ return d.name.toLowerCase().includes(qLower) || (d.hindi || '').toLowerCase().includes(qLower); };
-        list = list.filter(matchesQ);
-        if (subGroups) {
-          subGroups = subGroups.map(function(sg){ return { ...sg, dishes: sg.dishes.filter(matchesQ) }; }).filter(function(sg){ return sg.dishes.length > 0; });
-          if (subGroups.length === 0) subGroups = null;
-        }
-      }
-
-      if (list.length === 0) return;
-      list.forEach(function(d){ consumed[d.name] = true; });
-      // The package section's own id is meaningless to the catalogue; this is
-      // the link the pill grouping reads.
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), catSectionId: sec.catalogue_section_id || null, dishes: list, subGroups: subGroups });
-    });
-    if (out.length === 0) return null;
-
-    // Bug fix — "Extras" is itself a selectable placement pill (so a custom
-    // dish can be explicitly tagged there instead of a real section), but it
-    // used to only get built at the very end from whatever's left unconsumed.
-    // An override tagged to '__extras__' ran BEFORE that existed, so it fell
-    // through to newGroups and spawned a SECOND, colliding "Extras" pill
-    // (duplicate id — one hid the other). Build it once, up front, so the
-    // override pass below places straight into the same bucket leftovers use.
-    var extrasGroup = { id: '__extras__', name: 'Extras', icon: '✨', dishes: [] };
-    out.push(extrasGroup);
-
-    // V87 — a custom dish (or a whole library section added ad hoc) is tagged
-    // per-proposal via sectionOverrides, pointing at a group/subGroup id that
-    // may already exist above — place it there instead of leaving it for
-    // Extras. A tag pointing at neither (a whole catalogue section added ad
-    // hoc that isn't part of this package, e.g. "Pre Dining Live") gets its
-    // OWN new pill named after that catalogue section, rather than silently
-    // falling into Extras.
-    // A tag's target can be a package-section id, a catalogue section id, or
-    // a catalogue subsection id — all three carry (or inherit) a sales_dept,
-    // and a tag whose dept doesn't match the tab being viewed must be fully
-    // skipped here (not just left unplaced), or it leaks into every OTHER
-    // dept tab too as a stray pill labelled with its raw id (since it won't
-    // resolve a real name outside its own dept's catalogueSectionOptions).
-    function deptForTargetId(rawId) {
-      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
-      var ps = pkgSecs.find(function(s){ return s.id === id; });
-      if (ps) return ps.sales_dept || 'kit';
-      var cs = sections.find(function(s){ return s.id === id; });
-      if (cs) {
-        if (cs.sales_dept) return cs.sales_dept;
-        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
-        return (parent && parent.sales_dept) || 'kit';
-      }
-      return null;
-    }
-
-    // '__extras__' (an explicit "place in Extras" choice) and any other
-    // target with no dept of its own carry no department info at all — fall
-    // back to the dish's OWN native dept (visibleDishes is already scoped to
-    // activeDept) so it only ever shows under the one tab it actually
-    // belongs to, not every tab.
-    var visibleDeptSet = {};
-    visibleDishes.forEach(function(d){ visibleDeptSet[d.name] = true; });
-
-    var newGroups = {}; // targetId -> group, built once, appended after
-    Object.keys(sectionOverrides || {}).forEach(function(name){
-      if (consumed[name]) return;
-      var targetId = sectionOverrides[name];
-      if (!targetId) return;
-      var targetDept = deptForTargetId(targetId);
-      if (targetDept) {
-        if (targetDept !== activeDept) return; // belongs to a different department tab entirely
-      } else if (!visibleDeptSet[name]) {
-        return; // no dept info from the target itself — dish isn't native to this tab
-      }
-      var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
-      if (!d) return; // not currently visible (filtered by search/diet/showAddons)
-      var placed = out.some(function(g){
-        if (g.subGroups) {
-          var sg = g.subGroups.find(function(x){ return x.id === targetId; });
-          if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
-          if (g.id === targetId) {
-            // Target IS this group, but it renders via subGroups only (a flat
-            // g.dishes push would be invisible) — give it a shared "Other"
-            // bucket, same id convention the pooling above already uses.
-            var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
-            if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
-            other.dishes = other.dishes.concat([d]);
-            return true;
-          }
-          return false;
-        }
-        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
-        return false;
-      });
-      if (placed) { consumed[name] = true; return; }
-      if (!newGroups[targetId]) {
-        var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
-        // V87 fix — a whole catalogue section added ad hoc can itself have
-        // subsections (e.g. "Pre Dining Live" > Lebanese/Galouti/Kebab/...);
-        // pool the same subGroups shape the main package-section loop above
-        // builds, bucketing each tagged dish by its OWN catalogue section_id,
-        // instead of one flat unlabeled list.
-        var subs = catSubsByParent[targetId] || [];
-        var subGroupsNew = subs.length > 0
-          ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
-          : null;
-        // targetId IS a catalogue section id here, so an ad-hoc section nests
-        // under its library parent like any other.
-        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', catSectionId: targetId, dishes: [], subGroups: subGroupsNew, isAdHoc: true };
-      }
-      var ng = newGroups[targetId];
-      ng.dishes.push(d);
-      if (ng.subGroups) {
-        var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
-        destSg.dishes.push(d);
-      }
-      consumed[name] = true;
-    });
-    Object.keys(newGroups).forEach(function(id){
-      var g = newGroups[id];
-      if (g.subGroups) { g.subGroups = g.subGroups.filter(function(sg){ return sg.dishes.length > 0; }); if (g.subGroups.length === 0) g.subGroups = null; }
-      out.push(g);
-    });
-
-    // A dish tagged to a section in a DIFFERENT department (e.g. an
-    // unclassified custom dish, natively visible here in Kitchen by default,
-    // but tagged to a Fruits-dept section) already renders correctly under
-    // its tag's own dept tab — it must not also leak into THIS dept's Extras
-    // just because its fallback native dept happens to be the one showing.
-    var leftover = visibleDishes.filter(function(d){
-      if (consumed[d.name]) return false;
-      var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov) {
-        var ovDept = deptForTargetId(ov);
-        if (ovDept && ovDept !== activeDept) return false;
-      }
-      return true;
-    });
-    extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
-    if (extrasGroup.dishes.length === 0) out.splice(out.indexOf(extrasGroup), 1);
-    return out;
-  }, [templateInfo.name, visibleDishesAnyDept, catalogueBrowsePool, visibleDishes, activeDept, catSubsByParent, T2, sectionOverrides, catalogueSectionOptions, sections, searchQ]);
+  var grouping = useMenuItemGrouping({
+    dishItems: dishItems, templateInfo: templateInfo, sections: sections, sectionOverrides: sectionOverrides,
+    activeDept: activeDept, dietFilter: dietFilter, searchQ: searchQ, showAddons: showAddons,
+    salesMeta: salesMeta, dishLibBump: dishLibBump, pax: proposal && proposal.pax, T2: T2,
+  });
+  var allDishes = grouping.allDishes;
+  var catSubsByParent = grouping.catSubsByParent;
+  var catalogueSectionOptions = grouping.catalogueSectionOptions;
+  var templateSet = grouping.templateSet;
+  var selectedSet = grouping.selectedSet;
+  var focSet = grouping.focSet;
+  var deptCounts = grouping.deptCounts;
+  var deptAddonTotal = grouping.deptAddonTotal;
+  var grandTotal = grouping.grandTotal;
+  var deptDishes = grouping.deptDishes;
+  var templateDishesInDept = grouping.templateDishesInDept;
+  var catalogueTree = grouping.catalogueTree;
+  var groupedByCat = grouping.groupedByCat;
+  var groupedBySection = grouping.groupedBySection;
+  var groupedByPkgSection = grouping.groupedByPkgSection;
 
   // ── RENDER ──
   // V71 — diet chip replaces tier badge
