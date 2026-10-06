@@ -345,11 +345,9 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   return (
     <div>
-      {locked && (
-        <div style={{ marginBottom: 10, padding: "10px 14px", background: C.redBg, borderRadius: 10, border: "1px solid " + C.redBorder, color: C.red, fontSize: 12.5, fontWeight: 600 }}>
-          🔒 {T2("This event's Function Plan is locked — unlock it to change the menu.")}
-        </div>
-      )}
+      {/* No lock banner here — MenuPackagesView (this editor's only caller that
+          ever passes locked=true) already shows one above this component, with
+          a link to the Function Plan; a second copy here just repeated it. */}
       {/* Quick start from package */}
       <div style={{ marginBottom: 10, padding: "10px 14px", background: C.bg, borderRadius: 10, border: "1px solid " + C.border }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: "uppercase" }}>{T2("Quick start from package")}</div>
