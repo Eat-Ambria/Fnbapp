@@ -7,7 +7,7 @@
 // blur, same pattern as production_plans elsewhere in the app.
 // Place in: src/components/FunctionPlanTab.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { K } from '../utils/theme.js';
 import { Icon, KButton, KBanner } from './KitchenUI.jsx';
 
@@ -31,6 +31,10 @@ var TIME_FIELDS = [
   { id: 'jaimala_time',     label: 'Jaimala' },
   { id: 'windup_time',      label: 'Wind-up' },
   { id: 'phera_time',       label: 'Phera' },
+  { id: 'chaat_end_time',   label: 'Chaat end' },
+  { id: 'snacks_end_time',  label: 'Snacks end' },
+  { id: 'live_start_time',  label: 'Live start' },
+  { id: 'live_end_time',    label: 'Live end' },
 ];
 
 var EQUIP_FIELDS = [
@@ -174,6 +178,60 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
   }
   function onChangeField(field, v) {
     setDrafts(function(p){ return { ...p, [field]: v }; });
+  }
+
+  // ── Guest signature — canvas-drawn, same approach as KitchenHub's chef
+  // completion signature: stroke to a <canvas>, capture it as a PNG data URL
+  // once the guest is happy with it, store that string directly on the FP
+  // row. Once saved it renders as a plain image (nothing left to draw on)
+  // until "Re-sign" clears the saved value and swaps the image back out for
+  // a blank canvas.
+  var sigCanvasRef = useRef(null);
+  var sigDrawingRef = useRef(false);
+  var [sigHasStrokes, setSigHasStrokes] = useState(false);
+  function sigCtx() {
+    var c = sigCanvasRef.current; if (!c) return null;
+    var ctx = c.getContext('2d');
+    ctx.strokeStyle = K.text; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    return ctx;
+  }
+  function sigPos(e, c) {
+    var r = c.getBoundingClientRect();
+    var t = e.touches ? e.touches[0] : e;
+    return { x: (t.clientX - r.left) * (c.width / r.width), y: (t.clientY - r.top) * (c.height / r.height) };
+  }
+  function sigStart(e) {
+    e.preventDefault();
+    var c = sigCanvasRef.current; if (!c) return;
+    sigDrawingRef.current = true;
+    var ctx = sigCtx(); if (!ctx) return;
+    var p = sigPos(e, c); ctx.beginPath(); ctx.moveTo(p.x, p.y);
+  }
+  function sigMove(e) {
+    if (!sigDrawingRef.current) return;
+    e.preventDefault();
+    var c = sigCanvasRef.current; if (!c) return;
+    var ctx = sigCtx(); if (!ctx) return;
+    var p = sigPos(e, c); ctx.lineTo(p.x, p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x, p.y);
+  }
+  function sigEnd() {
+    if (!sigDrawingRef.current) return;
+    sigDrawingRef.current = false;
+    setSigHasStrokes(true);
+  }
+  function sigClear() {
+    var c = sigCanvasRef.current;
+    if (c) { var ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height); }
+    setSigHasStrokes(false);
+  }
+  function saveSignature() {
+    var c = sigCanvasRef.current; if (!c) return;
+    onSaveField('guest_signature', c.toDataURL('image/png'));
+    commitText('guest_signature_name');
+  }
+  function reSign() {
+    onSaveField('guest_signature', null);
+    setSigHasStrokes(false);
   }
   function commitText(field) {
     if (drafts[field] === undefined) return;
@@ -458,6 +516,68 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
             <FPTextArea label={T2("General notes")}
               placeholder={T2("Anything else the kitchen/service team should know…")}
               value={val('general_notes')} onChange={function(v){ onChangeField('general_notes', v); }} onBlur={function(){ commitText('general_notes'); }} />
+          </div>
+        </Panel>
+      </div>
+
+      {/* ── Guest Signature — full width, closing confirmation. Locked the
+          same way as everything else above: once the FP is marked final,
+          re-signing is blocked too, so a saved signature stays a record of
+          what was actually agreed instead of something that can be redrawn
+          after the fact. */}
+      <div style={{ marginTop: 16, pointerEvents: locked ? "none" : "auto", opacity: locked ? 0.55 : 1 }}>
+        <Panel icon="contact" badgeBg={K.okBg} badgeColor={K.ok} title={T2("Guest Signature")}>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div style={{ flex: "1 1 240px", minWidth: 220 }}>
+              <FieldLabel>{T2("Signed by")}</FieldLabel>
+              <input type="text" value={val('guest_signature_name')}
+                placeholder={T2("Guest's name")}
+                onChange={function(e){ onChangeField('guest_signature_name', e.target.value); }}
+                onBlur={function(){ commitText('guest_signature_name'); }}
+                style={{ ...inputStyle, width: "100%", marginBottom: 12, boxSizing: "border-box" }} />
+              <div style={{ fontSize: 11.5, color: K.textFaint, lineHeight: 1.5 }}>
+                {T2("Confirms the details on this plan are correct as agreed with the guest.")}
+              </div>
+            </div>
+            <div style={{ flex: "1 1 320px", minWidth: 300 }}>
+              {fp && fp.guest_signature ? (
+                <div>
+                  <div style={{ border: "2px solid " + K.okBorder, borderRadius: K.rSm, overflow: "hidden", background: "#fff" }}>
+                    <img src={fp.guest_signature} alt={T2("Guest signature")}
+                      style={{ display: "block", width: "100%", height: 120, objectFit: "contain" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ fontSize: 11.5, color: K.ok, fontWeight: 700 }}>✓ {T2("Signed")}</span>
+                    <button type="button" onClick={reSign}
+                      style={{ padding: "5px 13px", borderRadius: K.rSm, background: K.surfaceAlt, border: "1px solid " + K.line, color: K.textMuted, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                      {T2("Re-sign")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ border: "2px solid " + (sigHasStrokes ? K.okBorder : K.line), borderRadius: K.rSm, overflow: "hidden", background: "#fff", touchAction: "none" }}>
+                    <canvas ref={sigCanvasRef} width={380} height={120}
+                      style={{ display: "block", width: "100%", height: 120, cursor: "crosshair", touchAction: "none" }}
+                      onMouseDown={sigStart} onMouseMove={sigMove} onMouseUp={sigEnd} onMouseLeave={sigEnd}
+                      onTouchStart={sigStart} onTouchMove={sigMove} onTouchEnd={sigEnd} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ fontSize: 11.5, color: K.textFaint }}>{sigHasStrokes ? T2("Ready to save") : T2("Sign above")}</span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={sigClear}
+                        style={{ padding: "5px 13px", borderRadius: K.rSm, background: K.surfaceAlt, border: "1px solid " + K.line, color: K.textMuted, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                        {T2("Clear")}
+                      </button>
+                      <button type="button" disabled={!sigHasStrokes} onClick={saveSignature}
+                        style={{ padding: "5px 15px", borderRadius: K.rSm, background: sigHasStrokes ? K.brand : K.lineStrong, border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: sigHasStrokes ? "pointer" : "not-allowed" }}>
+                        {T2("Save signature")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </Panel>
       </div>
