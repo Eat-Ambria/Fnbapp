@@ -11,7 +11,7 @@ import { ripple } from '../utils/ripple.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
-import { guessSectionForDish } from '../data/recipeData.js';
+import { guessSectionForDish, findRecipeForDish, resolveDishStore } from '../data/recipeData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
 
@@ -203,6 +203,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   const [closureEv, setClosureEv] = useState(null);
   const [closureRemark, setClosureRemark] = useState("");
   const [closureRating, setClosureRating] = useState("");
+  const [noSopOpen, setNoSopOpen] = useState(true); // the no-SOP alert below starts expanded — it's meant to be seen, not clicked open
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
@@ -861,6 +862,75 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
         );
       })()}
 
+      {/* ══ NO-SOP DISH ALERTS ══ A dish added to an upcoming function's menu
+          (via Booked Functions or Build Menu) that has no recipe at all.
+          Kitchen Hub's Planning tab already flags this per-event (the
+          "Unmapped" bucket), but that only gets seen by whoever opens that
+          one event's Planning tab — this is the page everyone opens first,
+          so it's where a brand-new custom dish reliably gets noticed days
+          before the function, not discovered at D-1. Same "has a recipe OR
+          is issued from store" definition Planning's Unmapped bucket uses,
+          so the two never disagree about what counts as missing. */}
+      {(()=>{
+        const byDish = new Map(); // dish name -> events that need it
+        safeEvs.filter(ev=>ev.date>=todayStr).forEach(ev=>{
+          const menu = Array.isArray(ev.menu) ? ev.menu : [];
+          if(menu.length===0) return;
+          const outsourced = Array.isArray(ev.outsourced_dishes) ? new Set(ev.outsourced_dishes) : null;
+          menu.forEach(dish=>{
+            if(!dish || (outsourced && outsourced.has(dish))) return;
+            if(findRecipeForDish(dish) || resolveDishStore(dish)) return;
+            if(!byDish.has(dish)) byDish.set(dish, []);
+            const list = byDish.get(dish);
+            if(!list.some(e=>e.id===ev.id)) list.push(ev);
+          });
+        });
+        const entries = [...byDish.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+        if(entries.length===0) return null;
+        return (
+          <div style={{marginBottom:18,borderRadius:16,backgroundColor:K.dangerBg,
+            border:`1px solid ${K.dangerBorder}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+            <div onClick={()=>setNoSopOpen(o=>!o)} role="button" tabIndex={0} aria-expanded={noSopOpen}
+              onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setNoSopOpen(o=>!o);}}}
+              style={{padding:"14px 18px",display:"flex",alignItems:"center",gap:13,cursor:"pointer"}}>
+              <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:"#FFFFFF",
+                border:`1px solid ${K.dangerBorder}`,color:K.danger,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon name="alert" size={18} strokeWidth={2}/>
+              </span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+                  <span style={{...type.sectionHead,fontSize:16,fontWeight:700,color:K.hdrTitle}}>
+                    {T2("Dishes with no SOP recipe")}
+                  </span>
+                  <span style={{padding:"2px 10px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:700,
+                    background:K.danger,color:"#FFFFFF",fontVariantNumeric:"tabular-nums"}}>{entries.length}</span>
+                </div>
+                <div style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrMeta,marginTop:2}}>
+                  {T2("On an upcoming function's menu with no SOP written yet — write these before that function's D-1.")}
+                </div>
+              </div>
+              <span style={{color:K.hdrMeta,display:"flex",transform:noSopOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                <Icon name="chevronD" size={17} strokeWidth={2.1}/>
+              </span>
+            </div>
+            {noSopOpen && (
+              <div style={{padding:"0 18px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                {entries.map(([dish,evs])=>(
+                  <div key={dish} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,
+                    padding:"10px 14px",borderRadius:12,background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:K.fontBody,fontSize:13.5,fontWeight:700,color:K.hdrTitle}}>{dish}</span>
+                    <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,textAlign:"right"}}>
+                      {evs.slice(0,3).map(e=>e.guest||e.venue).filter(Boolean).join(", ")}{evs.length>3?` +${evs.length-3} ${T2("more")}`:""}
+                      {" · "}{evs.length} {evs.length===1?T2("function"):T2("functions")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{display:"flex",gap:18,alignItems:"stretch",flexWrap:"wrap",marginBottom:24}}>
       {/* ── Left: calendar, the picked day, today's events ── */}
