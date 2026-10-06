@@ -37,6 +37,22 @@ var TIME_FIELDS = [
   { id: 'live_end_time',    label: 'Live end' },
 ];
 
+// How the Timings panel actually lays its rows out: a start/end pair shares
+// one row instead of landing on two separate, unrelated rows. Built by
+// referencing TIME_FIELDS' ids rather than replacing that list, since
+// FunctionPlanPrintView's bullet summary still reads the flat list.
+var TIME_FIELD_GROUPS = [
+  { label: 'Chaat',       start: 'chaat_time',      end: 'chaat_end_time' },
+  { label: 'Assembly',    start: 'assembly_time' },
+  { label: 'Snacks',      start: 'snacks_time',     end: 'snacks_end_time' },
+  { label: 'Baarat',      start: 'baarat_time' },
+  { label: 'Main course', start: 'main_course_time' },
+  { label: 'Jaimala',     start: 'jaimala_time' },
+  { label: 'Wind-up',     start: 'windup_time' },
+  { label: 'Phera',       start: 'phera_time' },
+  { label: 'Live',        start: 'live_start_time', end: 'live_end_time' },
+];
+
 var EQUIP_FIELDS = [
   { id: 'fan',    label: 'Fan',    icon: '🌀', iconName: 'fan' },
   { id: 'cooler', label: 'Cooler', icon: '❄️', iconName: 'snowflake' },
@@ -347,12 +363,18 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
         {/* ── Timings ── */}
         <Panel icon="clock" badgeBg={K.accentSoft} badgeColor={K.accent} title={T2("Timings")}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 28px" }}>
-            {TIME_FIELDS.map(function(f, i){
-              var isLastRow = i >= TIME_FIELDS.length - 2;
+            {TIME_FIELD_GROUPS.map(function(g, i){
+              var isLastRow = i >= TIME_FIELD_GROUPS.length - (TIME_FIELD_GROUPS.length % 2 === 0 ? 2 : 1);
               return (
-                <div key={f.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: isLastRow ? "none" : "1px solid " + K.lineSoft }}>
-                  <label style={{ fontSize: 12.5, fontWeight: 600, color: K.textBody }}>{T2(f.label)}</label>
-                  <TimeInput12 value={val(f.id)} onCommit={function(v){ onSaveField(f.id, v); }} />
+                <div key={g.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: isLastRow ? "none" : "1px solid " + K.lineSoft }}>
+                  <label style={{ fontSize: 12.5, fontWeight: 600, color: K.textBody }}>{T2(g.label)}</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <TimeInput12 value={val(g.start)} onCommit={function(v){ onSaveField(g.start, v); }} />
+                    {g.end && (<>
+                      <span style={{ fontSize: 11, color: K.textFaint }}>–</span>
+                      <TimeInput12 value={val(g.end)} onCommit={function(v){ onSaveField(g.end, v); }} />
+                    </>)}
+                  </div>
                 </div>
               );
             })}
