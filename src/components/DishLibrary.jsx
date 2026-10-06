@@ -19,6 +19,7 @@ import {
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
 import DishMappingModal from './DishMappingModal.jsx';
@@ -386,6 +387,97 @@ function DishLibrary(props) {
     return { affected: pkgRows.length };
   }
 
+  // ── Bookings cascade helper ───────────────────────────────────────
+  // A merge used to only rewrite the shared catalogue (dishes_master,
+  // menu_packages) — every ALREADY-BOOKED function's own selected dishes
+  // (event_items/proposal_items) kept the old, typo'd name forever, since
+  // those rows are a per-event snapshot, not a live read of the catalogue.
+  // The Function Plan print view reads event_items directly (not the
+  // catalogue), so a merged-away dish name kept showing up there — on a
+  // LOCKED FP too, since locking only gates the menu-builder's own write
+  // handlers, never this table-level rename, which is a deliberate separate
+  // correction path (fixing what a dish IS named, not changing the menu).
+  // renameMap: { sourceName: targetName }. Returns { renamed, merged } counts.
+  async function applyRenameToBookings(renameMap) {
+    var sources = Object.keys(renameMap);
+    if (sources.length === 0) return { renamed: 0, merged: 0 };
+    var target = renameMap[sources[0]]; // performMergeCore only ever maps every source to the one same target
+    var renamed = 0, merged = 0;
+
+    var tables = [
+      { name: 'event_items', fk: 'event_id' },
+      { name: 'proposal_items', fk: 'proposal_id' },
+    ];
+    for (var i = 0; i < tables.length; i++) {
+      var table = tables[i].name, fk = tables[i].fk;
+      var rowsRes = await withStepTimeout(
+        supabase.from(table).select('id, ' + fk + ', dish_name').in('dish_name', sources),
+        'find ' + table + ' rows naming ' + sources.join(', ')
+      );
+      if (rowsRes.error) throw rowsRes.error;
+      var rows = rowsRes.data || [];
+      if (rows.length === 0) continue;
+      var parentIds = Array.from(new Set(rows.map(function(r) { return r[fk]; })));
+      // A parent (event/proposal) that ALREADY has the target dish selected
+      // can't also get a renamed row — event_id/proposal_id + dish_name is
+      // unique — so that source row is dropped instead of renamed; it was a
+      // redundant duplicate selection of the same dish under two names.
+      var existingRes = await withStepTimeout(
+        supabase.from(table).select(fk).eq('dish_name', target).in(fk, parentIds),
+        'check existing "' + target + '" rows in ' + table
+      );
+      if (existingRes.error) throw existingRes.error;
+      var hasTarget = {};
+      (existingRes.data || []).forEach(function(r) { hasTarget[r[fk]] = true; });
+      var toDelete = rows.filter(function(r) { return hasTarget[r[fk]]; }).map(function(r) { return r.id; });
+      var toRename = rows.filter(function(r) { return !hasTarget[r[fk]]; }).map(function(r) { return r.id; });
+      if (toDelete.length > 0) {
+        var delR = await withStepTimeout(supabase.from(table).delete().in('id', toDelete), 'drop ' + toDelete.length + ' duplicate ' + table + ' row(s)');
+        if (delR.error) throw delR.error;
+        merged += toDelete.length;
+      }
+      if (toRename.length > 0) {
+        var renR = await withStepTimeout(supabase.from(table).update({ dish_name: target }).in('id', toRename), 'rename ' + toRename.length + ' ' + table + ' row(s)');
+        if (renR.error) throw renR.error;
+        renamed += toRename.length;
+      }
+    }
+
+    // events.menu — the Kitchen-only mirror array. Events with event_items
+    // already initialized self-heal this from event_items on next app load
+    // (see src/lib/eventItems.js), but an event not yet migrated to
+    // event_items stores its kitchen list as this plain array directly, so
+    // it needs its own rename pass too.
+    var sourceSet = {};
+    sources.forEach(function(s) { sourceSet[s] = true; });
+    var evRows = await fetchAllRows(function() {
+      return supabase.from('events').select('id, menu').not('menu', 'is', null);
+    });
+    var evUpdates = [];
+    (evRows || []).forEach(function(ev) {
+      if (!Array.isArray(ev.menu) || ev.menu.length === 0) return;
+      if (!ev.menu.some(function(n) { return sourceSet[n]; })) return;
+      var seen = {};
+      var nextMenu = [];
+      ev.menu.forEach(function(n) {
+        var nm = sourceSet[n] ? target : n;
+        if (seen[nm]) return;
+        seen[nm] = true;
+        nextMenu.push(nm);
+      });
+      evUpdates.push({ id: ev.id, menu: nextMenu });
+    });
+    if (evUpdates.length > 0) {
+      var evRes = await withStepTimeout(
+        Promise.all(evUpdates.map(function(u) { return supabase.from('events').update({ menu: u.menu }).eq('id', u.id); })),
+        'rename in ' + evUpdates.length + ' events.menu array(s)'
+      );
+      evRes.forEach(function(r) { if (r.error) throw r.error; });
+    }
+
+    return { renamed: renamed, merged: merged };
+  }
+
   // ── Rename / Merge ───────────────────────────────────────────────
   function openMerge() {
     if (selectedCount === 0) return;
@@ -434,6 +526,10 @@ function DishLibrary(props) {
     sources.forEach(function(s) { renameMap[s] = target; });
     var applyRes = await applyRenameToPackages(renameMap);
     var affected = applyRes.affected;
+    // 3b. Rewrite already-booked functions/proposals that selected a source
+    // name — otherwise the catalogue is fixed but every existing booking
+    // (and its FP) keeps showing the typo forever.
+    var bookingsRes = await applyRenameToBookings(renameMap);
     // 4. Delete source rows from dishes_master (last, so packages already rewritten)
     if (sources.length > 0) {
       var delMst = await withStepTimeout(
@@ -443,7 +539,7 @@ function DishLibrary(props) {
       if (delMst.error) throw delMst.error;
       sources.forEach(function(s) { deactivateDish(s); });
     }
-    return { affected: affected };
+    return { affected: affected, bookingsRenamed: bookingsRes.renamed, bookingsMerged: bookingsRes.merged };
   }
 
   async function confirmMerge() {
@@ -460,6 +556,7 @@ function DishLibrary(props) {
                         : T2('Merge ') + sources.length + T2(' dish(es) into "') + target + T2('"?');
     var warn = '\n\n' + T2('This will:') +
       '\n• ' + T2('Replace the merged name(s) in every menu package that references them') +
+      '\n• ' + T2('Rename the merged name(s) on every already-booked function/proposal that selected them (even locked ones) — this is what the Function Plan actually prints') +
       '\n• ' + T2('Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings') +
       '\n• ' + T2('Keep the target\'s own mappings unchanged');
     if (!window.confirm(verb + warn)) return;
@@ -470,8 +567,11 @@ function DishLibrary(props) {
       setMergeOpen(false);
       setMergeTarget('');
       setLocalBump(function(n) { return n + 1; });
-      alert(isRename ? T2('Renamed. ') + result.affected + T2(' package(s) updated.')
-                     : T2('Merged ') + sources.length + T2(' dish(es) into "') + target + T2('". ') + result.affected + T2(' package(s) updated.'));
+      var bookingsNote = (result.bookingsRenamed || result.bookingsMerged)
+        ? ' ' + result.bookingsRenamed + T2(' booked item(s) renamed') + (result.bookingsMerged ? ', ' + result.bookingsMerged + T2(' duplicate(s) dropped') : '') + '.'
+        : '';
+      alert((isRename ? T2('Renamed. ') + result.affected + T2(' package(s) updated.')
+                     : T2('Merged ') + sources.length + T2(' dish(es) into "') + target + T2('". ') + result.affected + T2(' package(s) updated.')) + bookingsNote);
     } catch (e) {
       alert('Merge failed: ' + (e.message || e));
     } finally {
