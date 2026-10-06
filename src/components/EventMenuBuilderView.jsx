@@ -422,6 +422,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   async function saveFPField(field, value) {
     var next = { ...(fp || { event_id: event.id }), [field]: value };
+    if (!next.created_by && currentUser && currentUser.name) next.created_by = currentUser.name;
     setFp(next);
     try {
       var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
@@ -468,6 +469,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   async function writeFpLockState(patch, histEntry) {
     var next = { ...(fp || { event_id: event.id }), ...patch,
       lock_history: [ ...((fp && fp.lock_history) || []), histEntry ] };
+    if (!next.created_by && currentUser && currentUser.name) next.created_by = currentUser.name;
     setFp(next);
     try {
       var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();

@@ -74,10 +74,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   async function loadFpStatuses() {
     try {
       var rows = await fetchAllRows(function(){
-        return supabase.from('event_function_plans').select('event_id, locked, locked_by');
+        return supabase.from('event_function_plans').select('event_id, locked, locked_by, created_by');
       });
       var map = {};
-      (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '' }; });
+      (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', created_by: r.created_by || '' }; });
       setFpMap(map);
     } catch (e) {
       console.error('[BookedFunctions] loadFpStatuses failed:', e);
@@ -92,6 +92,12 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
     if (!row) return { key: 'none', label: T2('Not made'), color: C.muted, bg: C.bg, border: C.border };
     if (row.locked) return { key: 'locked', label: T2('Locked'), color: C.green, bg: C.greenBg, border: C.greenBorder };
     return { key: 'made', label: T2('Made'), color: C.amber, bg: C.amberBg, border: C.amberBorder };
+  }
+
+  function madeByFor(ev) {
+    var row = fpMap[ev.id];
+    if (!row) return '';
+    return row.locked_by || row.created_by || '';
   }
 
   function openMenuBuilder(ev, tab) {
@@ -126,6 +132,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
         if (sortKey === 'pax') return Number(e.pax) || 0;
         if (sortKey === 'menu_package') return (e.menu_package || e.menuPackage || '').toLowerCase();
         if (sortKey === 'fp') return FP_RANK[fpStatusFor(e).key] != null ? FP_RANK[fpStatusFor(e).key] : 0;
+        if (sortKey === 'made_by') return madeByFor(e) ? madeByFor(e).toLowerCase() : null;
         return 0;
       };
       return base.slice().sort(function(a, b){
@@ -239,6 +246,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                     <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Menu Package")}</div>
                     <div style={{ fontSize: 12.5, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.menu_package || ev.menuPackage || '—'}</div>
                   </div>
+                  <div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>{T2("Made By")}</div>
+                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{madeByFor(ev) || '—'}</div>
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                   <button onClick={function(){ openMenuBuilder(ev, 'items'); }} disabled={!isAdmin} title={isAdmin ? '' : T2("Admin only")}
@@ -271,21 +282,23 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
         };
         return (
         <div style={{ background: C.surface, borderRadius: 12, border: "1px solid " + C.border, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.9fr 0.45fr 0.9fr 0.9fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 0.75fr 0.85fr 0.4fr 0.85fr 0.8fr 0.9fr 1.4fr", gap: 8, padding: "10px 14px", background: C.bg, fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + C.border }}>
             <div>{sortHead('guest', T2("Guest / Event"))}</div>
             <div>{sortHead('venue', T2("Venue"))}</div>
             <div>{sortHead('date', T2("Date"))}</div>
             <div style={{ textAlign: "right" }}>{sortHead('pax', T2("Pax"), "right")}</div>
             <div>{sortHead('menu_package', T2("Menu Package"))}</div>
             <div>{sortHead('fp', T2("FP Status"))}</div>
+            <div>{sortHead('made_by', T2("Made By"))}</div>
             <div style={{ textAlign: "right" }}>{T2("Actions")}</div>
           </div>
 
           {filteredList.map(function(ev){
             var fpSt = fpStatusFor(ev);
+            var madeBy = madeByFor(ev);
             return (
               <div key={ev.id}
-                style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.9fr 0.45fr 0.9fr 0.9fr 1.4fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
+                style={{ display: "grid", gridTemplateColumns: "1.4fr 0.75fr 0.85fr 0.4fr 0.85fr 0.8fr 0.9fr 1.4fr", gap: 8, padding: "12px 14px", fontSize: 13, color: C.text, borderBottom: "1px solid " + C.border, alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{ev.guest || T2("Function")}</div>
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{ev.type || '—'}</div>
@@ -299,6 +312,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                     {fpSt.label}
                   </span>
                 </div>
+                <div style={{ fontSize: 12, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{madeBy || '—'}</div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                   <button onClick={function(){ openMenuBuilder(ev, 'items'); }} disabled={!isAdmin} title={isAdmin ? T2("Open Menu Builder") : T2("Admin only")}
                     style={{ padding: "5px 10px", borderRadius: 6, background: "#8A70C8", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: isAdmin ? "pointer" : "not-allowed", opacity: isAdmin ? 1 : 0.4 }}>
