@@ -1187,26 +1187,36 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
                   {selEvs.map(ev=>{
                     const vc=gp(ev.venue);
                     return(
-                      <button key={ev.id} onClick={()=>openEdit(ev)}
-                        className="kh-fncard kh-rip" onPointerDown={ripple}
-                        style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",
-                          borderRadius:14,cursor:"pointer",textAlign:"left",overflow:"hidden",
-                          background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
-                        <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
-                        <div style={{minWidth:0,flex:1,paddingLeft:4}}>
-                          <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
-                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
-                          <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
-                            fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
-                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{ev.time||"—"}</span>
-                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
-                            <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="building" size={13} strokeWidth={1.9}/>{ev.venue||"—"}</span>
+                      <div key={ev.id} style={{display:"flex",alignItems:"center",gap:4,width:"100%",
+                        borderRadius:14,overflow:"hidden",
+                        background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`}}>
+                        <button onClick={()=>openEdit(ev)}
+                          className="kh-fncard kh-rip" onPointerDown={ripple}
+                          style={{display:"flex",alignItems:"center",gap:12,flex:1,minWidth:0,padding:"14px 10px 14px 0",
+                            cursor:"pointer",textAlign:"left",overflow:"hidden",
+                            background:"transparent",color:K.textBody,border:"none"}}>
+                          <span style={{width:5,alignSelf:"stretch",background:vc.c,flexShrink:0}}/>
+                          <div style={{minWidth:0,flex:1,paddingLeft:4}}>
+                            <div style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</div>
+                            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:6,
+                              fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="clock" size={13} strokeWidth={1.9}/>{ev.time||"—"}</span>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} {T2("pax")}</span>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:5}}><Icon name="building" size={13} strokeWidth={1.9}/>{ev.venue||"—"}</span>
+                            </div>
                           </div>
-                        </div>
-                        <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
-                          fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{(VP[ev.venue]||{}).code||"EV"}</span>
-                        <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
-                      </button>
+                          <span style={{flexShrink:0,padding:"4px 10px",borderRadius:8,fontFamily:K.fontBody,
+                            fontSize:10.5,fontWeight:700,letterSpacing:.4,background:vc.c+"1A",color:vc.c}}>{(VP[ev.venue]||{}).code||"EV"}</span>
+                          <span style={{flexShrink:0,color:K.textFaint,display:"flex"}}><Icon name="chevronR" size={15} strokeWidth={2.1}/></span>
+                        </button>
+                        <button onClick={()=>setDeleteId(ev.id)} aria-label={T2("Delete")} className="kh-calnav"
+                          style={{flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:38,height:38,
+                            marginRight:10,borderRadius:999,background:"transparent",border:`1px solid ${K.cardWarmLine}`,
+                            color:K.hdrMeta,cursor:"pointer"}}>
+                          <Icon name="trash" size={15} strokeWidth={1.9}/>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>}
@@ -1359,28 +1369,36 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
             const p=gp(ev.venue);const dd=daysDiff(ev.date);
             const d=new Date(ev.date+"T00:00");
             return(
-              <button key={ev.id} onClick={()=>openEdit(ev)} title={T2("Edit function")} className="kh-calnav"
-                style={{display:"flex",alignItems:"center",gap:14,width:"100%",padding:"12px 2px",background:"transparent",
-                  border:"none",borderTop:i>0?`1px solid ${K.lineSoft}`:"none",cursor:"pointer",textAlign:"left",minWidth:0}}>
-                <div style={{width:46,height:50,borderRadius:12,background:"#F6EFDD",flexShrink:0,display:"flex",
-                  flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                  <span style={{fontFamily:K.fontBody,fontSize:9,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6}}>{d.toLocaleString("en",{month:"short"})}</span>
-                  <span style={{...type.sectionHead,fontSize:21,fontWeight:700,color:K.hdrTitle,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{d.getDate()}</span>
-                </div>
-                <div style={{minWidth:0,flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                    <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
-                    <span style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</span>
+              <div key={ev.id} style={{display:"flex",alignItems:"center",gap:2,width:"100%",
+                borderTop:i>0?`1px solid ${K.lineSoft}`:"none"}}>
+                <button onClick={()=>openEdit(ev)} title={T2("Edit function")} className="kh-calnav"
+                  style={{display:"flex",alignItems:"center",gap:14,flex:1,minWidth:0,padding:"12px 2px",background:"transparent",
+                    border:"none",cursor:"pointer",textAlign:"left"}}>
+                  <div style={{width:46,height:50,borderRadius:12,background:"#F6EFDD",flexShrink:0,display:"flex",
+                    flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                    <span style={{fontFamily:K.fontBody,fontSize:9,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6}}>{d.toLocaleString("en",{month:"short"})}</span>
+                    <span style={{...type.sectionHead,fontSize:21,fontWeight:700,color:K.hdrTitle,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{d.getDate()}</span>
                   </div>
-                  <div style={{marginTop:3,fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{describeEventMenu(ev)}</div>
-                </div>
-                <div style={{textAlign:"right",flexShrink:0,fontFamily:K.fontBody}}>
-                  <div style={{fontSize:13,fontWeight:600,color:K.hdrTitle,fontVariantNumeric:"tabular-nums"}}>{ev.time}</div>
-                  <div style={{fontSize:12,marginTop:2,fontWeight:dd<=1?700:500,color:dd<=1?K.warn:K.hdrMeta}}>{daysLabel(dd)}</div>
-                </div>
-              </button>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:p.c,flexShrink:0}}/>
+                      <span style={{fontFamily:K.fontBody,fontSize:14,fontWeight:700,color:K.hdrTitle,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest}</span>
+                    </div>
+                    <div style={{marginTop:3,fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{describeEventMenu(ev)}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,fontFamily:K.fontBody}}>
+                    <div style={{fontSize:13,fontWeight:600,color:K.hdrTitle,fontVariantNumeric:"tabular-nums"}}>{ev.time}</div>
+                    <div style={{fontSize:12,marginTop:2,fontWeight:dd<=1?700:500,color:dd<=1?K.warn:K.hdrMeta}}>{daysLabel(dd)}</div>
+                  </div>
+                </button>
+                <button onClick={()=>setDeleteId(ev.id)} aria-label={T2("Delete")} className="kh-calnav"
+                  style={{flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",width:32,height:32,
+                    borderRadius:999,background:"transparent",border:"none",color:K.textFaint,cursor:"pointer"}}>
+                  <Icon name="trash" size={14} strokeWidth={1.9}/>
+                </button>
+              </div>
             );
           })}
           <div style={{marginTop:"auto",paddingTop:14,borderTop:`1px solid ${K.lineSoft}`,display:"flex"}}>
