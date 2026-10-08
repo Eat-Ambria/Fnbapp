@@ -87,7 +87,16 @@ export async function getEventItemsByDept(event) {
     supabase.from('sales_items_meta').select('dish_name, sales_dept'),
   ]);
   const items = itemsRes.data || [];
-  if (items.length === 0) return out;
+  if (items.length === 0) {
+    // event_items is only authoritative once the event has been opened in the
+    // Items tab; until then events.menu is all there is. The Kitchen readers
+    // now drop ice cream / tea / coffee, so those must land in Beverages here
+    // or an untouched event would show them nowhere.
+    let m = event.menu;
+    if (typeof m === 'string' && m) { try { m = JSON.parse(m); } catch (e) { m = []; } }
+    (Array.isArray(m) ? m : []).forEach(n => { if (pinnedDeptForDish(n)) out.bev.push(n); });
+    return out;
+  }
 
   const sectionsArr = sectionsRes.data || [];
   const sectionSalesDeptMap = {};
