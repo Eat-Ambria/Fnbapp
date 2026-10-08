@@ -30,7 +30,7 @@
 import { useMemo } from 'react';
 import { RECIPE_DB, getAllDishes, getCatIdForDish, resolveDishHindi } from '../data/recipeData.js';
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
-import { DEFAULT_DEPT, DEFAULT_DIET } from '../data/salesConfig.js';
+import { DEFAULT_DEPT, DEFAULT_DIET, pinnedDeptForDish } from '../data/salesConfig.js';
 
 // A dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise fall
 // back to the dish library's veg/non-veg classification (dishes_master.is_veg)
@@ -209,7 +209,7 @@ export function useMenuItemGrouping(params) {
     var counted = {};
     allDishes.forEach(function(d){
       var meta = salesMeta[d.name];
-      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(d.name) || sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].total += 1;
       if (selectedSet[d.name]) counts[dept].sel += 1;
@@ -222,7 +222,7 @@ export function useMenuItemGrouping(params) {
     Object.keys(selectedSet).forEach(function(name){
       if (counted[name]) return;
       var meta = salesMeta[name];
-      var dept = sectionOverrideDept[name] || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(name) || sectionOverrideDept[name] || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       if (!counts[dept]) counts[dept] = { sel: 0, total: 0 };
       counts[dept].sel += 1;
     });
@@ -240,7 +240,7 @@ export function useMenuItemGrouping(params) {
       var price = d && d.section_id ? (sectionAddonPriceMap[d.section_id] || 0) : 0;
       if (price <= 0) return;
       var meta = salesMeta[row.dish_name];
-      var dept = sectionOverrideDept[row.dish_name] || dishNameToPkgDept[row.dish_name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(row.dish_name) || sectionOverrideDept[row.dish_name] || dishNameToPkgDept[row.dish_name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       totals[dept] = (totals[dept] || 0) + price * pax;
     });
     return totals;
@@ -298,10 +298,10 @@ export function useMenuItemGrouping(params) {
     var base = allDishes.filter(function(d){
       var override = d.section_id ? sectionSalesDeptMap[d.section_id] : null;
       var meta = salesMeta[d.name];
-      var dept = sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(d.name) || sectionOverrideDept[d.name] || dishNameToPkgDept[d.name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
-    var phantomsForDept = phantomDishes.filter(function(p){ return (sectionOverrideDept[p.name] || dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
+    var phantomsForDept = phantomDishes.filter(function(p){ return (pinnedDeptForDish(p.name) || sectionOverrideDept[p.name] || dishNameToPkgDept[p.name] || DEFAULT_DEPT) === activeDept; });
     if (phantomsForDept.length > 0) return base.concat(phantomsForDept);
     return base;
   }, [allDishes, salesMeta, activeDept, phantomDishes, sectionSalesDeptMap, dishNameToPkgDept, sectionOverrideDept]);
@@ -309,7 +309,7 @@ export function useMenuItemGrouping(params) {
   var templateDishesInDept = useMemo(function(){
     return templateInfo.dishes.filter(function(name){
       var meta = salesMeta[name];
-      var dept = dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(name) || dishNameToPkgDept[name] || (meta && meta.sales_dept) || DEFAULT_DEPT;
       return dept === activeDept;
     });
   }, [templateInfo.dishes, salesMeta, activeDept, dishNameToPkgDept]);

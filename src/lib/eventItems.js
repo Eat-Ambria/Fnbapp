@@ -17,7 +17,7 @@ import { supabase } from './supabase.js';
 import { fetchAllRows } from './db.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { getAllDishes } from '../data/recipeData.js';
-import { DEFAULT_DEPT } from '../data/salesConfig.js';
+import { DEFAULT_DEPT, pinnedDeptForDish } from '../data/salesConfig.js';
 
 function normalizePkgName(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -73,7 +73,7 @@ function resolveDeptForDish(name, ctx) {
   const { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept } = ctx;
   const d = allDishesByName[name];
   const catalogueDept = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;
-  return sectionOverrideDept[name] || dishNameToPkgDept[name] || catalogueDept || metaDeptByName[name] || DEFAULT_DEPT;
+  return pinnedDeptForDish(name) || sectionOverrideDept[name] || dishNameToPkgDept[name] || catalogueDept || metaDeptByName[name] || DEFAULT_DEPT;
 }
 
 // Returns { kit:[names], bev:[names], bak:[names], frt:[names], svc:[names], crk:[names], trn:[names] }

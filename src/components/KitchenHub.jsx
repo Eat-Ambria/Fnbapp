@@ -1,5 +1,6 @@
 ﻿// Ambria FnB — Kitchen Hub (Overview, Prep Tracking, Prep Plan, Recipe SOPs)
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
@@ -186,6 +187,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       const skip = new Set(out);
       arr = arr.filter(n => !skip.has(n));
     }
+    // Ice cream / tea / coffee belong to Beverages, even on an event whose menu mirror has not been re-derived yet.
+    arr = arr.filter(n => !pinnedDeptForDish(n));
     return arr;
   }
 

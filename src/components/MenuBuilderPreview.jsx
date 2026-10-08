@@ -9,7 +9,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { T } from '../data/translations.js';
 import { getCatIdForDish, RECIPE_DB, getAllDishes } from '../data/recipeData.js';
-import { SALES_DEPTS, ITEM_HAVING_DEPTS, DEFAULT_DEPT } from '../data/salesConfig.js';
+import { SALES_DEPTS, ITEM_HAVING_DEPTS, DEFAULT_DEPT, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { K } from '../utils/theme.js';
@@ -267,7 +267,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     var deptMap = {};
     (dishItems || []).forEach(function(item){
       var meta = salesMeta[item.dish_name];
-      var dept = (meta && meta.sales_dept) || DEFAULT_DEPT;
+      var dept = pinnedDeptForDish(item.dish_name) || (meta && meta.sales_dept) || DEFAULT_DEPT;
       var catId  = getCatIdForDish(item.dish_name) || 'other';
       var catObj = (RECIPE_DB.cats || []).find(function(c){ return c.id === catId; });
       if (!deptMap[dept]) deptMap[dept] = {};
@@ -383,7 +383,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       var sid = map ? map.section_id : null;
       var override = sid ? sectionSalesDeptMap[sid] : null;
       var meta = salesMeta[it.dish_name];
-      itemDept[it.dish_name] = override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+      itemDept[it.dish_name] = pinnedDeptForDish(it.dish_name) || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
     });
 
     // For each dept, bucket into sections + extras

@@ -34,6 +34,15 @@ export const DIET_TAG_MAP = DIET_TAGS.reduce(function(m, d){ m[d.id] = d; return
 export const DEFAULT_DIET = 'veg';
 export const DEFAULT_DEPT = 'kit';
 
+// Ice cream, tea and coffee are always Beverages' to prepare — whatever package
+// section, catalogue section or saved dept says otherwise. One rule, no
+// exceptions, and every place that resolves a dish's department asks this first
+// (eventItems.js, the menu builders, proposals) so they cannot disagree.
+const BEV_PINNED_RE = /ices*cream|tea|coffee/i;
+export function pinnedDeptForDish(name) {
+  return name && BEV_PINNED_RE.test(String(name)) ? 'bev' : null;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // V70 Phase 5: dept-level config schema
 // ═══════════════════════════════════════════════════════════════

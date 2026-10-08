@@ -1,6 +1,7 @@
 // Ambria FnB — Event Day Tab (redesigned)
 // Place in: src/components/EventDayTab.jsx
 import React, { useState, useEffect, useRef } from "react";
+import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
@@ -385,6 +386,8 @@ function EventDayTab({
       const skip = new Set(out);
       arr = arr.filter(n => !skip.has(n));
     }
+    // Ice cream / tea / coffee belong to Beverages, even on an event whose menu mirror has not been re-derived yet.
+    arr = arr.filter(n => !pinnedDeptForDish(n));
     return arr;
   }
 

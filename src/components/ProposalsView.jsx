@@ -3,6 +3,7 @@
 // Place in: src/components/ProposalsView.jsx
 
 import React, { useState, useEffect, useMemo } from "react";
+import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
@@ -303,7 +304,7 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       var metaByName = {};
       (metaRes.data || []).forEach(function(r){ metaByName[r.dish_name] = r.sales_dept; });
       var kitchenItems = items.filter(function(it){
-        var dept = dishNameToPkgDept[it.dish_name] || metaByName[it.dish_name] || 'kit';
+        var dept = pinnedDeptForDish(it.dish_name) || dishNameToPkgDept[it.dish_name] || metaByName[it.dish_name] || 'kit';
         return dept === 'kit';
       });
       var kitchenNames = kitchenItems.map(function(it){ return it.dish_name; });

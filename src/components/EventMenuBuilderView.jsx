@@ -11,7 +11,7 @@ import { T } from '../data/translations.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary } from '../data/recipeData.js';
-import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
+import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
@@ -356,7 +356,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var d = allDishesByName[name];
     var override = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;
     var meta = salesMeta[name];
-    return sectionOverrideDept[name] || dishNameToPkgDept[name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+    return pinnedDeptForDish(name) || sectionOverrideDept[name] || dishNameToPkgDept[name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
   }
 
   // Kitchen Hub's entire production pipeline reads events.menu as a flat kitchen
@@ -560,7 +560,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     templateInfo.dishes.forEach(function(name){
       if (!selSet.has(name)) {
-        var dept = dishNameToPkgDept[name] || DEFAULT_DEPT;
+        var dept = pinnedDeptForDish(name) || dishNameToPkgDept[name] || DEFAULT_DEPT;
         (removedByDept[dept] = removedByDept[dept] || []).push(name);
       }
     });
