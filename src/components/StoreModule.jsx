@@ -11,7 +11,7 @@ import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
-import { K } from '../utils/theme.js';
+import { K, type } from '../utils/theme.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 
@@ -297,6 +297,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
+  const [reqShowAll, setReqShowAll] = useState(false); // Day Sheet: the full ingredient table is folded under the station cards
   const [reqListAllAsk, setReqListAllAsk] = useState(false); // in-app confirm for "+ All" (order list)
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
   const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
@@ -1238,59 +1239,73 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {loadError && <span style={{color:C.amber}}> · {loadError}</span>}
           </div>
         </div>
-        <Btn onClick={()=>setShowAdd(s=>!s)} color={showAdd?C.muted:C.gold} style={{fontSize:12,padding:"10px 18px",borderRadius:12}}>{showAdd?"✕ Cancel":"+ "+T2("Add Item")}</Btn>
+        <button onClick={()=>setShowAdd(s=>!s)}
+          style={{padding:"10px 22px",borderRadius:999,fontFamily:K.fontBody,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
+            background:showAdd?"#FFFFFF":K.brand,color:showAdd?K.textBody:"#FFFFFF",border:`1px solid ${showAdd?K.cardWarmLine:K.brand}`,boxShadow:K.shadowCard}}>{showAdd?"✕ "+T2("Cancel"):"+ "+T2("Add Item")}</button>
       </div>
 
       {/* Add form */}
-      {showAdd&&(
-        <div style={{background:C.wineBg,border:`1px solid ${C.wineBorder}`,borderRadius:12,padding:"14px 18px",marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.gold,marginBottom:10}}>📦 Add New Inventory Item</div>
-          {/* Fields */}
-          <div style={{marginBottom:7}}>
-            <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Item Name *</div>
-            <input value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} placeholder="e.g. Dinner Plates (10 inch)" style={{...fld,fontSize:12}}/>
+      {showAdd&&(()=>{
+        const lbl = {display:"block",fontFamily:K.fontBody,fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,marginBottom:6};
+        const inp = {width:"100%",boxSizing:"border-box",padding:"10px 14px",borderRadius:12,border:`1px solid ${K.cardWarmLine}`,fontSize:13,fontFamily:K.fontBody,color:K.hdrTitle,background:"#FFFFFF",outline:"none"};
+        return(
+        <div style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,padding:"20px 22px",marginBottom:16,boxShadow:K.shadowCard}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+            <span style={{width:40,height:40,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>📦</span>
+            <div>
+              <div style={{...type.cardTitle,fontSize:17,color:K.hdrTitle}}>{T2("Add New Inventory Item")}</div>
+              <div style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta,marginTop:2}}>{T2("Only the name is required.")}</div>
+            </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:7}}>
+          <div style={{marginBottom:12}}>
+            <label style={lbl}>{T2("Item Name")} *</label>
+            <input value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} placeholder="e.g. Dinner Plates (10 inch)" style={inp}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:12}}>
             {[{l:"Barcode",k:"barcode",ph:"Manual entry"},{l:"Brand",k:"brand",ph:"Brand name"},{l:"Supplier",k:"supplier",ph:"Supplier name"}].map(f=>(
               <div key={f.k}>
-                <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
-                <input value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={fld}/>
+                <label style={lbl}>{T2(f.l)}</label>
+                <input value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp}/>
               </div>
             ))}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 80px 80px 80px 80px 110px",gap:8,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Category</div>
-              <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={fld}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:18}}>
+            <div style={{gridColumn:"span 2"}}>
+              <label style={lbl}>{T2("Category")}</label>
+              <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={inp}>
                 {storeItemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>Unit</div>
-              <select value={newItem.unit||"pcs"} onChange={e=>setNewItem(p=>({...p,unit:e.target.value}))} style={fld}>
+              <label style={lbl}>{T2("Unit")}</label>
+              <select value={newItem.unit||"pcs"} onChange={e=>setNewItem(p=>({...p,unit:e.target.value}))} style={inp}>
                 {ING_UNIT_CHOICES.map(u=><option key={u} value={u}>{u}</option>)}
               </select>
             </div>
             {[{l:"In Stock",k:"inStock",t:"number"},{l:"Min Stock",k:"minStock",t:"number"},{l:"Location",k:"location",ph:"Store A"}].map(f=>(
               <div key={f.k}>
-                <div style={{fontSize:11,color:C.gold,marginBottom:2,textTransform:"uppercase",fontWeight:600}}>{f.l}</div>
-                <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={fld}/>
+                <label style={lbl}>{T2(f.l)}</label>
+                <input type={f.t||"text"} value={newItem[f.k]||""} onChange={e=>setNewItem(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph||"0"} style={inp}/>
               </div>
             ))}
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>{if(!addingItem)setShowAdd(false);}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12,opacity:addingItem?0.6:1}}>Cancel</Btn>
-            {hasPerm(currentUser,"store.edit_stock")&&<Btn onClick={addItem} color={C.gold} style={{fontSize:12,padding:"8px 20px",opacity:addingItem?0.6:1,cursor:addingItem?"not-allowed":"pointer"}}>{addingItem?"Adding...":"✓ Add to Inventory"}</Btn>}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:16,borderTop:`1px solid ${K.cardWarmLine}`}}>
+            <button onClick={()=>{if(!addingItem)setShowAdd(false);}}
+              style={{padding:"10px 22px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,fontSize:13,fontWeight:600,cursor:"pointer",opacity:addingItem?0.6:1}}>{T2("Cancel")}</button>
+            {hasPerm(currentUser,"store.edit_stock")&&<button onClick={addItem} disabled={addingItem}
+              style={{padding:"10px 24px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontFamily:K.fontBody,fontSize:13,fontWeight:700,cursor:addingItem?"not-allowed":"pointer",opacity:addingItem?0.6:1}}>{addingItem?T2("Adding..."):"✓ "+T2("Add to Inventory")}</button>}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
+      <div style={{display:"flex",gap:8,marginBottom:16,paddingBottom:12,borderBottom:`1px solid ${K.cardWarmLine}`,overflowX:"auto"}}>
         {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"orderlists",l:T2("🧺 Order Lists")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
-          <button key={t.v} onClick={()=>setTab(t.v)} style={{padding:"10px 18px",borderRadius:12,fontSize:12,fontWeight:tab===t.v?600:400,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
-            background:tab===t.v?C.gold+"15":"transparent",color:tab===t.v?C.gold:C.muted,border:`1.5px solid ${tab===t.v?C.gold+"40":C.border}`,
-            boxShadow:tab===t.v?`0 2px 8px ${C.gold}10`:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
+          <button key={t.v} onClick={()=>setTab(t.v)} className={tab===t.v?undefined:"kh-calnav"}
+            style={{padding:"10px 20px",borderRadius:999,fontFamily:K.fontBody,fontSize:13,fontWeight:tab===t.v?700:600,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
+              background:tab===t.v?K.brand:"#FFFFFF",color:tab===t.v?"#FFFFFF":K.textBody,border:`1px solid ${tab===t.v?K.brand:K.cardWarmLine}`,
+              boxShadow:tab===t.v?K.shadowCard:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
         ))}
       </div>
 
@@ -1689,7 +1704,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   })}
                 </div>
 
-                {/* Table */}
+                {/* The stations are the main view; the full combined ingredient
+                    table (Total / Stock / issue / order list / merge) is one
+                    click away instead of sitting under the cards. */}
+                <button onClick={()=>setReqShowAll(v=>!v)} aria-expanded={reqShowAll}
+                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"12px 18px",borderRadius:16,cursor:"pointer",textAlign:"left",
+                    background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody,
+                    fontSize:13.5,fontWeight:700,color:K.hdrTitle,marginBottom:reqShowAll?14:0}}>
+                  <span style={{display:"inline-block",transition:"transform .15s",transform:reqShowAll?"rotate(90deg)":"none",color:K.textFaint}}>›</span>
+                  {reqShowAll?T2("Hide all ingredients"):T2("Show all ingredients")}
+                  <span style={{fontWeight:600,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>({rows.length})</span>
+                </button>
+
+                {reqShowAll && (
                 <div style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:18,overflow:"hidden",background:K.cardWarm,boxShadow:K.shadowCard}}>
                   {/* Scrolls inside the card so the column heads stay in view
                       over a few hundred ingredient rows. */}
@@ -1769,6 +1796,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     </table>
                   </div>
                 </div>
+                )}
 
                 {/* Station details modal */}
                 {openStation && (
@@ -2275,30 +2303,43 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const unitOptions = Array.from(new Set(clusterUnits.concat(ING_UNIT_CHOICES).concat(unit?[unit]:[])));
           const saving = ingDedupSavingIdx===idx;
           const disabled = ingDedupSavingIdx!=null && !saving;
+          const cantMerge = saving||disabled||!target||!unit;
           return (
-            <div key={idx} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:10,background:C.bg}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>{T2(c.reason)}</div>
-              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+            <div key={idx} style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:16,padding:"14px 16px",marginBottom:12,background:K.cardWarm,boxShadow:K.shadowCard}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{padding:"3px 10px",borderRadius:999,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,
+                  background:c.confidence==='high'?K.okBg:K.warnBg,color:c.confidence==='high'?K.ok:K.warn,
+                  border:`1px solid ${c.confidence==='high'?K.okBorder:K.warnBorder}`}}>{T2(c.reason)}</span>
+                <span style={{marginLeft:"auto",fontSize:11.5,color:K.hdrMeta}}>{c.items.length} {T2("names")}</span>
+              </div>
+              <div style={{fontSize:11.5,color:K.hdrMeta,marginBottom:8}}>{T2("Pick the name to keep — the others are merged into it.")}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
                 {c.items.slice().sort((a,b)=>(b.dishes||[]).length-(a.dishes||[]).length).map(d=>{
                   const isT = d.name===target;
                   const uses = (d.dishes||[]).length;
                   const isMapped = d.hasInv || !!ingredientMap[d.name];
                   return (
-                    <label key={d.name} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:5,background:isT?C.greenBg:C.surface,border:`1px solid ${isT?C.greenBorder:C.border}`,cursor:disabled?"not-allowed":"pointer"}}>
+                    <label key={d.name} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,
+                      background:isT?K.brandSoft:"#FFFFFF",border:`1.5px solid ${isT?K.brand:K.cardWarmLine}`,cursor:disabled?"not-allowed":"pointer"}}>
                       <input type="radio" name={"ingdedup-target-"+idx} checked={isT} disabled={disabled||saving}
-                        onChange={()=>pickIngDedupTarget(idx,d.name)} style={{margin:0,cursor:disabled?"not-allowed":"pointer"}}/>
-                      <span style={{fontSize:13,fontWeight:isT?700:500,color:C.text,flex:1}}>{d.name}</span>
-                      <span style={{fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:3,background:isMapped?C.greenBg:C.amberBg,color:isMapped?C.green:"#854F0B"}}>{isMapped?T2("MAPPED"):T2("UNMAPPED")}</span>
-                      {d.hindi&&<span style={{fontSize:11,color:C.muted}}>{d.hindi}</span>}
+                        onChange={()=>pickIngDedupTarget(idx,d.name)} style={{margin:0,width:16,height:16,accentColor:K.brand,cursor:disabled?"not-allowed":"pointer",flexShrink:0}}/>
+                      <span style={{minWidth:0,flex:1}}>
+                        <span style={{display:"block",fontSize:13.5,fontWeight:isT?700:600,color:K.hdrTitle}}>{d.name}</span>
+                        {d.hindi&&<span style={{display:"block",fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{d.hindi}</span>}
+                      </span>
+                      {isT&&<span style={{fontSize:10.5,fontWeight:700,color:K.brandText,textTransform:"uppercase",letterSpacing:.5}}>{T2("Keep")}</span>}
+                      <span style={{fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999,textTransform:"uppercase",letterSpacing:.4,
+                        background:isMapped?K.okBg:K.warnBg,color:isMapped?K.ok:K.warn,border:`1px solid ${isMapped?K.okBorder:K.warnBorder}`}}>{isMapped?T2("MAPPED"):T2("UNMAPPED")}</span>
                       <span style={{position:"relative",display:"inline-block"}}
                         onMouseEnter={()=>uses>0&&setIngDedupHoverKey(idx+"::"+d.name)}
                         onMouseLeave={()=>setIngDedupHoverKey(null)}>
-                        <span style={{fontSize:11,color:uses===0?C.muted:C.text,minWidth:70,textAlign:"right",display:"inline-block",cursor:uses>0?"default":undefined,textDecoration:uses>0?"underline dotted":"none",textUnderlineOffset:2}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
+                        <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums",
+                          background:K.surfaceAlt,border:`1px solid ${K.line}`,color:uses===0?K.textFaint:K.textBody,cursor:uses>0?"default":undefined}}>{uses} {T2("recipe")}{uses===1?"":"s"} · {d.unit}</span>
                         {ingDedupHoverKey===(idx+"::"+d.name)&&uses>0&&(
-                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",right:0,marginTop:4,zIndex:20,minWidth:180,maxWidth:260,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.15)",padding:"8px 10px"}}>
-                            <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
+                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",right:0,marginTop:6,zIndex:20,minWidth:200,maxWidth:280,maxHeight:190,overflowY:"auto",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:12,boxShadow:K.shadowLift,padding:"10px 12px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>{T2("Used in")}</div>
                             {(d.dishes||[]).map((dn,dni)=>(
-                              <div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0"}}>{dn}</div>
+                              <div key={dni} style={{fontSize:12.5,color:K.textBody,padding:"2px 0"}}>{dn}</div>
                             ))}
                           </div>
                         )}
@@ -2307,18 +2348,18 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   );
                 })}
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"flex-end"}}>
-                <span style={{fontSize:10,color:C.muted}}>{T2("Unit")}:</span>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("Unit")}</span>
                 <select value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
-                  style={{width:80,padding:"5px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface}}>
+                  style={{width:90,padding:"6px 8px",borderRadius:10,border:`1px solid ${K.cardWarmLine}`,fontSize:12.5,color:K.hdrTitle,background:"#FFFFFF"}}>
                   {!unitOptions.includes(unit)&&<option value={unit}>{unit||"—"}</option>}
                   {unitOptions.map(u=><option key={u} value={u}>{u}</option>)}
                 </select>
                 <div style={{flex:1}}/>
                 <button onClick={()=>skipIngDedupCluster(idx)} disabled={saving||disabled}
-                  style={{padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
-                <button onClick={()=>mergeIngDedupCluster(idx)} disabled={saving||disabled||!target||!unit}
-                  style={{padding:"5px 12px",borderRadius:5,background:C.gold,border:"none",color:C.goldBg,fontSize:11,fontWeight:600,cursor:(saving||disabled||!target||!unit)?"not-allowed":"pointer",opacity:(saving||disabled||!target||!unit)?0.5:1}}>
+                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
+                <button onClick={()=>mergeIngDedupCluster(idx)} disabled={cantMerge}
+                  style={{padding:"8px 18px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontSize:12.5,fontWeight:700,cursor:cantMerge?"not-allowed":"pointer",opacity:cantMerge?0.5:1}}>
                   {saving?T2("Merging…"):T2('Merge into "')+target+'"'}
                 </button>
               </div>
@@ -2326,44 +2367,61 @@ function StoreModule({events, lang="en", currentUser=null}) {
           );
         }
 
+        const doneCount = resolvedCount+skippedCount;
+        const donePct = totalGroups>0 ? Math.round(doneCount/totalGroups*100) : 0;
+        const secHead = (label, n, color) => (
+          <div style={{display:"flex",alignItems:"center",gap:8,margin:"4px 0 10px"}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:color}}/>
+            <span style={{fontSize:12,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:.6}}>{label}</span>
+            <span style={{padding:"1px 9px",borderRadius:999,fontSize:11,fontWeight:700,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>{n}</span>
+          </div>
+        );
+
         return (
-          <div onClick={closeIngDedup} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:12,padding:20,maxWidth:720,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 40px rgba(0,0,0,0.3)"}}>
-              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14,gap:10}}>
-                <div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.text}}>🔍 {T2("Find duplicates")}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>{totalGroups} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {skippedCount} {T2("skipped")} · {remainingIdx.length} {T2("remaining")}</div>
+          <div onClick={closeIngDedup} style={{position:"fixed",inset:0,background:"rgba(20,28,24,0.45)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:K.modalBg,border:`1px solid ${K.modalLine}`,borderRadius:22,maxWidth:760,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:K.shadowLift,overflow:"hidden",fontFamily:K.fontBody}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,padding:"18px 22px",borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>🔍</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{T2("Find duplicates")}</div>
+                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{totalGroups} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {skippedCount} {T2("skipped")} · {remainingIdx.length} {T2("remaining")}</div>
+                  {totalGroups>0&&(
+                    <div style={{height:5,borderRadius:99,background:K.cardWarmLine,marginTop:8,overflow:"hidden"}}>
+                      <div style={{width:donePct+"%",height:"100%",borderRadius:99,background:K.brand,transition:"width .3s ease"}}/>
+                    </div>
+                  )}
                 </div>
-                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{background:"transparent",border:"none",color:C.muted,fontSize:20,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer",padding:4}}>×</button>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} aria-label={T2("Close")}
+                  style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,fontSize:16,lineHeight:1,flexShrink:0,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>×</button>
               </div>
-              <div style={{flex:1,overflowY:"auto",marginBottom:14}}>
-                {nothingFound&&<div style={{textAlign:"center",padding:"40px 20px",color:C.muted,fontSize:13}}>{T2("No duplicate candidates found in the current ingredient list.")}</div>}
+              <div style={{flex:1,overflowY:"auto",padding:"16px 22px",minHeight:0}}>
+                {nothingFound&&<div style={{textAlign:"center",padding:"40px 20px",color:K.hdrMeta,fontSize:13.5}}>{T2("No duplicate candidates found in the current ingredient list.")}</div>}
                 {allDone&&(
                   <div style={{textAlign:"center",padding:"30px 20px"}}>
-                    <div style={{fontSize:40,marginBottom:8}}>✓</div>
-                    <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:4}}>{T2("All done")}</div>
-                    <div style={{fontSize:12,color:C.muted}}>{resolvedCount} {T2("merged")} · {skippedCount} {T2("skipped")}</div>
-                    {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:12,padding:"5px 12px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
+                    <div style={{width:54,height:54,borderRadius:"50%",margin:"0 auto 10px",background:K.okBg,border:`1px solid ${K.okBorder}`,color:K.ok,fontSize:24,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>
+                    <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle,marginBottom:4}}>{T2("All done")}</div>
+                    <div style={{fontSize:12.5,color:K.hdrMeta}}>{resolvedCount} {T2("merged")} · {skippedCount} {T2("skipped")}</div>
+                    {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:14,padding:"8px 18px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
                   </div>
                 )}
                 {!allDone&&highIdx.length>0&&(
-                  <div style={{marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("High confidence")} ({highIdx.length})</div>
+                  <div style={{marginBottom:14}}>
+                    {secHead(T2("High confidence"), highIdx.length, K.ok)}
                     {highIdx.map(renderIngCard)}
                   </div>
                 )}
                 {!allDone&&medIdx.length>0&&(
                   <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>▶ {T2("Medium confidence")} ({medIdx.length})</div>
+                    {secHead(T2("Medium confidence"), medIdx.length, K.warn)}
                     {medIdx.map(renderIngCard)}
                   </div>
                 )}
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
-                <div style={{fontSize:11,color:C.muted}}>
-                  {skippedCount>0&&!allDone&&<button onClick={resetIngDedupSkipped} style={{padding:"4px 10px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>{T2("Reset skipped")} ({skippedCount})</button>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 22px",borderTop:`1px solid ${K.cardWarmLine}`}}>
+                <div>
+                  {skippedCount>0&&!allDone&&<button onClick={resetIngDedupSkipped} style={{padding:"7px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12,fontWeight:600,cursor:"pointer"}}>{T2("Reset skipped")} ({skippedCount})</button>}
                 </div>
-                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{padding:"6px 14px",borderRadius:6,background:C.gold,border:"none",color:C.goldBg,fontSize:12,fontWeight:600,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>{T2("Close")}</button>
+                <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{padding:"9px 22px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>{T2("Close")}</button>
               </div>
             </div>
           </div>
