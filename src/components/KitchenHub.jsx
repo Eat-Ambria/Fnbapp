@@ -19,7 +19,7 @@ import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './S
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon, KTabs, KButton, KPill, KStat, KPanel, KColHead, KProgress, KBanner, KModal, KToast, ModalWatermark } from './KitchenUI.jsx';
-import { EventDayTab, StepRow } from './EventDayTab.jsx';
+import { EventDayTab, StepRow, SEQUENTIAL_STEPS, startAlarm, stopAlarm } from './EventDayTab.jsx';
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
@@ -1571,6 +1571,16 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
   // Global 1-second tick drives all running timers
   useEffect(()=>{const t=setInterval(()=>setTick(k=>k+1),1000);return()=>clearInterval(t);},[]);
+  // Overtime siren on Prep Day — the same shared siren Event Day uses. Only
+  // driven while the Prep Day tab is showing, so it never cuts off Event Day's
+  // own alarm. The collector is refilled by the StepRows on every render.
+  const prepOverdueRef=useRef([]);
+  prepOverdueRef.current=[];
+  const [prepAlarmMuted,setPrepAlarmMuted]=useState({});
+  const prepMuteAlarm=key=>setPrepAlarmMuted(p=>p[key]?p:{...p,[key]:true});
+  const prepClearMuteAlarm=key=>setPrepAlarmMuted(p=>{if(!p[key])return p;const n={...p};delete n[key];return n;});
+  useEffect(()=>{ if(tab!=="d1") return; if(prepOverdueRef.current.length>0) startAlarm(); else stopAlarm(); });
+  useEffect(()=>()=>{ if(tab==="d1") stopAlarm(); },[tab]);
 
   // -- State helpers (auto-save to kitchenTracking — combined cooking keys) --
   function dk(evId,idx){return evId+"|"+idx;}
@@ -1586,6 +1596,40 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       if(Object.keys(cb).length){var r=Object.assign({},cb);delete r.mesaDone;return r;}
     }
     return perEv;
+  }
+  // Prep Day's station header — the same anatomy as Event Day's "Kitchen
+  // Stations" rows: icon tile, name with a one-line summary, progress bar with
+  // %, status pill, chevron. The station colour only goes on the bar.
+  function renderPrepSecHeader(sec, name, icon, color, totalCount, doneCount, prepTotal, secOpen, large, eventOnlyCount){
+    const pct = prepTotal>0 ? Math.round(doneCount/prepTotal*100) : 100;
+    const st = prepTotal>0 && doneCount>=prepTotal ? {l:T2("Done"),t:"ok"} : doneCount>0 ? {l:T2("In progress"),t:"warn"} : {l:T2("Pending"),t:"idle"};
+    const tn = tone(st.t);
+    return (
+      <div onClick={()=>toggleSec("d1sec_"+sec)} role="button" tabIndex={0} aria-expanded={secOpen}
+        onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleSec("d1sec_"+sec);}}}
+        style={{padding:large?"16px 22px":"13px 18px",cursor:"pointer",borderBottom:secOpen?`1px solid ${K.cardWarmLine}`:"none",
+          display:"flex",alignItems:"center",gap:large?16:14,flexWrap:"wrap",fontFamily:K.fontBody}}>
+        <span style={{width:large?48:40,height:large?48:40,borderRadius:large?15:12,flexShrink:0,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
+          fontSize:large?23:19,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>{icon}</span>
+        <div style={{flex:"1 1 200px",minWidth:0}}>
+          <div style={{fontSize:large?18:15,fontWeight:700,color:K.hdrTitle}}>{T2(name)}</div>
+          <div style={{fontSize:large?13.5:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>
+            {doneCount} {T2("of")} {prepTotal} {T2("dishes prepped")} · {totalCount} {T2("dishes")}{eventOnlyCount>0?` · ${eventOnlyCount} ${T2("event-day only")}`:""}
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:"1 1 180px",maxWidth:340}}>
+          <div style={{flex:1,height:7,background:K.lineSoft,borderRadius:999,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pct+"%",background:color,borderRadius:999,transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:12.5,fontWeight:700,color:K.hdrMeta,fontVariantNumeric:"tabular-nums",minWidth:36,textAlign:"right"}}>{pct}%</span>
+        </div>
+        <span style={{padding:"4px 12px",borderRadius:999,fontSize:12,fontWeight:700,whiteSpace:"nowrap",
+          background:st.t==="idle"?"#FFFFFF":tn.bg,color:st.t==="idle"?K.textMuted:tn.fg,border:`1px solid ${st.t==="idle"?K.cardWarmLine:tn.border}`}}>{st.l}</span>
+        <span style={{color:K.textFaint,display:"flex",transform:secOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>
+          <Icon name="chevronR" size={16} strokeWidth={2.2}/>
+        </span>
+      </div>
+    );
   }
   // Prep Day's step list. Renders with EventDayTab's StepRow — the same row Event
   // Day uses — so the two screens look and behave alike (timers, ▶ buttons,
@@ -1614,12 +1658,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         subs={subs?subs.map(sb=>({...sb,t:cleanStepText(sb.t),i:cleanStepText(sb.i||"")})):null}
         stepKey={sk} d2d={d2d} setDsFn={setDsFn}
         done={done} running={started&&!done} overdue={overdue}
-        elapsedSec={el} timerSec={tm} locked={!(prevDone||started||done)}
+        elapsedSec={el} timerSec={tm} locked={SEQUENTIAL_STEPS && !(prevDone||started||done)}
         onStart={()=>{ const upd={starts:{...(d2d.starts||{}),[sk]:Date.now()}}; if(si===0&&!d2d.dishStartedAt) upd.dishStartedAt=Date.now(); setDsFn(upd); }}
         onDone={()=>{ const elapsedNow = started ? Math.floor((Date.now()-d2d.starts[sk])/1000) : 0; const upd={manual:{...(d2d.manual||{}),[sk]:true},manualAt:{...(d2d.manualAt||{}),[sk]:fmtStamp()},doneElapsed:{...(d2d.doneElapsed||{}),[sk]:elapsedNow}}; if(si===0&&!d2d.dishStartedAt) upd.dishStartedAt=Date.now(); setDsFn(upd); }}
         onUndo={dishDone ? null : ()=>setDsFn({manual:{...(d2d.manual||{}),[sk]:false},starts:{...(d2d.starts||{}),[sk]:null}})}
         doneTime={d2d.manualAt?.[sk]||null} doneElapsed={d2d.doneElapsed?.[sk]??null}
         large={large} lang={lang} parentKey={"d1|"+dish.name}
+        alarmMuted={prepAlarmMuted} muteAlarm={prepMuteAlarm} clearMuteAlarm={prepClearMuteAlarm} overdueCollector={prepOverdueRef}
       />;
     });
   }
@@ -3136,18 +3181,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 const prepTotal = prepItems.length;
                 const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
                 return(
-                  <div key={sec} style={{marginBottom:14,borderRadius:14,border:`1.5px solid ${C.border}`,background:C.surface}}>
-                    <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"18px 22px",cursor:"pointer",borderBottom:secOpen?`1.5px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:70}}>
-                      <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div style={{width:46,height:46,borderRadius:12,background:m2.color+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>{m2.icon}</div>
-                        <div><div style={{fontSize:20,fontWeight:700,color:m2.color}}>{T2(catObj2?.name||sec)}</div><div style={{fontSize:14,color:C.muted}}>{totalCount} {T2("dishes")}{eventOnlyCount>0?` — ${eventOnlyCount} ${T2("event-day only")}`:""}</div></div>
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div style={{padding:"6px 14px",borderRadius:10,background:m2.color+"18",fontSize:16,fontWeight:700,color:m2.color}}>{doneCount} / {prepTotal}</div>
-                        <div style={{width:80,height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:3,transition:"width .3s"}}/></div>
-                        <span style={{fontSize:20,color:C.faint,transform:secOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}>▾</span>
-                      </div>
-                    </div>
+                  <div key={sec} style={{marginBottom:14,borderRadius:16,border:`1px solid ${K.cardWarmLine}`,background:K.cardWarm,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                    {renderPrepSecHeader(sec,catObj2?.name||sec,m2.icon,m2.color,totalCount,doneCount,prepTotal,secOpen,true,eventOnlyCount)}
                     {secOpen&&<div style={{padding:"10px 14px 14px"}}>
                       {renderSecStoreCardD1(sec, secItems, catObj2?.name || sec, true)}
                       {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map((dish,di)=>{
@@ -3215,19 +3250,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               const prepTotal = prepItemsA.length;
               const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
               return(
-                <div key={sec} style={{marginBottom:8,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
-                  <div onClick={()=>toggleSec("d1sec_"+sec)} style={{padding:"12px 16px",cursor:"pointer",borderBottom:secOpen?`1px solid ${C.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:16}}>{displayIcon}</span>
-                      <span style={{fontSize:14,fontWeight:500,color:m2.color}}>{T2(secDisplayName)}</span>
-                      <span style={{fontSize:12,color:C.muted}}>{totalCount} {T2("dishes")}</span>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{fontSize:12,fontWeight:500,color:m2.color}}>{doneCount} / {prepTotal}</span>
-                      <div style={{width:60,height:4,background:C.border,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:secPct+"%",background:m2.color,borderRadius:2,transition:"width .3s"}}/></div>
-                      <span style={{fontSize:14,color:C.faint,transform:secOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-                    </div>
-                  </div>
+                <div key={sec} style={{marginBottom:12,borderRadius:16,border:`1px solid ${K.cardWarmLine}`,background:K.cardWarm,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                  {renderPrepSecHeader(sec,secDisplayName,displayIcon,m2.color,totalCount,doneCount,prepTotal,secOpen,false,0)}
                   {secOpen&&<div style={{padding:"8px 12px"}}>
                     {renderSecStoreCardD1(sec, secItems, catObj?.name || sec, false)}
                     {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map(dish=>{
