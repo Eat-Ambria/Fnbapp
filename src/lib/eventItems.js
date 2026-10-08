@@ -207,11 +207,18 @@ export async function syncAllKitchenMenuMirrors(events) {
       if (!same) updates.push({ id: event.id, menu: kitNames });
     });
     if (updates.length === 0) return [];
-    // Partial-column upsert — only id/menu are touched on each row, every
-    // other column is left exactly as it is.
-    const { error } = await supabase.from('events').upsert(updates, { onConflict: 'id' });
-    if (error) { console.error('[eventItems] syncAllKitchenMenuMirrors upsert failed:', error); return []; }
-    return updates;
+    // One UPDATE per row. This used to be a single upsert of {id, menu}, but an
+    // upsert is an INSERT first: Postgres rejected every batch on events.guest
+    // NOT NULL (23502) before ON CONFLICT was considered, so the boot heal
+    // never wrote anything and events.menu stayed stale (or empty) for good.
+    const results = await Promise.all(updates.map(u =>
+      supabase.from('events').update({ menu: u.menu }).eq('id', u.id)
+        .then(({ error }) => {
+          if (error) { console.error('[eventItems] syncAllKitchenMenuMirrors update failed:', u.id, error); return null; }
+          return u;
+        })
+    ));
+    return results.filter(Boolean);
   } catch (e) {
     console.error('[eventItems] syncAllKitchenMenuMirrors err:', e);
     return [];
