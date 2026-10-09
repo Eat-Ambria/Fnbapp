@@ -198,12 +198,22 @@ function DishLibrary(props) {
   var [mergeSaving, setMergeSaving]   = useState(false);
 
   // V74 duplicate-finder modal state
+  // dedupTargets/dedupSkipped/dedupResolved are keyed by a stable cluster
+  // identity (clusterKey — the sorted dish names in it), not by array index.
+  // findDuplicateClusters() re-runs from scratch every time the modal opens,
+  // and a cluster resolved or skipped earlier can land at a different index
+  // on the next run (a merge removes entries, shifting everything after it) —
+  // index-keyed skip/resolved state would then silently apply to whatever
+  // cluster happened to land on that same index instead. A content-based key
+  // stays correct regardless of reordering, and (just as importantly) survives
+  // the modal being closed and reopened instead of being wiped on every open.
   var [dedupOpen, setDedupOpen]         = useState(false);
   var [dedupClusters, setDedupClusters] = useState([]);
-  var [dedupTargets, setDedupTargets]   = useState({});   // { [idx]: dish_name }
-  var [dedupSkipped, setDedupSkipped]   = useState({});   // { [idx]: true }
-  var [dedupResolved, setDedupResolved] = useState({});   // { [idx]: 'merged' }
+  var [dedupTargets, setDedupTargets]   = useState({});   // { [clusterKey]: dish_name }
+  var [dedupSkipped, setDedupSkipped]   = useState({});   // { [clusterKey]: true }
+  var [dedupResolved, setDedupResolved] = useState({});   // { [clusterKey]: 'merged' }
   var [dedupSavingIdx, setDedupSavingIdx] = useState(null); // idx currently merging
+  function clusterKey(c) { return (c.dishes || []).map(function(d){ return d.dish_name; }).slice().sort().join('|'); }
 
   // ── Data ─────────────────────────────────────────────────────────
   var enriched = useMemo(function() {
@@ -583,23 +593,27 @@ function DishLibrary(props) {
   function openDedup() {
     if (!isAdmin) return;
     var clusters = findDuplicateClusters(enriched);
-    var targets = {};
-    clusters.forEach(function(c, i) { targets[i] = pickDefaultTarget(c); });
+    setDedupTargets(function(prev) {
+      var next = { ...prev };
+      clusters.forEach(function(c) { var k = clusterKey(c); if (next[k] === undefined) next[k] = pickDefaultTarget(c); });
+      return next;
+    });
     setDedupClusters(clusters);
-    setDedupTargets(targets);
-    setDedupSkipped({});
-    setDedupResolved({});
+    // Skipped/resolved decisions are deliberately NOT reset here — they're
+    // keyed by cluster content and should keep holding across reopens of
+    // this same modal. resetDedupSkipped() is the one explicit way to bring
+    // skipped groups back.
     setDedupOpen(true);
   }
   function closeDedup() {
     if (dedupSavingIdx != null) return;
     setDedupOpen(false);
   }
-  function pickDedupTarget(idx, name) {
-    setDedupTargets(function(prev) { var next = { ...prev }; next[idx] = name; return next; });
+  function pickDedupTarget(key, name) {
+    setDedupTargets(function(prev) { var next = { ...prev }; next[key] = name; return next; });
   }
-  function skipDedupCluster(idx) {
-    setDedupSkipped(function(prev) { var next = { ...prev }; next[idx] = true; return next; });
+  function skipDedupCluster(key) {
+    setDedupSkipped(function(prev) { var next = { ...prev }; next[key] = true; return next; });
   }
   function resetDedupSkipped() {
     setDedupSkipped({});
@@ -608,14 +622,15 @@ function DishLibrary(props) {
     if (!isAdmin) return;
     var cluster = dedupClusters[idx];
     if (!cluster) return;
-    var target = (dedupTargets[idx] || '').trim();
+    var key = clusterKey(cluster);
+    var target = (dedupTargets[key] || '').trim();
     if (!target) { alert(T2('Pick a target for this group.')); return; }
     var sources = cluster.dishes.map(function(d) { return d.dish_name; }).filter(function(n) { return n !== target; });
     if (sources.length === 0) { alert(T2('Nothing to merge — target is the only dish.')); return; }
     setDedupSavingIdx(idx);
     try {
       await performMergeCore(sources, target);
-      setDedupResolved(function(prev) { var next = { ...prev }; next[idx] = 'merged'; return next; });
+      setDedupResolved(function(prev) { var next = { ...prev }; next[key] = 'merged'; return next; });
       setLocalBump(function(n) { return n + 1; });
     } catch (e) {
       alert('Merge failed: ' + (e.message || e));
@@ -901,10 +916,14 @@ function DishLibrary(props) {
       {/* V74 — Duplicate finder modal */}
       {dedupOpen && (function(){
         var totalGroups = dedupClusters.length;
-        var resolvedCount = Object.keys(dedupResolved).length;
-        var skippedCount = Object.keys(dedupSkipped).length;
+        // Scoped to the clusters THIS run actually found — dedupResolved/
+        // dedupSkipped persist across reopens by design, so a stale entry
+        // for a cluster that no longer exists (its dishes got merged away,
+        // or the underlying data changed) must not inflate these counts.
+        var resolvedCount = dedupClusters.filter(function(c){ return !!dedupResolved[clusterKey(c)]; }).length;
+        var skippedCount = dedupClusters.filter(function(c){ return !!dedupSkipped[clusterKey(c)]; }).length;
         var remainingIdx = dedupClusters.map(function(_, i){ return i; })
-          .filter(function(i){ return !dedupResolved[i] && !dedupSkipped[i]; });
+          .filter(function(i){ var k = clusterKey(dedupClusters[i]); return !dedupResolved[k] && !dedupSkipped[k]; });
         var highIdx = remainingIdx.filter(function(i){ return dedupClusters[i].confidence === 'high'; });
         var medIdx  = remainingIdx.filter(function(i){ return dedupClusters[i].confidence === 'medium'; });
         var allDone = totalGroups > 0 && remainingIdx.length === 0;
@@ -912,7 +931,8 @@ function DishLibrary(props) {
 
         function renderCard(idx){
           var c = dedupClusters[idx];
-          var target = dedupTargets[idx] || '';
+          var key = clusterKey(c);
+          var target = dedupTargets[key] || '';
           var saving = dedupSavingIdx === idx;
           var disabled = dedupSavingIdx != null && !saving;
           return (
@@ -932,7 +952,7 @@ function DishLibrary(props) {
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, background: isT ? '#EAF3DE' : C.surface, border: '1px solid ' + (isT ? '#3B6D11' : C.border), cursor: disabled ? 'not-allowed' : 'pointer' }}>
                       <input type="radio" name={'dedup-target-' + idx} checked={isT}
                         disabled={disabled || saving}
-                        onChange={function(){ pickDedupTarget(idx, d.dish_name); }}
+                        onChange={function(){ pickDedupTarget(key, d.dish_name); }}
                         style={{ margin: 0, cursor: disabled ? 'not-allowed' : 'pointer' }} />
                       <span style={{ fontSize: 13, fontWeight: isT ? 700 : 500, color: C.text, flex: 1 }}>{d.dish_name}</span>
                       <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 3, background: typeBadgeBg, color: typeBadgeFg }}>{typeLbl}</span>
@@ -945,7 +965,7 @@ function DishLibrary(props) {
                 })}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                <button onClick={function(){ skipDedupCluster(idx); }} disabled={saving || disabled}
+                <button onClick={function(){ skipDedupCluster(key); }} disabled={saving || disabled}
                   style={{ padding: '5px 12px', borderRadius: 5, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 11, fontWeight: 600, cursor: (saving || disabled) ? 'not-allowed' : 'pointer' }}>
                   {T2('Skip')}
                 </button>
