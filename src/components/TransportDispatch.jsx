@@ -8,6 +8,8 @@ import { dbUpsert, dbDelete } from '../lib/db.js';
 import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
 import { describeEventMenu } from '../data/menuPackages.js';
 import { logActivity } from './ActivityLog.jsx';
+import { K, type } from '../utils/theme.js';
+import { Icon } from './Icons.jsx';
 
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
@@ -179,24 +181,21 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   };
   const gp = v => PROP[v]||{code:"EV",c:C.wine,bg:C.wineBg};
 
-  const TABS=[{v:"todayplan",l:`📋 ${T2("Today's Plan")}`},{v:"fleet",l:`🚛 ${T2("Fleet")}`}];
+
+  // ── Shared look (matches the Kitchen Hub warm-card theme) ──
+  const cardS = {background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowCard};
+  const eyebrow = {fontSize:12,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:1.2};
+  const tileIcon = (name,bg,fg,size=46) => (
+    <span style={{width:size,height:size,borderRadius:Math.round(size*.3),flexShrink:0,background:bg,color:fg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon name={name} size={Math.round(size*.46)} strokeWidth={1.8}/>
+    </span>
+  );
+  const todayEvsAll = safeEvs.filter(e=>e.date===TODAY);
+  const todayDishTotal = todayEvsAll.reduce((n,ev)=>n+menuArr(ev).filter(d=>getCatIdForDish(d)!=="beverages"&&!isFruitSelectionDish(d)).length,0);
+  const todayVehTotal = todayEvsAll.reduce((n,ev)=>n+((dispatches.find(d=>d.evId===ev.id)||{assignments:[]}).assignments.length),0);
 
   return (
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🚛 Transport & Dispatch</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>Fleet: {fleetList.length} vehicles · {safeEvs.length} events</div>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          {[{c:"#1B5EAB",l:"En Route"},{c:"#2B8A50",l:T2("At Venue")},{c:"#888",l:"At Base"}].map(s=>(
-            <div key={s.l} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",background:"transparent",borderRadius:20,border:`1px solid ${s.c}40`}}>
-              <div style={{width:10,height:10,borderRadius:"50%",background:s.c}}/><span style={{fontSize:10,color:s.c,fontWeight:600}}>{s.l}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
+    <div style={{fontFamily:K.fontBody}}>
       {/* ── ODC MENU NOT CONFIRMED WARNING ── */}
       {(()=>{
         const odcUnconfirmed = safeEvs.filter(ev=>ev.venue==="Outdoor Catering (ODC)"&&!ev.odc_menu_confirmed&&(ev.date===TODAY||ev.date===TOMORROW));
@@ -204,11 +203,11 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         return(
           <div style={{marginBottom:12}}>
             {odcUnconfirmed.map(ev=>(
-              <div key={"odc-t-"+ev.id} style={{marginBottom:6,padding:"10px 14px",borderRadius:10,background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,display:"flex",alignItems:"center",gap:10}}>
-                <span style={{fontSize:16,flexShrink:0}}>🏕</span>
+              <div key={"odc-t-"+ev.id} style={{marginBottom:6,padding:"10px 14px",borderRadius:14,background:K.warnBg,border:`1px solid ${K.warnBorder}`,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{color:K.warn,display:"flex"}}><Icon name="alert" size={16}/></span>
                 <div>
-                  <div style={{fontSize:12,fontWeight:700,color:C.amber}}>ODC menu not confirmed — {ev.guest}</div>
-                  <div style={{fontSize:11,color:C.muted}}>{ev.odc_location||"Location TBD"} · {ev.date} · {ev.pax} pax — Dispatch manifest may be inaccurate</div>
+                  <div style={{fontSize:12.5,fontWeight:700,color:K.warn}}>ODC menu not confirmed — {ev.guest}</div>
+                  <div style={{fontSize:11.5,color:K.hdrMeta}}>{ev.odc_location||"Location TBD"} · {ev.date} · {ev.pax} pax — Dispatch manifest may be inaccurate</div>
                 </div>
               </div>
             ))}
@@ -216,16 +215,19 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         );
       })()}
 
-      <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
-        {TABS.map(t=>(
-          <button key={t.v} onClick={()=>setActiveTab(t.v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",background:activeTab===t.v?C.wine:"transparent",color:activeTab===t.v?"#fff":C.muted,border:`1.5px solid ${activeTab===t.v?C.wine:C.border}`}}>{t.l}</button>
-        ))}
+      {/* ── Tabs ── */}
+      <div style={{display:"flex",gap:10,marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+        {[{v:"todayplan",l:T2("Today's Plan"),i:"calendarDays"},{v:"fleet",l:T2("Fleet"),i:"truck"}].map(t=>{const on=activeTab===t.v;return(
+          <button key={t.v} onClick={()=>setActiveTab(t.v)} className={on?undefined:"kh-calnav"}
+            style={{display:"inline-flex",alignItems:"center",gap:10,padding:"11px 30px",borderRadius:12,fontSize:14,fontWeight:on?700:600,cursor:"pointer",fontFamily:K.fontBody,
+              background:on?K.brand:K.cardWarm,color:on?"#FFFFFF":K.hdrTitle,border:`1px solid ${on?K.brand:K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+            <Icon name={t.i} size={17} strokeWidth={1.9}/>{t.l}
+          </button>);})}
       </div>
 
       {activeTab==="todayplan"&&(()=>{
         const todayEvs = safeEvs.filter(e=>e.date===TODAY).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const tomorrowEvs = safeEvs.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
-        const laterEvs = safeEvs.filter(e=>e.date>TOMORROW).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
         // Tap a dish chip to cycle its own status: Ready → Loaded → Delivered
         // → back to Ready. This IS the loading/unloading tracking now — chips
         // read/write the real transportQueue rows Kitchen Hub's "Send to
@@ -250,8 +252,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           return (transportQueue||[]).filter(r2=>r2.id!==row.id && r2.dish===row.dish && r2.eventDate===row.eventDate && (r2.evId||r2.event)!==(row.evId||row.event));
         }
 
-        function renderCard(ev, showDate){
-          const p = gp(ev.venue);
+        function renderCard(ev, dayLabel){
           const dispatch = dispatches.find(d=>d.evId===ev.id)||{assignments:[]};
           const menu = menuArr(ev);
           const allVehicles = dispatch.assignments.map(a=>fleetList.find(v=>v.id===a.vehicleId)||{name:a.vehicleId,icon:"🚛"});
@@ -305,137 +306,168 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
               return {...r, vehicleId};
             }));
           }
+          // Local calendar parts (no UTC conversion — IST would shift the day).
+          const [ey,em,ed] = String(ev.date||"").split("-").map(Number);
+          const dObj = ey ? new Date(ey,(em||1)-1,ed||1) : null;
+          const monShort = dObj ? dObj.toLocaleDateString("en-IN",{month:"short"}).toUpperCase() : "";
+          const dayCap = dayLabel || (dObj ? dObj.toLocaleDateString("en-IN",{weekday:"short"}).toUpperCase() : "");
+          const isLms = !!(ev.lms_source||ev.lms_contract);
+          const divider = <span style={{width:1,alignSelf:"stretch",background:K.cardWarmLine}}/>;
 
           return (
-            <Card style={{marginBottom:14,padding:0,overflow:"hidden",border:`2px solid ${p.c}18`}}>
-              {/* Header */}
-              <div style={{padding:"14px 18px",borderBottom:`1px solid ${C.border}`,background:p.bg}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div>
-                    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
-                      <span style={{fontSize:12,fontWeight:700,padding:"2px 10px",borderRadius:20,background:p.c,color:"#fff"}}>{p.code}</span>
-                      <span style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{ev.guest}</span>
-                    </div>
-                    <div style={{fontSize:11,color:C.muted}}>{ev.venue==="Outdoor Catering (ODC)"&&ev.odc_location?<span><span style={{fontWeight:600,color:C.purple}}>🏕 {ev.odc_location}</span>{ev.odc_address?" · "+ev.odc_address:""}</span>:ev.venue} · {ev.type}</div>
+            <div key={ev.id} style={{marginBottom:22}}>
+              {/* ── Event summary ── */}
+              <div style={{...cardS,display:"flex",alignItems:"center",gap:24,flexWrap:"wrap",padding:"16px 22px",marginBottom:14,borderLeft:`4px solid ${K.gold}`}}>
+                <div style={{width:84,flexShrink:0,borderRadius:12,overflow:"hidden",textAlign:"center",background:"#FBF6EC",border:`1px solid ${K.goldSoft}`,boxShadow:K.shadowCard}}>
+                  <div style={{background:"#B98A3E",color:"#FFFFFF",fontSize:12,fontWeight:700,letterSpacing:1,padding:"5px 0"}}>{monShort}</div>
+                  <div style={{...type.pageTitle,fontSize:30,fontWeight:700,color:K.hdrTitle,lineHeight:1.2,paddingTop:4}}>{ed||""}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:K.hdrMeta,letterSpacing:.6,paddingBottom:8}}>{dayCap}</div>
+                </div>
+                <div style={{flex:"1 1 340px",minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                    <span style={{...type.pageTitle,fontSize:28,fontWeight:700,color:K.hdrTitle,lineHeight:1.15}}>{ev.guest}</span>
+                    {isLms&&<span style={{padding:"3px 10px",borderRadius:7,background:"#E6EEFB",color:"#1B5EAB",fontSize:12,fontWeight:700}}>LMS</span>}
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:18,fontWeight:700,color:p.c}}>{ev.time}</div>
-                    {showDate&&<div style={{fontSize:12,color:C.muted}}>{ev.date}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6,fontSize:14,color:K.textBody}}>
+                    <Icon name="building" size={16} strokeWidth={1.8}/>
+                    {ev.venue==="Outdoor Catering (ODC)"&&ev.odc_location?<span><b style={{color:C.purple}}>{ev.odc_location}</b>{ev.odc_address?" · "+ev.odc_address:""}</span>:ev.venue}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:18,marginTop:10,flexWrap:"wrap",fontSize:14,color:K.hdrTitle}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:8}}><Icon name="clock" size={17} strokeWidth={1.8}/><b>{ev.time||"TBD"}</b></span>
+                    {divider}
+                    <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                      <Icon name="users" size={17} strokeWidth={1.8}/>
+                      <span><b>{ev.pax} {T2("pax")}</b><br/><span style={{fontSize:11,color:K.hdrMeta}}>V-{ev.veg||ev.pax} NV:{ev.nonveg||0}</span></span>
+                    </span>
+                    {divider}
+                    <span style={{display:"inline-flex",alignItems:"center",gap:8}}><Icon name="plate" size={17} strokeWidth={1.8}/><b>{describeEventMenu(ev)}</b></span>
                   </div>
                 </div>
-
-                {/* Stats row */}
-                <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
-                  {[
-                    {icon:"👥",label:"Pax",value:ev.pax,sub:`V:${ev.veg||ev.pax} NV:${ev.nonveg||0}`},
-                    {icon:"📜",label:"Package",value:describeEventMenu(ev)},
-                    {icon:"🍽",label:"Dishes",value:`${readyDishes}/${totalDishes} ready`,pct:readyPct},
-                    {icon:"🚛",label:"Vehicles",value:`${allVehicles.length} assigned`},
-                  ].map((s,i)=>(
-                    <div key={i} style={{background:"rgba(255,255,255,.03)",borderRadius:8,padding:"6px 10px",minWidth:100,flex:"1 1 100px"}}>
-                      <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:"uppercase",marginBottom:2}}>{s.icon} {s.label}</div>
-                      <div style={{fontSize:12,fontWeight:700,color:C.text}}>{s.value}</div>
-                      {s.sub&&<div style={{fontSize:11,color:C.muted}}>{s.sub}</div>}
-                      {s.pct!==undefined&&(
-                        <div style={{height:5,background:C.border,borderRadius:2,marginTop:3,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:`${s.pct}%`,background:s.pct===100?C.green:s.pct>50?C.amber:C.red,borderRadius:2,transition:"width .4s"}}/>
-                        </div>
-                      )}
+                <div style={{flex:"1 1 260px",display:"flex",alignItems:"center",gap:26,paddingLeft:24,borderLeft:`1px solid ${K.cardWarmLine}`,minHeight:64}}>
+                  <div style={{flex:1,minWidth:180}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{color:"#B98A3E",display:"flex"}}><Icon name="utensils" size={22} strokeWidth={1.8}/></span>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6}}>{T2("Dishes")}</div>
+                        <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle}}>{readyDishes}/{totalDishes} {T2("ready")}</div>
+                      </div>
                     </div>
-                  ))}
+                    <div style={{height:7,borderRadius:99,background:"#E9E6DE",marginTop:8,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:readyPct+"%",borderRadius:99,background:readyPct===100?K.ok:K.brand,transition:"width .4s"}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,paddingLeft:24,borderLeft:`1px solid ${K.cardWarmLine}`}}>
+                    <span style={{color:"#B98A3E",display:"flex"}}><Icon name="truck" size={22} strokeWidth={1.8}/></span>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6}}>{T2("Vehicles")}</div>
+                      <div style={{fontSize:15,fontWeight:700,color:K.hdrTitle}}>{allVehicles.length} {T2("assigned")}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Dispatch Plan — editable by Pushpander / Raj Kumar. Compact
-                  tiles, 3 to a row — loading/unloading itself is tracked on
-                  the dish chips below, so a tile only needs the truck's own
-                  status (Planning → Loaded → Dispatched → At Venue → Unloaded). */}
-              <div style={{padding:"10px 18px",borderBottom:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <div style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🚛 {T2("Dispatch Plan")}</div>
-                  <button onClick={()=>addVehicle(ev.id)} style={{padding:"5px 12px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32}}>+ {T2("Add Vehicle")}</button>
+              {/* ── Dispatch plan — editable by Pushpander / Raj Kumar. Loading
+                  itself is tracked on the dish chips below; a tile is the
+                  truck's own status (Planning → Loaded → Dispatched → At Venue
+                  → Unloaded). ── */}
+              <div style={{...cardS,padding:"16px 18px",marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:12,...eyebrow}}><Icon name="truck" size={20} strokeWidth={1.8}/>{T2("Dispatch Plan")}</span>
+                  <button onClick={()=>addVehicle(ev.id)} className="kh-hovercard"
+                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:12,background:K.brand,color:"#FFFFFF",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                    <Icon name="plus" size={16} strokeWidth={2.2}/>{T2("Add Vehicle")}
+                  </button>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(230px, 1fr))",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))",gap:16,maxWidth:dispatch.assignments.length<3?900:"none"}}>
                   {dispatch.assignments.map((asgn,ai)=>{
-                    const v=fleetList.find(x=>x.id===asgn.vehicleId)||{name:asgn.vehicleId,icon:"🚛",type:"dry"};
-                    const sc=asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded"?C.green:asgn.status==="Loaded"?C.amber:C.muted;
                     const loc=getVehicleLocation(asgn.vehicleId);
                     const loadedCount=loadedRowsFor(ev.id,asgn.vehicleId).length;
+                    const done = asgn.status==="Dispatched"||asgn.status==="At Venue"||asgn.status==="Unloaded";
+                    const label = nextLabel(asgn.status);
+                    const can = canAdvance(asgn);
+                    const lbl = {display:"block",fontSize:12,fontWeight:600,color:K.textBody,marginBottom:5};
+                    const inp = {width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.cardWarmLine}`,fontSize:13.5,color:K.hdrTitle,background:"#FFFFFF",fontFamily:K.fontBody,outline:"none"};
                     return (
-                      <div key={ai} style={{background:C.bg,borderRadius:10,padding:"8px 10px",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:5}}>
-                        <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                          <span style={{fontSize:13,flexShrink:0}}>{v.icon}</span>
+                      <div key={ai} style={{borderRadius:14,background:"#FBFAF6",border:`1px solid ${K.cardWarmLine}`,padding:"14px 14px 12px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                          <span style={{width:32,height:32,borderRadius:"50%",flexShrink:0,background:"#EEF0EA",color:K.hdrTitle,fontSize:13.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{ai+1}</span>
+                          <span style={{color:K.hdrTitle,display:"flex"}}><Icon name="truck" size={20} strokeWidth={1.8}/></span>
                           <select value={asgn.vehicleId} onChange={e=>{
                             setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}));
-                          }} style={{flex:1,minWidth:0,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}>
+                          }} style={{...inp,flex:1,minWidth:0,width:"auto",fontWeight:600,padding:"8px 10px"}}>
                             {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.name}</option>)}
                           </select>
-                          <span style={{fontSize:9.5,fontWeight:700,color:sc,padding:"2px 6px",borderRadius:6,background:sc+"15",whiteSpace:"nowrap",flexShrink:0}}>{asgn.status}</span>
-                          <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} style={{padding:"3px 6px",borderRadius:6,background:C.redBg,border:`1px solid ${C.redBorder}`,color:C.red,fontSize:10,cursor:"pointer",flexShrink:0}}>✕</button>
+                          <span style={{padding:"7px 16px",borderRadius:8,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap",
+                            background:done?K.okBg:asgn.status==="Loaded"?K.warnBg:"#E7EEE5",color:done?K.ok:asgn.status==="Loaded"?K.warn:K.brandText}}>{T2(asgn.status)}</span>
+                          <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} title={T2("Remove")}
+                            style={{width:30,height:30,borderRadius:8,flexShrink:0,background:"#FBEDEA",border:"none",color:K.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+                            <Icon name="close" size={14} strokeWidth={2.2}/>
+                          </button>
                         </div>
-                        <div style={{display:"flex",gap:5}}>
-                          <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
-                            setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
-                          }} style={{flex:1,minWidth:0,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}/>
-                          <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={{width:70,padding:"4px 4px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,background:C.surface,color:C.text,minHeight:26}}/>
+                        <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:10,marginBottom:10}}>
+                          <label><span style={lbl}>{T2("Driver")}</span>
+                            <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
+                              setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
+                            }} style={inp}/></label>
+                          <label><span style={lbl}>{T2("Departure time")}</span>
+                            <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={inp}/></label>
                         </div>
-                        <div style={{fontSize:10,color:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={loc.at+(loc.dest?" → "+loc.dest:"")}>
-                          🏠 {loc.at}{loc.dest?" → 📍 "+loc.dest:""}
+                        <div title={loc.at+(loc.dest?" → "+loc.dest:"")}
+                          style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:9,background:"#F1EFE9",fontSize:12.5,color:K.textBody,marginBottom:10,overflow:"hidden",whiteSpace:"nowrap"}}>
+                          <span style={{color:K.hdrMeta}}>{T2("Route")}</span>
+                          <span style={{color:"#B98A3E",display:"flex"}}><Icon name="building" size={14} strokeWidth={1.9}/></span>
+                          <span>{loc.at}</span>
+                          {loc.dest&&<><span style={{color:K.hdrTitle,fontWeight:700}}>→</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{loc.dest}</span></>}
                         </div>
-                        {nextLabel(asgn.status)&&(
-                          <button disabled={!canAdvance(asgn)} onClick={()=>advanceStatus(ev.id,ai)}
-                            style={{padding:"5px 8px",borderRadius:6,fontSize:10.5,fontWeight:700,cursor:canAdvance(asgn)?"pointer":"not-allowed",border:"none",minHeight:28,
-                              background:canAdvance(asgn)?(asgn.status==="Loaded"?C.green:asgn.status==="At Venue"?C.green:C.amber):(C.border),
-                              color:canAdvance(asgn)?"#fff":C.faint}}>
-                            {nextLabel(asgn.status)}
+                        {label&&(
+                          <button disabled={!can} onClick={()=>advanceStatus(ev.id,ai)} className={can?"kh-hovercard":undefined}
+                            style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"11px",borderRadius:10,fontSize:14,fontWeight:700,border:"none",marginBottom:8,
+                              cursor:can?"pointer":"not-allowed",background:can?K.brand:"#E9E6DE",color:can?"#FFFFFF":K.textFaint,fontFamily:K.fontBody}}>
+                            <Icon name={asgn.status==="Planning"?"box":asgn.status==="Loaded"?"truck":asgn.status==="Dispatched"?"building":"check"} size={17} strokeWidth={1.9}/>
+                            {label.replace(/^\S+\s/,"")}
                           </button>
                         )}
-                        {asgn.status==="Unloaded"&&<span style={{fontSize:11,fontWeight:700,color:C.green,textAlign:"center"}}>✅ {T2("Complete")}</span>}
-                        {!canAdvance(asgn)&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:9.5,color:C.amber}}>⚠ {T2("Assign a driver first")}</div>}
-                        <button onClick={()=>setChallanFor({evId:ev.id,vehicleId:asgn.vehicleId})}
-                          style={{padding:"5px 8px",borderRadius:6,fontSize:10.5,fontWeight:700,cursor:"pointer",border:`1px solid ${C.border}`,minHeight:28,background:C.surface,color:C.text}}>
-                          📄 {T2("Challan")} ({loadedCount})
+                        {asgn.status==="Unloaded"&&<div style={{textAlign:"center",fontSize:13,fontWeight:700,color:K.ok,padding:"8px 0"}}>✓ {T2("Complete")}</div>}
+                        {!can&&asgn.status==="Loaded"&&!asgn.driver&&<div style={{fontSize:11.5,color:K.warn,marginBottom:8,fontWeight:600}}>⚠ {T2("Assign a driver first")}</div>}
+                        <button onClick={()=>setChallanFor({evId:ev.id,vehicleId:asgn.vehicleId})} className="kh-calnav"
+                          style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"10px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",
+                            background:"#FFFFFF",color:K.hdrTitle,border:`1px solid ${K.cardWarmLine}`,fontFamily:K.fontBody}}>
+                          <Icon name="fileText" size={17} strokeWidth={1.8}/>{T2("Challan")} ({loadedCount})
                         </button>
                       </div>
                     );
                   })}
                 </div>
-                {dispatch.assignments.length===0&&<div style={{fontSize:12,color:C.faint,padding:"8px 0"}}>🚛 {T2("No vehicles assigned yet")} — {T2("Add vehicle to start dispatch plan")}</div>}
-                <div style={{fontSize:10,color:C.muted,marginTop:4}}>✏ {T2("Editable by")} Pushpander / Raj Kumar</div>
+                {dispatch.assignments.length===0&&<div style={{fontSize:13,color:K.hdrMeta,padding:"8px 0"}}>{T2("No vehicles assigned yet")} — {T2("Add vehicle to start dispatch plan")}</div>}
+                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:K.hdrMeta,marginTop:12}}>
+                  <Icon name="note" size={14} strokeWidth={1.8}/>{T2("Editable by")} Pushpander / Raj Kumar
+                </div>
               </div>
 
-              {/* Ready for Transport — station chips, sourced from the real
+              {/* ── Ready for Transport — station chips, sourced from the real
                   transportQueue rows Kitchen Hub's "Send to transport" grid
-                  writes (per-function qty split included), not a separate
-                  local toggle. Stations auto-collapse once fully picked up,
-                  and the index strip lets you jump straight to one, so a
-                  200+ dish menu never shows more than a screenful at once. */}
-              <div style={{padding:"10px 18px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase"}}>🍳 {T2("Ready for Transport")}</span>
-                  <span style={{fontSize:11,fontWeight:700,color:totalDishes>0&&readyDishes===totalDishes?C.green:C.muted}}>{readyDishes}/{totalDishes} {T2("ready")}</span>
+                  writes. Stations auto-collapse once fully delivered. ── */}
+              <div style={{...cardS,padding:"16px 18px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:12,...eyebrow}}><Icon name="utensils" size={20} strokeWidth={1.8}/>{T2("Ready for Transport")}</span>
+                  <span style={{fontSize:14,fontWeight:700,color:totalDishes>0&&readyDishes===totalDishes?K.ok:K.hdrTitle}}>{readyDishes}/{totalDishes} {T2("ready")}</span>
                 </div>
 
                 {stationsMeta.length>0&&(
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:12}}>
                     {stationsMeta.map(st=>{
                       const secKey=ev.id+"_"+st.sec;
                       const open = tdSecOpen[secKey]!==undefined?tdSecOpen[secKey]:!st.allDone;
                       return (
-                        <button key={st.sec} onClick={()=>toggleSecOpen(secKey,open)}
-                          style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:14,cursor:"pointer",border:"none",
-                            background:st.allDone?C.greenBg:st.sent>0?st.color+"18":C.bg,
-                            outline:`1.5px solid ${st.allDone?C.greenBorder:st.sent>0?st.color:C.border}`,
-                            fontSize:10.5,fontWeight:700,color:st.allDone?C.green:st.sent>0?st.color:C.faint}}>
-                          {st.icon} {st.name} {st.allDone?"✓ ":""}{st.sent}/{st.total}
+                        <button key={st.sec} onClick={()=>toggleSecOpen(secKey,open)} className="kh-calnav"
+                          style={{display:"inline-flex",alignItems:"center",gap:9,padding:"7px 16px",borderRadius:999,cursor:"pointer",fontFamily:K.fontBody,
+                            background:st.allDone?K.okBg:"#FFFFFF",border:`1px solid ${st.allDone?K.okBorder:st.sent>0?st.color:K.cardWarmLine}`,
+                            fontSize:13,fontWeight:600,color:st.allDone?K.ok:K.textBody}}>
+                          <span style={{fontSize:14}}>{st.icon}</span>{st.name} {st.allDone?"✓ ":""}{st.sent}/{st.total}
                         </button>
                       );
                     })}
                   </div>
-                )}
-
-                {startedStations.length===0&&(
-                  <div style={{fontSize:12,color:C.faint,padding:"6px 0"}}>{T2("Nothing sent from Kitchen Hub yet — dishes appear here once a station is sent to transport")}</div>
                 )}
 
                 {startedStations.map(st=>{
@@ -444,7 +476,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   const assignedVeh = st.assignedVehicleId ? (fleetList.find(v=>v.id===st.assignedVehicleId)||{name:st.assignedVehicleId,icon:"🚛"}) : null;
                   const truckPicker = dispatch.assignments.length>0 && (
                     <select value={st.assignedVehicleId} onClick={e=>e.stopPropagation()} onChange={e=>setStationVehicle(st.sec,e.target.value)}
-                      style={{marginLeft:"auto",fontSize:10.5,fontWeight:600,padding:"3px 6px",borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:st.assignedVehicleId?C.text:C.muted,maxWidth:150}}>
+                      style={{marginLeft:"auto",fontSize:12,fontWeight:600,padding:"5px 10px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:st.assignedVehicleId?K.hdrTitle:K.hdrMeta,maxWidth:180,fontFamily:K.fontBody}}>
                       <option value="">🚛 {T2("Assign truck")}</option>
                       {dispatch.assignments.map(a=>{
                         const v=fleetList.find(x=>x.id===a.vehicleId)||{name:a.vehicleId,icon:"🚛"};
@@ -455,49 +487,47 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   if(!open){
                     return (
                       <div key={st.sec} onClick={()=>toggleSecOpen(secKey,open)}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.greenBg,borderRadius:10,marginBottom:6,cursor:"pointer"}}>
-                        <span style={{width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0}}/>
-                        <span style={{fontSize:12,fontWeight:700,color:C.green}}>{st.icon} {st.name}</span>
-                        <span style={{fontSize:11,color:C.green}}>{st.sent}/{st.total} {T2("delivered")}</span>
-                        {assignedVeh&&<span style={{fontSize:10.5,color:C.green,fontWeight:600}}>{assignedVeh.icon} {assignedVeh.name}</span>}
-                        <span style={{marginLeft:assignedVeh?8:"auto",fontSize:10,color:C.green}}>▸ {T2("collapsed")}</span>
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:K.okBg,border:`1px solid ${K.okBorder}`,borderRadius:12,marginBottom:8,cursor:"pointer"}}>
+                        <span style={{fontSize:13,fontWeight:700,color:K.ok}}>{st.icon} {st.name}</span>
+                        <span style={{fontSize:12,color:K.ok}}>{st.sent}/{st.total} {T2("delivered")}</span>
+                        {assignedVeh&&<span style={{fontSize:12,color:K.ok,fontWeight:600}}>{assignedVeh.icon} {assignedVeh.name}</span>}
+                        <span style={{marginLeft:"auto",fontSize:11.5,color:K.ok}}>▸ {T2("collapsed")}</span>
                       </div>
                     );
                   }
                   return (
-                    <div key={st.sec} style={{marginBottom:12}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                    <div key={st.sec} style={{marginBottom:12,padding:"12px 14px",borderRadius:14,background:"#FBFAF6",border:`1px solid ${K.cardWarmLine}`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                         <div onClick={()=>toggleSecOpen(secKey,open)} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
                           <span style={{width:8,height:8,borderRadius:"50%",background:st.color,flexShrink:0}}/>
-                          <span style={{fontSize:12.5,fontWeight:700,color:st.color}}>{st.icon} {st.name}</span>
-                          <span style={{fontSize:11,color:C.muted}}>{st.sent}/{st.total} {T2("ready")}</span>
+                          <span style={{fontSize:13.5,fontWeight:700,color:K.hdrTitle}}>{st.icon} {st.name}</span>
+                          <span style={{fontSize:12,color:K.hdrMeta}}>{st.sent}/{st.total} {T2("ready")}</span>
                         </div>
                         {truckPicker}
                       </div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:7,paddingLeft:16}}>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                         {st.rows.map(row=>{
                           const shared = sharedRowsFor(row);
                           const isLoaded = row.status==="Loaded";
                           const isDelivered = row.status==="Delivered";
-                          const chipColor = isDelivered?C.green:isLoaded?"#5B8FD0":st.color;
-                          const chipBg = isDelivered?C.greenBg:isLoaded?"#EAF1FB":"#fff";
+                          const fg = isDelivered?K.ok:isLoaded?"#1B5EAB":K.hdrTitle;
+                          const bd = isDelivered?K.okBorder:isLoaded?"#B9CEEC":K.cardWarmLine;
+                          const bg = isDelivered?K.okBg:isLoaded?"#EAF1FB":"#FFFFFF";
                           return (
                             <div key={row.id} style={{display:"flex",flexDirection:"column",gap:5}}>
                               <div onClick={()=>cycleRowStatus(row.id)}
                                 title={isDelivered?T2("Delivered — tap to reset"):isLoaded?T2("Loaded — tap to mark delivered"):T2("Ready — tap to mark loaded")}
-                                style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",
-                                  background:chipBg, border:`1.5px solid ${chipColor}`,
-                                  borderRadius:20,padding:"7px 13px",opacity:isDelivered?.7:1}}>
-                                {(isLoaded||isDelivered)&&<span style={{width:15,height:15,borderRadius:"50%",background:chipColor,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDelivered?"✓":"📦"}</span>}
-                                <span style={{fontSize:12,fontWeight:700,color:isDelivered?C.green:isLoaded?"#2A5D9E":C.text,textDecoration:isDelivered?"line-through":"none"}}>{row.dish}</span>
-                                {row.qty!=null&&<span style={{fontSize:11,color:isDelivered?C.green:isLoaded?"#2A5D9E":C.muted}}>· {row.qty}{row.unit?" "+row.unit:""}</span>}
-                                {shared.length>0&&<span style={{width:16,height:16,borderRadius:"50%",background:st.color,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×{shared.length+1}</span>}
+                                style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",background:bg,border:`1px solid ${bd}`,borderRadius:999,padding:"7px 14px",opacity:isDelivered?.75:1}}>
+                                {(isLoaded||isDelivered)&&<span style={{display:"flex",color:fg}}><Icon name={isDelivered?"check":"box"} size={13} strokeWidth={2.2}/></span>}
+                                <span style={{fontSize:12.5,fontWeight:700,color:fg,textDecoration:isDelivered?"line-through":"none"}}>{row.dish}</span>
+                                {row.qty!=null&&<span style={{fontSize:12,color:isDelivered||isLoaded?fg:K.hdrMeta}}>· {row.qty}{row.unit?" "+row.unit:""}</span>}
+                                {shared.length>0&&<span style={{padding:"0 6px",borderRadius:999,background:st.color,color:"#fff",fontSize:10,fontWeight:700}}>×{shared.length+1}</span>}
                               </div>
                               {shared.length>0&&(
                                 <div style={{marginLeft:10,paddingLeft:12,borderLeft:`2px dashed ${st.color}`}}>
                                   {shared.map(s2=>(
-                                    <div key={s2.id} style={{fontSize:10.5,color:C.muted,padding:"2px 0"}}>
-                                      ↳ {s2.qty!=null?`${s2.qty}${s2.unit||""} `:""}→ <b style={{color:st.color}}>{s2.event}</b> · {s2.venue}{s2.status&&s2.status!=="Ready"?` · ${s2.status==="Delivered"?"✓":"📦"}`:""}
+                                    <div key={s2.id} style={{fontSize:11,color:K.hdrMeta,padding:"2px 0"}}>
+                                      ↳ {s2.qty!=null?`${s2.qty}${s2.unit||""} `:""}→ <b style={{color:K.hdrTitle}}>{s2.event}</b> · {s2.venue}{s2.status&&s2.status!=="Ready"?` · ${s2.status==="Delivered"?"✓":"📦"}`:""}
                                     </div>
                                   ))}
                                 </div>
@@ -510,35 +540,59 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   );
                 })}
 
-                {notStartedStations.length>0&&(
-                  <div style={{fontSize:11,color:C.faint,padding:"6px 2px"}}>
-                    {notStartedStations.map(s=>s.icon).join(" ")} {T2("Still cooking")}: {notStartedStations.slice(0,3).map(s=>s.name).join(", ")}{notStartedStations.length>3?` +${notStartedStations.length-3} ${T2("more")}`:""}
+                {(startedStations.length===0||notStartedStations.length>0)&&(
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:"10px 14px",borderRadius:12,background:"#F1EFE9",fontSize:12.5,color:K.textBody}}>
+                    {startedStations.length===0&&(
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        <span style={{width:18,height:18,borderRadius:"50%",border:`1.5px solid ${K.hdrMeta}`,color:K.hdrMeta,fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>i</span>
+                        {T2("Nothing sent from Kitchen Hub yet — dishes appear here once a station is sent to transport.")}
+                      </span>
+                    )}
+                    {notStartedStations.length>0&&(
+                      <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:8}}>
+                        <span style={{letterSpacing:2}}>{notStartedStations.map(s=>s.icon).join("")}</span>
+                        {T2("Still cooking")}: {notStartedStations.slice(0,3).map(s=>s.name).join(", ")}{notStartedStations.length>3?` +${notStartedStations.length-3} ${T2("more")}`:""}
+                      </span>
+                    )}
                   </div>
                 )}
+
+                {ev.special&&(
+                  <div style={{marginTop:10,padding:"9px 14px",borderRadius:12,background:K.warnBg,border:`1px solid ${K.warnBorder}`,fontSize:12.5,fontWeight:600,color:K.warn}}>⚠ {ev.special}</div>
+                )}
               </div>
-
-              {/* Special instructions */}
-              {ev.special&&(
-                <div style={{padding:"8px 18px 12px",borderTop:`1px solid ${C.border}`}}>
-                  <div style={{fontSize:10,fontWeight:600,color:C.amber}}>⚠ {ev.special}</div>
-                </div>
-              )}
-
-            </Card>
+            </div>
           );
         }
 
         return (
           <div>
-            {safeEvs.length===0&&<div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No events loaded")}</div>}
-            {todayEvs.length>0&&(
-              <div style={{marginBottom:8,fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:0.8}}>🔴 {T2("Today")}</div>
-            )}
-            {todayEvs.map(ev=>renderCard(ev,false))}
+            {/* ── KPI tiles ── */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:18}}>
+              {[{i:"truck",n:fleetList.length,l:T2("Vehicles in fleet"),bg:"#E7EEE9",fg:K.brand},
+                {i:"calendar",n:safeEvs.length,l:T2("Total events"),bg:"#F6EADB",fg:"#B98A3E"},
+                {i:"calendarDays",n:todayEvs.length,l:T2("Today's events"),bg:"#E7EEE9",fg:K.brand},
+                {i:"utensils",n:todayDishTotal,l:todayEvs.length===1?T2("Total dishes (this event)"):T2("Total dishes (today)"),bg:"#F6EADB",fg:"#B98A3E"},
+                {i:"truck",n:todayVehTotal,l:T2("Vehicles assigned"),bg:"#E7EEE9",fg:K.brand}].map(t=>(
+                <div key={t.l} style={{...cardS,borderRadius:16,display:"flex",alignItems:"center",gap:14,padding:"14px 16px"}}>
+                  {tileIcon(t.i,t.bg,t.fg,52)}
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:22,fontWeight:700,color:K.hdrTitle,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{t.n}</div>
+                    <div style={{fontSize:13.5,color:K.textBody,marginTop:2}}>{t.l}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {safeEvs.length===0&&<div style={{...cardS,textAlign:"center",padding:40,color:K.hdrMeta,fontSize:13}}>{T2("No events loaded")}</div>}
+            {todayEvs.map(ev=>renderCard(ev,T2("Today").toUpperCase()))}
             {tomorrowEvs.length>0&&(
-              <div style={{margin:"14px 0 8px",fontSize:11,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:0.8}}>🟡 {T2("Tomorrow")}</div>
+              <div style={{display:"flex",alignItems:"center",gap:10,margin:"8px 0 12px"}}>
+                <span style={{...eyebrow,color:K.warn}}>{T2("Tomorrow")}</span>
+                <span style={{flex:1,height:1,background:K.cardWarmLine}}/>
+              </div>
             )}
-            {tomorrowEvs.map(ev=>renderCard(ev,false))}
+            {tomorrowEvs.map(ev=>renderCard(ev,T2("Tomorrow").toUpperCase()))}
           </div>
         );
       })()}
