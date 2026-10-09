@@ -234,7 +234,9 @@ function findIngredientDuplicateClusters(ingredients) {
   });
   Object.keys(byHi).forEach(function(h) {
     if (byHi[h].length < 2) return;
-    clusters.push({ reason: 'Same Hindi (' + byHi[h][0].hindi + ')', confidence: 'high', items: byHi[h].slice() });
+    // Weak signal: different products often share a Hindi word (Amchur Powder /
+    // Amchur Sabut, Garlic / Garlic Paste), so these go to Review, not High.
+    clusters.push({ reason: 'Same Hindi (' + byHi[h][0].hindi + ')', confidence: 'medium', items: byHi[h].slice() });
     byHi[h].forEach(function(d) { assigned[d.name] = true; });
   });
 
@@ -275,6 +277,142 @@ function pickDefaultIngTarget(cluster) {
     return a.name.localeCompare(b.name);
   });
   return sorted[0].name;
+}
+
+// Unit picker — a themed pop-over in place of the browser's plain <select>.
+// The units this group actually uses come first ("In this group"), the full
+// list sits under them as a grid, so the likely choice is one tap away.
+const UNIT_LABELS = { gm:"grams", kg:"kilograms", L:"litres", ml:"millilitres", pcs:"pieces", tsp:"teaspoon", tbsp:"tablespoon", slice:"slice", Bot:"bottle", tin:"tin", bunch:"bunch", dozen:"dozen", Packets:"packets" };
+function UnitPicker({ value, onChange, suggested, options, disabled, T2 }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const sugg = Array.from(new Set((suggested || []).filter(Boolean)));
+  const rest = (options || []).filter(u => !sugg.includes(u));
+  const chip = (u, big) => {
+    const on = u === value;
+    return (
+      <button key={u} type="button" onClick={() => { onChange(u); setOpen(false); }} title={T2(UNIT_LABELS[u] || u)}
+        className={on ? undefined : "kh-calnav"}
+        style={{ padding: big ? "8px 12px" : "6px 0", borderRadius: 10, fontSize: big ? 13 : 12.5, fontWeight: on ? 700 : 600, cursor: "pointer", fontFamily: K.fontBody,
+          background: on ? K.brand : "#FFFFFF", color: on ? "#FFFFFF" : K.textBody, border: `1px solid ${on ? K.brand : K.cardWarmLine}`,
+          display: "flex", flexDirection: big ? "column" : "row", alignItems: big ? "flex-start" : "center", justifyContent: "center", gap: 1, minWidth: big ? 74 : 0 }}>
+        <span>{u}</span>
+        {big && <span style={{ fontSize: 10.5, fontWeight: 500, opacity: on ? .85 : .7 }}>{T2(UNIT_LABELS[u] || "")}</span>}
+      </button>
+    );
+  };
+  return (
+    <div ref={ref} style={{ position: "relative", fontFamily: K.fontBody }}>
+      <button type="button" disabled={disabled} onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: 999, minWidth: 92, justifyContent: "space-between",
+          border: `1px solid ${open ? K.brand : K.cardWarmLine}`, background: "#FFFFFF", color: K.hdrTitle, fontSize: 13, fontWeight: 700,
+          cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? .6 : 1 }}>
+        {value || "—"}<span style={{ color: K.textFaint, fontSize: 10, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>▾</span>
+      </button>
+      {open && (
+        <div role="listbox" style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 60, width: 276, padding: 12, borderRadius: 16,
+          background: K.cardWarm, border: `1px solid ${K.cardWarmLine}`, boxShadow: K.shadowLift }}>
+          {sugg.length > 0 && (<>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: K.hdrMeta, textTransform: "uppercase", letterSpacing: .5, marginBottom: 6 }}>{T2("In this group")}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{sugg.map(u => chip(u, true))}</div>
+          </>)}
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: K.hdrMeta, textTransform: "uppercase", letterSpacing: .5, marginBottom: 6 }}>{T2("All units")}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>{rest.map(u => chip(u, false))}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Day picker for the Day Sheet header — replaces the browser's native date
+// popup, which can't be styled and looked nothing like the rest of the app.
+// Dates are built from local year/month/day (not a UTC ISO string — that shifts the day in IST).
+// Days that have a function get a dot, so the next busy day is easy to find.
+function DayPicker({ value, onChange, markDates, T2 }) {
+  const pad = n => String(n).padStart(2, "0");
+  const ymd = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+  const [open, setOpen] = useState(false);
+  const base = value ? value.split("-").map(Number) : null;
+  const [vy, setVy] = useState(base ? base[0] : new Date().getFullYear());
+  const [vm, setVm] = useState(base ? base[1] - 1 : new Date().getMonth());
+  const wrapRef = React.useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    if (base) { setVy(base[0]); setVm(base[1] - 1); }
+    const onDoc = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DY = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+  const first = new Date(vy, vm, 1).getDay();
+  const dim = new Date(vy, vm + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < first; i++) cells.push(null);
+  for (let d = 1; d <= dim; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+  const step = dir => { let m = vm + dir, y = vy; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } setVm(m); setVy(y); };
+  const label = value ? (() => { const [y, m, d] = value.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); })() : T2("Pick a date");
+  const navBtn = { width: 30, height: 30, borderRadius: 999, border: `1px solid ${K.cardWarmLine}`, background: "#FFFFFF", color: K.textBody, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1, padding: 0 };
+  return (
+    <div ref={wrapRef} style={{ position: "relative", fontFamily: K.fontBody }}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="dialog" aria-expanded={open}
+        style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 14px", borderRadius: 999, border: `1px solid ${open ? K.brand : K.cardWarmLine}`, background: "#FFFFFF", color: K.hdrTitle, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+        <span style={{ fontSize: 14 }}>📅</span>{label}<span style={{ color: K.textFaint, fontSize: 10 }}>▾</span>
+      </button>
+      {open && (
+        <div role="dialog" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 950, width: 296, padding: 14, borderRadius: 18,
+          background: K.cardWarm, border: `1px solid ${K.cardWarmLine}`, boxShadow: K.shadowLift }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <button type="button" onClick={() => step(-1)} aria-label={T2("Previous month")} style={navBtn}>‹</button>
+            <div style={{ flex: 1, textAlign: "center", ...type.cardTitle, fontSize: 15, color: K.hdrTitle }}>{T2(MO[vm])} {vy}</div>
+            <button type="button" onClick={() => step(1)} aria-label={T2("Next month")} style={navBtn}>›</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 4 }}>
+            {DY.map(d => <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: K.hdrMeta, padding: "4px 0" }}>{T2(d)}</div>)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+            {cells.map((d, i) => {
+              if (d == null) return <div key={i} />;
+              const ds = ymd(vy, vm, d);
+              const isSel = ds === value, isToday = ds === TODAY, has = markDates && markDates.has(ds);
+              return (
+                <button key={i} type="button" onClick={() => { onChange(ds); setOpen(false); }}
+                  className={isSel ? undefined : "kh-calnav"}
+                  style={{ position: "relative", height: 36, borderRadius: 10, cursor: "pointer", fontSize: 13, fontVariantNumeric: "tabular-nums",
+                    fontWeight: isSel || isToday ? 700 : 500, padding: 0,
+                    background: isSel ? K.brand : isToday ? "#F6EFDD" : "transparent",
+                    color: isSel ? "#FFFFFF" : isToday ? K.gold : K.textBody,
+                    border: `1px solid ${isSel ? K.brand : isToday ? K.goldSoft : "transparent"}` }}>
+                  {d}
+                  {has && <span style={{ position: "absolute", left: "50%", bottom: 4, transform: "translateX(-50%)", width: 5, height: 5, borderRadius: "50%", background: isSel ? "#FFFFFF" : K.brand }} />}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${K.cardWarmLine}` }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: K.hdrMeta }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: K.brand }} />{T2("has functions")}
+            </span>
+            <div style={{ flex: 1 }} />
+            <button type="button" onClick={() => { onChange(TODAY); setOpen(false); }}
+              style={{ padding: "6px 14px", borderRadius: 999, border: "none", background: K.brand, color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{T2("Today")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StoreModule({events, lang="en", currentUser=null}) {
@@ -328,6 +466,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
   const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
   const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
+  const [ingDedupTab, setIngDedupTab] = useState(null);       // 'high' | 'medium' — null = first non-empty
+  const [ingDedupConfirm, setIngDedupConfirm] = useState(null); // idx whose merge is waiting for "Yes, merge"
   const [ingDedupHoverKey, setIngDedupHoverKey] = useState(null); // "idx::name" of the "N recipes" label currently hovered — shows which recipes use it
   const [newItem,  setNewItem]  =useState({name:"",barcode:"",brand:"",supplier:"",cat:"Dry Goods",unit:"pcs",inStock:0,minStock:10,perPax:0,location:"Store A"});
   const [addingItem, setAddingItem] = useState(false);
@@ -845,7 +985,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   /* ── Ingredient duplicate finder — "🔍 Find duplicates", same flow as
      Dish Library's: scan once on open, review clusters, pick a target per
      group, merge or skip. ── */
-  function openIngDedup() {
+  function openIngDedup() { setIngDedupConfirm(null); setIngDedupTab(null);
     // Fresh snapshot on every click — not the memoized allRecipeIngredients,
     // which only recomputes on this component's own merges and can miss a
     // recipe someone just fixed in the SOP editor.
@@ -1229,28 +1369,50 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
   return (
     <div>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div>
-          <div style={{fontSize:22,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",letterSpacing:.5}}>📦 {T2("Store & Inventory")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:3}}>
+      {/* Header — title, sync status, Add Item and the tabs in one warm card.
+          The title and "Synced" line used to sit on the page artwork. */}
+      <div style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowCard,marginBottom:16,fontFamily:K.fontBody}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap",padding:"14px 18px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+          <span style={{width:40,height:40,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>📦</span>
+          <div style={{minWidth:0}}>
+          <div style={{...type.cardTitle,fontSize:19,color:K.hdrTitle}}>{T2("Store & Inventory")}</div>
+          <div style={{fontSize:12,color:K.hdrMeta,marginTop:2}}>
             {loading ? "Loading from inventory system…" : items.length + " " + T2("items")}
             {lastSync && <span> · Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>}
-            {loadError && <span style={{color:C.amber}}> · {loadError}</span>}
+            {loadError && <span style={{color:K.warn,fontWeight:600}}> · {loadError}</span>}
+          </div>
           </div>
         </div>
-        <button onClick={()=>setShowAdd(s=>!s)}
+        <button onClick={()=>setShowAdd(s=>!s)} className="kh-hovercard"
           style={{padding:"10px 22px",borderRadius:999,fontFamily:K.fontBody,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
             background:showAdd?"#FFFFFF":K.brand,color:showAdd?K.textBody:"#FFFFFF",border:`1px solid ${showAdd?K.cardWarmLine:K.brand}`,boxShadow:K.shadowCard}}>{showAdd?"✕ "+T2("Cancel"):"+ "+T2("Add Item")}</button>
+      </div>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:8,padding:"10px 18px 14px",borderTop:`1px solid ${K.cardWarmLine}`,overflowX:"auto"}}>
+        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"orderlists",l:T2("🧺 Order Lists")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
+          <button key={t.v} onClick={()=>setTab(t.v)} className={tab===t.v?undefined:"kh-calnav"}
+            style={{padding:"8px 18px",borderRadius:999,fontFamily:K.fontBody,fontSize:13,fontWeight:tab===t.v?700:600,cursor:"pointer",whiteSpace:"nowrap",minHeight:38,
+              background:tab===t.v?K.brand:"#FFFFFF",color:tab===t.v?"#FFFFFF":K.textBody,border:`1px solid ${tab===t.v?K.brand:K.cardWarmLine}`,
+              boxShadow:tab===t.v?K.shadowCard:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
+        ))}
+      </div>
       </div>
 
       {/* Add form */}
       {showAdd&&(()=>{
         const lbl = {display:"block",fontFamily:K.fontBody,fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,marginBottom:6};
         const inp = {width:"100%",boxSizing:"border-box",padding:"10px 14px",borderRadius:12,border:`1px solid ${K.cardWarmLine}`,fontSize:13,fontFamily:K.fontBody,color:K.hdrTitle,background:"#FFFFFF",outline:"none"};
+        // A modal, not a block pushed in above the tabs.
+        const close = ()=>{ if(!addingItem) setShowAdd(false); };
         return(
-        <div style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,padding:"20px 22px",marginBottom:16,boxShadow:K.shadowCard}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <div onClick={close} role="presentation"
+          style={{position:"fixed",inset:0,zIndex:900,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
+          style={{position:"relative",width:"100%",maxWidth:760,maxHeight:"90vh",overflowY:"auto",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,padding:"20px 22px",boxShadow:K.shadowLift}}>
+          <button onClick={close} aria-label={T2("Close")}
+            style={{position:"absolute",top:16,right:16,width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,paddingRight:44}}>
             <span style={{width:40,height:40,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>📦</span>
             <div>
               <div style={{...type.cardTitle,fontSize:17,color:K.hdrTitle}}>{T2("Add New Inventory Item")}</div>
@@ -1273,6 +1435,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <div style={{gridColumn:"span 2"}}>
               <label style={lbl}>{T2("Category")}</label>
               <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))} style={inp}>
+                {newItem.cat&&!storeItemCategories.includes(newItem.cat)&&<option value={newItem.cat}>{newItem.cat}</option>}
                 {storeItemCategories.map(ct=><option key={ct}>{ct}</option>)}
               </select>
             </div>
@@ -1296,18 +1459,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
               style={{padding:"10px 24px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontFamily:K.fontBody,fontSize:13,fontWeight:700,cursor:addingItem?"not-allowed":"pointer",opacity:addingItem?0.6:1}}>{addingItem?T2("Adding..."):"✓ "+T2("Add to Inventory")}</button>}
           </div>
         </div>
+        </div>
         );
       })()}
-
-      {/* Tabs */}
-      <div style={{display:"flex",gap:8,marginBottom:16,paddingBottom:12,borderBottom:`1px solid ${K.cardWarmLine}`,overflowX:"auto"}}>
-        {[{v:"inventory",l:T2("📦 Inventory")},{v:"requirements",l:T2("🧮 Requirements")},{v:"orderlists",l:T2("🧺 Order Lists")},hasPerm(currentUser,"store.edit_stock")&&{v:"ingmap",l:T2("🔗 Ingredient Map")}].filter(Boolean).map(t=>(
-          <button key={t.v} onClick={()=>setTab(t.v)} className={tab===t.v?undefined:"kh-calnav"}
-            style={{padding:"10px 20px",borderRadius:999,fontFamily:K.fontBody,fontSize:13,fontWeight:tab===t.v?700:600,cursor:"pointer",whiteSpace:"nowrap",minHeight:40,
-              background:tab===t.v?K.brand:"#FFFFFF",color:tab===t.v?"#FFFFFF":K.textBody,border:`1px solid ${tab===t.v?K.brand:K.cardWarmLine}`,
-              boxShadow:tab===t.v?K.shadowCard:"none"}}>{lang==="hi"&&t.hi?t.hi:t.l}</button>
-        ))}
-      </div>
 
       {/* ── INVENTORY (live from Ops Supabase) ── */}
       {tab==="inventory"&&(
@@ -1330,74 +1484,68 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
           </div>
 
-          {/* Source toggle */}
-          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Type:</span>
-            {[
-              {k:"all",   l:"All",        v:items.length},
-              {k:"store", l:"Consumables", v:items.filter(i=>i.source==="store").length},
-              {k:"equipment", l:"Equipment", v:items.filter(i=>i.source==="equipment").length},
-            ].map(s=>(
-              <button key={s.k} onClick={()=>setSourceFil(f=>f===s.k?"all":s.k)}
-                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:sourceFil===s.k?600:400,cursor:"pointer",
-                  backgroundColor:"#FFFFFF",backgroundImage:sourceFil===s.k?`linear-gradient(${C.wine}15,${C.wine}15)`:"none",color:sourceFil===s.k?C.wine:K.textBody,
-                  border:sourceFil===s.k?`1.5px solid ${C.wine}`:`1px solid ${C.border}`,transition:"all .15s"}}>
-                {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Stock status pills */}
-          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Stock:</span>
-            {[
-              {k:"all",   l:T2("All"),          v:items.length, c:C.text},
-              {k:"instock",l:T2("In stock"),     v:items.filter(i=>i.available>0 && (i.reorderQty<=0 || i.available>i.reorderQty)).length, c:C.green},
-              {k:"low",   l:T2("Low"),           v:items.filter(i=>i.available>0 && i.reorderQty>0 && i.available<=i.reorderQty).length, c:C.amber},
-              {k:"out",   l:T2("Out"),           v:items.filter(i=>i.available<=0).length, c:C.red},
-            ].map(s=>(
-              <button key={s.k} onClick={()=>setStockFil(f=>f===s.k?"all":s.k)}
-                style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:stockFil===s.k?600:400,cursor:"pointer",
-                  backgroundColor:"#FFFFFF",backgroundImage:stockFil===s.k?`linear-gradient(${s.c}15,${s.c}15)`:"none",color:stockFil===s.k?s.c:K.textBody,
-                  border:stockFil===s.k?`1.5px solid ${s.c}`:`1px solid ${C.border}`,transition:"all .15s"}}>
-                {s.k!=="all"&&<span style={{width:7,height:7,borderRadius:"50%",background:s.c}}/>}
-                {s.l} <span style={{fontSize:10,opacity:.7}}>{s.v}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Category pills */}
-          <div style={{display:"flex",gap:5,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Category:</span>
-            <button onClick={()=>setCatFil("All")}
-              style={{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil==="All"?600:400,cursor:"pointer",
-                backgroundColor:"#FFFFFF",color:catFil==="All"?C.text:K.textBody,
-                border:catFil==="All"?`1.5px solid ${C.border}`:`1px solid ${C.borderLight}`}}>
-              All
-            </button>
-            {itemCategories.map(ct=>{
-              const code = items.find(i=>i.cat===ct)?.catCode||"";
-              const dot = catDotColor(code);
-              return (
-                <button key={ct} onClick={()=>setCatFil(f=>f===ct?"All":ct)}
-                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:catFil===ct?600:400,cursor:"pointer",
-                    backgroundColor:"#FFFFFF",backgroundImage:catFil===ct?`linear-gradient(${dot}15,${dot}15)`:"none",color:catFil===ct?dot:K.textBody,
-                    border:catFil===ct?`1.5px solid ${dot}`:`1px solid ${C.borderLight}`}}>
-                  <span style={{width:6,height:6,borderRadius:"50%",background:dot}}/>
-                  {ct}
+          {/* Filters — Type, Stock, Category and Venue in one bar: four
+              dropdowns (each option carries its count) instead of three rows
+              of pills, plus a Reset that only appears once something is set. */}
+          {(()=>{
+            const typeOpts = [
+              {k:"all",l:T2("All types"),n:items.length},
+              {k:"store",l:T2("Consumables"),n:items.filter(i=>i.source==="store").length},
+              {k:"equipment",l:T2("Equipment"),n:items.filter(i=>i.source==="equipment").length},
+            ];
+            const stockOpts = [
+              {k:"all",l:T2("All stock"),n:items.length},
+              {k:"instock",l:T2("In stock"),n:items.filter(i=>i.available>0 && (i.reorderQty<=0 || i.available>i.reorderQty)).length},
+              {k:"low",l:T2("Low"),n:items.filter(i=>i.available>0 && i.reorderQty>0 && i.available<=i.reorderQty).length},
+              {k:"out",l:T2("Out"),n:items.filter(i=>i.available<=0).length},
+            ];
+            const stockTone = {instock:K.ok,low:K.warn,out:K.danger};
+            const active = sourceFil!=="all"||stockFil!=="all"||catFil!=="All"||venueFil!=="All";
+            const sel = (on, accent) => ({appearance:"auto",padding:"8px 12px",borderRadius:999,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody,
+              border:`1px solid ${on?(accent||K.brand):K.cardWarmLine}`,background:on?K.brandSoft:"#FFFFFF",color:on?(accent||K.brandText):K.textBody,minWidth:0});
+            const lbl = {fontSize:11,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.5};
+            return(
+            <div style={{display:"flex",alignItems:"center",gap:"10px 14px",flexWrap:"wrap",padding:"10px 14px",marginBottom:14,borderRadius:16,
+              background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12.5,fontWeight:700,color:K.hdrTitle}}>⚙ {T2("Filters")}</span>
+              <label style={{display:"inline-flex",alignItems:"center",gap:7}}>
+                <span style={lbl}>{T2("Type")}</span>
+                <select value={sourceFil} onChange={e=>setSourceFil(e.target.value)} style={sel(sourceFil!=="all")}>
+                  {typeOpts.map(o=><option key={o.k} value={o.k}>{o.l} ({o.n})</option>)}
+                </select>
+              </label>
+              <label style={{display:"inline-flex",alignItems:"center",gap:7}}>
+                <span style={lbl}>{T2("Stock")}</span>
+                <select value={stockFil} onChange={e=>setStockFil(e.target.value)} style={sel(stockFil!=="all",stockTone[stockFil])}>
+                  {stockOpts.map(o=><option key={o.k} value={o.k}>{o.l} ({o.n})</option>)}
+                </select>
+              </label>
+              <label style={{display:"inline-flex",alignItems:"center",gap:7}}>
+                <span style={lbl}>{T2("Category")}</span>
+                <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={sel(catFil!=="All")}>
+                  <option value="All">{T2("All categories")} ({items.length})</option>
+                  {itemCategories.map(ct=><option key={ct} value={ct}>{ct} ({items.filter(i=>i.cat===ct).length})</option>)}
+                </select>
+              </label>
+              {itemVenues.length > 1 && (
+                <label style={{display:"inline-flex",alignItems:"center",gap:7}}>
+                  <span style={lbl}>{T2("Venue")}</span>
+                  <select value={venueFil} onChange={e=>setVenueFil(e.target.value)} style={sel(venueFil!=="All")}>
+                    <option value="All">{T2("All venues")}</option>
+                    {itemVenues.map(v=><option key={v} value={v}>{v}</option>)}
+                  </select>
+                </label>
+              )}
+              <div style={{flex:1}}/>
+              <span style={{fontSize:12.5,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}><b style={{color:K.hdrTitle}}>{filteredItems.length}</b> {T2("of")} {items.length} {T2("items")}</span>
+              {active&&(
+                <button onClick={()=>{setSourceFil("all");setStockFil("all");setCatFil("All");setVenueFil("All");}}
+                  style={{padding:"7px 14px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:K.fontBody}}>
+                  ↺ {T2("Reset")}
                 </button>
-              );
-            })}
-            {itemVenues.length > 1 && <>
-              <span style={{width:1,height:16,background:C.borderLight,margin:"0 4px"}}/>
-              <span style={{fontSize:11.5,fontWeight:600,color:K.hdrTitle,marginRight:2}}>Venue:</span>
-              <select value={venueFil} onChange={e=>setVenueFil(e.target.value)}
-                style={{padding:"4px 8px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,appearance:"auto"}}>
-                <option value="All">All</option>
-                {itemVenues.map(v=><option key={v} value={v}>{v}</option>)}
-              </select>
-            </>}
-          </div>
+              )}
+            </div>);
+          })()}
 
           {/* ── Table ── */}
           <div style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:18,overflow:"hidden",backgroundColor:K.cardWarm,boxShadow:K.shadowCard}}>
@@ -1609,59 +1757,75 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
         return(
           <div>
-            {/* Header + day picker */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,flexWrap:"wrap",gap:10}}>
-              <div>
-                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧮 {T2("Requirements — Day Sheet")}</div>
-                <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("One ordering sheet per day — every function on that day, combined.")}</div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:`1px solid ${C.border}`,background:C.bg}}>
-                  <button onClick={()=>setReqDay(TODAY)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TODAY?C.gold:"transparent",color:reqDay===TODAY?C.goldBg:C.muted}}>{T2("Today")} ({todayFnCount})</button>
-                  <button onClick={()=>setReqDay(TOMORROW)} style={{padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",border:"none",background:reqDay===TOMORROW?C.gold:"transparent",color:reqDay===TOMORROW?C.goldBg:C.muted}}>{T2("Tomorrow")} ({tmrwFnCount})</button>
+            {/* Header — one warm card: title and the day picker on top, the
+                day's functions under a hairline. The page artwork used to show
+                straight through the title and the summary pills. */}
+            <div style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowCard,marginBottom:14,position:"relative",zIndex:5,fontFamily:K.fontBody}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"16px 20px"}}>
+                <span style={{width:44,height:44,borderRadius:14,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:20,display:"flex",alignItems:"center",justifyContent:"center"}}>🧮</span>
+                <div style={{flex:"1 1 240px",minWidth:0}}>
+                  <div style={{...type.cardTitle,fontSize:18,color:K.hdrTitle}}>{T2("Requirements — Day Sheet")}</div>
+                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2}}>{T2("One ordering sheet per day — every function on that day, combined.")}</div>
                 </div>
-                <input type="date" value={reqDay} onChange={e=>e.target.value&&setReqDay(e.target.value)}
-                  style={{padding:"7px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",padding:3,borderRadius:999,background:"#F0EEE7",border:`1px solid ${K.cardWarmLine}`}}>
+                    {[{d:TODAY,l:T2("Today"),n:todayFnCount},{d:TOMORROW,l:T2("Tomorrow"),n:tmrwFnCount}].map(o=>{const on=reqDay===o.d;return(
+                      <button key={o.l} onClick={()=>setReqDay(o.d)}
+                        style={{padding:"7px 16px",borderRadius:999,fontSize:12.5,fontWeight:700,cursor:"pointer",border:"none",
+                          background:on?K.brand:"transparent",color:on?"#FFFFFF":K.textBody,boxShadow:on?K.shadowCard:"none"}}>
+                        {o.l} <span style={{opacity:.75,fontVariantNumeric:"tabular-nums"}}>({o.n})</span>
+                      </button>);})}
+                  </div>
+                  <DayPicker value={reqDay} onChange={setReqDay} markDates={new Set(safeEvs.map(e=>e.date))} T2={T2}/>
+                </div>
               </div>
+              {dayEvs.length>0 ? (
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"12px 20px",borderTop:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF80",borderRadius:"0 0 20px 20px"}}>
+                  <span style={{fontSize:11,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6}}>
+                    {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} {T2("combined")}
+                  </span>
+                  {dayEvs.map(ev=>(
+                    <span key={ev.id} style={{display:"inline-flex",alignItems:"center",gap:8,padding:"6px 12px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`}}>
+                      <span style={{fontSize:13,fontWeight:700,color:K.hdrTitle}}>{ev.guest}</span>
+                      <span style={{fontSize:12,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>{ev.pax} {T2("pax")} · {ev.time||"TBD"}</span>
+                    </span>
+                  ))}
+                  <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"baseline",gap:5}}>
+                    <span style={{fontSize:20,fontWeight:700,color:K.hdrTitle,fontVariantNumeric:"tabular-nums"}}>{dayEvs.reduce((s,e)=>s+(+e.pax||0),0)}</span>
+                    <span style={{fontSize:12,color:K.hdrMeta}}>{T2("pax total")}</span>
+                  </span>
+                </div>
+              ) : (
+                <div style={{padding:"28px 20px",borderTop:`1px solid ${K.cardWarmLine}`,textAlign:"center",color:K.hdrMeta,fontSize:13}}>
+                  {T2("No functions scheduled — nothing to prep or order yet.")}
+                </div>
+              )}
             </div>
 
-            {issueLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading issue state…")}</div>}
-
-            {/* Functions-combined strip */}
-            {dayEvs.length>0 ? (
-              <div style={{margin:"14px 0",padding:"12px 16px",borderRadius:14,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-                <div style={{fontSize:12,fontWeight:700,color:C.gold,background:C.goldBg,padding:"5px 12px",borderRadius:20}}>🔗 {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} {T2("combined")}</div>
-                {dayEvs.map(ev=>(
-                  <div key={ev.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:20,background:C.bg,border:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>{ev.guest}</span>
-                    <span style={{fontSize:11,color:C.faint}}>{ev.pax} {T2("pax")} · {ev.time||"TBD"}</span>
-                  </div>
-                ))}
-                <div style={{marginLeft:"auto",fontSize:11,color:C.muted}}>{dayEvs.reduce((s,e)=>s+(+e.pax||0),0)} {T2("pax total")}</div>
-              </div>
-            ) : (
-              <div style={{margin:"14px 0",padding:"36px 20px",borderRadius:14,background:C.surface,border:`1px dashed ${C.border}`,textAlign:"center",color:C.muted,fontSize:13}}>
-                {T2("No functions scheduled — nothing to prep or order yet.")}
-              </div>
-            )}
+            {issueLoading&&<div style={{textAlign:"center",padding:20,color:K.hdrMeta,fontSize:12}}>{T2("Loading issue state…")}</div>}
 
             {dayEvs.length>0 && rows.length===0 && (
-              <div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
+              <div style={{textAlign:"center",padding:40,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:16,color:K.hdrMeta,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
             )}
 
             {dayEvs.length>0 && rows.length>0 && (
               <>
-                {/* Summary chips */}
-                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.goldBg,color:C.gold}}>{rows.length} {T2("ingredient lines")}</div>
-                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.redBg,color:C.red}}>⚠ {shortCount} {T2("short of stock")}</div>
-                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.greenBg,color:C.green}}>{issuedCount} {T2("issued")}</div>
-                  <div style={{fontSize:11,fontWeight:700,padding:"6px 12px",borderRadius:20,background:C.purpleBg,color:C.purple}}>{orderedRowCount} {T2("on order lists")}</div>
+                {/* Summary — plain counts, not cards: nothing here is clickable, so
+                    nothing here should look like a button. A zero goes grey. */}
+                <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center",fontFamily:K.fontBody}}>
+                  {[{n:rows.length,l:T2("ingredient lines"),fg:K.brandText,bg:K.brandBg},
+                    {n:shortCount,l:T2("short of stock"),fg:K.danger,bg:K.dangerBg},
+                    {n:issuedCount,l:T2("issued"),fg:K.ok,bg:K.okBg},
+                    {n:orderedRowCount,l:T2("on order lists"),fg:K.warn,bg:K.warnBg}].map((t,ti)=>(
+                    <span key={t.l} style={{display:"inline-flex",alignItems:"baseline",gap:6,padding:"7px 14px",borderRadius:10,background:t.n>0?t.bg:"#F0EEE7"}}>
+                                            <span style={{fontSize:18,fontWeight:700,color:t.n>0?t.fg:K.textMuted,fontVariantNumeric:"tabular-nums"}}>{t.n}</span>
+                      <span style={{fontSize:12.5,fontWeight:600,color:t.n>0?t.fg:K.textMuted}}>{t.l}</span>
+                    </span>))}
+                  <div style={{flex:1}}/>
                   <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
-                    style={{fontSize:12,fontWeight:700,color:C.text,background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer"}}>
+                    style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13,fontWeight:600,color:K.textBody,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,borderRadius:999,padding:"10px 18px",cursor:"pointer",boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
                     🔍 {T2("Find duplicates")}
                   </button>
-                  <button onClick={()=>setTab("orderlists")} style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:C.gold,background:"transparent",border:"none",cursor:"pointer"}}>{T2("View Order Lists")} →</button>
                 </div>
 
                 {/* Merge selection bar — same flow as Ingredient Map: tick 2+ rows' checkboxes to
@@ -1689,7 +1853,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   {stations.map(st=>{
                     const n = rows.filter(r=>r.byCat[st.name]).length;
                     return(
-                      <button key={st.id} onClick={()=>setReqStation(st.id)}
+                      <button key={st.id} onClick={()=>setReqStation(st.id)} className="kh-hovercard"
                         style={{display:"flex",alignItems:"center",gap:12,padding:"13px 15px",borderRadius:16,cursor:"pointer",textAlign:"left",
                           background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
                         <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.sageBg,border:`1px solid ${K.sageBorder}`,
@@ -1702,25 +1866,57 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </button>
                     );
                   })}
+                  {/* The full combined ingredient table (Total / Stock / issue /
+                      order list / merge) as one more card in the same grid —
+                      closed by default, opens the table below. */}
+                  <button onClick={()=>setReqShowAll(v=>!v)} aria-expanded={reqShowAll} className="kh-hovercard"
+                    style={{display:"flex",alignItems:"center",gap:12,padding:"13px 15px",borderRadius:16,cursor:"pointer",textAlign:"left",
+                      background:reqShowAll?K.brandSoft:K.cardWarm,border:`1px solid ${reqShowAll?K.brand:K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,
+                      fontSize:18,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>📋</span>
+                    <span style={{flex:1,minWidth:0}}>
+                      <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.hdrTitle,lineHeight:1.25}}>{T2("All ingredients")}</span>
+                      <span style={{display:"block",fontSize:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{rows.length} {T2("ingredients")} · {reqShowAll?T2("tap to hide"):T2("tap to view")}</span>
+                    </span>
+                    <span style={{color:K.textFaint,fontSize:16,flexShrink:0,display:"inline-block",transition:"transform .15s",transform:reqShowAll?"rotate(90deg)":"none"}}>›</span>
+                  </button>
                 </div>
 
-                {/* The stations are the main view; the full combined ingredient
-                    table (Total / Stock / issue / order list / merge) is one
-                    click away instead of sitting under the cards. */}
-                <button onClick={()=>setReqShowAll(v=>!v)} aria-expanded={reqShowAll}
-                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"12px 18px",borderRadius:16,cursor:"pointer",textAlign:"left",
-                    background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody,
-                    fontSize:13.5,fontWeight:700,color:K.hdrTitle,marginBottom:reqShowAll?14:0}}>
-                  <span style={{display:"inline-block",transition:"transform .15s",transform:reqShowAll?"rotate(90deg)":"none",color:K.textFaint}}>›</span>
-                  {reqShowAll?T2("Hide all ingredients"):T2("Show all ingredients")}
-                  <span style={{fontWeight:600,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>({rows.length})</span>
-                </button>
-
+                {/* All ingredients — the full combined table, opened from its card
+                    in a modal like the station lists. z-index sits under the
+                    store's own pop-ups (link to store, merge: 999/1000) so those
+                    still open on top of it. */}
                 {reqShowAll && (
-                <div style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:18,overflow:"hidden",background:K.cardWarm,boxShadow:K.shadowCard}}>
+                <div onClick={()=>setReqShowAll(false)} role="presentation"
+                  style={{position:"fixed",inset:0,zIndex:900,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
+                  style={{position:"relative",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,boxShadow:K.shadowLift,
+                    width:"100%",maxWidth:1200,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:K.fontBody}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,padding:"16px 22px",borderBottom:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                    <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:19,
+                      display:"flex",alignItems:"center",justifyContent:"center"}}>📋</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{T2("All ingredients")}</div>
+                      <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{rows.length} {T2("ingredients")} · {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} · {reqDay}</div>
+                    </div>
+                    {Object.keys(ingSelected).length>0&&(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:12.5,fontWeight:600,color:K.hdrMeta}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                        <button onClick={()=>setIngSelected({})} style={{padding:"7px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Clear")}</button>
+                        <button disabled={Object.keys(ingSelected).length<2}
+                          onClick={()=>{const names=Object.keys(ingSelected);const first=allRecipeIngredients.find(i=>i.name===names[0]);setIngMergeModal({sources:names,target:names[0],unit:first?.unit||""});}}
+                          style={{padding:"7px 16px",borderRadius:999,border:"none",fontSize:12.5,fontWeight:700,
+                            background:Object.keys(ingSelected).length<2?K.cardWarmLine:K.brand,color:Object.keys(ingSelected).length<2?K.textFaint:"#FFFFFF",
+                            cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer"}}>🔗 {T2("Merge into one")}</button>
+                      </div>
+                    )}
+                    <button onClick={()=>setReqShowAll(false)} aria-label={T2("Close")}
+                      style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                  </div>
+                <div style={{flex:1,minHeight:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   {/* Scrolls inside the card so the column heads stay in view
                       over a few hundred ingredient rows. */}
-                  <div style={{overflow:"auto",maxHeight:"72vh"}}>
+                  <div style={{overflow:"auto",flex:1,minHeight:0}}>
                     <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,width:"100%",fontFamily:K.fontBody}}>
                       <thead>
                         <tr>
@@ -1795,6 +1991,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </tbody>
                     </table>
                   </div>
+                </div>
+                </div>
                 </div>
                 )}
 
@@ -1918,51 +2116,97 @@ function StoreModule({events, lang="en", currentUser=null}) {
         // card per Ops category (9+) sitting empty is more clutter than help.
         const visibleGroups = buildOrderListGroups();
         return(
-          <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10,marginBottom:4}}>
-              <div>
-                <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>🧺 {T2("Order Lists")}</div>
-                <div style={{fontSize:12,color:C.muted,marginTop:4}}>{T2("Items sent here from the Requirements sheet — grouped by the same inventory category as Store & Inventory.")}</div>
-              </div>
-              {visibleGroups.length>0&&(
-                <button onClick={()=>setPrintReq({mode:"all"})} style={{padding:"8px 16px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-                  🖨 {T2("Print all")} ({visibleGroups.length} {T2("pages")})
-                </button>
-              )}
-            </div>
+          <div style={{fontFamily:K.fontBody}}>
+            {/* Header — one warm card, same anatomy as the Day Sheet header.
+                The title used to sit straight on the page artwork. */}
+            {(()=>{
+              const totalItems = visibleGroups.reduce((n,g)=>n+g.list.length,0);
+              const orderedItems = visibleGroups.reduce((n,g)=>n+g.list.filter(i=>i.ordered).length,0);
+              // Nothing on order: the empty-state card below already says what this tab is.
+              if(visibleGroups.length===0) return null;
+              return(
+              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:"10px 16px",marginBottom:12,borderRadius:16,
+                background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                <span style={{width:34,height:34,borderRadius:11,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🧺</span>
+                <div style={{flex:"1 1 200px",minWidth:0}}>
+                  <div style={{...type.cardTitle,fontSize:15.5,color:K.hdrTitle}}>{T2("Order Lists")}</div>
+                  <div style={{fontSize:12,color:K.hdrMeta,marginTop:1}}>{T2("Grouped by inventory category")}</div>
+                </div>
+                {visibleGroups.length>0&&(
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {[{n:visibleGroups.length,l:T2("lists"),fg:K.brandText,bg:K.brandBg},
+                      {n:totalItems,l:T2("items"),fg:K.warn,bg:K.warnBg},
+                      {n:orderedItems,l:T2("ordered"),fg:K.ok,bg:K.okBg}].map(t=>(
+                      <span key={t.l} style={{display:"inline-flex",alignItems:"baseline",gap:6,padding:"7px 14px",borderRadius:10,background:t.n>0?t.bg:"#F0EEE7"}}>
+                        <span style={{fontSize:18,fontWeight:700,color:t.n>0?t.fg:K.textMuted,fontVariantNumeric:"tabular-nums"}}>{t.n}</span>
+                        <span style={{fontSize:12.5,fontWeight:600,color:t.n>0?t.fg:K.textMuted}}>{t.l}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {visibleGroups.length>0&&(
+                  <button onClick={()=>setPrintReq({mode:"all"})} className="kh-hovercard"
+                    style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 18px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:K.shadowCard}}>
+                    🖨 {T2("Print all")} <span style={{opacity:.75}}>({visibleGroups.length} {T2("pages")})</span>
+                  </button>
+                )}
+              </div>);
+            })()}
 
-            {orderListLoading&&<div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>{T2("Loading…")}</div>}
+            {orderListLoading&&<div style={{textAlign:"center",padding:20,color:K.hdrMeta,fontSize:12.5}}>{T2("Loading…")}</div>}
 
             {!orderListLoading&&visibleGroups.length===0&&(
-              <div style={{textAlign:"center",padding:40,background:C.bg,borderRadius:12,color:C.muted,fontSize:13}}>
-                {T2("Nothing added to an order list yet — use + in Requirements to send an item here.")}
+              <div style={{textAlign:"center",padding:"36px 20px",borderRadius:20,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                <div style={{width:56,height:56,borderRadius:18,margin:"0 auto 12px",background:K.sageBg,border:`1px solid ${K.sageBorder}`,fontSize:26,display:"flex",alignItems:"center",justifyContent:"center"}}>🧺</div>
+                <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle}}>{T2("No order lists yet")}</div>
+                <div style={{fontSize:13,color:K.hdrMeta,marginTop:4,maxWidth:420,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>
+                  {T2("Use + on an ingredient in the Requirements Day Sheet to send it here. Items are grouped by inventory category, ready to print for each vendor.")}
+                </div>
+                <button onClick={()=>setTab("requirements")} className="kh-hovercard"
+                  style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard}}>
+                  🧮 {T2("Go to Requirements")} →
+                </button>
               </div>
             )}
 
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,alignItems:"start",marginTop:16}}>
-              {visibleGroups.map(({meta,list})=>(
-                  <Card key={meta.key} style={{padding:0,overflow:"hidden"}}>
-                    <div style={{padding:"14px 16px",background:meta.bg,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,color:meta.color}}>
-                        <span>{meta.icon}</span><span>{meta.label}</span>
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:12,background:C.surface,color:meta.color}}>{list.length} {T2("items")}</span>
-                        <button onClick={()=>setPrintReq({mode:"one",key:meta.key})} title={T2("Print this category's order list")}
-                          style={{width:26,height:26,borderRadius:7,cursor:"pointer",background:C.surface,color:meta.color,border:`1.5px solid ${meta.color}55`,fontSize:12,lineHeight:1}}>🖨</button>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14,alignItems:"start"}}>
+              {visibleGroups.map(({meta,list})=>{
+                const done = list.filter(i=>i.ordered).length;
+                const pct = list.length>0 ? Math.round(done/list.length*100) : 0;
+                return(
+                <div key={meta.key} style={{borderRadius:18,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                  <div style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:meta.bg,border:`1px solid ${meta.color}33`,fontSize:19,display:"flex",alignItems:"center",justifyContent:"center"}}>{meta.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14.5,fontWeight:700,color:K.hdrTitle}}>{meta.label}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5}}>
+                        <div style={{flex:1,height:5,borderRadius:99,background:K.lineSoft,overflow:"hidden"}}>
+                          <div style={{width:pct+"%",height:"100%",borderRadius:99,background:meta.color,transition:"width .3s"}}/>
+                        </div>
+                        <span style={{fontSize:11.5,fontWeight:700,color:K.hdrMeta,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{done}/{list.length} {T2("ordered")}</span>
                       </div>
                     </div>
-                    {list.map(item=>(
-                      <div key={item.order_date+item.ingredient_name} style={{padding:"12px 16px",borderTop:`1px solid ${C.borderLight}`,display:"flex",alignItems:"flex-start",gap:10}}>
-                        <button onClick={()=>toggleOrdered(item)} aria-label={T2("Mark ordered")} style={{width:20,height:20,flexShrink:0,marginTop:1,borderRadius:6,border:`1.5px solid ${item.ordered?meta.color:C.border}`,background:item.ordered?meta.color:"transparent",color:"#fff",fontSize:12,lineHeight:"17px",textAlign:"center",cursor:"pointer",padding:0}}>{item.ordered?"✓":""}</button>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:600,color:item.ordered?C.faint:C.text,textDecoration:item.ordered?"line-through":"none"}}>{item.ingredient_name} · {fmtIssueQty(item.qty,item.unit)}</div>
-                          <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("for")} {item.source||"—"} · {item.order_date}</div>
-                        </div>
+                    <button onClick={()=>setPrintReq({mode:"one",key:meta.key})} title={T2("Print this category's order list")} className="kh-calnav"
+                      style={{width:34,height:34,borderRadius:999,flexShrink:0,cursor:"pointer",background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,fontSize:14,lineHeight:1}}>🖨</button>
+                  </div>
+                  {list.map((item,ii)=>(
+                    <div key={item.order_date+item.ingredient_name} onClick={()=>toggleOrdered(item)} role="checkbox" aria-checked={!!item.ordered} tabIndex={0}
+                      onKeyDown={e=>{if(e.key===" "||e.key==="Enter"){e.preventDefault();toggleOrdered(item);}}}
+                      className="kh-secrow"
+                      style={{padding:"11px 16px",borderTop:ii>0?`1px solid ${K.lineSoft}`:"none",display:"flex",alignItems:"center",gap:12,cursor:"pointer",
+                        background:item.ordered?K.okBg+"80":"transparent"}}>
+                      <span style={{width:22,height:22,flexShrink:0,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",
+                        border:`1.5px solid ${item.ordered?K.ok:K.lineStrong||K.cardWarmLine}`,background:item.ordered?K.ok:"#FFFFFF",color:"#FFFFFF",fontSize:12,fontWeight:700}}>{item.ordered?"✓":""}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13.5,fontWeight:600,color:item.ordered?K.textFaint:K.hdrTitle,textDecoration:item.ordered?"line-through":"none"}}>{item.ingredient_name}</div>
+                        <div style={{fontSize:11.5,color:K.hdrMeta,marginTop:2}}>{T2("for")} {item.source||"—"} · {item.order_date}</div>
                       </div>
-                    ))}
-                  </Card>
-              ))}
+                      <span style={{flexShrink:0,padding:"4px 10px",borderRadius:999,fontSize:12.5,fontWeight:700,fontVariantNumeric:"tabular-nums",
+                        background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:item.ordered?K.textFaint:K.hdrTitle}}>{fmtIssueQty(item.qty,item.unit)}</span>
+                    </div>
+                  ))}
+                </div>);
+              })}
             </div>
           </div>
         );
@@ -1988,57 +2232,66 @@ function StoreModule({events, lang="en", currentUser=null}) {
         }
 
         return (
-          <div>
-            {/* Header */}
-            <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"var(--font-display)",marginBottom:4}}>🔗 {T2("Ingredient Map")}</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>{T2("Link recipe ingredients to store inventory items for stock tracking")}</div>
+          <div style={{fontFamily:K.fontBody}}>
+            {/* Header — title and progress in one warm card (the title used to
+                sit on the page artwork, the progress in a second box). */}
+            {(()=>{
+              const pct = total>0 ? Math.round(mappedCount/total*100) : 0;
+              const allDone = total>0 && mappedCount===total;
+              return(
+              <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",padding:"12px 18px",marginBottom:12,borderRadius:16,
+                background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+                <span style={{width:36,height:36,borderRadius:11,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>🔗</span>
+                <div style={{flex:"0 1 auto",minWidth:0}}>
+                  <div style={{...type.cardTitle,fontSize:15.5,color:K.hdrTitle}}>{T2("Ingredient Map")}</div>
+                  <div style={{fontSize:12,color:K.hdrMeta,marginTop:1}}>{T2("Link recipe ingredients to store items for stock tracking")}</div>
+                </div>
+                <div style={{flex:"1 1 260px",display:"flex",alignItems:"center",gap:12,minWidth:220}}>
+                  <div style={{flex:1,height:8,borderRadius:99,background:K.lineSoft,overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:99,width:pct+"%",background:allDone?K.ok:K.brand,transition:"width .3s"}}/>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{mappedCount} / {total} <span style={{fontWeight:500,color:K.hdrMeta}}>{T2("linked")}</span></span>
+                  <span style={{padding:"4px 10px",borderRadius:999,fontSize:12,fontWeight:700,whiteSpace:"nowrap",
+                    background:allDone?K.okBg:K.warnBg,color:allDone?K.ok:K.warn}}>{allDone?"✓ "+T2("All linked"):unmappedCount+" "+T2("remaining")}</span>
+                </div>
+              </div>);
+            })()}
 
-            {/* Progress bar */}
-            <div style={{background:C.bg,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`,marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <span style={{fontSize:13,fontWeight:600,color:C.text}}>{mappedCount} / {total} {T2("linked")}</span>
-                <span style={{fontSize:12,color:unmappedCount>0?C.amber:C.green,fontWeight:600}}>{unmappedCount>0?unmappedCount+" "+T2("remaining"):"✓ "+T2("All linked")}</span>
+            {/* Toolbar — filter, search, duplicates, merge selection */}
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",marginBottom:12,borderRadius:16,
+              background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+              <div style={{display:"flex",padding:3,borderRadius:999,background:"#F0EEE7",border:`1px solid ${K.cardWarmLine}`}}>
+                {[{v:"all",l:T2("All"),n:total},{v:"unmapped",l:T2("Unmapped"),n:unmappedCount},{v:"mapped",l:T2("Mapped"),n:mappedCount}].map(f=>{const on=mapTabFilter===f.v;return(
+                  <button key={f.v} onClick={()=>{setMapTabFilter(f.v);setMapTabPage(0);}}
+                    style={{padding:"6px 14px",borderRadius:999,fontSize:12.5,fontWeight:700,cursor:"pointer",border:"none",
+                      background:on?K.brand:"transparent",color:on?"#FFFFFF":K.textBody}}>
+                    {f.l} <span style={{opacity:.75,fontVariantNumeric:"tabular-nums"}}>{f.n}</span>
+                  </button>);})}
               </div>
-              <div style={{height:6,borderRadius:3,background:C.borderLight,overflow:"hidden"}}>
-                <div style={{height:6,borderRadius:3,background:total>0&&mappedCount===total?C.green:C.gold,width:(total>0?Math.round(mappedCount/total*100):0)+"%",transition:"width .3s"}}/>
-              </div>
-            </div>
-
-            {/* Filter pills + search */}
-            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-              {[{v:"all",l:T2("All")+" ("+total+")"},{v:"unmapped",l:"⚠ "+T2("Unmapped")+" ("+unmappedCount+")"},{v:"mapped",l:"✓ "+T2("Mapped")+" ("+mappedCount+")"}].map(f=>(
-                <button key={f.v} onClick={()=>{setMapTabFilter(f.v);setMapTabPage(0);}} style={{padding:"7px 14px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",minHeight:32,
-                  background:mapTabFilter===f.v?C.gold:C.bg,color:mapTabFilter===f.v?C.goldBg:C.muted,border:`1px solid ${mapTabFilter===f.v?C.gold:C.border}`}}>{f.l}</button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
-              <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={T2("Search ingredients...")}
-                style={{flex:1,padding:"10px 14px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.bg,boxSizing:"border-box"}}/>
+              <input value={mapTabSearch} onChange={e=>{setMapTabSearch(e.target.value);setMapTabPage(0);}} placeholder={"🔍 "+T2("Search ingredients...")}
+                style={{flex:"1 1 220px",minWidth:0,padding:"9px 14px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,fontSize:13,color:K.hdrTitle,background:"#FFFFFF",boxSizing:"border-box",fontFamily:K.fontBody,outline:"none"}}/>
+              {Object.keys(ingSelected).length>0&&(
+                <>
+                  <span style={{fontSize:12.5,fontWeight:600,color:K.hdrMeta}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                  <button onClick={()=>setIngSelected({})} style={{padding:"8px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Clear")}</button>
+                  <button disabled={Object.keys(ingSelected).length<2}
+                    onClick={()=>{
+                      const names = Object.keys(ingSelected);
+                      const first = allRecipeIngredients.find(i=>i.name===names[0]);
+                      setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
+                    }}
+                    style={{padding:"8px 16px",borderRadius:999,border:"none",fontSize:12.5,fontWeight:700,
+                      background:Object.keys(ingSelected).length<2?K.cardWarmLine:K.brand,color:Object.keys(ingSelected).length<2?K.textFaint:"#FFFFFF",
+                      cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer"}}>🔗 {T2("Merge into one")}</button>
+                </>
+              )}
               <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
-                style={{padding:"10px 14px",borderRadius:10,background:C.surface,color:C.text,border:`1px solid ${C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                style={{padding:"9px 16px",borderRadius:999,background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`,fontSize:12.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
                 🔍 {T2("Find duplicates")}
               </button>
             </div>
 
-            {/* Merge selection bar — pick 2+ cards' checkboxes to merge duplicate/similar ingredient names into one, same idea as the dish-merge feature */}
-            {Object.keys(ingSelected).length>0&&(
-              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:C.goldBg,border:`1px solid ${C.gold}`,marginBottom:12,flexWrap:"wrap"}}>
-                <span style={{fontSize:12,fontWeight:600,color:"#854F0B"}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
-                <div style={{flex:1}}/>
-                <button onClick={()=>setIngSelected({})} style={{fontSize:11,padding:"6px 12px",borderRadius:8,background:"transparent",color:"#854F0B",border:`1px solid ${C.gold}`,cursor:"pointer",fontWeight:600}}>{T2("Clear")}</button>
-                <button disabled={Object.keys(ingSelected).length<2}
-                  onClick={()=>{
-                    const names = Object.keys(ingSelected);
-                    const first = allRecipeIngredients.find(i=>i.name===names[0]);
-                    setIngMergeModal({ sources: names, target: names[0], unit: first?.unit||"" });
-                  }}
-                  style={{fontSize:11,padding:"6px 14px",borderRadius:8,background:Object.keys(ingSelected).length<2?C.border:C.gold,color:Object.keys(ingSelected).length<2?C.muted:C.goldBg,border:"none",cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer",fontWeight:700}}>
-                  🔗 {T2("Merge into one")}
-                </button>
-              </div>
-            )}
-
-            {/* Auto-link all suggestions button */}
+            {/* Auto-link all suggestions */}
             {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
               const suggestions = allRecipeIngredients.filter(i=>!i.hasInv && !ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
               if(suggestions.length===0) return null;
@@ -2048,121 +2301,133 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     var autoC = calcAutoConversion(s.ing.unit, s.match.item.unit);
                     await saveIngredientMapping(s.ing.name, s.ing.hindi, s.match.item, autoC !== null ? autoC : 1);
                   }
-                }} style={{width:"100%",padding:"12px",borderRadius:10,background:C.gold,color:C.goldBg,border:"none",fontSize:12,fontWeight:700,cursor:"pointer",marginBottom:14,minHeight:40}}>
+                }} className="kh-hovercard"
+                  style={{width:"100%",padding:"12px",borderRadius:14,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12,boxShadow:K.shadowCard}}>
                   ✨ {T2("Auto-link")} {suggestions.length} {T2("suggested matches")}
                 </button>
               );
             })()}
 
-            
+            {filtered.length===0&&(
+              <div style={{textAlign:"center",padding:28,borderRadius:16,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,color:K.hdrMeta,fontSize:13}}>{T2("No ingredients match your filter.")}</div>
+            )}
 
-            {/* Ingredient list */}
-            {filtered.length===0&&<div style={{textAlign:"center",padding:28,background:C.bg,borderRadius:12,color:C.muted,fontSize:12}}>{T2("No ingredients match your filter.")}</div>}
-
-            {/* Pagination info */}
-            {filtered.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <span style={{fontSize:11,color:C.muted}}>{T2("Showing")} {mapTabPage*30+1}–{Math.min((mapTabPage+1)*30,filtered.length)} {T2("of")} {filtered.length}</span>
-              <div style={{display:"flex",gap:6}}>
-                {mapTabPage>0&&<button onClick={()=>setMapTabPage(p=>p-1)} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.bg,color:C.text,border:`1px solid ${C.border}`}}>← {T2("Prev")}</button>}
-                {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>setMapTabPage(p=>p+1)} style={{padding:"5px 12px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",background:C.gold,color:C.goldBg,border:"none"}}>→ {T2("Next")}</button>}
-              </div>
-            </div>}
-
-            {filtered.slice(mapTabPage*30,(mapTabPage+1)*30).map(ing=>{
-              const mapping = ingredientMap[ing.name];
-              const isMapped = !!mapping;
-              const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
-
-              return(
-                <Card key={ing.name} style={{marginBottom:8,padding:"12px 16px",border:isMapped?`1px solid ${C.greenBorder}`:`1px solid ${C.border}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ing.name}</div>
-                      {ing.hindi&&<div style={{fontSize:11,color:C.muted}}>{ing.hindi}</div>}
-                      <div style={{fontSize:10,color:C.faint,marginTop:2,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
-                        <span onClick={e=>{e.stopPropagation();setRecipesModalIng(ing);}}
-                          style={{cursor:"pointer",color:C.gold,textDecoration:"underline",fontWeight:600}}
-                          title={T2("Click to see which recipes use this ingredient")}>
-                          {T2("Used in")} {ing.dishes.length} {T2("recipes")}
-                        </span> · {T2("unit")}: {ing.unit}
-                        <button onClick={()=>setIngMergeModal({sources:[ing.name],target:ing.name,unit:ing.unit})}
-                          title={T2("Edit unit — updates every recipe using this ingredient")}
-                          style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"transparent",color:C.faint,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
-                      </div>
-
-                      {/* Mapped — show linked item */}
-                      {isMapped&&(
-                        <div style={{marginTop:8}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                            <div style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.greenBg,color:C.green,fontWeight:600}}>
-                              ✓ {mapping.ops_item_name} ({mapping.ops_item_unit})
-                            </div>
-                            <button onClick={()=>removeIngredientMapping(ing.name)}
-                              style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.redBg,color:C.red,border:"none",cursor:"pointer",fontWeight:600}}>✕</button>
-                          </div>
-                          {(mapping.unit_conversion||1)!==1&&(
-                            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
-                              <span style={{fontSize:10,color:C.muted}}>1 {mapping.ops_item_unit} = {Math.round(1/(mapping.unit_conversion||1)*10000)/10000} {ing.unit}</span>
-                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:String(Math.round(1/(mapping.unit_conversion||1)*10000)/10000),editMode:true})}
-                                style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:C.bg,color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer"}}>✏️</button>
-                            </div>
-                          )}
-                          {(mapping.unit_conversion||1)===1&&ing.unit!==(mapping.ops_item_unit||"").toLowerCase()&&(
-                            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
-                              <span style={{fontSize:10,color:C.amber}}>⚠ {T2("Units differ")} ({ing.unit} → {mapping.ops_item_unit})</span>
-                              <button onClick={()=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:"",editMode:true})}
-                                style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer"}}>{T2("Set conversion")}</button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Unmapped with suggestion */}
-                      {!isMapped&&suggestion&&(
-                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                          <span style={{fontSize:10,color:C.muted}}>💡 {T2("Suggested")}:</span>
-                          <button onClick={()=>handleStoreItemSelect(ing.name, ing.hindi, ing.unit, suggestion.item)}
-                            style={{fontSize:11,padding:"4px 10px",borderRadius:8,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
-                            {suggestion.item.name} ({suggestion.score}%)
-                          </button>
-                          <button onClick={()=>setMapModalIng({name:ing.name,hindi:ing.hindi,unit:ing.unit})}
-                            style={{fontSize:10,padding:"3px 8px",borderRadius:6,background:C.bg,color:C.muted,border:`1px solid ${C.border}`,cursor:"pointer"}}>{T2("Other")}</button>
-                        </div>
-                      )}
-
-                      {/* Unmapped, no suggestion */}
-                      {!isMapped&&!suggestion&&(
-                        <div style={{marginTop:8}}>
-                          <button onClick={()=>setMapModalIng({name:ing.name,hindi:ing.hindi,unit:ing.unit})}
-                            style={{fontSize:11,padding:"4px 12px",borderRadius:8,background:C.amberBg,color:"#854F0B",border:`1px solid ${C.amberBorder}`,cursor:"pointer",fontWeight:600}}>
-                            🔗 {T2("Link to store item")}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right side — merge checkbox + status indicator */}
-                    <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+            {/* The list — one card, compact rows (it used to be one tall card
+                per ingredient, four to a screen). */}
+            {filtered.length>0&&(
+              <div style={{borderRadius:18,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,overflow:"hidden"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 16px",background:"#F4F2EC",borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                  <span style={{fontSize:12,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>{T2("Showing")} <b style={{color:K.hdrTitle}}>{mapTabPage*30+1}–{Math.min((mapTabPage+1)*30,filtered.length)}</b> {T2("of")} {filtered.length}</span>
+                  <div style={{display:"flex",gap:6}}>
+                    {mapTabPage>0&&<button onClick={()=>setMapTabPage(p=>p-1)} style={{padding:"6px 14px",borderRadius:999,fontSize:12,fontWeight:600,cursor:"pointer",background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>‹ {T2("Prev")}</button>}
+                    {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>setMapTabPage(p=>p+1)} style={{padding:"6px 14px",borderRadius:999,fontSize:12,fontWeight:700,cursor:"pointer",background:K.brand,color:"#FFFFFF",border:"none"}}>{T2("Next")} ›</button>}
+                  </div>
+                </div>
+                {/* Column heads — recipe ingredient on the left, the store item it
+                    draws stock from on the right, so each row reads as A → B. */}
+                <div className="kh-ingmap-grid" style={{padding:"8px 16px",borderBottom:`1px solid ${K.cardWarmLine}`,fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.5}}>
+                  <span/>
+                  <span>{T2("Recipe ingredient")}</span>
+                  <span/>
+                  <span>{T2("Store item")}</span>
+                  <span style={{textAlign:"right"}}>{T2("Actions")}</span>
+                </div>
+                {filtered.slice(mapTabPage*30,(mapTabPage+1)*30).map((ing,ri)=>{
+                  const mapping = ingredientMap[ing.name];
+                  const isMapped = !!mapping;
+                  const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
+                  const conv = isMapped ? (mapping.unit_conversion||1) : 1;
+                  // Compare units case-insensitively: "Packets" vs "packets" is the
+                  // same unit and was being flagged as a mismatch.
+                  const unitsDiffer = isMapped && conv===1 && String(ing.unit||"").trim().toLowerCase()!==String(mapping.ops_item_unit||"").trim().toLowerCase();
+                  const openConv = (val)=>setConvModal({ingName:ing.name,ingHindi:ing.hindi||"",opsItem:{_opsId:mapping.ops_item_id,name:mapping.ops_item_name,unit:mapping.ops_item_unit},recipeUnit:ing.unit,storeUnit:mapping.ops_item_unit,convValue:val,editMode:true});
+                  const smallBtn = {fontSize:11,padding:"2px 9px",borderRadius:999,background:"#FFFFFF",color:K.textMuted,border:`1px solid ${K.cardWarmLine}`,cursor:"pointer",fontFamily:K.fontBody};
+                  return(
+                    <div key={ing.name} className="kh-secrow kh-ingmap-grid" style={{padding:"10px 16px",borderTop:ri>0?`1px solid ${K.lineSoft}`:"none"}}>
                       <input type="checkbox" checked={!!ingSelected[ing.name]}
                         onChange={()=>setIngSelected(p=>{const n={...p};if(n[ing.name])delete n[ing.name];else n[ing.name]=true;return n;})}
                         title={T2("Select to merge with other ingredients")}
-                        style={{width:16,height:16,cursor:"pointer",accentColor:C.gold}}/>
-                      <div style={{width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",
-                        background:isMapped?C.greenBg:C.amberBg}}>
-                        <span style={{fontSize:14}}>{isMapped?"✓":"⚠"}</span>
+                        style={{width:16,height:16,cursor:"pointer",accentColor:K.brand}}/>
+
+                      {/* Recipe ingredient */}
+                      <div style={{minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:13.5,fontWeight:700,color:K.hdrTitle}}>{ing.name}</span>
+                          {ing.hindi&&<span style={{fontSize:12,color:K.hdrMeta}}>{ing.hindi}</span>}
+                        </div>
+                        <div style={{fontSize:11.5,color:K.hdrMeta,marginTop:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span onClick={e=>{e.stopPropagation();setRecipesModalIng(ing);}}
+                            style={{cursor:"pointer",color:K.brandText,fontWeight:600,textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:2}}
+                            title={T2("Click to see which recipes use this ingredient")}>
+                            {ing.dishes.length} {ing.dishes.length===1?T2("recipe"):T2("recipes")}
+                          </span>
+                          <span>·</span>
+                          <span style={{padding:"1px 8px",borderRadius:999,background:"#F0EEE7",color:K.textBody,fontWeight:600}}>{ing.unit}</span>
+                          <button onClick={()=>setIngMergeModal({sources:[ing.name],target:ing.name,unit:ing.unit})}
+                            title={T2("Edit unit — updates every recipe using this ingredient")} style={smallBtn}>✎</button>
+                        </div>
+                      </div>
+
+                      <span style={{color:isMapped?K.ok:K.textFaint,fontSize:15,textAlign:"center"}}>→</span>
+
+                      {/* Store item */}
+                      <div style={{minWidth:0}}>
+                        {isMapped&&(<>
+                          <div style={{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:13,fontWeight:700,color:K.ok}}>✓ {mapping.ops_item_name}</span>
+                            <span style={{padding:"1px 8px",borderRadius:999,background:K.okBg,color:K.ok,fontSize:11.5,fontWeight:600}}>{mapping.ops_item_unit}</span>
+                          </div>
+                          {conv!==1&&(
+                            <div style={{fontSize:11.5,color:K.hdrMeta,marginTop:2,display:"flex",alignItems:"center",gap:6}}>
+                              1 {mapping.ops_item_unit} = {Math.round(1/conv*10000)/10000} {ing.unit}
+                              <button onClick={()=>openConv(String(Math.round(1/conv*10000)/10000))} title={T2("Edit conversion")} style={smallBtn}>✎</button>
+                            </div>
+                          )}
+                          {unitsDiffer&&(
+                            <div style={{fontSize:11.5,color:K.warn,marginTop:3,display:"flex",alignItems:"center",gap:6,fontWeight:600,flexWrap:"wrap"}}>
+                              ⚠ {ing.unit} → {mapping.ops_item_unit}
+                              <button onClick={()=>openConv("")}
+                                style={{fontSize:11,padding:"2px 10px",borderRadius:999,background:K.warnBg,color:K.warn,border:`1px solid ${K.warnBorder}`,cursor:"pointer",fontWeight:700}}>{T2("Set conversion")}</button>
+                            </div>
+                          )}
+                        </>)}
+                        {!isMapped&&suggestion&&(
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:11.5,color:K.hdrMeta}}>💡</span>
+                            <button onClick={()=>handleStoreItemSelect(ing.name, ing.hindi, ing.unit, suggestion.item)} title={T2("Link to this store item")}
+                              style={{fontSize:12,padding:"5px 12px",borderRadius:999,background:K.brandSoft,color:K.brandText,border:`1px solid ${K.brandBorder}`,cursor:"pointer",fontWeight:700}}>
+                              {suggestion.item.name} <span style={{opacity:.7,fontWeight:600}}>{suggestion.score}%</span>
+                            </button>
+                          </div>
+                        )}
+                        {!isMapped&&!suggestion&&<span style={{fontSize:12,color:K.textFaint,fontStyle:"italic"}}>{T2("Not linked")}</span>}
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{display:"flex",justifyContent:"flex-end",gap:6}}>
+                        {isMapped?(
+                          <button onClick={()=>removeIngredientMapping(ing.name)} title={T2("Unlink")}
+                            style={{padding:"5px 12px",borderRadius:999,background:"#FFFFFF",color:K.danger,border:`1px solid ${K.dangerBorder}`,cursor:"pointer",fontSize:12,fontWeight:600}}>{T2("Unlink")}</button>
+                        ):(
+                          <button onClick={()=>setMapModalIng({name:ing.name,hindi:ing.hindi,unit:ing.unit})}
+                            style={{padding:"5px 12px",borderRadius:999,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+                              background:suggestion?"#FFFFFF":K.brand,color:suggestion?K.textBody:"#FFFFFF",boxShadow:suggestion?`inset 0 0 0 1px ${K.cardWarmLine}`:"none"}}>
+                            {suggestion?T2("Other")+"…":"🔗 "+T2("Link")}
+                          </button>
+                        )}
                       </div>
                     </div>
+                  );
+                })}
+                {filtered.length>30&&(
+                  <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:8,padding:"12px 16px",borderTop:`1px solid ${K.cardWarmLine}`,background:"#F4F2EC"}}>
+                    {mapTabPage>0&&<button onClick={()=>{setMapTabPage(p=>p-1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"7px 16px",borderRadius:999,fontSize:12.5,fontWeight:600,cursor:"pointer",background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>‹ {T2("Previous")}</button>}
+                    <span style={{padding:"0 10px",fontSize:12.5,color:K.hdrMeta,fontVariantNumeric:"tabular-nums"}}>{T2("Page")} {mapTabPage+1} / {Math.ceil(filtered.length/30)}</span>
+                    {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>{setMapTabPage(p=>p+1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"7px 16px",borderRadius:999,fontSize:12.5,fontWeight:700,cursor:"pointer",background:K.brand,color:"#FFFFFF",border:"none"}}>{T2("Next")} ›</button>}
                   </div>
-                </Card>
-              );
-            })}
-
-            {/* Bottom pagination */}
-            {filtered.length>30&&<div style={{display:"flex",justifyContent:"center",gap:8,marginTop:14,paddingTop:14,borderTop:`1px solid ${C.borderLight}`}}>
-              {mapTabPage>0&&<button onClick={()=>{setMapTabPage(p=>p-1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",background:C.bg,color:C.text,border:`1px solid ${C.border}`}}>← {T2("Previous")}</button>}
-              <span style={{padding:"8px 14px",fontSize:12,color:C.muted}}>{T2("Page")} {mapTabPage+1} / {Math.ceil(filtered.length/30)}</span>
-              {(mapTabPage+1)*30<filtered.length&&<button onClick={()=>{setMapTabPage(p=>p+1);window.scrollTo({top:0,behavior:"smooth"});}} style={{padding:"8px 18px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",background:C.gold,color:C.goldBg,border:"none"}}>→ {T2("Next")}</button>}
-            </div>}
+                )}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -2304,6 +2569,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const saving = ingDedupSavingIdx===idx;
           const disabled = ingDedupSavingIdx!=null && !saving;
           const cantMerge = saving||disabled||!target||!unit;
+          // What the merge will actually do — every recipe using a non-target
+          // name is rewritten to the target, and that can't be undone.
+          const others = c.items.filter(d=>d.name!==target);
+          const rewritten = others.reduce((n,d)=>n+(d.dishes||[]).length,0);
+          const unitsDiffer = new Set(c.items.map(d=>(d.unit||'').trim().toLowerCase()).filter(Boolean)).size>1;
+          const asking = ingDedupConfirm===idx;
           return (
             <div key={idx} style={{border:`1px solid ${K.cardWarmLine}`,borderRadius:16,padding:"14px 16px",marginBottom:12,background:K.cardWarm,boxShadow:K.shadowCard}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
@@ -2313,6 +2584,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <span style={{marginLeft:"auto",fontSize:11.5,color:K.hdrMeta}}>{c.items.length} {T2("names")}</span>
               </div>
               <div style={{fontSize:11.5,color:K.hdrMeta,marginBottom:8}}>{T2("Pick the name to keep — the others are merged into it.")}</div>
+              {c.confidence!=='high'&&<div style={{fontSize:11.5,color:K.warn,background:K.warnBg,border:`1px solid ${K.warnBorder}`,borderRadius:10,padding:"6px 10px",marginBottom:8}}>⚠ {T2("These may be different items — merge only if they are truly the same thing.")}</div>}
+              {unitsDiffer&&<div style={{fontSize:11.5,color:K.warn,marginBottom:8,fontWeight:600}}>⚠ {T2("Units differ — check the unit below before merging.")}</div>}
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
                 {c.items.slice().sort((a,b)=>(b.dishes||[]).length-(a.dishes||[]).length).map(d=>{
                   const isT = d.name===target;
@@ -2350,19 +2623,23 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <span style={{fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("Unit")}</span>
-                <select value={unit} disabled={disabled||saving} onChange={e=>setIngDedupUnits(prev=>({...prev,[idx]:e.target.value}))}
-                  style={{width:90,padding:"6px 8px",borderRadius:10,border:`1px solid ${K.cardWarmLine}`,fontSize:12.5,color:K.hdrTitle,background:"#FFFFFF"}}>
-                  {!unitOptions.includes(unit)&&<option value={unit}>{unit||"—"}</option>}
-                  {unitOptions.map(u=><option key={u} value={u}>{u}</option>)}
-                </select>
+                <UnitPicker value={unit} disabled={disabled||saving} onChange={u=>setIngDedupUnits(prev=>({...prev,[idx]:u}))} suggested={clusterUnits} options={unitOptions} T2={T2}/>
                 <div style={{flex:1}}/>
-                <button onClick={()=>skipIngDedupCluster(idx)} disabled={saving||disabled}
-                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Skip")}</button>
-                <button onClick={()=>mergeIngDedupCluster(idx)} disabled={cantMerge}
+                {!asking&&<span style={{fontSize:11.5,color:K.hdrMeta}}>{rewritten} {T2("recipes will change")}</span>}
+                <button onClick={()=>{setIngDedupConfirm(null);skipIngDedupCluster(idx);}} disabled={saving||disabled}
+                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Not now")}</button>
+                {asking&&!saving&&<button onClick={()=>setIngDedupConfirm(null)}
+                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>}
+                <button onClick={()=>{ if(!asking){ setIngDedupConfirm(idx); return; } setIngDedupConfirm(null); mergeIngDedupCluster(idx); }} disabled={cantMerge}
                   style={{padding:"8px 18px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontSize:12.5,fontWeight:700,cursor:cantMerge?"not-allowed":"pointer",opacity:cantMerge?0.5:1}}>
-                  {saving?T2("Merging…"):T2('Merge into "')+target+'"'}
+                  {saving?T2("Merging…"):asking?("✓ "+T2("Yes, merge")+" "+others.length+" → \""+target+"\""):(T2('Merge into "')+target+'"')}
                 </button>
               </div>
+              {asking&&!saving&&(
+                <div style={{marginTop:10,padding:"9px 12px",borderRadius:10,background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,fontSize:12,color:K.danger,lineHeight:1.5}}>
+                  {others.map(d=>'"'+d.name+'"').join(", ")} → <b>"{target}"</b> {T2("in")} <b>{rewritten}</b> {T2("recipes, unit")} <b>{unit}</b>. {T2("This can't be undone.")}
+                </div>
+              )}
             </div>
           );
         }
@@ -2404,18 +2681,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:14,padding:"8px 18px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
                   </div>
                 )}
-                {!allDone&&highIdx.length>0&&(
-                  <div style={{marginBottom:14}}>
-                    {secHead(T2("High confidence"), highIdx.length, K.ok)}
-                    {highIdx.map(renderIngCard)}
-                  </div>
-                )}
-                {!allDone&&medIdx.length>0&&(
-                  <div>
-                    {secHead(T2("Medium confidence"), medIdx.length, K.warn)}
-                    {medIdx.map(renderIngCard)}
-                  </div>
-                )}
+                {!allDone&&(()=>{
+                  const tabNow = ingDedupTab==='medium'&&medIdx.length>0 ? 'medium' : ingDedupTab==='high'&&highIdx.length>0 ? 'high' : (highIdx.length>0?'high':'medium');
+                  const list = tabNow==='high'?highIdx:medIdx;
+                  return(<>
+                    <div style={{display:"flex",padding:3,borderRadius:999,background:"#F0EEE7",border:`1px solid ${K.cardWarmLine}`,marginBottom:12,width:"fit-content"}}>
+                      {[{k:'high',l:T2("Likely duplicates"),n:highIdx.length,c:K.ok},{k:'medium',l:T2("Review"),n:medIdx.length,c:K.warn}].map(t=>{const on=tabNow===t.k;return(
+                        <button key={t.k} onClick={()=>{setIngDedupTab(t.k);setIngDedupConfirm(null);}} disabled={t.n===0}
+                          style={{display:"inline-flex",alignItems:"center",gap:7,padding:"7px 16px",borderRadius:999,border:"none",fontSize:12.5,fontWeight:700,
+                            cursor:t.n===0?"not-allowed":"pointer",opacity:t.n===0?.5:1,background:on?K.brand:"transparent",color:on?"#FFFFFF":K.textBody}}>
+                          <span style={{width:7,height:7,borderRadius:"50%",background:on?"#FFFFFF":t.c}}/>{t.l}
+                          <span style={{opacity:.8,fontVariantNumeric:"tabular-nums"}}>{t.n}</span>
+                        </button>);})}
+                    </div>
+                    <div style={{fontSize:12,color:K.hdrMeta,marginBottom:12}}>
+                      {tabNow==='high'?T2("Same name once spacing, case and word order are ignored — usually safe to merge."):T2("Similar spelling or the same Hindi name — often different items. Check each one.")}
+                    </div>
+                    {list.map(renderIngCard)}
+                  </>);
+                })()}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 22px",borderTop:`1px solid ${K.cardWarmLine}`}}>
                 <div>

@@ -798,6 +798,19 @@ const KITCHEN_CSS = `
 /* background-COLOR, not the background shorthand: the shorthand resets
    background-image, so hovering a card that carries .kh-cardart-sm would wipe
    its artwork off and put it back on mouse-out. */
+/* Ingredient Map rows: checkbox | recipe ingredient | arrow | store item | actions.
+   Stacks to two lines on a narrow screen. */
+.kh-ingmap-grid { display: grid; grid-template-columns: 22px minmax(0,1.1fr) 22px minmax(0,1fr) auto; gap: 12px; align-items: center; }
+@media (max-width: 760px) { .kh-ingmap-grid { grid-template-columns: 22px minmax(0,1fr) auto; } .kh-ingmap-grid > :nth-child(3) { display: none; } .kh-ingmap-grid > :nth-child(4) { grid-column: 2 / 4; } }
+/* Clickable tile cards (Store Day Sheet stations, All ingredients): lift a
+   little and pick up the sage edge on hover, so they read as buttons. */
+.kh-hovercard { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.kh-hovercard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(17,28,51,.12) !important;
+  border-color: ${K.sageBorder} !important;
+}
+.kh-hovercard:active { transform: translateY(0); }
 .kh-fncard:hover {
   background-color: ${K.sageBg} !important;
   border-color: ${K.sageBorder} !important;
