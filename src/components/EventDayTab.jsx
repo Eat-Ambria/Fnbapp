@@ -1130,6 +1130,14 @@ function EventDayTab({
                   const secStoreDone = !!secStore.end || secStoreAll || secStoreTotal === 0;
                   const doneCount = nonStore.filter(x => stepDone(d, x.origIdx, x.step)).length;
                   const totalSteps = nonStore.length;
+                  // "No D-1 prep" only ever meant d.mesaDone (the Prep Day
+                  // sign-off from yesterday) — a dish cooked start-to-finish
+                  // today, on Event Day itself, still showed that red/amber
+                  // warning pill right next to its own "N/N steps" count. The
+                  // step count is the more authoritative signal here: whether
+                  // it happened yesterday or today, every step done means it's
+                  // actually ready, so that's what this pill should say.
+                  const prepped = d.mesaDone || (totalSteps > 0 && doneCount === totalSteps);
                   const runIdx = nonStore.findIndex(x => d.starts?.[x.origIdx] && !stepDone(d, x.origIdx, x.step));
                   const anyRunning = runIdx >= 0;
 
@@ -1205,8 +1213,8 @@ function EventDayTab({
                         {/* Status strip. D-1 state on the left, cook state on the
                             right — both readable without opening the dish. */}
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <KPill toneName={d.mesaDone ? "ok" : "warn"} icon={d.mesaDone ? "check" : "clock"} size="sm">
-                            {d.mesaDone ? `D-1 ${T2("prep done")}` : T2("No D-1 prep")}
+                          <KPill toneName={prepped ? "ok" : "warn"} icon={prepped ? "check" : "clock"} size="sm">
+                            {d.mesaDone ? `D-1 ${T2("prep done")}` : prepped ? T2("Prep done") : T2("No D-1 prep")}
                           </KPill>
                           {/* Ready is a SOLID pill. As an outline chip it carried
                               no more weight than "Pending" and the finished state

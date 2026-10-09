@@ -271,7 +271,7 @@ export default function App() {
   // per-dish state, that key's value keeps drifting every read/write cycle,
   // which looks "changed" to the diff below and gets re-uploaded forever —
   // thousands of pointless requests a session. Never load or re-upload one.
-  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at", "client_id"]);
+  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at", "client_id", "client_write_ts"]);
   const [kitchenTracking, setKitchenTracking] = useState(() => {
     try { return JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}") || {}; }
     catch { return {}; }
@@ -291,6 +291,20 @@ export default function App() {
   // echoes from OTHER tabs/devices are untouched and still merge as before.
   const ktClientIdRef = useRef(null);
   if (!ktClientIdRef.current) ktClientIdRef.current = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // client_id above only protects a tab from ITS OWN past echoes. Two
+  // DIFFERENT devices tapping the same step around the same moment hit the
+  // real gap: each one's realtime echo of the OTHER's write can still arrive
+  // after a third, newer write (from either side), and merging an explicit
+  // older value (e.g. an Undo) back in reverts whatever happened since —
+  // repeatedly, as each side "corrects" the other forever (confirmed live:
+  // 1M+ writes in minutes, jumping between whichever dish staff were
+  // actually cooking). Every write is now timestamped (client_write_ts) and
+  // this ref remembers the newest timestamp applied per ev_id|dish_key,
+  // from EITHER our own local taps or accepted echoes — an incoming echo
+  // older than that is pure noise and is dropped outright, regardless of
+  // whose device sent it. Only a genuinely newer write ever applies.
+  const ktTsRef = useRef({});
+  function ktTsKey(evId, dishKey) { return evId + '|' + dishKey; }
   // Where the bell should send you back to. A ref, not state — nothing renders
   // from it, so it must not cause a re-render when it changes.
   const bellReturnRef = useRef(null);
@@ -341,7 +355,13 @@ export default function App() {
           // nothing here that needs excluding.
           if (KT_RESERVED_KEYS.has(dishKey)) return; // poisoned row — see KT_RESERVED_KEYS
           if (val === undefined || JSON.stringify(val) === JSON.stringify(prevEv[dishKey])) return;
-          dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)), client_id: ktClientIdRef.current }, "ev_id,dish_key")
+          // Stamp our own local change as the newest known write for this key
+          // BEFORE it round-trips — so an echo (ours or another device's)
+          // that reflects an earlier moment than this tap can never win
+          // against it, no matter how it's delayed or reordered in transit.
+          const writeTs = Date.now();
+          ktTsRef.current[ktTsKey(evId, dishKey)] = writeTs;
+          dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)), client_id: ktClientIdRef.current, client_write_ts: writeTs }, "ev_id,dish_key")
             .catch(e => console.error("KT sync failed:", dishKey, e));
         });
       });
@@ -624,7 +644,14 @@ export default function App() {
       // since, and a second rapid tap on the same step reliably outruns its
       // own first tap's echo. A tab replaying its own past write onto itself
       // only loses, never gains, information, so it's just skipped.
-      if(payload.new){const {ev_id,dish_key,data,client_id}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      //
+      // The same problem also happens ACROSS devices (two tablets tapping the
+      // same step around the same moment), where client_id above does not
+      // apply — client_write_ts does: an echo older than the newest write we
+      // already know about for this exact key (ours or another device's) is
+      // dropped outright, so a stale value can never resurrect itself no
+      // matter how delayed or reordered its delivery is.
+      if(payload.new){const {ev_id,dish_key,data,client_id,client_write_ts}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;const tsKey=ktTsKey(ev_id,dish_key);const knownTs=ktTsRef.current[tsKey]||0;const incomingTs=Number(client_write_ts)||0;if(incomingTs&&incomingTs<=knownTs)return;ktTsRef.current[tsKey]=Math.max(knownTs,incomingTs);setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
     });
     const u6 = dbSubscribe('leaves', (payload) => {
       const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
