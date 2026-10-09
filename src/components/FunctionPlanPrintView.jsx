@@ -178,12 +178,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
   // set-up, staffing and timing notes under one heading. ──
   var bullets = [];
   if (fp) {
-    var foodPrefParts = [];
-    if (fp.veg_count != null) foodPrefParts.push('Veg ' + fp.veg_count);
-    if (fp.nonveg_count != null) foodPrefParts.push('Non-veg ' + fp.nonveg_count);
-    if (fp.jain_count != null) foodPrefParts.push('Jain ' + fp.jain_count);
-    if (fp.egg_count != null) foodPrefParts.push('Egg ' + fp.egg_count);
-    if (foodPrefParts.length) bullets.push('Food preference — ' + foodPrefParts.join(', '));
+    if (fp.guest_preference) bullets.push('Guest preference — ' + fp.guest_preference);
     if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
     if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : ''));
     TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' start time @ ' + fp[f.id]); });

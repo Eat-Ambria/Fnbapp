@@ -267,13 +267,6 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
     onSaveField(field, (n == null || isNaN(n)) ? null : n);
   }
 
-  var countFields = [
-    { id: 'veg_count',    label: T2('Veg'),     swatch: '#2FA35C' },
-    { id: 'nonveg_count', label: T2('Non-veg'), swatch: '#D9463F' },
-    { id: 'jain_count',   label: T2('Jain'),    swatch: '#C4790C' },
-    { id: 'egg_count',    label: T2('Egg'),     swatch: '#D9B31C' },
-  ];
-
   var roomOn = !!(fp && fp.room_info_enabled);
   var driversOn = !!(fp && fp.drivers_food_required);
   var lmsPlate = getLmsPlateInfo(event);
@@ -300,23 +293,10 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
 
         {/* ── Food Preference (+ Corkage) ── */}
         <Panel icon="plate" badgeBg={K.okBg} badgeColor={K.ok} title={T2("Food Preference")}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(70px,1fr))", gap: 12, marginBottom: 20 }}>
-            {countFields.map(function(f){
-              return (
-                <label key={f.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: f.swatch, flexShrink: 0 }} />
-                    {f.label}
-                  </span>
-                  <input type="number" min="0" inputMode="numeric"
-                    value={val(f.id)}
-                    onChange={function(e){ onChangeField(f.id, e.target.value); }}
-                    onBlur={function(){ commitNumber(f.id); }}
-                    onKeyDown={function(e){ if (e.key === 'Enter') e.currentTarget.blur(); }}
-                    style={{ ...inputStyle, width: 90 }} />
-                </label>
-              );
-            })}
+          <div style={{ marginBottom: 20 }}>
+            <FPTextArea label={T2("Guest Preference")} rows={3}
+              placeholder={T2("e.g. mostly non-veg, 2 Jain plates, no beef/pork…")}
+              value={val('guest_preference')} onChange={function(v){ onChangeField('guest_preference', v); }} onBlur={function(){ commitText('guest_preference'); }} />
           </div>
 
           <FieldLabel>{T2("Spice tolerance")}</FieldLabel>
@@ -499,6 +479,26 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
           ) : (
             <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("Not required for this function.")}</div>
           )}
+        </Panel>
+
+        {/* ── Operation Info ── */}
+        <Panel icon="contact" badgeBg={K.accentSoft} badgeColor={K.accent} title={T2("Operation Info")}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 180px" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Operation Manager Name")}</span>
+              <input type="text" value={val('ops_manager_name')}
+                onChange={function(e){ onChangeField('ops_manager_name', e.target.value); }}
+                onBlur={function(){ commitText('ops_manager_name'); }}
+                style={{ ...inputStyle, width: "100%" }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 160px" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Contact Number")}</span>
+              <input type="tel" value={val('ops_manager_contact')}
+                onChange={function(e){ onChangeField('ops_manager_contact', e.target.value); }}
+                onBlur={function(){ commitText('ops_manager_contact'); }}
+                style={{ ...inputStyle, width: "100%" }} />
+            </label>
+          </div>
         </Panel>
 
         {/* ── Extra Plate Info (from LMS) ── */}

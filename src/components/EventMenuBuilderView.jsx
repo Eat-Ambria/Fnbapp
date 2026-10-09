@@ -406,13 +406,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // that existing detection picks up whatever sales captures here, unchanged.
   async function mirrorFPToEvent(fpRow) {
     var parts = [];
+    if (fpRow.guest_preference) parts.push('Guest pref: ' + fpRow.guest_preference);
     if (fpRow.spice_tolerance) parts.push('Spice: ' + fpRow.spice_tolerance);
     if (fpRow.allergies) parts.push('Allergies: ' + fpRow.allergies);
     if (fpRow.service_notes) parts.push('Service: ' + fpRow.service_notes);
     if (fpRow.general_notes) parts.push('Notes: ' + fpRow.general_notes);
     var payload = { special: parts.length ? parts.join(' | ') : null };
-    if (fpRow.veg_count != null) payload.veg = fpRow.veg_count;
-    if (fpRow.nonveg_count != null) payload.nonveg = fpRow.nonveg_count;
     try {
       await supabase.from('events').update(payload).eq('id', event.id);
     } catch (e) {
