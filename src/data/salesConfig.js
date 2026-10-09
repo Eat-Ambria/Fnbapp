@@ -38,10 +38,24 @@ export const DEFAULT_DEPT = 'kit';
 // section, catalogue section or saved dept says otherwise. One rule, no
 // exceptions, and every place that resolves a dish's department asks this first
 // (eventItems.js, the menu builders, proposals) so they cannot disagree.
-const BEV_PINNED_RE = /ices*cream|tea|coffee/i;
-export function pinnedDeptForDish(name) {
-  return name && BEV_PINNED_RE.test(String(name)) ? 'bev' : null;
+//
+// Each word is matched with surrounding word-boundary markers rather than as a
+// bare substring. A bare "tea" previously matched inside ordinary words like
+// "Steam" (the letters t-e-a sit right inside "S[tea]m"), silently routing
+// Kitchen dishes like "Steam Rice / Jeera Rice" into Beverages. Boundary
+// markers also let "ice" and "cream" match across a space, which they never
+// did before (dish names spell it "Ice Cream", not "Icecream").
+function pinnedDeptForDish(name) {
+  if (!name) return null;
+  var s = String(name);
+  var hasWord = function(word) {
+    var re = new RegExp('(^|[^a-z0-9])' + word + '([^a-z0-9]|$)', 'i');
+    return re.test(s);
+  };
+  if (hasWord('ice\\s*cream') || hasWord('tea') || hasWord('coffee')) return 'bev';
+  return null;
 }
+export { pinnedDeptForDish };
 
 // ═══════════════════════════════════════════════════════════════
 // V70 Phase 5: dept-level config schema
