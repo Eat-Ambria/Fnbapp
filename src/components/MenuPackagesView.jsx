@@ -1503,6 +1503,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             onOutsourcedChange={function(next) { saveOutsourced(next); }}
             locked={evLocked}
             lang={lang}
+            event={selEv}
           />
 
           {pendingMenuDrop && (

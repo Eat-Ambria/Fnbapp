@@ -124,11 +124,16 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
   // state below doesn't flash before the fetch resolves).
   const [bevItemsByEv, setBevItemsByEv] = useState({});
   const selEvIds = selEvs.map(e=>e.id).join(',');
+  // Re-fetches every time this tab (re)opens or the picked date changes —
+  // deliberately NOT cached past that, since event_items can be edited from
+  // Booked Functions' Items tab in another screen/session at any point, and a
+  // permanent per-event-id cache would keep showing the pre-edit list (e.g. a
+  // dish just added there) until a full page reload.
   useEffect(()=>{
     if(selDept!=="beverages") return;
     let cancelled = false;
+    setBevItemsByEv({});
     selEvs.forEach(ev=>{
-      if(bevItemsByEv[ev.id]!==undefined) return;
       getEventItemsByDept(ev).then(byDept=>{
         if(cancelled) return;
         setBevItemsByEv(p=>({...p, [ev.id]: byDept.bev||[]}));

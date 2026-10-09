@@ -539,6 +539,11 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
               placeholder={T2("Anything else the kitchen/service team should know…")}
               value={val('general_notes')} onChange={function(v){ onChangeField('general_notes', v); }} onBlur={function(){ commitText('general_notes'); }} />
           </div>
+          <div style={{ marginTop: 16 }}>
+            <FPTextArea label={T2("Layout information")} rows={6}
+              placeholder={T2("e.g. stage/mandap placement, entry & exit points, seating plan, decor zones, parking instructions…")}
+              value={val('layout_info')} onChange={function(v){ onChangeField('layout_info', v); }} onBlur={function(){ commitText('layout_info'); }} />
+          </div>
         </Panel>
       </div>
 
@@ -607,15 +612,15 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
   );
 }
 
-function FPTextArea({ label, placeholder, value, onChange, onBlur }) {
+function FPTextArea({ label, placeholder, value, onChange, onBlur, rows }) {
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
       <textarea value={value} placeholder={placeholder}
         onChange={function(e){ onChange(e.target.value); }}
         onBlur={onBlur}
-        rows={4}
-        style={{ ...inputStyle, width: "100%", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", minHeight: 96, lineHeight: 1.5 }} />
+        rows={rows || 4}
+        style={{ ...inputStyle, width: "100%", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", minHeight: rows ? rows * 24 : 96, lineHeight: 1.5 }} />
     </div>
   );
 }
