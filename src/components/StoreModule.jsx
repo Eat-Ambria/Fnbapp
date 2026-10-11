@@ -459,12 +459,34 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [ingMergeModal, setIngMergeModal] = useState(null); // {sources:[name,...], target, unit} | null
   const [ingMerging, setIngMerging] = useState(false);
   const [ingRefreshTick, setIngRefreshTick] = useState(0); // bumped after a merge/unit edit to re-derive allRecipeIngredients from the now-mutated RECIPE_DB
+  // ingDedupTargets/Units/Skipped/Resolved are keyed by a stable cluster
+  // identity (ingClusterKey — the sorted ingredient names in it), not by
+  // array index — findIngredientDuplicateClusters() re-runs from scratch on
+  // every open, and a cluster skipped or merged earlier can land at a
+  // different index next time (a merge removes entries, shifting everything
+  // after it), which would silently apply old decisions to the wrong group.
+  // Skipped/resolved are also persisted to localStorage (same fix as
+  // DishLibrary.jsx's dedup modal) since this screen only mounts while its
+  // own tab is open, and a tab switch or reload would otherwise wipe plain
+  // useState clean and bring skipped groups right back.
+  const ING_DEDUP_LS_KEY = 'ambria_ing_dedup_decisions';
+  function loadIngDedupDecisions() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ING_DEDUP_LS_KEY) || '{}');
+      return { skipped: raw.skipped || {}, resolved: raw.resolved || {} };
+    } catch (e) { return { skipped: {}, resolved: {} }; }
+  }
+  function saveIngDedupDecisions(skipped, resolved) {
+    try { localStorage.setItem(ING_DEDUP_LS_KEY, JSON.stringify({ skipped, resolved })); } catch (e) {}
+  }
+  function ingClusterKey(c) { return (c.items || []).map(d => d.name).slice().sort().join('|'); }
   const [ingDedupOpen, setIngDedupOpen] = useState(false);
   const [ingDedupClusters, setIngDedupClusters] = useState([]);
-  const [ingDedupTargets, setIngDedupTargets] = useState({});   // {idx: name}
-  const [ingDedupUnits, setIngDedupUnits] = useState({});       // {idx: unit}
-  const [ingDedupSkipped, setIngDedupSkipped] = useState({});   // {idx: true}
-  const [ingDedupResolved, setIngDedupResolved] = useState({}); // {idx: 'merged'}
+  const [ingDedupTargets, setIngDedupTargets] = useState({});   // {clusterKey: name}
+  const [ingDedupUnits, setIngDedupUnits] = useState({});       // {clusterKey: unit}
+  const [ingDedupSkipped, setIngDedupSkipped] = useState(() => loadIngDedupDecisions().skipped);   // {clusterKey: true}
+  const [ingDedupResolved, setIngDedupResolved] = useState(() => loadIngDedupDecisions().resolved); // {clusterKey: 'merged'}
+  useEffect(() => { saveIngDedupDecisions(ingDedupSkipped, ingDedupResolved); }, [ingDedupSkipped, ingDedupResolved]);
   const [ingDedupSavingIdx, setIngDedupSavingIdx] = useState(null);
   const [ingDedupTab, setIngDedupTab] = useState(null);       // 'high' | 'medium' — null = first non-empty
   const [ingDedupConfirm, setIngDedupConfirm] = useState(null); // idx whose merge is waiting for "Yes, merge"
@@ -990,31 +1012,37 @@ function StoreModule({events, lang="en", currentUser=null}) {
     // which only recomputes on this component's own merges and can miss a
     // recipe someone just fixed in the SOP editor.
     const clusters = findIngredientDuplicateClusters(buildRecipeIngredientList());
-    const targets = {}, units = {};
-    clusters.forEach((c, i) => {
-      const t = pickDefaultIngTarget(c);
-      targets[i] = t;
-      units[i] = (c.items.find(x => x.name === t) || {}).unit || '';
+    setIngDedupTargets(prev => {
+      const next = { ...prev };
+      clusters.forEach(c => { const k = ingClusterKey(c); if (next[k] === undefined) next[k] = pickDefaultIngTarget(c); });
+      return next;
+    });
+    setIngDedupUnits(prev => {
+      const next = { ...prev };
+      clusters.forEach(c => {
+        const k = ingClusterKey(c);
+        if (next[k] === undefined) { const t = pickDefaultIngTarget(c); next[k] = (c.items.find(x => x.name === t) || {}).unit || ''; }
+      });
+      return next;
     });
     setIngDedupClusters(clusters);
-    setIngDedupTargets(targets);
-    setIngDedupUnits(units);
-    setIngDedupSkipped({});
-    setIngDedupResolved({});
+    // Skipped/resolved decisions are deliberately NOT reset here — see the
+    // comment by their useState declarations. resetIngDedupSkipped() is the
+    // one explicit way to bring skipped groups back.
     setIngDedupOpen(true);
   }
   function closeIngDedup() {
     if (ingDedupSavingIdx != null) return;
     setIngDedupOpen(false);
   }
-  function pickIngDedupTarget(idx, name) {
-    setIngDedupTargets(prev => ({ ...prev, [idx]: name }));
-    const cluster = ingDedupClusters[idx];
+  function pickIngDedupTarget(key, name) {
+    setIngDedupTargets(prev => ({ ...prev, [key]: name }));
+    const cluster = ingDedupClusters.find(c => ingClusterKey(c) === key);
     const found = cluster && cluster.items.find(x => x.name === name);
-    if (found) setIngDedupUnits(prev => ({ ...prev, [idx]: found.unit || '' }));
+    if (found) setIngDedupUnits(prev => ({ ...prev, [key]: found.unit || '' }));
   }
-  function skipIngDedupCluster(idx) {
-    setIngDedupSkipped(prev => ({ ...prev, [idx]: true }));
+  function skipIngDedupCluster(key) {
+    setIngDedupSkipped(prev => ({ ...prev, [key]: true }));
   }
   function resetIngDedupSkipped() {
     setIngDedupSkipped({});
@@ -1022,15 +1050,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
   async function mergeIngDedupCluster(idx) {
     const cluster = ingDedupClusters[idx];
     if (!cluster) return;
-    const target = (ingDedupTargets[idx] || '').trim();
-    const unit = (ingDedupUnits[idx] || '').trim();
+    const key = ingClusterKey(cluster);
+    const target = (ingDedupTargets[key] || '').trim();
+    const unit = (ingDedupUnits[key] || '').trim();
     if (!target || !unit) { alert(T2('Pick a target and unit for this group.')); return; }
     const sources = cluster.items.map(d => d.name).filter(n => n !== target);
     if (sources.length === 0) { alert(T2('Nothing to merge — target is the only ingredient.')); return; }
     setIngDedupSavingIdx(idx);
     try {
       await performIngredientMerge(sources, target, unit);
-      setIngDedupResolved(prev => ({ ...prev, [idx]: 'merged' }));
+      setIngDedupResolved(prev => ({ ...prev, [key]: 'merged' }));
     } catch (e) {
       alert(T2('Merge failed: ') + (e.message || e));
     } finally {
@@ -2552,9 +2581,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
            grouped by confidence, radio-pick a target per group, merge or skip. ── */}
       {ingDedupOpen && (()=>{
         const totalGroups = ingDedupClusters.length;
-        const resolvedCount = Object.keys(ingDedupResolved).length;
-        const skippedCount = Object.keys(ingDedupSkipped).length;
-        const remainingIdx = ingDedupClusters.map((_,i)=>i).filter(i=>!ingDedupResolved[i]&&!ingDedupSkipped[i]);
+        // Scoped to the clusters THIS run actually found — ingDedupResolved/
+        // ingDedupSkipped persist across reopens by design, so a stale entry
+        // for a cluster that no longer exists must not inflate these counts.
+        const resolvedCount = ingDedupClusters.filter(c=>!!ingDedupResolved[ingClusterKey(c)]).length;
+        const skippedCount = ingDedupClusters.filter(c=>!!ingDedupSkipped[ingClusterKey(c)]).length;
+        const remainingIdx = ingDedupClusters.map((_,i)=>i).filter(i=>{ const k=ingClusterKey(ingDedupClusters[i]); return !ingDedupResolved[k]&&!ingDedupSkipped[k]; });
         const highIdx = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='high');
         const medIdx  = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='medium');
         const allDone = totalGroups>0 && remainingIdx.length===0;
@@ -2562,8 +2594,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
         function renderIngCard(idx){
           const c = ingDedupClusters[idx];
-          const target = ingDedupTargets[idx]||'';
-          const unit = ingDedupUnits[idx]||'';
+          const key = ingClusterKey(c);
+          const target = ingDedupTargets[key]||'';
+          const unit = ingDedupUnits[key]||'';
           const clusterUnits = c.items.map(d=>(d.unit||'').trim()).filter(Boolean);
           const unitOptions = Array.from(new Set(clusterUnits.concat(ING_UNIT_CHOICES).concat(unit?[unit]:[])));
           const saving = ingDedupSavingIdx===idx;
@@ -2595,7 +2628,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     <label key={d.name} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,
                       background:isT?K.brandSoft:"#FFFFFF",border:`1.5px solid ${isT?K.brand:K.cardWarmLine}`,cursor:disabled?"not-allowed":"pointer"}}>
                       <input type="radio" name={"ingdedup-target-"+idx} checked={isT} disabled={disabled||saving}
-                        onChange={()=>pickIngDedupTarget(idx,d.name)} style={{margin:0,width:16,height:16,accentColor:K.brand,cursor:disabled?"not-allowed":"pointer",flexShrink:0}}/>
+                        onChange={()=>pickIngDedupTarget(key,d.name)} style={{margin:0,width:16,height:16,accentColor:K.brand,cursor:disabled?"not-allowed":"pointer",flexShrink:0}}/>
                       <span style={{minWidth:0,flex:1}}>
                         <span style={{display:"block",fontSize:13.5,fontWeight:isT?700:600,color:K.hdrTitle}}>{d.name}</span>
                         {d.hindi&&<span style={{display:"block",fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{d.hindi}</span>}
@@ -2623,10 +2656,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <span style={{fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("Unit")}</span>
-                <UnitPicker value={unit} disabled={disabled||saving} onChange={u=>setIngDedupUnits(prev=>({...prev,[idx]:u}))} suggested={clusterUnits} options={unitOptions} T2={T2}/>
+                <UnitPicker value={unit} disabled={disabled||saving} onChange={u=>setIngDedupUnits(prev=>({...prev,[key]:u}))} suggested={clusterUnits} options={unitOptions} T2={T2}/>
                 <div style={{flex:1}}/>
                 {!asking&&<span style={{fontSize:11.5,color:K.hdrMeta}}>{rewritten} {T2("recipes will change")}</span>}
-                <button onClick={()=>{setIngDedupConfirm(null);skipIngDedupCluster(idx);}} disabled={saving||disabled}
+                <button onClick={()=>{setIngDedupConfirm(null);skipIngDedupCluster(key);}} disabled={saving||disabled}
                   style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Not now")}</button>
                 {asking&&!saving&&<button onClick={()=>setIngDedupConfirm(null)}
                   style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>}
