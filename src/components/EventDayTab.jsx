@@ -121,14 +121,27 @@ function EventDayTab({
   function _freshToday(){ return localDateStr(new Date()); }
   function ds(evId, idx, dishName) {
     const _TOD = _freshToday();
-    if (isCombined && dishName) return kt["__combined_"+_TOD]?.[ck(dishName)] || {};
+    if (isCombined && dishName) {
+      var combinedRow = kt["__combined_"+_TOD]?.[ck(dishName)] || {};
+      if (Object.keys(combinedRow).length) return combinedRow;
+      // D-1 prep done yesterday while a SPECIFIC function (not "combined")
+      // was selected on the Prep Day tab is written only to that function's
+      // own per-event row — never to this combined key (KitchenHub.jsx's
+      // setDs only propagates out of combined mode, never into it). Without
+      // this fallback, a dish prepped that way looked exactly like it was
+      // never touched once Event Day's default "combined" view opened on it.
+      var fns = (byDish[dishName]?.fns?.length) ? byDish[dishName].fns : [{ evId, idx }];
+      var folded = {};
+      fns.forEach(function(fn){ folded = mergeDishState(folded, kt[fn.evId]?.[dk(fn.evId, fn.idx != null ? fn.idx : idx)] || {}); });
+      return folded;
+    }
     var perEv = kt[evId]?.[dk(evId, idx)] || {};
     if (dishName && !Object.keys(perEv).length) {
       var cb = kt["__combined_"+_TOD]?.[ck(dishName)] || {};
       if (Object.keys(cb).length) { var r = Object.assign({}, cb); delete r.mesaDone; return r; }
     }
     return perEv;
-  } 
+  }
   function setDs(evId, idx, upd, dishInfo) {
     const _TOD = _freshToday();
     setKitchenTracking(p => {
