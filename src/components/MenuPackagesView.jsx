@@ -444,6 +444,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   function toggleSecExpanded(secId) {
     setExpandedSecs(function(p) { var n = { ...p }; if (n[secId]) delete n[secId]; else n[secId] = true; return n; });
   }
+  // Dish search within the open package — sections with no match collapse out
+  // of view entirely and matching sections force-expand, so a 34-section
+  // package doesn't need manual expand-and-scan to find one dish.
+  var [pkgDishQ, setPkgDishQ] = useState('');
   // V75: section header row was getting crowded (link badge, resync, unlink, SOP
   // default, sales dept…) — those all moved into a per-section settings modal.
   var [secSettingsOpen, setSecSettingsOpen] = useState(null); // section id, or null
@@ -983,6 +987,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       savePackage();
     }
     setSelPkg(name);
+    setPkgDishQ('');
   }
 
   async function createPackage() {
@@ -1671,6 +1676,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </div>
                   </div>
 
+                  <div style={{ marginTop: 10, position: 'relative', maxWidth: 320 }}>
+                    <input value={pkgDishQ} onChange={function(e) { setPkgDishQ(e.target.value); }}
+                      placeholder={T2('Search dishes in this package…')}
+                      style={{ width: '100%', padding: '7px 28px 7px 28px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12.5, color: C.text, boxSizing: 'border-box' }} />
+                    <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: C.muted }}>🔍</span>
+                    {pkgDishQ && (
+                      <button onClick={function() { setPkgDishQ(''); }} title={T2('Clear search')}
+                        style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: C.muted, fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1 }}>×</button>
+                    )}
+                  </div>
+
                   {/* V66: Bulk-move toolbar — no longer needs position:sticky; it now lives
                       inside the non-scrolling header chrome, always visible already. */}
                   {(function() {
@@ -1707,10 +1723,25 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </div>
                     )}
 
+                    {(function() {
+                      var pkgQ = pkgDishQ.trim().toLowerCase();
+                      if (pkgQ && editorSections.every(function(sec) { return sec.dishes.every(function(d) { return d.toLowerCase().indexOf(pkgQ) === -1; }); })) {
+                        return (
+                          <div style={{ padding: "30px 20px", textAlign: "center", background: C.bg, border: "1.5px dashed " + C.border, borderRadius: 10 }}>
+                            <div style={{ fontSize: 12, color: C.muted }}>{T2("No dishes match")} "{pkgDishQ.trim()}"</div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
                     <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
                     <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
                     {editorSections.map(function(sec) {
-                      var isExpanded = !!expandedSecs[sec.id]; // V74: collapsed by default
+                      var pkgQ = pkgDishQ.trim().toLowerCase();
+                      var secMatchCount = pkgQ ? sec.dishes.filter(function(d) { return d.toLowerCase().indexOf(pkgQ) !== -1; }).length : sec.dishes.length;
+                      if (pkgQ && secMatchCount === 0) return null; // no match in this section while searching — hide it
+                      var isExpanded = pkgQ ? true : !!expandedSecs[sec.id]; // force-open while searching; V74: collapsed by default otherwise
                       return (
                         <SortableSection key={sec.id} id={sec.id} disabled={!isAdmin}>
                         {function(dnd) { return (
@@ -1747,7 +1778,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               style={{ padding: "3px 7px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border, color: C.muted, cursor: "pointer", fontSize: 13, lineHeight: 1 }}>
                               ⚙
                             </button>
-                            <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sec.dishes.length} {T2("dishes")}</span>
+                            <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{pkgQ ? (secMatchCount + " / " + sec.dishes.length) : sec.dishes.length} {T2("dishes")}</span>
                             {isAdmin && (
                               <button data-noexpand onClick={function() { deleteSection(sec.id); }}
                                 title={T2("Delete section")}
@@ -1764,6 +1795,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event) { handleDishDragEnd(sec.id, event); }}>
                             <SortableContext items={sec.dishes} strategy={verticalListSortingStrategy}>
                             {sec.dishes.map(function(d) {
+                              if (pkgQ && d.toLowerCase().indexOf(pkgQ) === -1) return null;
                               var type = getDishType(d);
                               var hi = resolveDishHindi(d);
                               var store = type === 'inventory' ? resolveDishStore(d) : null;
