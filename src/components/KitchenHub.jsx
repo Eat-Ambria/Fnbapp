@@ -6272,7 +6272,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   // tile (it has a catId), not in Unmapped — it was silently counted as
                   // "auto" even though there's no computed number behind it, so the tile
                   // never showed chefs it needed an SOP fix. Split it out as its own chip.
-                  const noYieldInGroup = g.items.filter(it=>!isRealOverride(it.dish) && !it.st.baseYield).length;
+                  // Base gravies are the one exception: their auto number comes from
+                  // summed menu demand (it.demandKg), never from the recipe's own
+                  // base_yield.kg, so st.baseYield being unset there doesn't mean
+                  // anything is actually missing — checking it anyway was flagging
+                  // perfectly fine, correctly-"Auto" gravy rows as "no yield" in the
+                  // tile's chip with nothing on any row to show for it.
+                  const noYieldInGroup = g.items.filter(it=>!isRealOverride(it.dish) && (it.isBaseGravy ? !(it.demandKg>0) : !it.st.baseYield)).length;
                   const autoInGroup = g.items.length - overrideInGroup - noYieldInGroup;
                   const chips = (<>
                           {autoInGroup>0 && <span style={{padding:"4px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,
@@ -6445,8 +6451,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                 )}
                               </div>
                               {pcsPerKg!=null && (
-                                <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8,marginTop:2}}>
-                                  <span style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta}}>{T2("Pieces")}</span>
+                                // Same 4-column template as .kh-planrow/.kh-planhead (not an
+                                // independent flex blob right-anchored to the whole row) so the
+                                // pcs input lands directly under the kg input and "pcs" lands
+                                // under "kg" instead of drifting to wherever the flex content's
+                                // own width happens to push it.
+                                <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"minmax(0,1fr) 112px 54px 126px",alignItems:"center",gap:12,marginTop:2}}>
+                                  <span style={{fontFamily:K.fontBody,fontSize:11,color:K.hdrMeta,textAlign:"right"}}>{T2("Pieces")}</span>
                                   <input type="number" step="1" inputMode="numeric" min="0"
                                     className="kh-planinput"
                                     value={currentPcsVal}
@@ -6461,8 +6472,9 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                     onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                     placeholder={suggestedPcs!=null?String(suggestedPcs):"—"}
                                     disabled={isSaving}
-                                    style={{width:90,padding:"6px 9px",borderRadius:9,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
+                                    style={{width:"100%",padding:"6px 9px",borderRadius:9,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
                                   <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>{T2("pcs")}</span>
+                                  <span/>
                                 </div>
                               )}
                             </div>
