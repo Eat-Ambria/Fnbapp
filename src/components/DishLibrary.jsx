@@ -207,13 +207,33 @@ function DishLibrary(props) {
   // cluster happened to land on that same index instead. A content-based key
   // stays correct regardless of reordering, and (just as importantly) survives
   // the modal being closed and reopened instead of being wiped on every open.
+  //
+  // Reopening the SAME still-mounted modal isn't the only way this resets,
+  // though: MenuPackagesView only mounts <DishLibrary> while its own "library"
+  // tab is active (`mainTab === "library" && <DishLibrary .../>`), so simply
+  // switching to another tab and back already unmounts/remounts this whole
+  // component, and a page reload (including the PWA's own "Update Now",
+  // which calls location.reload()) does too — a plain useState does not
+  // survive either. dedupSkipped/dedupResolved are persisted to localStorage
+  // so a skip decision actually stays skipped across both.
+  var DEDUP_LS_KEY = 'ambria_dedup_decisions';
+  function loadDedupDecisions() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(DEDUP_LS_KEY) || '{}');
+      return { skipped: raw.skipped || {}, resolved: raw.resolved || {} };
+    } catch (e) { return { skipped: {}, resolved: {} }; }
+  }
+  function saveDedupDecisions(skipped, resolved) {
+    try { localStorage.setItem(DEDUP_LS_KEY, JSON.stringify({ skipped: skipped, resolved: resolved })); } catch (e) {}
+  }
   var [dedupOpen, setDedupOpen]         = useState(false);
   var [dedupClusters, setDedupClusters] = useState([]);
   var [dedupTargets, setDedupTargets]   = useState({});   // { [clusterKey]: dish_name }
-  var [dedupSkipped, setDedupSkipped]   = useState({});   // { [clusterKey]: true }
-  var [dedupResolved, setDedupResolved] = useState({});   // { [clusterKey]: 'merged' }
+  var [dedupSkipped, setDedupSkipped]   = useState(function(){ return loadDedupDecisions().skipped; });     // { [clusterKey]: true }
+  var [dedupResolved, setDedupResolved] = useState(function(){ return loadDedupDecisions().resolved; });    // { [clusterKey]: 'merged' }
   var [dedupSavingIdx, setDedupSavingIdx] = useState(null); // idx currently merging
   function clusterKey(c) { return (c.dishes || []).map(function(d){ return d.dish_name; }).slice().sort().join('|'); }
+  useEffect(function(){ saveDedupDecisions(dedupSkipped, dedupResolved); }, [dedupSkipped, dedupResolved]);
 
   // ── Data ─────────────────────────────────────────────────────────
   var enriched = useMemo(function() {
