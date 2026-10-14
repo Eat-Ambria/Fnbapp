@@ -932,9 +932,16 @@ export default function App() {
   if(showStaffView) return <StaffView user={currentUser} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
+    // A tab granted here via Access Manager is a no-op unless it's also
+    // listed below — canAccessScreen can only SUBTRACT an item from this
+    // array, never add one that was never in it. "Menu Packages" permission
+    // being granted but never showing up on a section-tablet login was
+    // exactly this: DEPT_NAV (the regular per-department nav) has always had
+    // a "menus" entry, but this separate, hardcoded tablet nav never did.
     const TABLET_NAV=[
       {id:"dashboard",label:"Dashboard"},
       {id:"kitchen",label:"Kitchen Hub"},
+      {id:"menus",label:"Menu Packages"},
       {id:"store",label:"Store & Inventory"},
     ].filter(function(n){ return canAccessScreen(currentUser, n.id); });
     const _cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
@@ -949,6 +956,7 @@ export default function App() {
       switch(scr){
         case "dashboard": return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
         case "kitchen": return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+        case "menus": return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
         case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
         default: return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       }
