@@ -583,7 +583,27 @@ export default function App() {
     if (!appReady) return;
     const u1 = dbSubscribe('staff', (payload) => {
       if(payload.eventType==='INSERT') setEmpDb(p=>{if(p.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id))return p;return[...p,{...payload.new,staffListId:payload.new.staff_id}];});
-      if(payload.eventType==='UPDATE') setEmpDb(p=>p.map(s=>(s.staffListId||s.staff_id)===payload.new.staff_id?{...s,...payload.new,staffListId:payload.new.staff_id}:s));
+      if(payload.eventType==='UPDATE'){
+        setEmpDb(p=>p.map(s=>(s.staffListId||s.staff_id)===payload.new.staff_id?{...s,...payload.new,staffListId:payload.new.staff_id}:s));
+        // An admin granting/changing a tab permission on their own device only
+        // ever updated empDb above — the logged-in tablet it was actually
+        // meant for keeps its own currentUser as a separate snapshot taken at
+        // login (canAccessScreen reads THAT, not empDb), so the change stayed
+        // invisible there until someone reloaded or logged out and back in.
+        setCurrentUser(prev=>{
+          if(!prev) return prev;
+          const pid=prev.staffListId||prev.staff_id||prev.id;
+          if(pid!==payload.new.staff_id) return prev;
+          // Keep this device's own venue answer, same precedent as the
+          // boot-time refresh above — a section tablet's "where is this
+          // tablet today" answer must not get silently overwritten by
+          // whatever Access Manager has saved as the static Home Venue.
+          let venueOverride=null; try{venueOverride=localStorage.getItem("ambria_venue_override");}catch(e){}
+          const updated={...prev,...payload.new,id:pid,staffListId:payload.new.staff_id,venue:venueOverride||prev.venue};
+          try{localStorage.setItem("ambria_session_user",JSON.stringify(updated));}catch(e){}
+          return updated;
+        });
+      }
       if(payload.eventType==='DELETE') setEmpDb(p=>p.filter(s=>(s.staffListId||s.staff_id)!==payload.old.staff_id));
     });
     const u4 = dbSubscribe('events', (payload) => {
