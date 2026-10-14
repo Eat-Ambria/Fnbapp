@@ -3,26 +3,60 @@
 // Each role auto-gets tab access + action permissions
 // Custom overrides: toggle individual screens on/off per user
 
-// ── SCREEN DEFINITIONS (for UI display in Access Manager) ──
+// ── SCREEN DEFINITIONS — the ONE registry of every tab in the app ──
+// This is the single source of truth for what a screen is called, which
+// emoji represents it in Access Manager's own permission grid, which group
+// it falls under in the app's sidebar, and which fine-grained permissions
+// exist under it. Nothing else in the codebase re-lists these screens,
+// their order, or their grouping — App.jsx's sidebar nav (every login path:
+// department logins, section tablets, management, sales) is built by
+// walking THIS object's own key order and `group` fields, then filtering
+// through canAccessScreen() below. Add a screen here — in whatever position
+// among whichever group it belongs in — and it exists everywhere at once;
+// there is nowhere else that needs editing for it to become grantable and
+// visible. `group` is the sidebar section header an item falls under
+// (undefined = the top, ungrouped section); consecutive entries sharing a
+// group render under one header, and a group with nothing visible in it
+// (nothing granted to this user) simply doesn't appear.
 const SCREEN_PERMISSIONS = {
   dashboard:      {label:"Dashboard",           icon:"📊", perms:[{id:"dashboard.view",type:"view",label:"View dashboard KPIs"},{id:"dashboard.closure_report",type:"action",label:"Generate closure report"},{id:"dashboard.export",type:"action",label:"Export reports"}]},
   kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"}]},
-  store:          {label:"Store & Inventory",   icon:"📦", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
-  transport:      {label:"Transport",           icon:"🚛", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
-
-  team:           {label:"Team",   icon:"👥", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"}]},
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
-  vendors:        {label:"Vendor Directory",    icon:"📇", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
-  dept_service:   {label:"Service Ops",         icon:"🍽", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
-  dept_crockery:  {label:"Crockery Ops",        icon:"🍶", perms:[{id:"dept_crockery.view",type:"view",label:"View crockery"},{id:"dept_crockery.check",type:"action",label:"Complete checklist"}]},
-  dept_beverages: {label:"Beverages Ops",       icon:"🥤", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
-  dept_fruits:    {label:"Fruits Ops",          icon:"🍓", perms:[{id:"dept_fruits.view",type:"view",label:"View fruits"},{id:"dept_fruits.check",type:"action",label:"Complete checklist"}]},
-  dept_odc:       {label:"ODC Operations",      icon:"🏕", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
-  access:         {label:"Access Manager",      icon:"🔐", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
-  proposals:        {label:"Proposals",           icon:"📝", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
-  sales_catalogue:  {label:"Sales Catalogue",     icon:"🏷️", perms:[{id:"sales_catalogue.view",type:"view",label:"View sales catalogue"},{id:"sales_catalogue.edit",type:"action",label:"Edit item meta/images"}]},
-  booked_functions: {label:"Booked Functions",    icon:"📅", perms:[{id:"booked_functions.view",type:"view",label:"View booked functions"},{id:"booked_functions.edit_menu",type:"action",label:"Edit menu/service items"}]},
+
+  transport:      {label:"Transport",           icon:"🚛", group:"OPERATIONS", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
+  store:          {label:"Store & Inventory",   icon:"📦", group:"OPERATIONS", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
+  vendors:        {label:"Vendor Directory",    icon:"📇", group:"OPERATIONS", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
+  dept_service:   {label:"Service Ops",         icon:"🍽", group:"OPERATIONS", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
+  dept_crockery:  {label:"Crockery Ops",        icon:"🍶", group:"OPERATIONS", perms:[{id:"dept_crockery.view",type:"view",label:"View crockery"},{id:"dept_crockery.check",type:"action",label:"Complete checklist"}]},
+  dept_beverages: {label:"Beverages Ops",       icon:"🥤", group:"OPERATIONS", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
+  dept_fruits:    {label:"Fruits Ops",          icon:"🍓", group:"OPERATIONS", perms:[{id:"dept_fruits.view",type:"view",label:"View fruits"},{id:"dept_fruits.check",type:"action",label:"Complete checklist"}]},
+  dept_odc:       {label:"ODC Operations",      icon:"🏕", group:"OPERATIONS", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
+
+  proposals:        {label:"Proposals",           icon:"📝", group:"SALES", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
+  sales_catalogue:  {label:"Sales Catalogue",     icon:"🏷️", group:"SALES", perms:[{id:"sales_catalogue.view",type:"view",label:"View sales catalogue"},{id:"sales_catalogue.edit",type:"action",label:"Edit item meta/images"}]},
+  booked_functions: {label:"Booked Functions",    icon:"📅", group:"SALES", perms:[{id:"booked_functions.view",type:"view",label:"View booked functions"},{id:"booked_functions.edit_menu",type:"action",label:"Edit menu/service items"}]},
+
+  team:           {label:"Team",                icon:"👥", group:"MANAGEMENT", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"}]},
+  access:         {label:"Access Manager",      icon:"🔐", group:"MANAGEMENT", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
+  logs:           {label:"Activity Log",        icon:"📋", group:"MANAGEMENT", perms:[{id:"logs.view",type:"view",label:"View activity log"}]},
 };
+
+// The sidebar's flat nav array (real screens + divider markers), derived
+// straight from SCREEN_PERMISSIONS's own order and `group` fields above —
+// not a second hand-typed list that can drift out of sync with it. Visibility
+// (which of these a given user actually sees, and which divider survives
+// because at least one item under it does) is still decided at render time
+// by canAccessScreen(), same as always.
+const NAV_ITEMS = (() => {
+  const out = [];
+  let lastGroup;
+  Object.keys(SCREEN_PERMISSIONS).forEach(id => {
+    const group = SCREEN_PERMISSIONS[id].group;
+    if (group !== lastGroup) { if (group) out.push({ id: "_div_" + group, label: group, divider: true }); lastGroup = group; }
+    out.push({ id, label: SCREEN_PERMISSIONS[id].label });
+  });
+  return out;
+})();
 
 // ── ROLE HIERARCHY ──
 // Defines: which screens each role can see, and which elevated actions they get
@@ -213,5 +247,5 @@ function permsFromScreens(screenIds) {
   return perms;
 }
 
-export { SCREEN_PERMISSIONS, PRESET_ROLES, PRESET_ROLES_DEFAULT, hydratePermissions, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
+export { SCREEN_PERMISSIONS, NAV_ITEMS, PRESET_ROLES, PRESET_ROLES_DEFAULT, hydratePermissions, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
 

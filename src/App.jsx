@@ -13,7 +13,7 @@ import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, subscribeRecipeRealtime, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
-import { canAccessScreen, hydratePermissions } from './data/permissions.js';
+import { canAccessScreen, hydratePermissions, NAV_ITEMS } from './data/permissions.js';
 import { hydrateAppSettings } from './data/appSettings.js';
 import { loadAllConfig } from './lib/dbConfig.js';
 
@@ -68,9 +68,11 @@ function matchMenuPackage(rawName) {
   return match || rawName; // return matched key or original (will fall through as custom)
 }
 
-// Screen id → line-icon name (glyphs live in components/Icons.jsx).
-// Kept as a lookup rather than a field on DEPT_NAV so the nav arrays stay
-// data-only and a screen added in one place picks up an icon here.
+// Screen id → line-icon name (glyphs live in components/Icons.jsx). A purely
+// presentational concern (which SVG glyph a screen gets in THIS app's
+// sidebar), kept separate from permissions.js's SCREEN_PERMISSIONS — that
+// file is the registry of what screens exist, their order/grouping and who
+// can see them; this is just how one of them is drawn here.
 const NAV_ICON = {
   dashboard:"home",        kitchen:"chefHat",       store:"box",
   team:"users",            menus:"fileText",        transport:"truck",
@@ -779,84 +781,6 @@ export default function App() {
     }catch(e){}
   }
 
-  // ── NAV per department ──
-  const DEPT_NAV = {
-    kitchen: [
-      {id:"_divider_k1",label:"KITCHEN",icon:"",divider:true},
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"kitchen",label:"Kitchen",icon:"👨‍🍳"},
-      {id:"menus",label:"Menu Packages",icon:"📜"},
-      {id:"_divider_k2",label:"OPERATIONS",icon:"",divider:true},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
-      {id:"_divider_k3",label:"MANAGEMENT",icon:"",divider:true},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-    ],
-    service: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"dept_service",label:"Service Operations",icon:"🍽️"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"vendors",label:"Vendor Directory",icon:"📇"},
-    ],
-    crockery: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"dept_crockery",label:"Crockery Operations",icon:"🍶"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-    ],
-    beverages: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"dept_beverages",label:"Beverage Operations",icon:"🥤"},
-      {id:"menus",label:"Menu",icon:"📜"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-    ],
-    fruits: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"dept_fruits",label:"Fruit Operations",icon:"🍓"},
-      {id:"menus",label:"Menu",icon:"📜"},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-    ],
-    transport: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
-    ],
-    odc: [
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"dept_odc",label:"ODC Operations",icon:"🏕️"},
-    ],
-    management: [
-      {id:"_divider_kitchen",label:"KITCHEN",icon:"",divider:true},
-      {id:"dashboard",label:"Dashboard",icon:"📊"},
-      {id:"kitchen",label:"Kitchen Hub",icon:"👨‍🍳"},
-      {id:"menus",label:"Menu Packages",icon:"📜"},
-      {id:"_divider_ops",label:"OPERATIONS",icon:"",divider:true},
-      {id:"transport",label:"Transport & Dispatch",icon:"🚛"},
-      {id:"store",label:"Store & Inventory",icon:"📦"},
-      {id:"vendors",label:"Vendor Directory",icon:"📇"},
-      {id:"dept_service",label:"Service Ops",icon:"🍽"},
-      {id:"dept_crockery",label:"Crockery Ops",icon:"🍶"},
-      {id:"dept_beverages",label:"Beverages Ops",icon:"🥤"},
-      {id:"dept_fruits",label:"Fruits Ops",icon:"🍓"},
-      {id:"dept_odc",label:"ODC Operations",icon:"🏕"},
-      {id:"_divider_sales",label:"SALES",icon:"",divider:true},
-      {id:"proposals",label:"Proposals",icon:"📝"},
-      {id:"booked_functions",label:"Booked Functions",icon:"📅"},
-      {id:"sales_catalogue",label:"Sales Catalogue",icon:"🏷️"},
-      {id:"_divider_mgmt",label:"MANAGEMENT",icon:"",divider:true},
-      {id:"team",label:"Team & Attendance",icon:"👥"},
-      {id:"access",label:"Access Manager",icon:"🔐"},
-      {id:"logs",label:"Activity Log",icon:"📋"},
-    ],
-    sales: [
-      {id:"_divider_s1",label:"SALES",icon:"",divider:true},
-      {id:"proposals",label:"Proposals",icon:"📝"},
-      {id:"booked_functions",label:"Booked Functions",icon:"📅"},
-      {id:"sales_catalogue",label:"Sales Catalogue",icon:"🏷️"},
-    ],
-  };
-
   // Department accent colours — kept distinguishable from each other, but all
   // pulled into the cool/indigo family so the sidebar matches the app palette
   // in data/constants.js.
@@ -872,7 +796,7 @@ export default function App() {
     sales:{name:"Sales",icon:"📝",color:"#D9463F"},
   };
 
-  const curNav = activeDept ? (DEPT_NAV[activeDept]||DEPT_NAV.kitchen) : [];
+  const curNav = activeDept ? NAV_ITEMS : [];
   const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
   const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
@@ -932,18 +856,11 @@ export default function App() {
   if(showStaffView) return <StaffView user={currentUser} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
-    // A tab granted here via Access Manager is a no-op unless it's also
-    // listed below — canAccessScreen can only SUBTRACT an item from this
-    // array, never add one that was never in it. "Menu Packages" permission
-    // being granted but never showing up on a section-tablet login was
-    // exactly this: DEPT_NAV (the regular per-department nav) has always had
-    // a "menus" entry, but this separate, hardcoded tablet nav never did.
-    const TABLET_NAV=[
-      {id:"dashboard",label:"Dashboard"},
-      {id:"kitchen",label:"Kitchen Hub"},
-      {id:"menus",label:"Menu Packages"},
-      {id:"store",label:"Store & Inventory"},
-    ].filter(function(n){ return canAccessScreen(currentUser, n.id); });
+    // Same NAV_ITEMS + canAccessScreen every other login path uses, just
+    // without dividers (this sidebar is a short flat list, not grouped
+    // sections) — whatever's granted in Access Manager shows up here too,
+    // not only whatever someone remembered to also type into a tablet-only list.
+    const TABLET_NAV = NAV_ITEMS.filter(n=>!n.divider && canAccessScreen(currentUser, n.id));
     const _cats = Array.isArray(currentUser.sop_categories) ? currentUser.sop_categories : [];
     const _catObjs = _cats.map(function(c){ return (RECIPE_DB.cats||[]).find(function(x){ return x.id===c; }); }).filter(Boolean);
     const _firstCat = _catObjs[0]||null;
@@ -952,14 +869,16 @@ export default function App() {
     // plate like the admin app, so the chrome no longer changes colour with
     // whichever station happens to be assigned to the tablet.
     const _title = currentUser.name || _catNames || currentUser.section || 'Kitchen';
+    // Every screen beyond Dashboard renders identically to the main app, so
+    // it's the SAME renderScreen (defined below) doing the actual mapping —
+    // one switch statement for every login path, not a second hand-kept copy
+    // that quietly drifts out of sync with it (which is exactly how Menu
+    // Packages went missing here even after it was granted). Dashboard is
+    // the one exception: its "jump to screen" callback has to drive this
+    // tablet's own tabletScreen state, not the admin shell's.
     function tabletContent(scr){
-      switch(scr){
-        case "dashboard": return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
-        case "kitchen": return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
-        case "menus": return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
-        case "store": return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
-        default: return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
-      }
+      if(scr==="dashboard") return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      return renderScreen(scr);
     }
     return (
       // Same shell language as the admin app: ivory ground, a floating sidebar
