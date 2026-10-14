@@ -13,7 +13,7 @@ import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, subscribeRecipeRealtime, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
-import { canAccessScreen, hydratePermissions, NAV_ITEMS } from './data/permissions.js';
+import { canAccessScreen, hydratePermissions, hydrateScreenDefinitions, NAV_ITEMS } from './data/permissions.js';
 import { hydrateAppSettings } from './data/appSettings.js';
 import { loadAllConfig } from './lib/dbConfig.js';
 
@@ -434,6 +434,7 @@ export default function App() {
         hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydratePermissions(cfg.roleDefinitions);
+        hydrateScreenDefinitions(cfg.screenDefinitions);
         hydrateAppSettings(cfg.appSettings);
         hydrateRecipeData(cfg);
         subscribeRecipeRealtime(supabase);

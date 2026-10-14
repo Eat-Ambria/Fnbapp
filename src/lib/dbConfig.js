@@ -202,6 +202,7 @@ export async function loadAllConfig() {
     salesConfigOptionsRaw,
     homeVenuesRaw,
     roleDefinitionsRaw,
+    screenDefinitionsRaw,
     appSettingsRaw,
   ] = await Promise.all([
     loadTable('vehicles',              [], transformVehicles),
@@ -225,6 +226,7 @@ export async function loadAllConfig() {
     loadTable('sales_config_options',  [], null),
     loadTable('home_venues',           [], null),
     loadTable('role_definitions',      [], null),
+    loadTable('screen_definitions',    [], null),
     loadTable('app_settings',          [], null),
   ]);
 
@@ -353,6 +355,7 @@ export async function loadAllConfig() {
     teamDepts,
     homeVenues,
     roleDefinitions: roleDefinitionsRaw || [],
+    screenDefinitions: screenDefinitionsRaw || [],
     appSettings: appSettingsRaw || [],
   };
 }

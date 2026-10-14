@@ -4,25 +4,21 @@
 // Custom overrides: toggle individual screens on/off per user
 
 // ── SCREEN DEFINITIONS — the ONE registry of every tab in the app ──
-// This is the single source of truth for what a screen is called, which
-// emoji represents it in Access Manager's own permission grid, which group
-// it falls under in the app's sidebar, and which fine-grained permissions
-// exist under it. Nothing else in the codebase re-lists these screens,
-// their order, or their grouping — App.jsx's sidebar nav (every login path:
-// department logins, section tablets, management, sales) is built by
-// walking THIS object's own key order and `group` fields, then filtering
-// through canAccessScreen() below. Add a screen here — in whatever position
-// among whichever group it belongs in — and it exists everywhere at once;
-// there is nowhere else that needs editing for it to become grantable and
-// visible. `group` is the sidebar section header an item falls under
-// (undefined = the top, ungrouped section); consecutive entries sharing a
-// group render under one header, and a group with nothing visible in it
-// (nothing granted to this user) simply doesn't appear.
-const SCREEN_PERMISSIONS = {
+// What a screen is CALLED, drawn and grouped (label/icon/group/order) is now
+// DB-backed — editable from Access Manager's "Manage Screens", same pattern
+// as role_definitions/PRESET_ROLES below. SCREEN_PERMISSIONS_DEFAULT is only
+// the fallback (used before Supabase answers, or if it's unreachable); the
+// live SCREEN_PERMISSIONS + NAV_ITEMS are rebuilt from it by
+// hydrateScreenDefinitions() every time the screen_definitions table
+// changes. What CANNOT move to the DB is each screen's `perms` list — those
+// are fine-grained actions wired into that screen's actual component code,
+// not something a generic admin screen can safely invent — so `perms`
+// always comes from this fallback object, label/icon/group/order/hidden
+// never do once hydration has run.
+const SCREEN_PERMISSIONS_DEFAULT = {
   dashboard:      {label:"Dashboard",           icon:"📊", perms:[{id:"dashboard.view",type:"view",label:"View dashboard KPIs"},{id:"dashboard.closure_report",type:"action",label:"Generate closure report"},{id:"dashboard.export",type:"action",label:"Export reports"}]},
   kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"}]},
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
-
   transport:      {label:"Transport",           icon:"🚛", group:"OPERATIONS", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
   store:          {label:"Store & Inventory",   icon:"📦", group:"OPERATIONS", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
   vendors:        {label:"Vendor Directory",    icon:"📇", group:"OPERATIONS", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
@@ -31,32 +27,79 @@ const SCREEN_PERMISSIONS = {
   dept_beverages: {label:"Beverages Ops",       icon:"🥤", group:"OPERATIONS", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
   dept_fruits:    {label:"Fruits Ops",          icon:"🍓", group:"OPERATIONS", perms:[{id:"dept_fruits.view",type:"view",label:"View fruits"},{id:"dept_fruits.check",type:"action",label:"Complete checklist"}]},
   dept_odc:       {label:"ODC Operations",      icon:"🏕", group:"OPERATIONS", perms:[{id:"dept_odc.view",type:"view",label:"View ODC"},{id:"dept_odc.check",type:"action",label:"Complete checklist"}]},
-
   proposals:        {label:"Proposals",           icon:"📝", group:"SALES", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
   sales_catalogue:  {label:"Sales Catalogue",     icon:"🏷️", group:"SALES", perms:[{id:"sales_catalogue.view",type:"view",label:"View sales catalogue"},{id:"sales_catalogue.edit",type:"action",label:"Edit item meta/images"}]},
   booked_functions: {label:"Booked Functions",    icon:"📅", group:"SALES", perms:[{id:"booked_functions.view",type:"view",label:"View booked functions"},{id:"booked_functions.edit_menu",type:"action",label:"Edit menu/service items"}]},
-
   team:           {label:"Team",                icon:"👥", group:"MANAGEMENT", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"}]},
   access:         {label:"Access Manager",      icon:"🔐", group:"MANAGEMENT", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
   logs:           {label:"Activity Log",        icon:"📋", group:"MANAGEMENT", perms:[{id:"logs.view",type:"view",label:"View activity log"}]},
 };
 
-// The sidebar's flat nav array (real screens + divider markers), derived
-// straight from SCREEN_PERMISSIONS's own order and `group` fields above —
-// not a second hand-typed list that can drift out of sync with it. Visibility
-// (which of these a given user actually sees, and which divider survives
-// because at least one item under it does) is still decided at render time
-// by canAccessScreen(), same as always.
-const NAV_ITEMS = (() => {
+// Live, mutated in place (same reasoning as PRESET_ROLES below) so every
+// `import { SCREEN_PERMISSIONS }` binding keeps seeing hydrateScreenDefinitions()'s edits.
+const SCREEN_PERMISSIONS = { ...SCREEN_PERMISSIONS_DEFAULT };
+
+// The sidebar's flat nav array (real screens + divider markers). A `let`,
+// not a `const` — hydrateScreenDefinitions() reassigns it whenever
+// screen_definitions changes, and every importer reads the live binding.
+let NAV_ITEMS = [];
+
+function buildNavItems() {
   const out = [];
   let lastGroup;
   Object.keys(SCREEN_PERMISSIONS).forEach(id => {
-    const group = SCREEN_PERMISSIONS[id].group;
-    if (group !== lastGroup) { if (group) out.push({ id: "_div_" + group, label: group, divider: true }); lastGroup = group; }
-    out.push({ id, label: SCREEN_PERMISSIONS[id].label });
+    const sp = SCREEN_PERMISSIONS[id];
+    if (sp.hidden) return;
+    if (sp.group !== lastGroup) { if (sp.group) out.push({ id: "_div_" + sp.group, label: sp.group, divider: true }); lastGroup = sp.group; }
+    out.push({ id, label: sp.label });
   });
   return out;
-})();
+}
+
+// Rebuilds SCREEN_PERMISSIONS (label/icon/group/order/hidden only — `perms`
+// always comes from the fallback, see the comment above) from
+// SCREEN_PERMISSIONS_DEFAULT + whatever's in the `screen_definitions` table,
+// then rebuilds NAV_ITEMS from the result. DB rows always win on order too:
+// hydrated screens are walked in the table's own sort_order, with any
+// fallback-only key (a screen added in code but never seeded to the table
+// yet) appended after, in its default position, so a new screen never goes
+// missing just because nobody has saved Manage Screens since it shipped.
+function hydrateScreenDefinitions(screenDefRows) {
+  Object.keys(SCREEN_PERMISSIONS).forEach(k => delete SCREEN_PERMISSIONS[k]);
+  Object.keys(SCREEN_PERMISSIONS_DEFAULT).forEach(k => { SCREEN_PERMISSIONS[k] = { ...SCREEN_PERMISSIONS_DEFAULT[k] }; });
+  const rows = Array.isArray(screenDefRows) ? screenDefRows : [];
+  const known = rows.filter(r => r && r.screen_key && SCREEN_PERMISSIONS_DEFAULT[r.screen_key])
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const seen = new Set();
+  known.forEach(r => {
+    const k = r.screen_key;
+    seen.add(k);
+    SCREEN_PERMISSIONS[k] = {
+      ...SCREEN_PERMISSIONS[k],
+      label: r.label || SCREEN_PERMISSIONS[k].label,
+      icon: r.icon || SCREEN_PERMISSIONS[k].icon,
+      group: r.group_name || undefined,
+      hidden: !!r.is_hidden,
+    };
+  });
+  // Reorder SCREEN_PERMISSIONS's own key order to match (object key order is
+  // what buildNavItems() walks) — known keys first in their saved order,
+  // then any default-only key never seeded to the table yet.
+  const ordered = {};
+  known.forEach(r => { ordered[r.screen_key] = SCREEN_PERMISSIONS[r.screen_key]; });
+  Object.keys(SCREEN_PERMISSIONS_DEFAULT).forEach(k => { if (!seen.has(k)) ordered[k] = SCREEN_PERMISSIONS[k]; });
+  Object.keys(SCREEN_PERMISSIONS).forEach(k => delete SCREEN_PERMISSIONS[k]);
+  Object.assign(SCREEN_PERMISSIONS, ordered);
+  NAV_ITEMS = buildNavItems();
+}
+hydrateScreenDefinitions([]); // seed NAV_ITEMS from the fallback before the first real hydrate call lands
+
+// Optimistic in-memory update right after a successful Supabase write, so
+// Access Manager doesn't need a full reload to see its own change reflected
+// everywhere (nav, canAccessScreen, etc.) in the same session — mirrors
+// setRoleDefinition/deleteRoleDefinition below, just re-running the full
+// hydrate since order/grouping can shift from a single row's edit.
+function setScreenDefinitions(rows) { hydrateScreenDefinitions(rows); }
 
 // ── ROLE HIERARCHY ──
 // Defines: which screens each role can see, and which elevated actions they get
@@ -213,6 +256,13 @@ function canAccessScreen(user, screenId) {
   if (!user) return false;
   if (user.role === "admin") return true;
 
+  // A screen an admin has hidden via Manage Screens is off for everyone else,
+  // no matter what's otherwise granted — checked AFTER the admin bypass above,
+  // so hiding a screen (even "access" itself) can never lock an admin out of
+  // undoing it.
+  const hiddenSp = SCREEN_PERMISSIONS[screenId];
+  if (hiddenSp && hiddenSp.hidden) return false;
+
   // 1. Explicit permission array — check if ANY perm for that screen is enabled
   if (user.permissions && user.permissions.length > 0) {
     const sp = SCREEN_PERMISSIONS[screenId];
@@ -247,5 +297,5 @@ function permsFromScreens(screenIds) {
   return perms;
 }
 
-export { SCREEN_PERMISSIONS, NAV_ITEMS, PRESET_ROLES, PRESET_ROLES_DEFAULT, hydratePermissions, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
+export { SCREEN_PERMISSIONS, SCREEN_PERMISSIONS_DEFAULT, NAV_ITEMS, PRESET_ROLES, PRESET_ROLES_DEFAULT, hydratePermissions, hydrateScreenDefinitions, setScreenDefinitions, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, hasPerm, canAccessScreen, getScreensForRole, permsFromScreens };
 

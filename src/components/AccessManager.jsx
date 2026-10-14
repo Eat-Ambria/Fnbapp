@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { C, ALL_DEPARTMENTS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
-import { SCREEN_PERMISSIONS, PRESET_ROLES, PRESET_ROLES_DEFAULT, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
+import { SCREEN_PERMISSIONS, SCREEN_PERMISSIONS_DEFAULT, setScreenDefinitions, PRESET_ROLES, PRESET_ROLES_DEFAULT, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
 import { VENUE_OPTIONS, HOME_VENUES } from '../data/staffData.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
@@ -107,6 +107,59 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     deleteRoleDefinition(key);
     logActivity('access','Role deleted: '+r.label,'role_delete',{roleKey:key},currentUser?.id);
     bump();
+  }
+
+  // ── Screen Manager ("Manage Screens") ──
+  // Unlike roles, a screen's KEY always corresponds to a real component
+  // (renderScreen()'s switch in App.jsx) — there's no meaningful "create a
+  // brand-new screen from here" or "delete one" the way there is for roles.
+  // What IS editable: label, icon, which group header it falls under
+  // (reorder/regroup), and whether it's hidden app-wide. The full list is
+  // saved as one batch, same pattern as the Service Checklist Manager below.
+  const [showScreenManager, setShowScreenManager] = useState(false);
+  const [screenItems, setScreenItems] = useState([]); // [{screen_key,label,icon,group,hidden}]
+  const [screenSaving, setScreenSaving] = useState(false);
+  function openScreenManager(){
+    setScreenItems(Object.keys(SCREEN_PERMISSIONS).map(function(k){
+      var sp = SCREEN_PERMISSIONS[k];
+      return {screen_key:k, label:sp.label, icon:sp.icon||'', group:sp.group||'', hidden:!!sp.hidden};
+    }));
+    setShowScreenManager(true);
+  }
+  function moveScreenItem(idx,dir){
+    setScreenItems(function(p){
+      var arr=[...p]; var swap=idx+dir;
+      if(swap<0||swap>=arr.length) return arr;
+      var t=arr[idx]; arr[idx]=arr[swap]; arr[swap]=t;
+      return arr;
+    });
+  }
+  function updateScreenItem(idx,patch){
+    setScreenItems(function(p){ var arr=[...p]; arr[idx]={...arr[idx],...patch}; return arr; });
+  }
+  async function saveScreenItems(){
+    setScreenSaving(true);
+    try{
+      var rows = screenItems.map(function(it,i){
+        var fallback = SCREEN_PERMISSIONS_DEFAULT[it.screen_key]||{};
+        return {
+          screen_key: it.screen_key,
+          label: (it.label||'').trim() || fallback.label || it.screen_key,
+          icon: (it.icon||'').trim() || fallback.icon || '',
+          group_name: (it.group||'').trim() || null,
+          sort_order: i,
+          is_builtin: true,
+          is_hidden: !!it.hidden,
+          updated_at: new Date().toISOString(),
+        };
+      });
+      var {error} = await supabase.from('screen_definitions').upsert(rows,{onConflict:'screen_key'});
+      if(error) throw error;
+      setScreenDefinitions(rows);
+      logActivity('access','Screens updated ('+rows.length+' items)','screens_update',{},currentUser?.id);
+      setShowScreenManager(false);
+    }catch(e){ window.alert('Save failed: '+e.message); }
+    setScreenSaving(false);
   }
 
   // ── Service Checklist Manager — master control for Service Ops' checklist
@@ -541,6 +594,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <button onClick={exportCSV} disabled={staff.length===0} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:staff.length===0?C.faint:C.muted,fontSize:13,fontWeight:600,cursor:staff.length===0?"not-allowed":"pointer"}}>⬇ {T2("Export CSV")}</button>
           {canAdd&&<button onClick={()=>setShowMasterData(true)} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🗂 {T2("Manage Sections & Venues")}</button>}
           {canAdd&&<button onClick={()=>{setShowRoleManager(true);setRoleEditKey(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🧩 {T2("Manage Roles")}</button>}
+          {canAdd&&<button onClick={openScreenManager} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>🧭 {T2("Manage Screens")}</button>}
           {canAdd&&<button onClick={openChecklistManager} style={{padding:"10px 16px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>📋 {T2("Manage Service Checklist")}</button>}
           {canAdd&&<button onClick={openAdd} style={{padding:"10px 20px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ {T2("Add Staff")}</button>}
         </div>
@@ -1014,6 +1068,47 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* ══════ SCREEN MANAGER ("Manage Screens") ══════ */}
+      <Modal open={showScreenManager} onClose={()=>setShowScreenManager(false)} wide>
+        <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:17,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>🧭 {T2("Manage Screens")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Reorder, rename, regroup, or hide any tab in the app — this is the same list every login (department, section tablet, sales, management) builds its sidebar from. A screen's key is tied to real app code, so there's no add/delete here — \"Hide\" is how you remove one for everybody without touching code.")}</div>
+        </div>
+        <div style={{padding:"18px 24px",maxHeight:"70vh",overflowY:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:"56px 40px 1fr 1fr 70px 90px",gap:8,padding:"0 4px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",letterSpacing:.5}}>
+            <span></span><span>{T2("Icon")}</span><span>{T2("Label")}</span><span>{T2("Group")}</span><span>{T2("Visible")}</span><span></span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {screenItems.map(function(it,idx){
+              var isBuiltin = !!(SCREEN_PERMISSIONS_DEFAULT[it.screen_key]);
+              return (
+                <div key={it.screen_key} style={{display:"grid",gridTemplateColumns:"56px 40px 1fr 1fr 70px 90px",gap:8,alignItems:"center",padding:"8px 4px",borderRadius:10,border:`1px solid ${C.border}`,background:it.hidden?C.darkCard:C.bg,opacity:it.hidden?.6:1}}>
+                  <div style={{display:"flex",gap:3}}>
+                    <button onClick={function(){moveScreenItem(idx,-1);}} disabled={idx===0} title={T2("Move up")} style={{padding:"5px 7px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:idx===0?C.faint:C.muted,fontSize:11,cursor:idx===0?"not-allowed":"pointer"}}>↑</button>
+                    <button onClick={function(){moveScreenItem(idx,1);}} disabled={idx===screenItems.length-1} title={T2("Move down")} style={{padding:"5px 7px",borderRadius:6,background:C.darkCard,border:`1px solid ${C.border}`,color:idx===screenItems.length-1?C.faint:C.muted,fontSize:11,cursor:idx===screenItems.length-1?"not-allowed":"pointer"}}>↓</button>
+                  </div>
+                  <input value={it.icon} onChange={function(e){updateScreenItem(idx,{icon:e.target.value});}} maxLength={4} style={{...fld,minHeight:34,padding:"6px",textAlign:"center",fontSize:16}}/>
+                  <div>
+                    <input value={it.label} onChange={function(e){updateScreenItem(idx,{label:e.target.value});}} style={{...fld,minHeight:34,padding:"6px 10px"}}/>
+                    {!isBuiltin&&<div style={{fontSize:9,color:C.faint,marginTop:2}}>{it.screen_key}</div>}
+                  </div>
+                  <input value={it.group} onChange={function(e){updateScreenItem(idx,{group:e.target.value});}} placeholder={T2("(ungrouped)")} style={{...fld,minHeight:34,padding:"6px 10px"}}/>
+                  <div style={{display:"flex",justifyContent:"center"}}>
+                    <PToggle on={!it.hidden} onChange={function(){updateScreenItem(idx,{hidden:!it.hidden});}}/>
+                  </div>
+                  <div style={{fontSize:10,color:it.hidden?C.red:C.faint,textAlign:"right",paddingRight:4}}>{it.hidden?T2("Hidden"):""}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{fontSize:11,color:C.amber,marginBottom:14}}>⚠ {T2("Hiding a screen removes it for everyone except Admin — Admin can always come back here to turn it back on.")}</div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={saveScreenItems} disabled={screenSaving} style={{flex:1,padding:"12px",borderRadius:10,background:C.gold,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",opacity:screenSaving?.6:1}}>{screenSaving?T2("Saving…"):"✓ "+T2("Save Screens")}</button>
+            <button onClick={function(){setShowScreenManager(false);}} style={{padding:"12px 20px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+          </div>
         </div>
       </Modal>
 
