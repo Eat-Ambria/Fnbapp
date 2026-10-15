@@ -2509,6 +2509,10 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       {(()=>{
         const menuIssues = [...todayEvs,...tomorrowEvs].filter(ev=>{
           if(ev.custom_menu_confirmed) return false;
+          // A third-party caterer on-site means this kitchen was never going
+          // to cook anything for it — "nothing to prep" is correct, not a
+          // warning sign, so it shouldn't nag admin to go build a menu here.
+          if(ev.external_caterer) return false;
           const pkg = (ev.menuPackage||ev.menu_package||"");
           const menuLen = Array.isArray(ev.menu) ? ev.menu.length : 0;
           return menuLen === 0 || /custom/i.test(pkg);
@@ -2529,18 +2533,18 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               key={"menu-warn-"+ev.id}
               toneName="danger"
               icon="alert"
-              style={{marginBottom:12}}
+              style={{marginBottom:8,gap:9,padding:"9px 13px 9px 15px"}}
               title={
-                <span style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:15}}>
+                <span style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:13}}>
                   <span>{heading}</span>
-                  <span style={{padding:"2px 10px",borderRadius:999,background:K.danger,color:"#FFFFFF",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>
+                  <span style={{padding:"1px 8px",borderRadius:999,background:K.danger,color:"#FFFFFF",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>
                     {isToday?T2("Today"):T2("Tomorrow")}
                   </span>
                 </span>
               }
               sub={
                 <>
-                  <span style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:6}}>
+                  <span style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:4}}>
                     {[{i:"plate",t:ev.guest||T2("Function"),b:true},
                       {i:"building",t:ev.venue||""},
                       {i:"calendar",t:ev.date},
@@ -2548,14 +2552,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       {i:"users",t:`${ev.pax} ${T2("pax")}`},
                       ...(pkgNote?[{i:"box",t:pkg}]:[])
                     ].filter(c=>c.t).map((c,ci)=>(
-                      <span key={ci} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:999,
-                        background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,fontSize:12,
+                      <span key={ci} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"2px 8px",borderRadius:999,
+                        background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,fontSize:11,
                         fontWeight:c.b?700:500,color:K.hdrTitle,whiteSpace:"nowrap"}}>
-                        <Icon name={c.i} size={12} strokeWidth={1.9}/>{c.t}
+                        <Icon name={c.i} size={11} strokeWidth={1.9}/>{c.t}
                       </span>
                     ))}
                   </span>
-                  <span style={{display:"block",marginTop:8,fontSize:12.5,color:K.textBody}}>{body}</span>
+                  <span style={{display:"block",marginTop:5,fontSize:11.5,color:K.textBody}}>{body}</span>
                 </>
               }
               right={
