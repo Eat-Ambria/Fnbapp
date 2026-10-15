@@ -204,7 +204,7 @@ export default function App() {
     const pkgDishes = e.menuPackage && MENU_PACKAGES[e.menuPackage] ? MENU_PACKAGES[e.menuPackage] : null;
     const isAutoResolved = isLms && pkgDishes && Array.isArray(e.menu) && e.menu.length === pkgDishes.length && e.menu.every(function(d,i){ return d === pkgDishes[i]; });
     const menuToStore = isAutoResolved ? [] : (e.menu||[]);
-    return {id:e.id,guest:e.guest,venue:e.venue,date:e.date,time:e.time,type:e.type,pax:+e.pax||0,veg:+e.veg||0,nonveg:+e.nonveg||0,menu_package:e.menuPackage||null,menu:menuToStore,menu_section_overrides:e.menu_section_overrides||{},special:e.special||null,extras:e.extras||[],odc_location:e.odc_location||null,odc_address:e.odc_address||null,odc_contact_phone:e.odc_contact_phone||null,odc_transport_cost:e.odc_transport_cost||null,odc_lead:e.odc_lead||null,site_recce:e.site_recce||null,odc_menu_confirmed:e.odc_menu_confirmed??null,outsourced_dishes:e.outsourced_dishes||[]};
+    return {id:e.id,guest:e.guest,venue:e.venue,date:e.date,time:e.time,type:e.type,pax:+e.pax||0,veg:+e.veg||0,nonveg:+e.nonveg||0,menu_package:e.menuPackage||null,menu:menuToStore,menu_section_overrides:e.menu_section_overrides||{},special:e.special||null,extras:e.extras||[],odc_location:e.odc_location||null,odc_address:e.odc_address||null,odc_contact_phone:e.odc_contact_phone||null,odc_transport_cost:e.odc_transport_cost||null,odc_lead:e.odc_lead||null,site_recce:e.site_recce||null,odc_menu_confirmed:e.odc_menu_confirmed??null,outsourced_dishes:e.outsourced_dishes||[],external_caterer:!!e.external_caterer,external_caterer_name:e.external_caterer_name||null};
   }
   const [events,setEvents_raw]       = useState([]);
   const setEvents = (updater) => {
