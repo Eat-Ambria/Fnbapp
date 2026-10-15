@@ -226,6 +226,7 @@ function transformVenueContract(row: any, masters: any): any[] {
     veg: isNonVeg ? 0 : pax,
     nonveg: isNonVeg ? pax : 0,
     menu_package: menuName,
+    lms_menu_package: menuName,  // last-reported-by-LMS snapshot, see preserve check below
     menu: [],  // resolved client-side from menu_package via MENU_PACKAGES
     special: null,
     extras: [],
@@ -283,6 +284,7 @@ function transformCateringContract(row: any, masters: any): any[] {
     veg: isNonVeg ? 0 : pax,
     nonveg: isNonVeg ? pax : 0,
     menu_package: menuName,
+    lms_menu_package: menuName,  // last-reported-by-LMS snapshot, see preserve check below
     menu: [],
     special: null,
     extras: [],
@@ -475,7 +477,7 @@ Deno.serve(async (req) => {
       const batchIds = batch.map(e => e.id);
       const { data: existing, error: exErr } = await sb
         .from("events")
-        .select("id, menu, menu_package, custom_menu_confirmed")
+        .select("id, menu, menu_package, custom_menu_confirmed, lms_menu_package")
         .in("id", batchIds);
       if (exErr) console.error(`Preserve fetch batch ${i} error:`, exErr);
       const customizedIds = new Set<string>();
@@ -500,7 +502,22 @@ Deno.serve(async (req) => {
         const pkg = ex.menu_package;
         const isCustomPkgName = pkg === null || pkg === "" || pkg === "(Custom)" || pkg === "Custom";
         const hasCustomMenu = isCustomPkgName && Array.isArray(ex.menu) && ex.menu.length > 0;
-        if (isConfirmed || hasCustomMenu) customizedIds.add(ex.id);
+        // Both checks above only ever caught the admin going fully custom/
+        // blank or explicitly confirming. Picking a different NAMED package
+        // in Dashboard (e.g. "Double Magnum Non Veg" -> "...Veg") matched
+        // neither, so the row went through the plain upsert below with the
+        // LMS's original package name and silently reverted the admin's
+        // change on the very next sync (every app boot, 15-min cooldown).
+        // lms_menu_package is a snapshot of what WE last wrote from the LMS
+        // side only (see transformVenueContract/transformCateringContract) —
+        // if the live menu_package has since drifted from that snapshot, it
+        // was the admin who moved it, not a prior sync, so preserve it the
+        // same way. Once a row has been through this fix, this is the only
+        // check that still fires on every later admin repick; the two above
+        // stay for rows that go fully custom or get explicitly confirmed.
+        const lastSyncedPkg = ex.lms_menu_package;
+        const hasPackageOverride = lastSyncedPkg != null && pkg !== null && pkg !== lastSyncedPkg;
+        if (isConfirmed || hasCustomMenu || hasPackageOverride) customizedIds.add(ex.id);
       });
 
       const safeRows = batch.filter((ev) => !customizedIds.has(ev.id));

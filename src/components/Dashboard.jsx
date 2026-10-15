@@ -290,6 +290,46 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   // the very event just created would vanish the moment its realtime echo
   // arrived. A timestamp+random id needs no knowledge of existing ids at all.
   function genId(){ return `FP-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
+  // Switching the menu package here used to only ever touch events.menu/
+  // menu_package (the Kitchen-only mirror) — event_items, the actual source
+  // of truth Booked Functions' Items tab reads, never heard about it, so the
+  // new package silently never showed up there. Sync it the same way
+  // Booked Functions' own "Load package defaults" does: additive for dishes
+  // the new package wants and doesn't have yet, and also drop whatever
+  // belonged ONLY to the old package and isn't in the new one — anything the
+  // admin added beyond the package (add-ons, one-off custom dishes) was
+  // never part of the old package's list either, so it's always left alone.
+  async function syncEventItemsOnPackageChange(eventId, prevPkgName, nextPkgName){
+    const newDishes = MENU_PACKAGES[nextPkgName]||[];
+    if(newDishes.length===0) return;
+    try{
+      // A locked Function Plan freezes the menu entirely (see EventMenuBuilderView's
+      // blockIfMenuLocked) — don't silently rewrite it out from under that lock.
+      const {data:fpRow} = await supabase.from('event_function_plans').select('locked').eq('event_id',eventId).maybeSingle();
+      if(fpRow&&fpRow.locked) return;
+      const {data:rows,error} = await supabase.from('event_items').select('dish_name').eq('event_id',eventId);
+      if(error) throw error;
+      const existing = rows||[];
+      const oldDishes = new Set(MENU_PACKAGES[prevPkgName]||[]);
+      const newSet = new Set(newDishes);
+      const existingNames = new Set(existing.map(r=>r.dish_name));
+      const toRemove = existing.filter(r=>oldDishes.has(r.dish_name)&&!newSet.has(r.dish_name)).map(r=>r.dish_name);
+      if(toRemove.length){
+        const {error:delErr} = await supabase.from('event_items').delete().eq('event_id',eventId).in('dish_name',toRemove);
+        if(delErr) throw delErr;
+      }
+      const remainingCount = existing.length-toRemove.length;
+      const toAdd = newDishes.filter(d=>!existingNames.has(d));
+      if(toAdd.length){
+        const insRows = toAdd.map((d,i)=>({event_id:eventId,dish_name:d,is_addon:false,ordering:remainingCount+i}));
+        const {error:insErr} = await supabase.from('event_items').insert(insRows);
+        if(insErr) throw insErr;
+      }
+      if(toRemove.length||toAdd.length){
+        await supabase.from('events').update({event_items_initialized:true}).eq('id',eventId);
+      }
+    }catch(e){ console.error('[Dashboard] syncEventItemsOnPackageChange failed:',e); }
+  }
   function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
   function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
   function saveForm(){
@@ -303,7 +343,12 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       external_caterer_name: form.external_caterer ? (form.external_caterer_name||null) : null,
       ...(formIsODC ? {odc_location:form.odc_location, odc_address:form.odc_address, odc_contact_phone:form.odc_contact_phone, odc_lead:form.odc_lead, site_recce:form.site_recce, odc_menu_confirmed:mi.length>0} : {})
     };
-    if(editId){setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);}else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
+    if(editId){
+      const prevPkg = (events||[]).find(e=>e.id===editId)?.menuPackage||"";
+      setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));
+      logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);
+      if(form.menuPackage&&form.menuPackage!==prevPkg&&MENU_PACKAGES[form.menuPackage]) syncEventItemsOnPackageChange(editId,prevPkg,form.menuPackage);
+    }else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
     setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setEditId(null);
   }
   function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);}
