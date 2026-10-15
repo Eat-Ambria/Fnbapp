@@ -9,7 +9,7 @@ import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
-import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, resolveDishStore } from '../data/recipeData.js';
+import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, getIngrForYield, getBgDemandForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
 import { K, type } from '../utils/theme.js';
 
@@ -1238,8 +1238,46 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return { totalQty: existing.totalQty + addQty, unit: existing.unit };
   }
 
+  // kg/L pass through 1:1 (density assumption, same as Kitchen Hub's bg-demand
+  // unit handling); gm/ml convert /1000; anything else (pcs, tsp, bunch...)
+  // can't drive a yield-based expansion.
+  function bgQtyToKg(qty, unit) {
+    const u = String(unit || 'kg').toLowerCase();
+    if (u === 'kg' || u === 'l') return qty;
+    if (u === 'gm' || u === 'ml') return qty / 1000;
+    return null;
+  }
   function buildEventBags(evList) {
     const evBags = {};
+    function mergeIngredients(evId, sec, meta, ingList, isNew, pax) {
+      if (!ingList || ingList.length === 0) return;
+      if (!evBags[evId].sections[sec]) evBags[evId].sections[sec] = { items: {}, meta };
+      ingList.forEach(ing => {
+        const k = ing.n;
+        const rawQty = isNew ? ing.q : ing.q * pax;
+        if (!evBags[evId].sections[sec].items[k]) {
+          const norm = normalizeToBaseUnit(rawQty, ing.u);
+          evBags[evId].sections[sec].items[k] = {
+            name: ing.n,
+            hindi: ing.h || "",
+            unit: norm.unit,
+            totalQty: norm.qty,
+            // 9D — preserve inv metadata so shortage build can use ops_inventory_id directly
+            _type: ing._type || null,
+            ops_inventory_id: ing.ops_inventory_id || null,
+          };
+        } else {
+          const merged = addQtyWithUnitNorm(evBags[evId].sections[sec].items[k], rawQty, ing.u);
+          evBags[evId].sections[sec].items[k].totalQty = merged.totalQty;
+          evBags[evId].sections[sec].items[k].unit = merged.unit;
+          // 9D — if this contributing row is inv, promote the bucket to inv
+          if (!evBags[evId].sections[sec].items[k]._type && ing._type === 'inv') {
+            evBags[evId].sections[sec].items[k]._type = 'inv';
+            evBags[evId].sections[sec].items[k].ops_inventory_id = ing.ops_inventory_id || null;
+          }
+        }
+      });
+    }
     evList.forEach(ev => {
       const pax = +ev.pax || 0;
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
@@ -1279,35 +1317,28 @@ function StoreModule({events, lang="en", currentUser=null}) {
               ingr = [{ n: store.ops_item_name, h: store.ops_item_hindi || "", q: (+store.qty_per_cover || 1) * pax, u: store.ops_item_unit || "Pieces", _newFmt: true, _type: 'inv', ops_inventory_id: store.ops_inventory_id || null }];
             }
           }
+          // A dish can reference a shared base gravy ("200g Makhani Gravy per
+          // cover") instead of listing its own raw ingredients — getIngrForDish
+          // filters those type='bg' rows out (same as Kitchen Hub/Event Day's
+          // resolvers), which left Store never shopping for the gravy's own
+          // ingredients at all. Expand each bg reference into its real
+          // ingredients, scaled to THIS dish's own share — the expansion is
+          // linear in kg, so summing each dish's own share here equals
+          // expanding the day's combined gravy demand once.
+          getBgDemandForDish(dishName, pax).forEach(bgRef => {
+            const kgEq = bgQtyToKg(bgRef.qty, bgRef.unit);
+            if (kgEq == null || kgEq <= 0) return;
+            const bgIngr = getIngrForYield(bgRef.bgName, kgEq);
+            if (!bgIngr || !bgIngr.length) return;
+            const bgCat = getCatForDish(bgRef.bgName);
+            const bgSec = bgCat.name;
+            const bgMeta = { color: bgCat.color || C.muted, icon: bgCat.icon || "🍽" };
+            mergeIngredients(ev.id, bgSec, bgMeta, bgIngr.filter(i => !i._isSection && i.q > 0), true, pax);
+          });
         }
         if (!ingr || ingr.length === 0) return;
         const isNew = ingr[0]?._newFmt;
-        if (!evBags[ev.id].sections[sec]) evBags[ev.id].sections[sec] = { items: {}, meta };
-        ingr.forEach(ing => {
-          const k = ing.n;
-          const rawQty = isNew ? ing.q : ing.q * pax;
-          if (!evBags[ev.id].sections[sec].items[k]) {
-            const norm = normalizeToBaseUnit(rawQty, ing.u);
-            evBags[ev.id].sections[sec].items[k] = {
-              name: ing.n,
-              hindi: ing.h || "",
-              unit: norm.unit,
-              totalQty: norm.qty,
-              // 9D — preserve inv metadata so shortage build can use ops_inventory_id directly
-              _type: ing._type || null,
-              ops_inventory_id: ing.ops_inventory_id || null,
-            };
-          } else {
-            const merged = addQtyWithUnitNorm(evBags[ev.id].sections[sec].items[k], rawQty, ing.u);
-            evBags[ev.id].sections[sec].items[k].totalQty = merged.totalQty;
-            evBags[ev.id].sections[sec].items[k].unit = merged.unit;
-            // 9D — if this contributing row is inv, promote the bucket to inv
-            if (!evBags[ev.id].sections[sec].items[k]._type && ing._type === 'inv') {
-              evBags[ev.id].sections[sec].items[k]._type = 'inv';
-              evBags[ev.id].sections[sec].items[k].ops_inventory_id = ing.ops_inventory_id || null;
-            }
-          }
-        });
+        mergeIngredients(ev.id, sec, meta, ingr, isNew, pax);
       });
     });
     return evBags;
