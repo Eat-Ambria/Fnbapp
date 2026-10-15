@@ -1244,9 +1244,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
       const pax = +ev.pax || 0;
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
       // Outsourced dishes (Build Menu/Menu Builder toggle) are vendor-supplied —
-      // their ingredients aren't shopped for or issued from Store.
+      // their ingredients aren't shopped for or issued from Store. A whole
+      // event flagged "third-party caterer on-site" is the same thing at the
+      // event level: this kitchen cooks none of it, so none of its menu
+      // should add to Store's shopping/issue demand either.
       const outsourcedSet = new Set(safeArr(ev.outsourced_dishes));
-      safeArr(ev.menu).filter(dishName => !outsourcedSet.has(dishName)).forEach(dishName => {
+      const isExternalCaterer = !!ev.external_caterer;
+      safeArr(ev.menu).filter(dishName => !isExternalCaterer && !outsourcedSet.has(dishName)).forEach(dishName => {
         const isFruitSel = isFruitSelectionDish(dishName);
         const cat = getCatForDish(dishName);
         const sec = isFruitSel ? "Fruits" : cat.name;

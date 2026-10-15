@@ -389,6 +389,10 @@ function EventDayTab({
   // Outsourced dishes (Build Menu/Menu Builder toggle) are dropped here so
   // they never show up in D-1/prep tracking — mirrors KitchenHub.jsx's menuArr.
   function menuArr(ev) {
+    // A third-party caterer on-site means this kitchen cooks none of this
+    // event's menu — same reasoning as outsourced dishes below, just at the
+    // whole-event level.
+    if (ev.external_caterer) return [];
     const m = ev.menu;
     let arr;
     if (Array.isArray(m)) arr = m;

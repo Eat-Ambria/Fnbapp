@@ -25,6 +25,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   // menuArr()), so they should never count toward a vehicle's manifest,
   // loading checklist, or this event's "dishes ready" totals either.
   function menuArr(ev) {
+    // A third-party caterer on-site means this kitchen cooked none of this
+    // event's menu — nothing of ours exists to load onto a vehicle for it,
+    // same reasoning as an outsourced dish below, just at the whole-event level.
+    if (ev.external_caterer) return [];
     const m = ev.menu;
     let arr;
     if (Array.isArray(m)) arr = m;

@@ -177,6 +177,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // ingredient scanning — this is the one place nearly all of Kitchen Hub
   // reads an event's dish list from.
   function menuArr(ev) {
+    // A third-party caterer on-site means this kitchen cooks none of this
+    // event's menu — it should never add dishes to D-1/Event Day prep lists,
+    // Pax Scaling demand, or Base Gravies demand, any more than an
+    // individually outsourced dish does below.
+    if (ev.external_caterer) return [];
     const m = ev.menu;
     let arr;
     if (Array.isArray(m)) arr = m;
