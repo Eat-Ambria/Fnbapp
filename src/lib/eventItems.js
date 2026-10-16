@@ -69,7 +69,13 @@ function buildEventDeptContext(event, sectionsArr) {
   return { dishNameToPkgDept, sectionOverrideDept };
 }
 
-function resolveDeptForDish(name, ctx) {
+// Exported so EventMenuBuilderView.jsx's own effectiveDeptForDish can delegate
+// here instead of maintaining a hand-duplicated copy of this precedence chain —
+// the two were identical today, but nothing enforced that, and the mirror-
+// healing this file does (syncKitchenMenuMirror/syncAllKitchenMenuMirrors)
+// would silently compute a different `kit` dish list than the live Items tab
+// the next time either one drifted from the other.
+export function resolveDeptForDish(name, ctx) {
   const { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept } = ctx;
   const d = allDishesByName[name];
   const catalogueDept = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;

@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
-import { fetchAllRows } from '../lib/db.js';
+import { fetchAllRows, dbSubscribe } from '../lib/db.js';
 import { TODAY } from '../utils/helpers.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import EventMenuBuilderView from './EventMenuBuilderView.jsx';
@@ -85,6 +85,20 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   }
 
   useEffect(function(){ loadEvents(); loadFpStatuses(); }, []);
+
+  // This screen used to fetch `events`/`event_function_plans` once on mount
+  // with no realtime at all — unlike App.jsx's own `events` state, which does
+  // subscribe. Any menu/package change, "Mark menu built", or FP lock made
+  // elsewhere (Dashboard, Kitchen Hub, this screen's own Menu Builder modal on
+  // a different tab) went unnoticed here until the user navigated away and
+  // back. Full re-fetch on any change — same "small table, cheap to re-pull"
+  // approach App.jsx already uses for menu_packages/role_definitions.
+  useEffect(function(){
+    var u1 = dbSubscribe('events', function(){ loadEvents(); });
+    var u2 = dbSubscribe('event_function_plans', function(){ loadFpStatuses(); });
+    return function(){ u1(); u2(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // not created (no row yet) → made, editable → locked/finalized
   function fpStatusFor(ev) {

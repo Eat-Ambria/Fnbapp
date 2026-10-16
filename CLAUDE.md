@@ -29,23 +29,34 @@ kitchen-tracking state, and append to it when you make a non-obvious change.
    - vite.config.js MUST have: base: '/Fnbapp/'
    - NEVER use /Fnpapp/ — that is wrong
 
-3. **The main app file is src/App.jsx (~9400+ lines)**
-   - It is a single-file React app — all components in one file
-   - Do NOT split it into modules unless explicitly asked
-   - Do NOT create new component files unless explicitly asked
+3. **App.jsx is the shell/router (~1600 lines); screens live in src/components/*.jsx**
+   - This was a single ~9400-line file long ago — it has since been split out.
+   - Do NOT assume App.jsx holds a screen's logic; find the matching component
+     in src/components/ instead (KitchenHub.jsx, StoreModule.jsx, Dashboard.jsx...).
+   - App.jsx still owns top-level state (events, empDb, kitchenTracking,
+     transportQueue), Supabase boot-load, and realtime subscriptions — screens
+     receive that state as props.
 
-4. **PIN login MUST read from live empDb state — NEVER from EMPLOYEE_DB_INIT**
-   - EMPLOYEE_DB_INIT is the static seed data — used ONLY as fallback in useState
-   - empDb is the live state; PINs are persisted via window.storage ("ambria_pins")
-   - LoginScreen receives empDb as a prop
-   - LoginScreen PIN check uses safeArr(empDb).find(...)
-   - KioskAttendance also receives empDb as prop for PIN validation
-   - grep -c "EMPLOYEE_DB_INIT" src/App.jsx should return 2 (definition + useState)
+4. **PIN login MUST read from live empDb state — NEVER from a stale local copy**
+   - EMPLOYEE_DB_INIT (src/data/staffData.js) is static seed data — used ONLY
+     as (a) the useState fallback before Supabase loads, and (b) a gap-filler
+     for any staff id Supabase doesn't have (see App.jsx's `initOnly` merge).
+   - empDb is the live state, backed by the Supabase `staff` table and kept
+     current via a realtime subscription (dbSubscribe('staff', ...) in
+     App.jsx) — NOT by window.storage/localStorage. A PIN or permission change
+     reaches every open session without a reload.
+   - LoginScreen receives empDb as a prop; its PIN check is
+     safeArr(empDb).find(...).
+   - There is no separate kiosk/attendance screen in the current codebase.
 
 5. **empDb persistence chain:**
-   App() useState → initializes from EMPLOYEE_DB_INIT
-   App() useEffect (mount) → loads saved PINs from window.storage("ambria_pins") → merges into empDb
-   setEmpDb() wrapper → extracts PINs → saves to window.storage("ambria_pins")
+   App() useState → initializes from EMPLOYEE_DB_INIT (pre-load fallback only)
+   App() boot load → dbLoad('staff', EMPLOYEE_DB_INIT), merges in any
+     EMPLOYEE_DB_INIT entries Supabase doesn't have
+   Access Manager / Team edits → write straight to the `staff` table
+   App()'s `staff` realtime subscription → patches empDb AND, if the changed
+     row is the logged-in device's own id, currentUser too — so a role/PIN
+     change reaches an already-open session live
    LoginScreen → reads empDb prop → uses live PIN data
 
 6. **Dates MUST use localDateStr() — NEVER .toISOString()**
@@ -69,9 +80,12 @@ Fnbapp/
 ├── .github/workflows/
 │   └── deploy.yml         ← GitHub Pages deploy on push to main
 └── src/
-    ├── App.jsx            ← THE ENTIRE APP (~9400+ lines)
+    ├── App.jsx            ← Shell/router + top-level state + boot load + realtime (~1600 lines)
     ├── main.jsx           ← just renders App
-    └── index.css          ← EMPTY (app injects own styles)
+    ├── index.css          ← EMPTY (app injects own styles)
+    ├── components/        ← one file per screen (KitchenHub.jsx, StoreModule.jsx, Dashboard.jsx, TeamHub.jsx, ...)
+    ├── data/               ← recipeData.js, permissions.js, menuPackages.js, translations.js, constants.js, salesConfig.js
+    └── lib/                ← supabase.js, db.js (dbLoad/dbUpsert/dbSubscribe), eventItems.js, dbConfig.js, menuItemOps.js
 
 ---
 
@@ -92,22 +106,36 @@ Live at: https://Eat-Ambria.github.io/Fnbapp/
 AM001 | Abhi | Admin (Efficiency Manager) | Management | PIN: 0000
 
 All other staff are added by Abhi via Access Manager.
-EMP_DB_INIT should contain ONLY AM001 (clean slate).
+EMPLOYEE_DB_INIT (src/data/staffData.js) is currently an empty array `[]` —
+all staff, including AM001, live only in the Supabase `staff` table now. See
+KNOWN_ISSUES.md for a note on what that means for App.jsx's AM001 boot-seed.
 
 ---
 
-## APP MODULES (all in src/App.jsx)
+## APP MODULES (one component per screen, see src/components/)
 
-1. Dashboard — 6 KPI tiles, upcoming events (NO guest names), closure report
-2. Kitchen Hub — 5 tabs: Today/D-1/Pax Scaling/SOPs/Menu
-3. Store and Inventory — 745 items, barcode scan, smart issue
-4. Transport — 3 vehicles, SVG map, dispatch
-5. Team and Attendance — kiosk PIN, leaves, daily wages
-6. Repair and Maintenance — shared pool, 7 assignees, photo completion
-7. Menu Packages — 8 packages, applicability matrix
-8. Vendor Directory — categories, contacts
-9. Dept Views — Service, Crockery, Beverages, ODC
-10. Access Manager — Admin only, CRUD staff, role templates, bulk ops, visible PINs
+1. Dashboard (Dashboard.jsx) — KPI tiles, upcoming events, event edit modal
+2. Kitchen Hub (KitchenHub.jsx) — Event Day/Prep Day/SOPs/Planning/Analytics/Closing
+3. Store and Inventory (StoreModule.jsx) — barcode scan, smart issue, auto-demand
+4. Transport & Dispatch (TransportDispatch.jsx) — vehicle assignment, dispatch status
+5. Team (TeamHub.jsx) — staff directory, roles, PINs, outside-vendor booking.
+   No attendance or leave tracking — removed 2026-10-16, this app no longer
+   does attendance.
+6. Menu Packages (MenuPackagesView.jsx) / Proposals (ProposalsView.jsx) /
+   Booked Functions (BookedFunctionsView.jsx + EventMenuBuilderView.jsx) —
+   package, pre-booking draft, and post-booking per-dish/dept menu editing.
+   event_items is the source of truth once a function's Items tab has been
+   opened; events.menu/menu_package is a Kitchen-only mirror kept in sync
+   by src/lib/eventItems.js's syncAllKitchenMenuMirrors (boot) and
+   Dashboard.jsx's syncEventItemsOnPackageChange (on a package switch).
+7. Dept Views (DeptView.jsx) — Service, Crockery, Beverages, Fruits, ODC
+8. Access Manager (AccessManager.jsx) — Admin only: staff CRUD, Manage Roles,
+   Manage Screens. Role/screen definitions are DB-backed
+   (role_definitions/screen_definitions) with their own realtime subscription
+   in App.jsx, so an edit reaches every already-open session.
+
+There is no Vendor Directory (removed 2026-10-16 — it had never actually
+persisted anything) and no Repair & Maintenance module in the current code.
 
 ---
 
@@ -125,10 +153,9 @@ Event today:    Tab 1 = "Final Cooking" (all cooking steps)
 
 grep -r "Work Force" src/              # Should return NOTHING
 grep "base:" vite.config.js            # Should show base: '/Fnbapp/'
-grep -c "EMPLOYEE_DB_INIT" src/App.jsx  # Must be 2 (definition + useState)
 grep "toISOString" src/App.jsx         # Should return NOTHING
-wc -l src/App.jsx                      # Should be 9000+
 npm run build                          # Must succeed
+npx vitest run                         # Must pass (24 tests, 2 files)
 
 ---
 
@@ -136,7 +163,15 @@ npm run build                          # Must succeed
 
 White page on GitHub Pages     → base: '/Fnbapp/' in vite.config.js
 "Work Force" login showing     → git show ebcb698:src/App.jsx > src/App.jsx
-PIN change not working         → Pass empDb prop to LoginScreen
+PIN change not working         → Pass empDb prop to LoginScreen; check the
+                                  `staff` realtime subscription in App.jsx is
+                                  patching both empDb and currentUser
 Date shows yesterday           → Use localDateStr() not toISOString()
 Hindi not translating          → Add key to HI dict
-AccessManager changes lost     → useEffect saves empDb to localStorage
+"I changed it, it's not        → Classic sign of two copies of the same fact.
+showing somewhere else"          Check: does the target screen have a realtime
+                                  subscription, or does it fetch once on mount?
+                                  Does it read from the same table/column the
+                                  edit wrote to, or from a cached mirror? See
+                                  KNOWN_ISSUES.md for the pattern and the list
+                                  of places this has already bitten.

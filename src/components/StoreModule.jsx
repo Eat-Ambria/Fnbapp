@@ -1279,7 +1279,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
       });
     }
     evList.forEach(ev => {
-      const pax = +ev.pax || 0;
+      // Kitchen Hub/Event Day scale every dish's cooking quantity by the chef's
+      // yield-adjust slider (ev.yield_multiplier) before computing ingredients —
+      // this used to stop at pax, so Store's auto-demand/shopping list quietly
+      // ordered for a different quantity than the kitchen was actually told to
+      // cook whenever that slider was used. Fold it into the effective pax here
+      // (the same "no base_yield" fallback formula Kitchen Hub itself uses:
+      // Math.round(evPax * mult)) so every per-pax multiplication below it —
+      // regular dishes, fruit selections, the store-mapping fallback, and the
+      // base-gravy expansion — scales the same way Kitchen will actually cook.
+      const mult = Number(ev.yield_multiplier) || 1.0;
+      const pax = Math.round((+ev.pax || 0) * mult);
       if (!evBags[ev.id]) evBags[ev.id] = { ev, sections: {} };
       // Outsourced dishes (Build Menu/Menu Builder toggle) are vendor-supplied —
       // their ingredients aren't shopped for or issued from Store. A whole

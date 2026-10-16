@@ -520,13 +520,37 @@ Deno.serve(async (req) => {
         if (isConfirmed || hasCustomMenu || hasPackageOverride) customizedIds.add(ex.id);
       });
 
-      const safeRows = batch.filter((ev) => !customizedIds.has(ev.id));
+      const existingById = new Map<string, any>((existing || []).map((ex: any) => [ex.id, ex]));
+      const newRows = batch.filter((ev) => !customizedIds.has(ev.id) && !existingById.has(ev.id));
+      const safeExistingRows = batch.filter((ev) => !customizedIds.has(ev.id) && existingById.has(ev.id));
       const customizedRows = batch.filter((ev) => customizedIds.has(ev.id));
 
-      if (safeRows.length > 0) {
-        const { error } = await sb.from("events").upsert(safeRows, { onConflict: "id" });
-        if (error) console.error(`Upsert batch ${i} error:`, error);
-        else upserted += safeRows.length;
+      if (newRows.length > 0) {
+        const { error } = await sb.from("events").insert(newRows);
+        if (error) console.error(`Insert batch ${i} error:`, error);
+        else upserted += newRows.length;
+      }
+      // V85 — this whole preserve scheme is a read-then-write: the "safe"
+      // decision above was made from a snapshot taken a moment ago. This sync
+      // runs from several independent triggers (every app boot per device,
+      // plus the manual "Sync LMS" button with no cooldown at all) and two
+      // can easily overlap, so an admin's Dashboard package edit can land in
+      // the gap between that read and this write — a blind upsert here would
+      // clobber it with the exact same stale snapshot that made it look
+      // unprotected a moment earlier, which is exactly what reverted a
+      // package pick seconds after saving it. Guard the write with the
+      // menu_package value this decision was actually based on: if it no
+      // longer matches, something changed it after our read (almost always
+      // the admin), and this write becomes a no-op instead of a clobber —
+      // self-healing without a second read.
+      for (const ev of safeExistingRows) {
+        const ex = existingById.get(ev.id);
+        const { id, ...patch } = ev;
+        const { error, count } = await sb.from("events")
+          .update(patch, { count: "exact" })
+          .eq("id", id).eq("menu_package", ex.menu_package);
+        if (error) console.error(`Conditional update ${id} error:`, error);
+        else if (count && count > 0) upserted++;
       }
       for (const ev of customizedRows) {
         const { menu, menu_package, id, ...rest } = ev;

@@ -45,6 +45,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // (Build Menu) — carried over to the new event's own copy on conversion
   // (see ProposalsView.jsx convertToBooking).
   var [sectionOverrides, setSectionOverrides] = useState(proposal && proposal.menu_section_overrides || {});
+  // One-time snapshot with nothing keyed on proposal.id to refresh it — see
+  // the identical fix/comment in EventMenuBuilderView.jsx.
+  useEffect(function(){
+    setSectionOverrides((proposal && proposal.menu_section_overrides) || {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposal && proposal.id]);
 
   // ── Per-active-dept capability flags ──
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;

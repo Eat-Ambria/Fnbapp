@@ -15,6 +15,7 @@ import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
+import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
 import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows } from './MenuBuilderView.jsx';
 import { ConfigsPanel } from './ConfigsPanel.jsx';
@@ -61,6 +62,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // MenuEditor.jsx already writes) so a custom dish tagged here shows in the
   // same place if the event is later opened in Build Menu, and vice versa.
   var [sectionOverrides, setSectionOverrides] = useState(event && event.menu_section_overrides || {});
+  // This was a one-time snapshot with nothing keyed on event.id to refresh it —
+  // if this component instance were ever reused for a different event (or a
+  // caller starts passing a freshly-refetched event object), the previous
+  // event's overrides would leak into the new one. Local edits already go
+  // through menuItemOps.saveSectionOverride, which updates this same state
+  // directly, so resetting only on an actual event-identity change (not on
+  // every render) can't clobber an in-progress edit.
+  useEffect(function(){
+    setSectionOverrides((event && event.menu_section_overrides) || {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event && event.id]);
   // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
   var [fp, setFp]                   = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
@@ -352,11 +364,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // Delegates to eventItems.js's resolveDeptForDish — the SAME precedence
+  // chain this file used to maintain its own hand-copied version of (see
+  // that file's header comment). One source of truth now instead of two
+  // that happened to agree today but had nothing keeping them that way.
   function effectiveDeptForDish(name) {
-    var d = allDishesByName[name];
-    var override = d && d.section_id ? sectionSalesDeptMap[d.section_id] : null;
     var meta = salesMeta[name];
-    return pinnedDeptForDish(name) || sectionOverrideDept[name] || dishNameToPkgDept[name] || override || (meta && meta.sales_dept) || DEFAULT_DEPT;
+    return resolveDeptForDishShared(name, {
+      allDishesByName: allDishesByName,
+      sectionSalesDeptMap: sectionSalesDeptMap,
+      metaDeptByName: { [name]: meta && meta.sales_dept },
+      dishNameToPkgDept: dishNameToPkgDept,
+      sectionOverrideDept: sectionOverrideDept,
+    });
   }
 
   // Kitchen Hub's entire production pipeline reads events.menu as a flat kitchen

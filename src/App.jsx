@@ -11,7 +11,7 @@ import { C, hydrateConstants } from './data/constants.js';
 import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections, refreshMenuPackages } from './data/menuPackages.js';
 import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
-import { hydrateRecipeData, subscribeRecipeRealtime, RECIPE_DB } from './data/recipeData.js';
+import { hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, RECIPE_DB } from './data/recipeData.js';
 import { T } from './data/translations.js';
 import { canAccessScreen, hydratePermissions, hydrateScreenDefinitions, NAV_ITEMS } from './data/permissions.js';
 import { hydrateAppSettings } from './data/appSettings.js';
@@ -43,7 +43,6 @@ const TeamHub             = React.lazy(() => import('./components/TeamHub.jsx').
 const TransportDispatch   = React.lazy(() => import('./components/TransportDispatch.jsx').then(m => ({ default: m.TransportDispatch })));
 const StoreModule         = React.lazy(() => import('./components/StoreModule.jsx').then(m => ({ default: m.StoreModule })));
 const MenuPackagesView    = React.lazy(() => import('./components/MenuPackagesView.jsx').then(m => ({ default: m.MenuPackagesView })));
-const VendorDirectory     = React.lazy(() => import('./components/VendorDirectory.jsx').then(m => ({ default: m.VendorDirectory })));
 const AccessManager       = React.lazy(() => import('./components/AccessManager.jsx').then(m => ({ default: m.AccessManager })));
 const ODCModule           = React.lazy(() => import('./components/ODCModule.jsx').then(m => ({ default: m.ODCModule })));
 const ProposalsView       = React.lazy(() => import('./components/ProposalsView.jsx').then(m => ({ default: m.ProposalsView })));
@@ -76,7 +75,7 @@ function matchMenuPackage(rawName) {
 const NAV_ICON = {
   dashboard:"home",        kitchen:"chefHat",       store:"box",
   team:"users",            menus:"fileText",        transport:"truck",
-  vendors:"contact",       dept_service:"plate",    dept_crockery:"cup",
+  dept_service:"plate",    dept_crockery:"cup",
   dept_beverages:"drink",  dept_fruits:"apple",     dept_odc:"tent",         proposals:"note",
   booked_functions:"calendarDays", sales_catalogue:"tag",
   access:"lock",           logs:"listCheck",
@@ -177,23 +176,6 @@ export default function App() {
     if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
     else { window.location.reload(); }
   }
-
-  // ── Leaves ──
-  const [leaves,setLeaves_raw]       = useState([]);
-  const setLeaves = (updater) => {
-    setLeaves_raw(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      const prevMap = new Map(safeArr(prev).map(l=>[String(l.id), l]));
-      safeArr(next).forEach(l => {
-        const idStr = String(l.id);
-        const old = prevMap.get(idStr);
-        if(!old || old.status!==l.status) {
-          dbUpsert("leaves",{id:idStr,staff_id:String(l.staffId||l.staff_id||""),staff_name:l.staffName,section:l.staffSection||l.section||"",from_date:l.from,to_date:l.to,reason:l.reason,status:l.status||"Pending"},"id").catch(e=>console.error("leaves sync:",e));
-        }
-      });
-      return next;
-    });
-  };
 
   // ── Events ──
   // Full candidate DB record for one event row — same construction for both
@@ -307,9 +289,6 @@ export default function App() {
   // whose device sent it. Only a genuinely newer write ever applies.
   const ktTsRef = useRef({});
   function ktTsKey(evId, dishKey) { return evId + '|' + dishKey; }
-  // Where the bell should send you back to. A ref, not state — nothing renders
-  // from it, so it must not cause a re-render when it changes.
-  const bellReturnRef = useRef(null);
   // The account menu is anchored with position:fixed rather than absolute. The
   // sidebar panel sets overflow:hidden for its rounded corners and artwork, so
   // an absolutely positioned menu opening downward was clipped at the panel
@@ -438,14 +417,14 @@ export default function App() {
         hydrateAppSettings(cfg.appSettings);
         hydrateRecipeData(cfg);
         subscribeRecipeRealtime(supabase);
+        subscribeDishMetaRealtime(supabase);
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
         if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
 
-      const [staffData, eventsData, lvData, ktData, tqData] = await Promise.all([
+      const [staffData, eventsData, ktData, tqData] = await Promise.all([
         dbLoad('staff', EMPLOYEE_DB_INIT),
         dbLoad('events', []),
-        dbLoad('leaves', []),
         dbLoad('kitchen_tracking', []),
         dbLoad('transport_queue', []),
       ]);
@@ -529,7 +508,6 @@ export default function App() {
           setEvents_raw(prev => prev.map(e => byId.has(e.id) ? {...e, menu: byId.get(e.id)} : e));
         }
       }).catch(e => console.error('[App] syncAllKitchenMenuMirrors failed:', e));
-      setLeaves_raw(lvData.map(l=>({id:l.id,staffId:l.staff_id||l.staffId,staffName:l.staff_name||l.staffName,staffSection:l.section||l.staffSection||"",from:l.from_date||l.from,to:l.to_date||l.to,reason:l.reason,status:l.status})));
       if(ktData.length>0){
         const ktObj={};
         // `?? {}`, not `|| {}` — the meta keys now sync too, and a stored
@@ -580,6 +558,17 @@ export default function App() {
     }
     loadAll();
   }, []);
+
+  // Role/screen registry edits (Access Manager's Manage Roles/Manage Screens)
+  // only ever patched the editing device's own in-memory PRESET_ROLES/
+  // SCREEN_PERMISSIONS (permissions.js) after writing to Supabase — any other
+  // already-open session kept serving its stale registry until a full reload,
+  // so revoking a screen from a role (or hiding a screen app-wide) did not
+  // take effect for anyone already logged in. canAccessScreen/NAV_ITEMS read
+  // that module state fresh on every render, so the only thing missing was a
+  // reason for an already-open session to actually re-render when it changes —
+  // this tick forces one.
+  const [permsTick, setPermsTick] = useState(0);
 
   // ── Realtime subscriptions (after data loaded) ──
   useEffect(() => {
@@ -676,12 +665,6 @@ export default function App() {
       // matter how delayed or reordered its delivery is.
       if(payload.new){const {ev_id,dish_key,data,client_id,client_write_ts}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;const tsKey=ktTsKey(ev_id,dish_key);const knownTs=ktTsRef.current[tsKey]||0;const incomingTs=Number(client_write_ts)||0;if(incomingTs&&incomingTs<=knownTs)return;ktTsRef.current[tsKey]=Math.max(knownTs,incomingTs);setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
     });
-    const u6 = dbSubscribe('leaves', (payload) => {
-      const nl=payload.new?{id:payload.new.id,staffId:payload.new.staff_id,staffName:payload.new.staff_name,staffSection:payload.new.section||"",from:payload.new.from_date,to:payload.new.to_date,reason:payload.new.reason,status:payload.new.status}:null;
-      if(payload.eventType==='INSERT'&&nl) setLeaves_raw(p=>{if(p.some(x=>x.id===nl.id))return p;return[...p,nl];});
-      if(payload.eventType==='UPDATE'&&nl) setLeaves_raw(p=>p.map(x=>x.id===nl.id?nl:x));
-      if(payload.eventType==='DELETE') setLeaves_raw(p=>p.filter(x=>x.id!==payload.old.id));
-    });
     const u7 = dbSubscribe('transport_queue', (payload) => {
       const nq=payload.new?{id:payload.new.id,dish:payload.new.dish_name,evId:payload.new.ev_id||null,sec:payload.new.sec||null,station:payload.new.station||null,qty:payload.new.qty??null,unit:payload.new.unit||null,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined,fromVenue:payload.new.from_venue||"",vehicleId:payload.new.vehicle_id||""}:null;
       if(payload.eventType==='INSERT'&&nq) setTransportQueue_raw(p=>{if(p.some(i=>i.id===nq.id))return p;return[...p,nq];});
@@ -691,7 +674,22 @@ export default function App() {
     // V74: menu_packages had no realtime — Packages/Sections tab only refreshed on local save.
     // Full re-fetch is cheap (small table) and reuses the existing hydrate + event-dispatch plumbing.
     const u8 = dbSubscribe('menu_packages', () => { refreshMenuPackages(); });
-    return () => { u1(); u4(); u5(); u6(); u7(); u8(); };
+    // Same "full re-fetch is cheap, small table" approach as menu_packages above.
+    const u9 = dbSubscribe('role_definitions', () => {
+      supabase.from('role_definitions').select('*').then(({data,error}) => {
+        if(error){ console.warn('[role_definitions] refresh failed:', error); return; }
+        hydratePermissions(data||[]);
+        setPermsTick(t=>t+1);
+      });
+    });
+    const u10 = dbSubscribe('screen_definitions', () => {
+      supabase.from('screen_definitions').select('*').then(({data,error}) => {
+        if(error){ console.warn('[screen_definitions] refresh failed:', error); return; }
+        hydrateScreenDefinitions(data||[]);
+        setPermsTick(t=>t+1);
+      });
+    });
+    return () => { u1(); u4(); u5(); u7(); u8(); u9(); u10(); };
   }, [appReady]);
 
   // ── Supabase connectivity indicator + offline queue replay ──
@@ -800,7 +798,6 @@ export default function App() {
   const curNav = activeDept ? NAV_ITEMS : [];
   const curDeptMeta = DEPT_META[activeDept]||{name:"",icon:"",color:C.gold};
 
-  const pendingLv = (leaves||[]).filter(l=>l.status==="Pending").length;
   // Today's function(s) shown in the page header, so no screen has to repeat
   // the date/pax/time line in its own body.
   const todayEvsHdr = safeArr(events)
@@ -854,7 +851,7 @@ export default function App() {
   );
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
-  if(showStaffView) return <StaffView user={currentUser} leaves={leaves} setLeaves={setLeaves} onLogout={handleLogout} lang={lang}/>;
+  if(showStaffView) return <StaffView user={currentUser} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
     // Same NAV_ITEMS + canAccessScreen every other login path uses, just
@@ -878,7 +875,7 @@ export default function App() {
     // the one exception: its "jump to screen" callback has to drive this
     // tablet's own tabletScreen state, not the admin shell's.
     function tabletContent(scr){
-      if(scr==="dashboard") return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      if(scr==="dashboard") return <Dashboard events={events} setEvents={setEvents} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       return renderScreen(scr);
     }
     return (
@@ -1171,13 +1168,12 @@ export default function App() {
   function renderScreen(s){
     if (!canAccessScreen(currentUser, s)) return LOCK_SCREEN;
     switch(s){
-      case "dashboard":      return <Dashboard events={events} setEvents={setEvents} leaves={leaves} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
-      case "team":           return <TeamHub leaves={leaves} setLeaves={setLeaves} empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
+      case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      case "team":           return <TeamHub empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
-      case "vendors":        return <VendorDirectory lang={lang}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff} checklistsCfg={dbChecklists} setChecklistsCfg={setDbChecklists}/>;
       case "logs":           return <ActivityLog lang={lang} currentUser={currentUser} empDb={empDb} kitchenTracking={kitchenTracking} events={events}/>;
       case "dept_service":   return <DeptView events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} empDb={empDb} setEmpDb={setEmpDb} forceDept="service" allocRules={allocRules} setAllocRules={setAllocRules} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
@@ -1325,7 +1321,7 @@ export default function App() {
 
             const navRow = item => {
               const active=screen===item.id;
-              const badge=item.id==="team"&&pendingLv>0?pendingLv:0;
+              const badge=0;
               return(
                 <button key={item.id} className={"ash-nav kh-rip"+(active?" is-active":"")} onPointerDown={ripple} onClick={()=>setScreen(item.id)}
                   title={!sideOpen?T(item.label,lang):undefined}
@@ -1380,7 +1376,7 @@ export default function App() {
             return groups.map(g=>{
               const hasActive = g.items.some(i=>i.id===screen);
               const closed    = !isGroupOpen(g);
-              const badgeSum  = g.items.reduce((n,i)=>n+(i.id==="team"?pendingLv:0),0);
+              const badgeSum  = 0;
               if(!g.label) return <div key={g.id}>{g.items.map(navRow)}</div>;
               return(
                 <div key={g.id}>
@@ -1507,22 +1503,6 @@ export default function App() {
         <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
 
 
-          {/* Bell hidden for now — set SHOW_BELL back to true to restore it.
-              Kept rather than deleted: the toggle behaviour and the pending-leave
-              badge below are worth keeping if it comes back. Clicking it when
-              Team is already open returns you to the screen you came from. */}
-          {SHOW_BELL&&canAccessScreen(currentUser,"team")&&(
-            <button className="ash-iconbtn kh-rip" onPointerDown={ripple}
-              onClick={()=>{
-                if(screen==="team"){ setScreen(bellReturnRef.current || "kitchen"); }
-                else { bellReturnRef.current = screen; setScreen("team"); }
-              }}
-              title={pendingLv>0?`${pendingLv} ${T2("pending leave request(s)")}`:T2("No pending approvals")}
-              style={{position:"relative",width:38,height:38,borderRadius:10,background:K.surface,border:`1px solid ${K.line}`,color:K.textMuted,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
-              <Icon name="bell" size={17}/>
-              {pendingLv>0&&<span style={{position:"absolute",top:8,right:8,width:8,height:8,borderRadius:"50%",background:K.danger,border:`2px solid ${K.surface}`}}/>}
-            </button>
-          )}
           {/* Kitchen notification bell (V92) — head_chef accounts only reach this
               shell (section tablets use the other header, above); self-contained,
               renders nothing for anyone else. */}

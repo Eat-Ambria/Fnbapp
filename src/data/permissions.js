@@ -21,7 +21,6 @@ const SCREEN_PERMISSIONS_DEFAULT = {
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
   transport:      {label:"Transport",           icon:"🚛", group:"OPERATIONS", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
   store:          {label:"Store & Inventory",   icon:"📦", group:"OPERATIONS", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
-  vendors:        {label:"Vendor Directory",    icon:"📇", group:"OPERATIONS", perms:[{id:"vendors.view",type:"view",label:"View vendors"},{id:"vendors.add",type:"action",label:"Add vendor"},{id:"vendors.edit",type:"action",label:"Edit vendor"}]},
   dept_service:   {label:"Service Ops",         icon:"🍽", group:"OPERATIONS", perms:[{id:"dept_service.view",type:"view",label:"View service"},{id:"dept_service.check",type:"action",label:"Complete checklist"}]},
   dept_crockery:  {label:"Crockery Ops",        icon:"🍶", group:"OPERATIONS", perms:[{id:"dept_crockery.view",type:"view",label:"View crockery"},{id:"dept_crockery.check",type:"action",label:"Complete checklist"}]},
   dept_beverages: {label:"Beverages Ops",       icon:"🥤", group:"OPERATIONS", perms:[{id:"dept_beverages.view",type:"view",label:"View beverages"},{id:"dept_beverages.check",type:"action",label:"Complete checklist"}]},
@@ -30,7 +29,7 @@ const SCREEN_PERMISSIONS_DEFAULT = {
   proposals:        {label:"Proposals",           icon:"📝", group:"SALES", perms:[{id:"proposals.view",type:"view",label:"View proposals"},{id:"proposals.create",type:"action",label:"Create proposal"},{id:"proposals.edit",type:"action",label:"Edit own proposals"},{id:"proposals.delete",type:"action",label:"Delete own proposals"},{id:"proposals.view_all",type:"action",label:"View all reps' proposals"},{id:"proposals.convert",type:"action",label:"Convert won to booking"}]},
   sales_catalogue:  {label:"Sales Catalogue",     icon:"🏷️", group:"SALES", perms:[{id:"sales_catalogue.view",type:"view",label:"View sales catalogue"},{id:"sales_catalogue.edit",type:"action",label:"Edit item meta/images"}]},
   booked_functions: {label:"Booked Functions",    icon:"📅", group:"SALES", perms:[{id:"booked_functions.view",type:"view",label:"View booked functions"},{id:"booked_functions.edit_menu",type:"action",label:"Edit menu/service items"}]},
-  team:           {label:"Team",                icon:"👥", group:"MANAGEMENT", perms:[{id:"team.view",type:"view",label:"View staff list"},{id:"team.leave_request",type:"request",label:"Submit leave request"},{id:"team.leave_approve",type:"approval",label:"Approve/reject leaves"}]},
+  team:           {label:"Team",                icon:"👥", group:"MANAGEMENT", perms:[{id:"team.view",type:"view",label:"View staff list"}]},
   access:         {label:"Access Manager",      icon:"🔐", group:"MANAGEMENT", perms:[{id:"access.view",type:"view",label:"View staff list"},{id:"access.add",type:"action",label:"Add staff"},{id:"access.edit",type:"action",label:"Edit staff"},{id:"access.delete",type:"action",label:"Delete staff"},{id:"access.perms",type:"action",label:"Change permissions"},{id:"access.bulk_ops",type:"action",label:"Bulk operations"}]},
   logs:           {label:"Activity Log",        icon:"📋", group:"MANAGEMENT", perms:[{id:"logs.view",type:"view",label:"View activity log"}]},
 };
@@ -118,7 +117,7 @@ const PRESET_ROLES_DEFAULT = {
     label: "Admin — Full Access",
     icon: "👑",
     tier: 4,
-    screens: ["dashboard","kitchen","store","team","transport","vendors","menus","access","dept_service","dept_crockery","dept_beverages","dept_fruits","dept_odc","proposals","sales_catalogue","booked_functions"],
+    screens: ["dashboard","kitchen","store","team","transport","menus","access","dept_service","dept_crockery","dept_beverages","dept_fruits","dept_odc","proposals","sales_catalogue","booked_functions"],
     elevated: [],
   },
   head_chef: {
@@ -126,13 +125,13 @@ const PRESET_ROLES_DEFAULT = {
     icon: "👨‍🍳",
     tier: 3,
     screens: ["dashboard","kitchen","menus","store","team","transport"],
-    elevated: ["kitchen.scaling_apply","team.leave_approve"],
+    elevated: ["kitchen.scaling_apply"],
   },
   service: {
     label: "Service Dept",
     icon: "🍽",
     tier: 2,
-    screens: ["dashboard","dept_service","team","vendors"],
+    screens: ["dashboard","dept_service","team"],
     elevated: [],
   },
   crockery: {

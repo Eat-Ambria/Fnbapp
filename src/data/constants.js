@@ -67,7 +67,7 @@ let VENDOR_CATEGORIES = [];
 
 const NAV_ADMIN = [
   {id:"dashboard",  label:"Dashboard",           icon:"📊"},
-  {id:"team",       label:"Team & Attendance",    icon:"👥"},
+  {id:"team",       label:"Team",                 icon:"👥"},
   {id:"kitchen",    label:"Kitchen",              icon:"👨‍🍳"},
   {id:"menus",      label:"Menu",        icon:"📜"},
   {id:"transport",  label:"Transport & Dispatch", icon:"🚛"},

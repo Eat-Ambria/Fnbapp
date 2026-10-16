@@ -75,8 +75,8 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
 
   // ── Merge DB logs + client logs, dedup by message+timestamp ──
   const dbMapped = dbLogs.map(l => ({
-    ts: l.created_at, type: l.type || 'system', icon: l.type === 'attendance' ? '✅' : l.type === 'kitchen' ? '👨‍🍳' : l.type === 'dispatch' ? '🚛' : l.type === 'vendor' ? '🏢' : l.type === 'system' ? '⚙️' : '📋',
-    color: l.type === 'attendance' ? C.green : l.type === 'kitchen' ? C.gold : l.type === 'dispatch' ? (C.blue || '#4A8FD0') : l.type === 'vendor' ? C.amber : C.muted,
+    ts: l.created_at, type: l.type || 'system', icon: l.type === 'kitchen' ? '👨‍🍳' : l.type === 'dispatch' ? '🚛' : l.type === 'vendor' ? '🏢' : l.type === 'system' ? '⚙️' : '📋',
+    color: l.type === 'kitchen' ? C.gold : l.type === 'dispatch' ? (C.blue || '#4A8FD0') : l.type === 'vendor' ? C.amber : C.muted,
     msg: l.message, detail: l.meta?.detail || '', fromDb: true,
   }));
   const seen = new Set(dbMapped.map(l => l.msg + '|' + (l.ts || '').slice(0, 16)));
@@ -85,7 +85,6 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
 
   const FILTERS = [
     { v: 'all', l: T2('All'), c: C.gold },
-    { v: 'attendance', l: T2('Attendance'), c: C.green },
     { v: 'kitchen', l: T2('Kitchen'), c: C.amber },
     { v: 'dispatch', l: T2('Dispatch'), c: C.blue || '#4A8FD0' },
     { v: 'vendor', l: T2('Vendors'), c: C.wine || '#9060C8' },

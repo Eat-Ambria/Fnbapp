@@ -1,4 +1,4 @@
-// Ambria FnB — Team & Attendance Hub
+// Ambria FnB — Team Hub
 import React, { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -7,13 +7,13 @@ import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
 import { yrsOfService } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
-import { K, type, tone } from '../utils/theme.js';
+import { K, type } from '../utils/theme.js';
 import { Icon, KTabs } from './KitchenUI.jsx';
 import { dbUpsert } from '../lib/db.js';
 import { hasPermission } from '../data/permissions.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 
-function TeamHub({leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
+function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,syncToServer=null}) {
   const [tab,setTab]             = useState("chefs");
   const T2 = s => T(s, lang);
 
@@ -77,10 +77,6 @@ function TeamHub({leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,cu
   const deptStaffList = deptSections ? allEmpDb.filter(e=>deptSections.includes(e.section)) : allEmpDb;
   const deptEmpDb = deptStaffList;
   const deptStaffIds = new Set(deptStaffList.map(s=>String(s.staff_id||s.id||'')));
-  const deptLeaves = deptSections ? safeArr(leaves).filter(l=>deptSections.includes(l.staffSection)) : safeArr(leaves);
-  const pending    = deptLeaves.filter(l=>l.status==="Pending");
-  const approved   = deptLeaves.filter(l=>l.status==="Approved");
-  const rejected   = deptLeaves.filter(l=>l.status==="Rejected");
   const allSecs    = deptSections ? ["All",...deptSections] : ["All",...ALL_DEPARTMENTS];
   const totalActive = safeArr(empDb).filter(function(s){return s.is_active!==false && s.role!=='kiosk_gate' && !s.role?.startsWith('section_');}).length;
   const dirFiltered = deptEmpDb.filter(e=>{
@@ -88,23 +84,6 @@ function TeamHub({leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,cu
     const mt = !dirSearch.trim()||(e.name||'').toLowerCase().includes(dirSearch.toLowerCase())||(e.id||e.staff_id||e.staffListId||'').toLowerCase().includes(dirSearch.toLowerCase());
     return ms&&mt;
   });
-
-  // Coverage alerts for approved leaves
-  const coverageAlerts = approved.reduce((out,l)=>{
-    if(!l.staffSection||out.some(x=>x.section===l.staffSection)) return out;
-    const total = deptStaffList.filter(s=>s.section===l.staffSection).length;
-    const onLeave = approved.filter(x=>x.staffSection===l.staffSection&&x.from<=TODAY&&x.to>=TODAY).length;
-    const remaining = total - onLeave;
-    const min = 2;
-    if(remaining < min) {
-      const shortage = min - remaining;
-      out.push({section:l.staffSection, remaining, min, shortage,
-        vendors: OUTSIDE_VENDORS.filter(v=>v.specialty===l.staffSection).slice(0,3)});
-    }
-    return out;
-  },[]);
-
-  
 
   // Employee helpers
   function openAddForm(){
@@ -227,47 +206,7 @@ function TeamHub({leaves,setLeaves,empDb,setEmpDb,events,lang="en",activeDept,cu
             </div>
           </div>
         </div>
-        {/* Counts read as data: tone-tinted tiles with tabular figures. */}
-        <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
-          {[
-            {v:pending.length, l:T2("Pending"), t:tone("warn")},
-          ].map((s,i)=>(
-            <div key={i} style={{minWidth:76,padding:"9px 16px",borderRadius:K.rMd,textAlign:"center",
-              background:s.t.bg,border:`1px solid ${s.t.border}`}}>
-              <div style={{fontSize:22,fontWeight:700,color:s.t.fg,lineHeight:1.1,letterSpacing:-.4,
-                fontVariantNumeric:"tabular-nums"}}>{s.v}</div>
-              <div style={{...type.label,fontSize:9.5,color:s.t.fg,marginTop:3,opacity:.85}}>{s.l}</div>
-            </div>
-          ))}
-        </div>
       </div>
-
-      {/* Coverage alerts */}
-      {coverageAlerts.map((a,i)=>(
-        <div key={i} style={{background:C.amberBg,border:`1.5px solid ${C.amberBorder}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-            <div>
-              <div style={{fontSize:13,fontWeight:600,color:C.amber}}>⚠ Coverage gap — {a.section}</div>
-              <div style={{fontSize:11,color:C.amber,marginTop:2}}>{a.remaining} remaining · need {a.shortage} outside chef{a.shortage>1?"s":""}</div>
-            </div>
-            <STag name={a.section}/>
-          </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {a.vendors.map((v,vi)=>(
-              <div key={vi} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"9px 11px",flex:"1 0 130px"}}>
-                <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5}}>
-                  <Avatar name={v.name} size={26} index={vi+6}/>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:600,color:C.text}}>{v.name}</div>
-                    <div style={{fontSize:12,color:C.muted}}>★ {v.rating} · {v.specialty}</div>
-                  </div>
-                </div>
-                <button onClick={()=>setTab("chefs")} style={{width:"100%",padding:"4px",borderRadius:8,fontSize:11,fontWeight:500,cursor:"pointer",background:C.gold,color:"#fff",border:"none"}}>Book via Vendor Tab →</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
 
       {/* Tab bar — the shared ivory tray with a solid deep-green active pill,
           same as Kitchen Hub. */}

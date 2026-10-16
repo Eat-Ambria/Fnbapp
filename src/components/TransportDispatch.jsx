@@ -4,8 +4,9 @@ import { C, VEHICLES, COLD_ITEMS, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
-import { dbUpsert, dbDelete } from '../lib/db.js';
+import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from '../lib/db.js';
 import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
+import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { describeEventMenu } from '../data/menuPackages.js';
 import { logActivity } from './ActivityLog.jsx';
 import { K, type } from '../utils/theme.js';
@@ -39,6 +40,11 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
       const skip = new Set(out);
       arr = arr.filter(n => !skip.has(n));
     }
+    // Ice cream / tea / coffee belong to Beverages, even on an event whose menu
+    // mirror has not been re-derived yet — same filter KitchenHub.jsx/
+    // EventDayTab.jsx already apply; this copy was missing it, so a vehicle
+    // manifest could list a Beverages item as kitchen's to load.
+    arr = arr.filter(n => !pinnedDeptForDish(n));
     return arr;
   }
 
@@ -53,14 +59,68 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return vids;
   }
 
-  const initDispatches = () => safeEvs.map(ev=>({
-    evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev),
-    assignments: autoVehicles(ev).map(vid=>({
-      vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:T2("Planning"),
-    })),
-  }));
+  // Dispatch status (Planning→Loaded→Dispatched→At Venue→Unloaded, driver,
+  // departure time) used to live in plain component state only — never
+  // written to Supabase. A refresh, or a second tablet opening Transport &
+  // Dispatch, silently regenerated every assignment back to "Planning", so
+  // two people could genuinely disagree about whether a truck had left.
+  // `dispatchRows` is the persisted, flat source of truth (one row per
+  // event+vehicle); `dispatches` below derives the per-event shape the
+  // rest of this file already expects, overlaying auto-assigned vehicles
+  // with whatever's actually been saved.
+  const rowKey = (evId, vehicleId) => evId + "::" + vehicleId;
+  function rowToAsgn(r) {
+    return { vehicleId: r.vehicle_id, driver: r.driver || "", dispatchTime: r.dispatch_time || "", status: r.status || "Planning",
+      dispatchedAt: r.dispatched_at || undefined, arrivedAt: r.arrived_at || undefined, unloadedAt: r.unloaded_at || undefined };
+  }
+  const [dispatchRows, setDispatchRows] = useState([]);
+  useEffect(function(){
+    let cancelled = false;
+    dbLoad('transport_dispatch_assignments', []).then(function(rows){ if(!cancelled) setDispatchRows(rows||[]); });
+    const unsub = dbSubscribe('transport_dispatch_assignments', function(payload){
+      if(payload.eventType==='DELETE'){
+        setDispatchRows(p=>p.filter(r=>r.id!==payload.old.id));
+      } else {
+        setDispatchRows(p=>{
+          const idx = p.findIndex(r=>r.id===payload.new.id);
+          if(idx<0) return [...p, payload.new];
+          const copy=[...p]; copy[idx]=payload.new; return copy;
+        });
+      }
+    });
+    return function(){ cancelled=true; unsub(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  // Optimistic local write + persist. Sending only the changed columns is
+  // safe on both branches of the upsert: an existing row's ON CONFLICT only
+  // SETs the columns present here, and a brand-new row picks up the schema
+  // defaults ('Planning', '') for whatever isn't included.
+  function patchAsgn(evId, vehicleId, patch){
+    const id = rowKey(evId, vehicleId);
+    setDispatchRows(p=>{
+      const idx = p.findIndex(r=>r.id===id);
+      if(idx<0) return [...p, {id, event_id:evId, vehicle_id:vehicleId, driver:"", dispatch_time:"", status:"Planning", dispatched_at:null, arrived_at:null, unloaded_at:null, ...patch}];
+      const copy=[...p]; copy[idx]={...copy[idx], ...patch}; return copy;
+    });
+    dbUpsert('transport_dispatch_assignments', {id, event_id:evId, vehicle_id:vehicleId, ...patch}, 'id').catch(e=>console.error('[Transport] dispatch upsert failed:',e));
+  }
+  function removeAsgn(evId, vehicleId){
+    const id = rowKey(evId, vehicleId);
+    setDispatchRows(p=>p.filter(r=>r.id!==id));
+    dbDelete('transport_dispatch_assignments', 'id', id).catch(e=>console.error('[Transport] dispatch delete failed:',e));
+  }
 
-  const [dispatches, setDispatches] = useState(initDispatches);
+  const dispatches = safeEvs.map(ev=>{
+    const rowsForEv = dispatchRows.filter(r=>r.event_id===ev.id);
+    const seen = new Set();
+    const assignments = autoVehicles(ev).map(vid=>{
+      seen.add(vid);
+      const row = rowsForEv.find(r=>r.vehicle_id===vid);
+      return row ? rowToAsgn(row) : { vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:"Planning" };
+    });
+    rowsForEv.forEach(r=>{ if(!seen.has(r.vehicle_id)) assignments.push(rowToAsgn(r)); });
+    return { evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev), assignments };
+  });
 
   // One-shot cleanup: drop transport queue items older than 7 days on mount (prevents unbounded growth)
   useEffect(function(){
@@ -92,34 +152,31 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     }).sort((a,b)=>(a.sec||"").localeCompare(b.sec||"")||(a.dish||"").localeCompare(b.dish||""));
   }
 
-  function updAsgn(evId,ai,field,val){setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:d.assignments.map((a,i)=>i!==ai?a:{...a,[field]:val})}));}
+  function updAsgn(evId,vehicleId,field,val){
+    const dbField = field==="dispatchTime" ? "dispatch_time" : field;
+    patchAsgn(evId, vehicleId, { [dbField]: val });
+  }
   function addVehicle(evId){
     const ev=safeEvs.find(e=>e.id===evId);
     const used=new Set((dispatches.find(d=>d.evId===evId)?.assignments||[]).map(a=>a.vehicleId));
     const vid=(VEHICLES.find(v=>!used.has(v.id))||VEHICLES[0])?.id;
     if(!vid) return;
-    setDispatches(p=>p.map(d=>d.evId!==evId?d:{...d,assignments:[...d.assignments,{vehicleId:vid,driver:"",dispatchTime:calcDispatch(ev?.time||""),status:T2("Planning")}]}));
+    patchAsgn(evId, vid, { driver:"", dispatch_time:calcDispatch(ev?.time||""), status:"Planning" });
   }
 
   // ── Dispatch status flow: Planning → Loaded → Dispatched → At Venue → Unloaded ──
   const STATUS_FLOW = ["Planning","Loaded","Dispatched","At Venue","Unloaded"];
-  function advanceStatus(evId,ai){
-    setDispatches(p=>p.map(d=>{
-      if(d.evId!==evId)return d;
-      return {...d,assignments:d.assignments.map((a,i)=>{
-        if(i!==ai)return a;
-        const ci=STATUS_FLOW.indexOf(a.status);
-        if(ci<0||ci>=STATUS_FLOW.length-1)return a;
-        const next=STATUS_FLOW[ci+1];
-        const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
-        const upd={...a,status:next};
-        if(next==="Dispatched")upd.dispatchedAt=now;
-        if(next==="At Venue")upd.arrivedAt=now;
-        if(next==="Unloaded")upd.unloadedAt=now;
-        logActivity('dispatch', 'Transport '+next+': '+(a.vehicle||'vehicle')+' for event '+evId, 'dispatch_'+next.toLowerCase().replace(/ /g,'_'), {evId:evId, vehicle:a.vehicle||'', driver:a.driver||'', from:next, to:next}, currentUser?.id);
-        return upd;
-      })};
-    }));
+  function advanceStatus(evId,asgn){
+    const ci=STATUS_FLOW.indexOf(asgn.status);
+    if(ci<0||ci>=STATUS_FLOW.length-1)return;
+    const next=STATUS_FLOW[ci+1];
+    const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+    const patch={status:next};
+    if(next==="Dispatched")patch.dispatched_at=now;
+    if(next==="At Venue")patch.arrived_at=now;
+    if(next==="Unloaded")patch.unloaded_at=now;
+    patchAsgn(evId, asgn.vehicleId, patch);
+    logActivity('dispatch', 'Transport '+next+': '+(asgn.vehicleId||'vehicle')+' for event '+evId, 'dispatch_'+next.toLowerCase().replace(/ /g,'_'), {evId:evId, vehicle:asgn.vehicleId||'', driver:asgn.driver||'', from:asgn.status, to:next}, currentUser?.id);
   }
   function canAdvance(asgn){
     // Loading/unloading is now tracked per-dish on the "Ready for Transport"
@@ -397,13 +454,20 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                           <span style={{width:32,height:32,borderRadius:"50%",flexShrink:0,background:"#EEF0EA",color:K.hdrTitle,fontSize:13.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{ai+1}</span>
                           <span style={{color:K.hdrTitle,display:"flex"}}><Icon name="truck" size={20} strokeWidth={1.8}/></span>
                           <select value={asgn.vehicleId} onChange={e=>{
-                            setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,vehicleId:e.target.value})}));
+                            const newVid = e.target.value;
+                            if(newVid===asgn.vehicleId) return;
+                            // Swapping which truck fills this slot is a new assignment
+                            // identity (vehicleId is the DB key) — carry over the plan
+                            // (driver/time) but reset physical status, since the new
+                            // truck hasn't actually been loaded yet.
+                            removeAsgn(ev.id, asgn.vehicleId);
+                            patchAsgn(ev.id, newVid, { driver:asgn.driver, dispatch_time:asgn.dispatchTime, status:"Planning" });
                           }} style={{...inp,flex:1,minWidth:0,width:"auto",fontWeight:600,padding:"8px 10px"}}>
                             {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.name}</option>)}
                           </select>
                           <span style={{padding:"7px 16px",borderRadius:8,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap",
                             background:done?K.okBg:asgn.status==="Loaded"?K.warnBg:"#E7EEE5",color:done?K.ok:asgn.status==="Loaded"?K.warn:K.brandText}}>{T2(asgn.status)}</span>
-                          <button onClick={()=>{setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.filter((_,i2)=>i2!==ai)}));}} title={T2("Remove")}
+                          <button onClick={()=>removeAsgn(ev.id, asgn.vehicleId)} title={T2("Remove")}
                             style={{width:30,height:30,borderRadius:8,flexShrink:0,background:"#FBEDEA",border:"none",color:K.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
                             <Icon name="close" size={14} strokeWidth={2.2}/>
                           </button>
@@ -411,10 +475,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:10,marginBottom:10}}>
                           <label><span style={lbl}>{T2("Driver")}</span>
                             <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
-                              setDispatches(p=>p.map(dd=>dd.evId!==ev.id?dd:{...dd,assignments:dd.assignments.map((a2,a2i)=>a2i!==ai?a2:{...a2,driver:e.target.value})}));
+                              updAsgn(ev.id, asgn.vehicleId, "driver", e.target.value);
                             }} style={inp}/></label>
                           <label><span style={lbl}>{T2("Departure time")}</span>
-                            <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,ai,"dispatchTime",e.target.value);}} style={inp}/></label>
+                            <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,asgn.vehicleId,"dispatchTime",e.target.value);}} style={inp}/></label>
                         </div>
                         <div title={loc.at+(loc.dest?" → "+loc.dest:"")}
                           style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:9,background:"#F1EFE9",fontSize:12.5,color:K.textBody,marginBottom:10,overflow:"hidden",whiteSpace:"nowrap"}}>
@@ -424,7 +488,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                           {loc.dest&&<><span style={{color:K.hdrTitle,fontWeight:700}}>→</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{loc.dest}</span></>}
                         </div>
                         {label&&(
-                          <button disabled={!can} onClick={()=>advanceStatus(ev.id,ai)} className={can?"kh-hovercard":undefined}
+                          <button disabled={!can} onClick={()=>advanceStatus(ev.id,asgn)} className={can?"kh-hovercard":undefined}
                             style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"11px",borderRadius:10,fontSize:14,fontWeight:700,border:"none",marginBottom:8,
                               cursor:can?"pointer":"not-allowed",background:can?K.brand:"#E9E6DE",color:can?"#FFFFFF":K.textFaint,fontFamily:K.fontBody}}>
                             <Icon name={asgn.status==="Planning"?"box":asgn.status==="Loaded"?"truck":asgn.status==="Dispatched"?"building":"check"} size={17} strokeWidth={1.9}/>

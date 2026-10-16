@@ -423,6 +423,65 @@ function subscribeRecipeRealtime(supabase) {
     .subscribe();
 }
 
+function upsertDishNameMap(lmsName, recipeDishName) {
+  if (!lmsName) return;
+  if (recipeDishName) DISH_NAME_MAP[lmsName] = recipeDishName;
+  else delete DISH_NAME_MAP[lmsName];
+}
+
+// Same disease as RECIPE_DB above, same fix: these five maps (category tag,
+// LMS-name→SOP mapping, Hindi override, dish-master catalogue, Ops store
+// mapping) are plain mutable objects hydrated once at boot with no realtime
+// of their own — unlike RECIPE_DB/MENU_PACKAGES, which already got this
+// treatment. DishLibrary.jsx/DishMappingModal.jsx patch their OWN tab's copy
+// immediately after writing (via the upsert* helpers below), but any other
+// already-open session (a Kitchen Hub tablet, a second admin) kept reading
+// the stale map until a full reload — wrong category/department/recipe/
+// store-item for the rest of a shift. Call this once at boot (App.jsx),
+// alongside subscribeRecipeRealtime.
+function subscribeDishMetaRealtime(supabase) {
+  return supabase.channel('dish_meta_global_rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_categories' }, (p) => {
+      const row = p.eventType === 'DELETE' ? p.old : p.new;
+      upsertDishCat(row && row.dish_name, p.eventType === 'DELETE' ? null : row.category_id);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_name_map' }, (p) => {
+      const row = p.eventType === 'DELETE' ? p.old : p.new;
+      upsertDishNameMap(row && row.lms_name, p.eventType === 'DELETE' ? null : row.recipe_dish_name);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_hindi_map' }, (p) => {
+      const row = p.eventType === 'DELETE' ? p.old : p.new;
+      upsertDishHindi(row && row.dish_name, p.eventType === 'DELETE' ? null : row.hi);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dishes_master' }, (p) => {
+      if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_MASTER[p.old.dish_name]; return; }
+      const r = p.new;
+      if (!r || !r.dish_name) return;
+      DISH_MASTER[r.dish_name] = {
+        is_active:       r.is_active !== false,
+        notes:           r.notes || '',
+        image_url:       r.image_url || '',
+        section_id:      r.section_id || null,
+        sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
+        is_veg:          r.is_veg == null ? null : !!r.is_veg
+      };
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_store_map' }, (p) => {
+      if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_STORE_MAP[p.old.dish_name]; return; }
+      const r = p.new;
+      if (!r || !r.dish_name || !r.ops_item_id) return;
+      DISH_STORE_MAP[r.dish_name] = {
+        ops_item_id:      r.ops_item_id,
+        ops_inventory_id: r.ops_inventory_id || null,
+        ops_item_name:    r.ops_item_name || '',
+        ops_item_hindi:   r.ops_item_hindi || '',
+        ops_item_unit:    r.ops_item_unit || '',
+        qty_per_cover:    Number(r.qty_per_cover) || 1
+      };
+    })
+    .subscribe();
+}
+
 
 
 // ─── DISH → CATEGORY RESOLVER ───────────────────────────────────
@@ -449,20 +508,29 @@ function getCatIdForDish(dishName) {
   const n = dishName.toLowerCase().trim();
   const explicit = DISH_CAT_MAP[dishName] || Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n) && DISH_CAT_MAP[Object.keys(DISH_CAT_MAP).find(k => k.toLowerCase().trim() === n)];
   if (explicit) return explicit;
-  for (const cat of RECIPE_DB.cats) {
-    const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.id;
-  }
-  for (const cat of RECIPE_DB.cats) {
-    const recipes = RECIPE_DB.recipes[cat.id] || [];
-    if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
-  }
-  // Tier 3: normalized match
-  const nn = normDish(dishName);
-  if (nn) {
+  // A dish explicitly marked "no SOP needed" (dish_name_map → '__none__') is
+  // authoritative, same as findRecipeForDish's own guard above — matching it
+  // against RECIPE_DB names below is the identical false-match-prone substring
+  // search findRecipeForDish blocks for exactly this reason (e.g. "Tea" ⊂
+  // "S-tea-med Chicken Dimsum"), just run again for a category instead of a
+  // recipe. Skip straight to the regex-based guess, same as an untagged dish.
+  const skipRecipeMatch = isDishNoSopMarked(dishName);
+  if (!skipRecipeMatch) {
     for (const cat of RECIPE_DB.cats) {
       const recipes = RECIPE_DB.recipes[cat.id] || [];
-      if (recipes.some(r => r.n && (normDish(r.n) === nn || nn.includes(normDish(r.n)) || normDish(r.n).includes(nn)))) return cat.id;
+      if (recipes.some(r => r.n && r.n.toLowerCase().trim() === n)) return cat.id;
+    }
+    for (const cat of RECIPE_DB.cats) {
+      const recipes = RECIPE_DB.recipes[cat.id] || [];
+      if (recipes.some(r => r.n && (n.includes(r.n.toLowerCase()) || r.n.toLowerCase().includes(n)))) return cat.id;
+    }
+    // Tier 3: normalized match
+    const nn = normDish(dishName);
+    if (nn) {
+      for (const cat of RECIPE_DB.cats) {
+        const recipes = RECIPE_DB.recipes[cat.id] || [];
+        if (recipes.some(r => r.n && (normDish(r.n) === nn || nn.includes(normDish(r.n)) || normDish(r.n).includes(nn)))) return cat.id;
+      }
     }
   }
   const guessedSection = guessSectionForDish(dishName);
@@ -858,4 +926,4 @@ async function createCustomDishInLibrary(supabase, name, catId) {
   }
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };

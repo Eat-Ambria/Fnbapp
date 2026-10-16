@@ -81,7 +81,7 @@ export async function dbInsert(table, record) {
  * (helper appends .range() per page). Throws on error.
  *
  *   const rows = await fetchAllRows(() =>
- *     supabase.from('attendance').select('*').gte('date', s).lte('date', e).order('date')
+ *     supabase.from('events').select('*').gte('date', s).lte('date', e).order('date')
  *   );
  */
 export async function fetchAllRows(builder, opts = {}) {
