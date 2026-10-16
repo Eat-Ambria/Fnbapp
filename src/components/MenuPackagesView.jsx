@@ -238,10 +238,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     // Keep the base package on the event; describeEventMenu (menuPackages.js)
     // derives "Luxury Veg + Swaps"/"+ Addons" at display time by diffing the
     // saved menu against the package's own dish list.
+    // "Quick start from package" (delta.action==='package') is the one case
+    // that DOES mean to switch the base package itself — without also
+    // updating menuPackage here, setEvents' own diff (App.jsx buildEventRecord)
+    // never sees menu_package change and never persists it, leaving Booked
+    // Functions showing the old package name forever even though menu/
+    // event_items correctly moved to the new package's dishes.
+    var isPackageSwitch = delta && delta.action === 'package';
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
         if (e.id !== selEv.id) return e;
-        return { ...e, menu: dishes };
+        return isPackageSwitch ? { ...e, menu: dishes, menuPackage: delta.pkgName } : { ...e, menu: dishes };
       });
     });
     if (delta && delta.name) {

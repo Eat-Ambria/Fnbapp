@@ -10,6 +10,25 @@ dispatch status — the fixes below assume you understand why they exist.
 
 ## Fixed 2026-10-16
 
+**Menu Packages' "Quick start from package" silently desynced `menu_package`
+from the actual menu.** `MenuPackagesView.jsx`'s Build Menu tab lets an admin
+switch an already-booked event to an entirely different package in one
+click. The resulting dish list (`events.menu`) and `event_items` were
+reconciled correctly, but `events.menu_package` — the column Booked
+Functions reads directly to show the package label — was never touched,
+because `MenuEditor.jsx`'s `selectPackage`/`confirmDestructive` called
+`onChange(dishes)` with no indication a *package* (not a single dish) had
+changed. `commitMenu` had nothing to tell it `menuPackage` itself needed
+updating, so App.jsx's `setEvents` diff never saw that column change and
+never persisted it — Booked Functions kept showing the old package name
+forever, surviving refreshes, even though the dishes underneath had already
+moved to the new package. Fixed by having `selectPackage`/`confirmDestructive`
+pass `{action:'package', pkgName}` through `onChange`, and `commitMenu` now
+updates local `menuPackage` alongside `menu` when it sees that delta so the
+existing diff-and-persist path picks it up. Single dish add/remove deltas
+are unaffected — those are correctly meant to keep the base package name
+unchanged (see the comment above `commitMenu`).
+
 **Store's shopping-list ignored the chef's yield-multiplier.**
 `StoreModule.jsx`'s `buildEventBags()` now scales its effective pax by
 `ev.yield_multiplier` before computing any ingredient quantity (same formula

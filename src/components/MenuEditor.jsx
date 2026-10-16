@@ -356,12 +356,12 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       setPendingDestructive({ kind: 'package', pkgName: pkgName, count: (MENU_PACKAGES[pkgName] || []).length });
       return;
     }
-    onChange([...(MENU_PACKAGES[pkgName] || [])]);
+    onChange([...(MENU_PACKAGES[pkgName] || [])], { action: 'package', pkgName: pkgName });
   }
 
   function confirmDestructive() {
     if (!pendingDestructive) return;
-    if (pendingDestructive.kind === 'package') onChange([...(MENU_PACKAGES[pendingDestructive.pkgName] || [])]);
+    if (pendingDestructive.kind === 'package') onChange([...(MENU_PACKAGES[pendingDestructive.pkgName] || [])], { action: 'package', pkgName: pendingDestructive.pkgName });
     else if (pendingDestructive.kind === 'clear') onChange([]);
     setPendingDestructive(null);
   }
