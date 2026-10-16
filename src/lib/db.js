@@ -104,10 +104,19 @@ export async function fetchAllRows(builder, opts = {}) {
   return all;
 }
 
+let dbSubscribeSeq = 0;
 export function dbSubscribe(table, callback) {
   if (!supabase) return () => {};
+  // Channel name used to be just `${table}-rt` — fine as long as only ONE
+  // caller ever subscribed to a given table. BookedFunctionsView.jsx adding
+  // its own `dbSubscribe('events', ...)` alongside App.jsx's existing one
+  // broke that assumption: the second `.channel('events-rt')` call reused
+  // the same topic name, and adding postgres_changes callbacks to it after
+  // the first subscribe() had already gone through threw "cannot add
+  // postgres_changes callbacks... after subscribe()". Each call now gets its
+  // own topic so independent subscribers never collide.
   const channel = supabase
-    .channel(table + '-rt')
+    .channel(table + '-rt-' + (dbSubscribeSeq++))
     .on('postgres_changes', { event: '*', schema: 'public', table: table }, callback)
     .subscribe();
   return () => { supabase.removeChannel(channel); };
