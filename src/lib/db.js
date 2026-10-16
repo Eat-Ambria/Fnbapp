@@ -6,6 +6,23 @@ function cacheKey(table) {
   return table === 'staff' ? 'ambria_empdb_v10' : 'ambria_' + table;
 }
 
+// A write that fails because the device is offline is RETRYABLE -- queuing it
+// for replay is correct, and the whole point of the offline queue. A write
+// that fails because Supabase actually responded (a constraint violation, RLS
+// denial, bad payload -- anything PostgREST returns a real error for) is NOT
+// retryable by just waiting: it will fail the exact same way every single
+// time it's replayed. Queuing those "forever" is what let the menu_package
+// bug (and others like it) sit silently broken through six save attempts
+// with nothing ever telling anyone. A PostgREST/Postgres error that actually
+// reached the server carries a `.code` (e.g. '23502' not-null, '23505'
+// unique, '42501' insufficient privilege); a genuine network failure never
+// gets a response to carry one, so it has no `.code`.
+function isOfflineError(e) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (e && e.code) return false;
+  return true;
+}
+
 export async function dbLoad(table, fallback = []) {
   const key = cacheKey(table);
   if (!supabase) {
@@ -42,8 +59,13 @@ export async function dbUpsert(table, record, conflictKey = 'id') {
     const { error } = await supabase.from(table).upsert(record, { onConflict: conflictKey });
     if (error) throw error;
   } catch(e) {
-    console.warn('dbUpsert offline-queued:', table, e.message||e);
-    await enqueue({ action: 'upsert', table, record, conflictKey });
+    if (isOfflineError(e)) {
+      console.warn('dbUpsert offline-queued:', table, e.message||e);
+      await enqueue({ action: 'upsert', table, record, conflictKey });
+      return;
+    }
+    console.error('dbUpsert failed (not retryable, not queued):', table, e.message||e);
+    throw e;
   }
 }
 
@@ -67,8 +89,13 @@ export async function dbUpdate(table, record, conflictKey = 'id') {
     const { error } = await supabase.from(table).update(record).eq(conflictKey, record[conflictKey]);
     if (error) throw error;
   } catch(e) {
-    console.warn('dbUpdate offline-queued:', table, e.message||e);
-    await enqueue({ action: 'update', table, record, conflictKey });
+    if (isOfflineError(e)) {
+      console.warn('dbUpdate offline-queued:', table, e.message||e);
+      await enqueue({ action: 'update', table, record, conflictKey });
+      return;
+    }
+    console.error('dbUpdate failed (not retryable, not queued):', table, e.message||e);
+    throw e;
   }
 }
 
@@ -81,8 +108,13 @@ export async function dbDelete(table, key, value) {
     const { error } = await supabase.from(table).delete().eq(key, value);
     if (error) throw error;
   } catch(e) {
-    console.warn('dbDelete offline-queued:', table, e.message||e);
-    await enqueue({ action: 'delete', table, key, value });
+    if (isOfflineError(e)) {
+      console.warn('dbDelete offline-queued:', table, e.message||e);
+      await enqueue({ action: 'delete', table, key, value });
+      return;
+    }
+    console.error('dbDelete failed (not retryable, not queued):', table, e.message||e);
+    throw e;
   }
 }
 
@@ -95,8 +127,13 @@ export async function dbInsert(table, record) {
     const { error } = await supabase.from(table).insert(record);
     if (error) throw error;
   } catch(e) {
-    console.warn('dbInsert offline-queued:', table, e.message||e);
-    await enqueue({ action: 'insert', table, record });
+    if (isOfflineError(e)) {
+      console.warn('dbInsert offline-queued:', table, e.message||e);
+      await enqueue({ action: 'insert', table, record });
+      return;
+    }
+    console.error('dbInsert failed (not retryable, not queued):', table, e.message||e);
+    throw e;
   }
 }
 

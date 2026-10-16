@@ -130,6 +130,18 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         checkedAt: nowChecked ? new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : null,
       };
     });
+    // Pre-edit snapshot, so a failed save can be rolled back below rather
+    // than leaving a crew member believing a physical setup item was
+    // confirmed when it was never actually saved.
+    const prevEntry = { items, notes: checklists[evId]?.[ph]?.notes || "" };
+    function revert(e) {
+      console.error("ODC checklist save:", e);
+      alert(T2("Failed to save — reverted: ") + ((e && e.message) || e));
+      setChecklists(prev => ({
+        ...prev,
+        [evId]: { ...(prev[evId] || {}), [ph]: prevEntry },
+      }));
+    }
     // Update local state
     setChecklists(prev => ({
       ...prev,
@@ -138,18 +150,33 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         [ph]: { items: updated, notes: prev[evId]?.[ph]?.notes || "" },
       },
     }));
-    // Persist to Supabase
+    // Persist to Supabase — Supabase's query builder resolves (rather than
+    // rejects) on a logical/PostgREST error, so the error field must be
+    // checked in .then(), not just caught via .catch().
     if (supabase) {
       supabase.from("odc_checklists").upsert({
         ev_id: evId, phase: ph, items: updated,
         notes: checklists[evId]?.[ph]?.notes || "",
         updated_at: new Date().toISOString(),
-      }, { onConflict: "ev_id,phase" }).catch(e => console.error("ODC checklist save:", e));
+      }, { onConflict: "ev_id,phase" }).then(({ error }) => { if (error) revert(error); }).catch(revert);
     }
   }
 
   // ── Save notes ──
   function saveNotes(evId, ph, text) {
+    const prevNotes = checklists[evId]?.[ph]?.notes || "";
+    const itemsForPhase = checklists[evId]?.[ph]?.items || getItems(evId, ph);
+    function revert(e) {
+      console.error("ODC notes save:", e);
+      alert(T2("Failed to save note — reverted: ") + ((e && e.message) || e));
+      setChecklists(prev => ({
+        ...prev,
+        [evId]: { ...(prev[evId] || {}), [ph]: { items: itemsForPhase, notes: prevNotes } },
+      }));
+      // Only touch the live textarea if it's still showing this same note —
+      // otherwise the user may have already moved on to editing another one.
+      if (evId === selEvId && ph === phase) setNoteText(prevNotes);
+    }
     setChecklists(prev => ({
       ...prev,
       [evId]: {
@@ -163,7 +190,7 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         items: checklists[evId]?.[ph]?.items || getItems(evId, ph),
         notes: text,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "ev_id,phase" }).catch(e => console.error("ODC notes save:", e));
+      }, { onConflict: "ev_id,phase" }).then(({ error }) => { if (error) revert(error); }).catch(revert);
     }
   }
 

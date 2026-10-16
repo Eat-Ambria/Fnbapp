@@ -328,7 +328,10 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       if(toRemove.length||toAdd.length){
         await supabase.from('events').update({event_items_initialized:true}).eq('id',eventId);
       }
-    }catch(e){ console.error('[Dashboard] syncEventItemsOnPackageChange failed:',e); }
+    }catch(e){
+      console.error('[Dashboard] syncEventItemsOnPackageChange failed:',e);
+      alert('Menu package saved, but the dish list may not have updated to match it: '+(e.message||e)+'. Check the Booked Functions Items tab for this event.');
+    }
   }
   function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
   function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}

@@ -304,15 +304,16 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     // it has no SOP recipe instead of it quietly looking like a normal
     // Add-On Counters item.
     var catId = pendingCustom.catId || '';
+    var mappingIssue = false;
     setCustomSaving(true);
     try {
       // Upsert into dishes_master so this dish becomes part of the library (idempotent on 23505)
       var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
-      if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
+      if (res.error && res.error.code !== '23505') { console.warn('dishes_master upsert warning:', res.error); mappingIssue = true; }
       upsertDishMaster(name, { is_active: true });
       if (catId) {
         var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
-        if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+        if (catRes.error) { console.warn('dish_categories upsert warning:', catRes.error); mappingIssue = true; }
         upsertDishCat(name, catId);
         // Give it an empty SOP recipe stub in that category, so it shows up in
         // Kitchen Hub's SOP list ready to fill in — instead of only existing as
@@ -320,7 +321,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
         var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
         if (!already) {
           var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
-          if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+          if (recRes.error && recRes.error.code !== '23505') { console.warn('recipes insert warning:', recRes.error); mappingIssue = true; }
           else {
             if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
             RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
@@ -329,8 +330,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           }
         }
       }
-    } catch (e) { console.warn('Custom dish library add failed:', e); }
+    } catch (e) { console.warn('Custom dish library add failed:', e); mappingIssue = true; }
     finally { setCustomSaving(false); }
+    if (mappingIssue) {
+      alert('"' + name + '" was added to the menu, but its category/recipe mapping may not have saved. Check it in the Dish Library later.');
+    }
     onChange([...selected, name], { action: 'add', name: name });
     // Tag which of the event's package sections it goes into — this event
     // only, never written to the shared package definition.

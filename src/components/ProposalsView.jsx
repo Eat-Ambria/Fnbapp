@@ -337,11 +337,18 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       // V88 — carry over Service/Crockery/Transport configs (waiters ratio,
       // uniforms, vehicles...) the same way items are carried over, so they
       // don't have to be re-entered once the proposal becomes a real function.
+      var configCopyFailed = false;
       var configsRes = await supabase.from('proposal_configs').select('dept_id,config_key,config_value').eq('proposal_id', p.id);
-      if (!configsRes.error && configsRes.data && configsRes.data.length > 0) {
+      if (configsRes.error) {
+        console.error('[Proposals] loading configs to copy failed:', configsRes.error);
+        configCopyFailed = true;
+      } else if (configsRes.data && configsRes.data.length > 0) {
         var configRows = configsRes.data.map(function(c){ return { event_id: eventId, dept_id: c.dept_id, config_key: c.config_key, config_value: c.config_value }; });
         var configInsRes = await supabase.from('event_configs').insert(configRows);
-        if (configInsRes.error) console.error('[Proposals] copying configs to event failed:', configInsRes.error);
+        if (configInsRes.error) {
+          console.error('[Proposals] copying configs to event failed:', configInsRes.error);
+          configCopyFailed = true;
+        }
       }
 
       if (p.notes) {
@@ -351,7 +358,9 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
       var updRes = await supabase.from('proposals').update({ converted_event_id: eventId }).eq('id', p.id).select().single();
       if (updRes.error) throw updRes.error;
       setProposals(function(prev){ return prev.map(function(x){ return x.id === p.id ? updRes.data : x; }); });
-      setDlg({ tone: 'ok', icon: 'check', title: T2('Converted to a booking'), body: T2('Find it under Booked Functions.'), confirmLabel: T2('Done') });
+      setDlg(configCopyFailed
+        ? { tone: 'warn', icon: 'alert', title: T2('Converted to a booking'), body: T2('Find it under Booked Functions. Some configuration details (Service/Crockery/Transport) may not have copied over — please check the new booking.'), confirmLabel: T2('Done') }
+        : { tone: 'ok', icon: 'check', title: T2('Converted to a booking'), body: T2('Find it under Booked Functions.'), confirmLabel: T2('Done') });
     } catch (e) {
       console.error('[Proposals] convertToBooking failed:', e);
       fail(T2('Could not convert this proposal'), e);

@@ -97,17 +97,30 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   // defaults ('Planning', '') for whatever isn't included.
   function patchAsgn(evId, vehicleId, patch){
     const id = rowKey(evId, vehicleId);
+    const prevRow = dispatchRows.find(r=>r.id===id);
     setDispatchRows(p=>{
       const idx = p.findIndex(r=>r.id===id);
       if(idx<0) return [...p, {id, event_id:evId, vehicle_id:vehicleId, driver:"", dispatch_time:"", status:"Planning", dispatched_at:null, arrived_at:null, unloaded_at:null, ...patch}];
       const copy=[...p]; copy[idx]={...copy[idx], ...patch}; return copy;
     });
-    dbUpsert('transport_dispatch_assignments', {id, event_id:evId, vehicle_id:vehicleId, ...patch}, 'id').catch(e=>console.error('[Transport] dispatch upsert failed:',e));
+    dbUpsert('transport_dispatch_assignments', {id, event_id:evId, vehicle_id:vehicleId, ...patch}, 'id').catch(e=>{
+      console.error('[Transport] dispatch upsert failed:',e);
+      setDispatchRows(p=>{
+        if(prevRow) return p.map(r=>r.id===id?prevRow:r);
+        return p.filter(r=>r.id!==id);
+      });
+      alert('Could not save dispatch update: '+(e.message||e)+'. Reverting.');
+    });
   }
   function removeAsgn(evId, vehicleId){
     const id = rowKey(evId, vehicleId);
+    const prevRow = dispatchRows.find(r=>r.id===id);
     setDispatchRows(p=>p.filter(r=>r.id!==id));
-    dbDelete('transport_dispatch_assignments', 'id', id).catch(e=>console.error('[Transport] dispatch delete failed:',e));
+    dbDelete('transport_dispatch_assignments', 'id', id).catch(e=>{
+      console.error('[Transport] dispatch delete failed:',e);
+      if(prevRow) setDispatchRows(p=>p.some(r=>r.id===id)?p:[...p, prevRow]);
+      alert('Could not remove vehicle assignment: '+(e.message||e)+'. Restoring.');
+    });
   }
 
   const dispatches = safeEvs.map(ev=>{
@@ -225,12 +238,21 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     var vid = editVehId || vehForm.name.replace(/\s+/g, "").toUpperCase();
     var rec = { id: vid, name: vehForm.name.trim(), icon: vehForm.icon || "🚛", type: vehForm.type || "dry", note: vehForm.note || "", base_location: vehForm.base_location || "AP Kitchen", is_active: true };
     setFleetList(p => { var exists = p.find(v => v.id === vid); if (exists) return p.map(v => v.id === vid ? { ...v, ...rec } : v); return [...p, rec]; });
-    dbUpsert("vehicles", rec, "id").catch(e => console.error("vehicle save:", e));
-    setShowAddVeh(false); setEditVehId(null); setVehForm({ id: "", name: "", icon: "🚛", type: "dry", note: "", base_location: "AP Kitchen" });
+    dbUpsert("vehicles", rec, "id").then(() => {
+      setShowAddVeh(false); setEditVehId(null); setVehForm({ id: "", name: "", icon: "🚛", type: "dry", note: "", base_location: "AP Kitchen" });
+    }).catch(e => {
+      console.error("vehicle save:", e);
+      alert('Could not save vehicle: ' + (e.message||e) + '. Please try again.');
+    });
   }
   function deleteVehicle(vid) {
+    const prevVeh = fleetList.find(v => v.id === vid);
     setFleetList(p => p.filter(v => v.id !== vid));
-    dbDelete("vehicles", "id", vid).catch(e => console.error("vehicle delete:", e));
+    dbDelete("vehicles", "id", vid).catch(e => {
+      console.error("vehicle delete:", e);
+      if (prevVeh) setFleetList(p => p.some(v=>v.id===vid)?p:[...p, prevVeh]);
+      alert('Could not delete vehicle: ' + (e.message||e) + '. Restoring.');
+    });
     setDelVehId(null);
   }
 

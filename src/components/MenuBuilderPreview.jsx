@@ -477,6 +477,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       setSentJust(true);
     } catch (e) {
       console.error('[Preview] mark as sent failed:', e);
+      alert(T2('Failed to mark as sent:') + ' ' + (e.message || e));
     } finally {
       setMarkingSent(false);
     }

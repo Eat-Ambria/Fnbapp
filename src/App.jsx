@@ -198,7 +198,19 @@ export default function App() {
         if(prevMap.has(id) && prevMap.get(id) === ev) return;
         const prevEv = prevMap.get(id);
         const full = buildEventRecord(ev);
-        if(!prevEv) { dbUpsert("events", full, "id").catch(e=>console.error("ev sync:",e)); return; }
+        if(!prevEv) {
+          dbUpsert("events", full, "id").catch(e=>{
+            // A genuinely failed insert (not offline) means this event was
+            // never actually created server-side -- leaving it sitting in
+            // local state would show it as a real booking that doesn't exist
+            // anywhere else (Booked Functions, Kitchen Hub, etc. never see
+            // it via realtime). Remove it and say why instead of a silent lie.
+            console.error("ev create failed:", e);
+            alert('Could not create "'+(ev.guest||id)+'": '+(e?.message||e)+'\nIt has been removed.');
+            setEvents_raw(p => p.filter(x => x.id!==id));
+          });
+          return;
+        }
         // Only send columns that actually changed vs this tab's OWN previous
         // copy. Several columns here (menu, menu_section_overrides,
         // outsourced_dishes) are also written directly and independently by
@@ -224,15 +236,35 @@ export default function App() {
         // column it doesn't happen to include (found live: a {id,menu_package}
         // patch failed on events.guest being null) and silently queues offline
         // forever. A real UPDATE only touches the named columns.
-        if(changed) dbUpdate("events", patch, "id").catch(e=>console.error("ev sync:",e));
+        if(changed) dbUpdate("events", patch, "id").catch(e=>{
+          // A genuinely failed update (not offline) -- revert this one event
+          // back to its last-known-saved copy instead of leaving the UI
+          // showing an edit that never actually reached the database. This is
+          // the exact bug class a menu-package edit hit earlier: save looked
+          // fine, survived a refresh check, never actually landed.
+          console.error("ev sync failed:", e);
+          alert('Could not save changes to "'+(ev.guest||id)+'": '+(e?.message||e)+'\nReverted to the last saved version.');
+          setEvents_raw(p => p.map(x => x.id===id ? prevEv : x));
+        });
       });
       prevMap.forEach((_,id) => {
         if(!nextMap.has(id)) {
           // V72 soft-delete: mark tombstone instead of hard delete so LMS sync
           // (which upserts by id) can't resurrect the row on the next pull.
+          const deletedEv = prevMap.get(id);
+          const restoreAndWarn = (e) => {
+            // Local state already dropped this event optimistically (it's
+            // excluded from `next` above). If the tombstone write genuinely
+            // failed, the event is still live in Supabase and would otherwise
+            // reappear later via realtime/reload with zero explanation —
+            // restore it now and say why instead of leaving a silent lie.
+            console.error("ev soft-del failed:", e);
+            alert('Could not delete "'+(deletedEv?.guest||id)+'": '+(e?.message||e)+'\nIt has been restored.');
+            setEvents_raw(p => p.some(ev=>ev.id===id) ? p : [...p, deletedEv]);
+          };
           supabase.from("events").update({is_deleted:true}).eq("id",id)
-            .then(({error})=>{ if(error) console.error("ev soft-del:",error); })
-            .catch(e=>console.error("ev soft-del:",e));
+            .then(({error})=>{ if(error) restoreAndWarn(error); })
+            .catch(restoreAndWarn);
         }
       });
       // TEMP: a manually-created/edited event that now matches the hidden
@@ -296,6 +328,7 @@ export default function App() {
   // whose device sent it. Only a genuinely newer write ever applies.
   const ktTsRef = useRef({});
   function ktTsKey(evId, dishKey) { return evId + '|' + dishKey; }
+  const ktSyncWarnedRef = useRef(false); // one alert per session, not one per failed tick
   // The account menu is anchored with position:fixed rather than absolute. The
   // sidebar panel sets overflow:hidden for its rounded corners and artwork, so
   // an absolutely positioned menu opening downward was clipped at the panel
@@ -350,7 +383,20 @@ export default function App() {
           const writeTs = Date.now();
           ktTsRef.current[ktTsKey(evId, dishKey)] = writeTs;
           dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)), client_id: ktClientIdRef.current, client_write_ts: writeTs }, "ev_id,dish_key")
-            .catch(e => console.error("KT sync failed:", dishKey, e));
+            .catch(e => {
+              console.error("KT sync failed:", dishKey, e);
+              // Ticks happen dozens of times per shift, so an alert per failure
+              // would be its own kind of disruption the original comment above
+              // was right to avoid. But a GENUINE (non-offline) failure now
+              // throws instead of silently queuing forever (db.js), and that
+              // really does mean this tick never reached other kitchen
+              // stations watching the same event live — worth one clear
+              // warning per session rather than zero, ever.
+              if (!ktSyncWarnedRef.current) {
+                ktSyncWarnedRef.current = true;
+                alert('A kitchen update failed to save and other stations may not see it: '+(e?.message||e)+'\n\nThis dish/step is still ticked on THIS screen, but please double-check it on another tablet, or re-tap it, if this keeps happening.');
+              }
+            });
         });
       });
     } catch (e) {
@@ -361,6 +407,7 @@ export default function App() {
   }, [kitchenTracking]);
 
   // ── Transport Queue ──
+  const tqSyncWarnedRef = useRef(false); // one alert per session, not one per failed write
   const [transportQueue, setTransportQueue_raw] = useState([]);
   const setTransportQueue = (updater) => {
     setTransportQueue_raw(prev => {
@@ -370,11 +417,17 @@ export default function App() {
       const nextMap = new Map(safeArr(next).map(q=>[q.id, q]));
       nextMap.forEach((q, id) => {
         if(!prevMap.has(id) || prevMap.get(id).status !== q.status || prevMap.get(id).vehicleId !== q.vehicleId) {
-          dbUpsert("transport_queue",{id:q.id,dish_name:q.dish||q.dishName||"",ev_id:q.evId||null,sec:q.sec||null,station:q.station||null,qty:q.qty??null,unit:q.unit||null,event_guest:q.event,pax:+q.pax||0,venue:q.venue,event_date:q.eventDate,prepared_by:q.preparedBy,marked_at:q.markedAt,status:q.status,picked_up_at:q.pickedUpAt||null,from_venue:q.fromVenue||null,vehicle_id:q.vehicleId||null},"id").catch(e=>console.error("tq sync:",e));
+          dbUpsert("transport_queue",{id:q.id,dish_name:q.dish||q.dishName||"",ev_id:q.evId||null,sec:q.sec||null,station:q.station||null,qty:q.qty??null,unit:q.unit||null,event_guest:q.event,pax:+q.pax||0,venue:q.venue,event_date:q.eventDate,prepared_by:q.preparedBy,marked_at:q.markedAt,status:q.status,picked_up_at:q.pickedUpAt||null,from_venue:q.fromVenue||null,vehicle_id:q.vehicleId||null},"id").catch(e=>{
+            console.error("tq sync:",e);
+            if(!tqSyncWarnedRef.current){ tqSyncWarnedRef.current=true; alert('A transport queue update failed to save: '+(e?.message||e)+'\n\nOther screens may not see this change — please re-check it there.'); }
+          });
         }
       });
       prevMap.forEach((_,id) => {
-        if(!nextMap.has(id)) dbDelete("transport_queue","id",id).catch(e=>console.error("tq del:",e));
+        if(!nextMap.has(id)) dbDelete("transport_queue","id",id).catch(e=>{
+          console.error("tq del:",e);
+          if(!tqSyncWarnedRef.current){ tqSyncWarnedRef.current=true; alert('Removing a transport queue item failed to save: '+(e?.message||e)+'\n\nIt may reappear elsewhere — please re-check.'); }
+        });
       });
       return next;
     });
@@ -542,7 +595,7 @@ export default function App() {
       }
       // Seed AM001 to Supabase on every load (idempotent)
       const am001=EMPLOYEE_DB_INIT.find(e=>e.staff_id==='AM001'||e.staffListId==='AM001');
-      if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',pin:String(am001.pin||'0000'),is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(()=>{});
+      if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',pin:String(am001.pin||'0000'),is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(e=>console.warn('AM001 boot-seed failed (non-fatal, idempotent — will retry next boot):',e));
 
       // Auto-sync from LMS (15-min cooldown)
       try{
@@ -764,11 +817,25 @@ export default function App() {
     if(!/^\d{4,6}$/.test(next)){ setPinResetForm(f=>({...f,error:"New PIN must be 4-6 digits."})); return; }
     if(next!==confirmPin){ setPinResetForm(f=>({...f,error:"New PINs don't match."})); return; }
     const myId = currentUser.staffListId||currentUser.staff_id||currentUser.id;
+    const prevUser = currentUser;
     const updated = {...currentUser, pin:next};
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===myId?{...s,pin:next}:s));
     setCurrentUser(updated);
+    try{
+      await syncStaff('upsert', updated);
+    }catch(e){
+      // The write genuinely failed (not just offline) -- roll back the
+      // optimistic update instead of closing the dialog as if it worked.
+      // A silently-unsaved PIN change is exactly the "user clicks Save,
+      // sees success, nothing actually persisted" bug class this app has
+      // already been bitten by once.
+      console.error('[savePinReset] sync failed:', e);
+      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===myId?prevUser:s));
+      setCurrentUser(prevUser);
+      setPinResetForm(f=>({...f,error:"Could not save your new PIN: "+(e.message||e)}));
+      return;
+    }
     try{ localStorage.setItem("ambria_session_user", JSON.stringify(updated)); }catch(e){}
-    try{ await syncStaff('upsert', updated); }catch(e){ console.error('[savePinReset] sync failed:', e); }
     setShowPinReset(false);
     setPinResetForm({current:"",next:"",confirm:"",error:""});
   }

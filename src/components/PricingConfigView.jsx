@@ -186,6 +186,7 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
   var [loadingSections, setLoadingSections] = useState(false);
   var [savingKey, setSavingKey] = useState(null);
   var [toast, setToast] = useState(null);
+  var [loadError, setLoadError] = useState(null);
   var [, forceTick] = useState(0);
   var [collapsedGroups, setCollapsedGroups] = useState(function(){ return new Set(); });
   function toggleGroup(id) {
@@ -197,18 +198,25 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
   }
 
   var sectionDept = SECTION_DEPT_MAP[activeDept];
-  useEffect(function(){
-    if (!sectionDept) return;
+  function loadSections() {
+    if (!sectionDept) return function(){};
     var cancelled = false;
     setLoadingSections(true);
     fetchAllRows(function(){
       return supabase.from('dish_catalogue_sections')
         .select('id,name,parent_section_id,sort_order,addon_price_per_pax,pricing_mode')
         .eq('dept', sectionDept).order('sort_order', { ascending: true });
-    }).then(function(rows){ if (!cancelled) setSections(rows || []); })
-      .catch(function(e){ console.error('[PricingConfig] load sections failed:', e); if (!cancelled) setSections([]); })
+    }).then(function(rows){ if (!cancelled) { setSections(rows || []); setLoadError(null); } })
+      .catch(function(e){
+        console.error('[PricingConfig] load sections failed:', e);
+        if (!cancelled) { setSections([]); setLoadError('Could not load catalogue sections: ' + (e.message || e)); }
+      })
       .finally(function(){ if (!cancelled) setLoadingSections(false); });
     return function(){ cancelled = true; };
+  }
+  useEffect(function(){
+    return loadSections();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionDept]);
 
   async function saveSectionPrice(sectionId, price) {
@@ -400,6 +408,16 @@ function PricingConfigView({ lang = 'en', currentUser = null }) {
           );
         })}
       </div>
+
+      {loadError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: K.dangerBg, border: '1px solid ' + K.dangerBorder, borderRadius: 14, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: K.danger }}>
+          <span style={{ flex: 1 }}>⚠ {T2(loadError)}</span>
+          <button onClick={loadSections}
+            style={{ padding: '6px 14px', borderRadius: 10, background: K.danger, border: 'none', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {T2('Retry')}
+          </button>
+        </div>
+      )}
 
       {sectionDept && (
         loadingSections ? (

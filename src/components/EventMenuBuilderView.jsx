@@ -302,6 +302,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         if (!cancelled) setDishItems(items || []);
       } catch (e) {
         console.error('[EventMenuBuilder] boot failed:', e);
+        alert(T2('A one-time menu setup step failed for this function — the Items tab may show as empty. Try reloading the page; if it keeps happening, contact support.'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -433,9 +434,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (fpRow.general_notes) parts.push('Notes: ' + fpRow.general_notes);
     var payload = { special: parts.length ? parts.join(' | ') : null };
     try {
-      await supabase.from('events').update(payload).eq('id', event.id);
+      var res = await supabase.from('events').update(payload).eq('id', event.id);
+      if (res.error) throw res.error;
     } catch (e) {
       console.error('[EventMenuBuilder] mirrorFPToEvent failed:', e);
+      alert(T2('The Function Plan field saved, but this allergy/dietary note may not have reached Kitchen Hub — please double-check Kitchen Hub\'s D-1 view for this event.') + ' (' + (e.message || e) + ')');
     }
   }
 
@@ -620,20 +623,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // under (this event only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
     if (blockIfMenuLocked()) return;
-    await createCustomDishInLibrary(supabase, name, catId);
-    setDishLibBump(function(n){ return n + 1; });
-    var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
-    if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
-    if (sectionId) await saveSectionOverride(name, sectionId);
+    try {
+      await createCustomDishInLibrary(supabase, name, catId);
+      setDishLibBump(function(n){ return n + 1; });
+      var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (sectionId) await saveSectionOverride(name, sectionId);
+    } catch (e) {
+      // addDishItem only calls its onOptimistic setter AFTER a successful
+      // insert (see menuItemOps.js), so dishItems/setDishItems was never
+      // touched here — nothing to revert, the dish simply never appears added.
+      console.error('[EventMenuBuilder] addCustomDish failed:', e);
+      alert(T2('Failed to add dish:') + ' ' + (e.message || e));
+    }
   }
 
   // Same as addCustomDish, minus the library-creation step — for a dish the
   // chef picked from the existing library search instead of typing a new one.
   async function addExistingDish(name, sectionId) {
     if (blockIfMenuLocked()) return;
-    var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
-    if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
-    if (sectionId) await saveSectionOverride(name, sectionId);
+    try {
+      var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (sectionId) await saveSectionOverride(name, sectionId);
+    } catch (e) {
+      console.error('[EventMenuBuilder] addExistingDish failed:', e);
+      alert(T2('Failed to add dish:') + ' ' + (e.message || e));
+    }
   }
 
   // V87 — add every dish in a chosen catalogue section (its own dishes plus,

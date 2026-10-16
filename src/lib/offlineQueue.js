@@ -46,7 +46,13 @@ export async function enqueue(entry) {
       const arr = JSON.parse(localStorage.getItem(key) || '[]');
       arr.push({ ...entry, ts: Date.now() });
       localStorage.setItem(key, JSON.stringify(arr));
-    } catch (_) {}
+    } catch (_) {
+      // Both IndexedDB and localStorage failed (private browsing, quota
+      // exceeded) -- this write is genuinely gone with no way to retry it.
+      // At minimum leave a trace; silently losing data with zero evidence
+      // anywhere was the worst version of the original bug class.
+      console.error('[offlineQueue] write lost -- IndexedDB and localStorage both unavailable:', entry.table, entry.action);
+    }
   }
 }
 

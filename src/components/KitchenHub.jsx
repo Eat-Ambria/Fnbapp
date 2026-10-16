@@ -1271,6 +1271,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       onConfirm:()=>{ setResetModal(null); rm(); }});
   }
   function sopEditSub(si,sbi,field,val){setSopForm(p=>({...p,steps:p.steps.map((s,i)=>i!==si?s:{...s,subs:(s.subs||[]).map((sb,j)=>j!==sbi?sb:{...sb,[field]:val})})}));}
+  // RECIPE_DB (and the cat objects inside it) is a plain module-level object,
+  // not React state — the functions below mutate it optimistically, then fire
+  // a Supabase write in the background. On a failed write they mutate it back,
+  // but that revert needs its own re-render trigger since nothing else is
+  // guaranteed to re-render this component after the async error lands.
+  const [, bumpSopDb] = useState(0);
   function saveSop(){
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
@@ -1287,11 +1293,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // "the" row by r.n===origName used to grab whichever one happened to be
     // first, silently editing/deleting the WRONG duplicate.
     if(!RECIPE_DB.recipes[f.catId])RECIPE_DB.recipes[f.catId]=[];
+    let origRecipe=null, origCatId=null;
     if(sopModal.mode==="edit"&&sopModal.origId!=null){
       const arr=RECIPE_DB.recipes[sopModal.catId]||[];
       const idx=arr.findIndex(r=>r.id===sopModal.origId);
       let oldIngredients=null;
-      if(idx>=0){oldIngredients=arr[idx].ingredients||null;arr.splice(idx,1);} // remove from old category
+      if(idx>=0){origRecipe=arr[idx];oldIngredients=arr[idx].ingredients||null;arr.splice(idx,1);origCatId=sopModal.catId;} // remove from old category
       if(oldIngredients)recObj.ingredients=oldIngredients;
       recObj.id=sopModal.origId;
       RECIPE_DB.recipes[f.catId].push(recObj);
@@ -1308,12 +1315,24 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // ingredients column is untouched because it's the same row.
     (async()=>{
       const sb=supabase;if(!sb)return;
-      if(sopModal.mode==="edit"&&sopModal.origId!=null){
-        sb.from('recipes').update({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('id',sopModal.origId).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP updated (in-place)');});
-      }else{
-        sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).then(r=>{if(r.error)console.error('SOP save err:',r.error);else console.log('✅ SOP saved');});
+      try{
+        let error;
+        if(sopModal.mode==="edit"&&sopModal.origId!=null){
+          ({error}=await sb.from('recipes').update({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('id',sopModal.origId));
+        }else{
+          ({error}=await sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}));
+        }
+        if(error) throw error;
+        console.log('✅ SOP '+(sopModal.mode==='edit'?'updated (in-place)':'saved'));
+      }catch(e){
+        console.error('SOP save err:',e);
+        RECIPE_DB.recipes[f.catId]=(RECIPE_DB.recipes[f.catId]||[]).filter(r=>r!==recObj);
+        if(origRecipe&&origCatId){if(!RECIPE_DB.recipes[origCatId])RECIPE_DB.recipes[origCatId]=[];RECIPE_DB.recipes[origCatId].push(origRecipe);}
+        bumpSopDb(x=>x+1);
+        setSopRecipe(origRecipe||null);
+        alert('Could not save recipe: '+(e.message||e));
       }
-    })().catch(e=>console.error('SOP supabase err:',e));
+    })();
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);
     setSopModal(null);setSopRecipe(recObj);
   }
@@ -1324,7 +1343,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     if(!cat||cat.name===trimmed) return;
     var oldName=cat.name;
     cat.name=trimmed;
-    supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat rename err:',r.error);});
+    supabase.from('recipe_categories').update({name:trimmed}).eq('id',catId).then(r=>{
+      if(r.error){
+        console.error('Cat rename err:',r.error);
+        cat.name=oldName;
+        bumpSopDb(x=>x+1);
+        alert('Could not rename category: '+(r.error.message||r.error));
+      }
+    });
     logActivity('kitchen','SOP section renamed: '+oldName+' → '+trimmed,'sop_category_rename',{catId:catId,from:oldName,to:trimmed},currentUser?.id);
   }
   function updateCategoryIcon(catId,newIcon){
@@ -1334,7 +1360,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     if(!cat||cat.icon===trimmed) return;
     var oldIcon=cat.icon;
     cat.icon=trimmed;
-    supabase.from('recipe_categories').update({icon:trimmed}).eq('id',catId).then(r=>{if(r.error)console.error('Cat icon update err:',r.error);});
+    supabase.from('recipe_categories').update({icon:trimmed}).eq('id',catId).then(r=>{
+      if(r.error){
+        console.error('Cat icon update err:',r.error);
+        cat.icon=oldIcon;
+        bumpSopDb(x=>x+1);
+        alert('Could not update category icon: '+(r.error.message||r.error));
+      }
+    });
     logActivity('kitchen','SOP section icon changed: '+cat.name+' ('+oldIcon+' → '+trimmed+')','sop_category_icon',{catId:catId,from:oldIcon,to:trimmed},currentUser?.id);
   }
   function saveCategoryEdit(catId,newName,newIcon){
@@ -1378,9 +1411,26 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   function doDeleteCategory(catId){
     var arr=safeArr(RECIPE_DB.recipes[catId]);
     if(arr.length>0)return; // re-checked at commit time, not just at click time
+    var cat=RECIPE_DB.cats.find(c=>c.id===catId);
+    var catIdx=RECIPE_DB.cats.findIndex(c=>c.id===catId);
     RECIPE_DB.cats=RECIPE_DB.cats.filter(c=>c.id!==catId);
     delete RECIPE_DB.recipes[catId];
-    supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{if(r.error)console.error('Cat delete err:',r.error);else console.log('✅ Category deleted:',catId);});
+    supabase.from('recipe_categories').delete().eq('id',catId).then(r=>{
+      if(r.error){
+        console.error('Cat delete err:',r.error);
+        if(cat){
+          var next=RECIPE_DB.cats.slice();
+          next.splice(Math.min(catIdx,next.length),0,cat);
+          RECIPE_DB.cats=next;
+        }
+        RECIPE_DB.recipes[catId]=arr;
+        bumpSopDb(x=>x+1);
+        setSopCat(catId);
+        alert('Could not delete category: '+(r.error.message||r.error));
+      } else {
+        console.log('✅ Category deleted:',catId);
+      }
+    });
     logActivity('kitchen','SOP category deleted: '+catId,'sop_category_delete',{catId:catId},currentUser?.id);
     setSopCat(null);
   }
@@ -1412,7 +1462,18 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     if(!RECIPE_DB.recipes[catId])RECIPE_DB.recipes[catId]=[];
     RECIPE_DB.recipes[catId].push(recObj);
     RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
-    supabase.from('recipes').insert({dish_name:recObj.n,category_id:catId,sub:recObj.sub,steps:recObj.steps,ingredients:recObj.ingredients,yield:recObj.yield,bg:recObj.bg}).then(r=>{if(r.error)console.error('Duplicate SOP err:',r.error);else console.log('✅ SOP duplicated:',recObj.n);});
+    supabase.from('recipes').insert({dish_name:recObj.n,category_id:catId,sub:recObj.sub,steps:recObj.steps,ingredients:recObj.ingredients,yield:recObj.yield,bg:recObj.bg}).then(r=>{
+      if(r.error){
+        console.error('Duplicate SOP err:',r.error);
+        RECIPE_DB.recipes[catId]=(RECIPE_DB.recipes[catId]||[]).filter(x=>x!==recObj);
+        RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+        bumpSopDb(x=>x+1);
+        setSopRecipe(null);
+        alert('Could not duplicate recipe: '+(r.error.message||r.error));
+      } else {
+        console.log('✅ SOP duplicated:',recObj.n);
+      }
+    });
     logActivity('kitchen','SOP duplicated: '+recipe.n+' → '+trimmed,'sop_duplicate',{from:recipe.n,to:trimmed,catId:catId},currentUser?.id);
     setDupModal(null);
     setSopRecipe(recObj);
@@ -1428,7 +1489,22 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // By id — a dish_name+category_id filter moves EVERY duplicate sharing
     // that name in that category, not just the one the chef picked.
     var q=supabase.from('recipes').update({category_id:toCatId});
-    (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',fromCatId)).then(r=>{if(r.error)console.error('Move err:',r.error);else console.log('✅ Recipe moved:',recipe.n,'→',toCatId);});
+    (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',fromCatId)).then(r=>{
+      if(r.error){
+        console.error('Move err:',r.error);
+        var toArr=RECIPE_DB.recipes[toCatId]||[];
+        var ti=toArr.indexOf(recipe);
+        if(ti>=0) toArr.splice(ti,1);
+        if(!RECIPE_DB.recipes[fromCatId]) RECIPE_DB.recipes[fromCatId]=[];
+        RECIPE_DB.recipes[fromCatId].splice(idx>=0?idx:RECIPE_DB.recipes[fromCatId].length,0,recipe);
+        RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+        bumpSopDb(x=>x+1);
+        setSopRecipe(recipe);setSopCat(fromCatId);
+        alert('Could not move recipe: '+(r.error.message||r.error));
+      } else {
+        console.log('✅ Recipe moved:',recipe.n,'→',toCatId);
+      }
+    });
     logActivity('kitchen','SOP moved: '+recipe.n+' → '+toCatId,'sop_move',{dish:recipe.n,from:fromCatId,to:toCatId},currentUser?.id);
     setSopRecipe(null);setSopCat(toCatId);
   }
@@ -1438,6 +1514,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     var ids=recipes.map(r=>r.id).filter(id=>id!=null);
     var byId=ids.length===recipes.length;
     var fromArr=RECIPE_DB.recipes[fromCatId]||[];
+    var prevFromArr=fromArr.slice();
+    var prevToArr=(RECIPE_DB.recipes[toCatId]||[]).slice();
     RECIPE_DB.recipes[fromCatId]=byId ? fromArr.filter(r=>ids.indexOf(r.id)<0) : fromArr.filter(r=>names.indexOf(r.n)<0);
     if(!RECIPE_DB.recipes[toCatId]) RECIPE_DB.recipes[toCatId]=[];
     RECIPE_DB.recipes[toCatId]=RECIPE_DB.recipes[toCatId].concat(recipes);
@@ -1446,7 +1524,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // filter moves every duplicate sharing a selected name, not just the
     // ones the chef actually ticked.
     var q=supabase.from('recipes').update({category_id:toCatId});
-    (byId ? q.in('id',ids) : q.in('dish_name',names).eq('category_id',fromCatId)).then(r=>{if(r.error)console.error('Bulk move err:',r.error);else console.log('✅ Bulk moved',names.length,'recipes ->',toCatId);});
+    (byId ? q.in('id',ids) : q.in('dish_name',names).eq('category_id',fromCatId)).then(r=>{
+      if(r.error){
+        console.error('Bulk move err:',r.error);
+        RECIPE_DB.recipes[fromCatId]=prevFromArr;
+        RECIPE_DB.recipes[toCatId]=prevToArr;
+        RECIPE_DB.cats.forEach(c=>{c.count=(RECIPE_DB.recipes[c.id]||[]).length;});
+        bumpSopDb(x=>x+1);
+        setSopCat(fromCatId);
+        alert('Could not move recipes: '+(r.error.message||r.error));
+      } else {
+        console.log('✅ Bulk moved',names.length,'recipes ->',toCatId);
+      }
+    });
     logActivity('kitchen','SOP bulk moved: '+names.length+' recipes → '+toCatId,'sop_bulk_move',{dishes:names,from:fromCatId,to:toCatId},currentUser?.id);
     setSopSelected(new Set());setSopBulkMode(false);setSopBulkTarget("");
   }
@@ -1485,11 +1575,22 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     if(idx>=0)arr.splice(idx,1);
     (async()=>{
       const sb=supabase;if(!sb)return;
-      // By id, not just dish_name — a bare name filter deletes EVERY recipe
-      // sharing that name across every category, not just this one.
-      const q=sb.from('recipes').delete();
-      (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',cid)).then(r=>{if(r.error)console.error('SOP delete err:',r.error);else console.log('✅ SOP deleted');});
-    })().catch(e=>console.error('SOP delete err:',e));
+      try{
+        // By id, not just dish_name — a bare name filter deletes EVERY recipe
+        // sharing that name across every category, not just this one.
+        const q=sb.from('recipes').delete();
+        const {error} = await (recipe.id!=null ? q.eq('id',recipe.id) : q.eq('dish_name',recipe.n).eq('category_id',cid));
+        if(error) throw error;
+        console.log('✅ SOP deleted');
+      }catch(e){
+        console.error('SOP delete err:',e);
+        if(!RECIPE_DB.recipes[cid]) RECIPE_DB.recipes[cid]=[];
+        RECIPE_DB.recipes[cid].splice(idx>=0?idx:RECIPE_DB.recipes[cid].length,0,recipe);
+        bumpSopDb(x=>x+1);
+        setSopRecipe(recipe);
+        alert('Could not delete recipe: '+(e.message||e));
+      }
+    })();
     logActivity('kitchen', 'SOP deleted: '+recipe.n, 'sop_delete', {dish:recipe.n, catId:cid}, currentUser?.id);
     setSopRecipe(null);
   }
@@ -7064,10 +7165,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         async function removeMapping(lmsName){
           try{
             const sb = supabase; if(!sb)return;
-            await sb.from('dish_name_map').delete().eq('lms_name',lmsName);
+            const {error} = await sb.from('dish_name_map').delete().eq('lms_name',lmsName);
+            if(error) throw error;
             delete DISH_NAME_MAP[lmsName];
             setDishMapSel(p=>{const n={...p};delete n[lmsName];return n;});
-          }catch(e){console.error(e);}
+          }catch(e){
+            console.error(e);
+            alert('Could not remove mapping: '+(e.message||e));
+          }
         }
 
         const pendingCount = Object.values(dishMapSel).filter(Boolean).length;

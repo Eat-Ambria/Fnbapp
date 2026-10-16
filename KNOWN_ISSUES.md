@@ -10,6 +10,65 @@ dispatch status — the fixes below assume you understand why they exist.
 
 ## Fixed 2026-10-16
 
+**System-wide sweep: "click Save, see success, nothing actually persisted."**
+Following the `menu_package` bug above, a full audit (4 parallel passes, one
+per subsystem) went looking for the same shape everywhere: an optimistic
+local UI update, a fire-and-forget Supabase write, and a catch block that
+only `console.warn`/`console.error`s with nothing shown on screen. Root
+cause fixed once in `src/lib/db.js`: `dbUpsert`/`dbUpdate`/`dbDelete`/
+`dbInsert` used to swallow EVERY failure (network blip or genuine backend
+rejection alike) into the offline-replay queue forever. They now check
+whether the error actually has a Postgres/PostgREST `.code` (meaning the
+server responded with a real rejection — not retryable by waiting) vs. no
+code at all (a genuine network/offline failure — correctly still queued).
+A real rejection now THROWS instead of queuing, so every `.catch()` built on
+top of these actually fires for the first time. Every call site found to
+rely on the old swallow-everything behavior was then fixed to (a) show the
+user something and (b) revert whatever it had optimistically changed, so
+dismissing the message doesn't leave the screen still lying. Fixed, by file:
+- `App.jsx` — PIN self-reset, event create/update/soft-delete (all three
+  revert on failure), kitchen_tracking and transport_queue syncs (one
+  alert per session each, not per-tick, since these fire dozens of times a
+  shift — see the comment at `ktSyncWarnedRef`/`tqSyncWarnedRef`).
+- `TransportDispatch.jsx` — dispatch status changes, vehicle assignment
+  removal, fleet vehicle add/edit/delete.
+- `MenuPackagesView.jsx` / `MenuEditor.jsx` — Build Menu add/remove dish,
+  package quick-start, CSV import sub-step failures, custom-dish category
+  tagging.
+- `EventMenuBuilderView.jsx` / `MenuBuilderView.jsx` — adding a dish had NO
+  catch at all before this (an unhandled rejection); the one-time legacy
+  menu→event_items migration; the Function Plan → Kitchen allergy/diet note
+  mirror.
+- `ODCModule.jsx`, `FruitSelectionPicker.jsx` — site-visit checklist/notes
+  and fruit quantities; both also had a real correctness bug fixed as part
+  of this (`.catch()` on a raw Supabase query never fires for a logical
+  error, only a network-level throw — needed an explicit `if(error)throw`).
+- `ProposalsView.jsx` — convert-to-booking's config copy now warns instead
+  of claiming full success when it partially fails.
+- `MenuBuilderPreview.jsx` — "Mark as Sent".
+- `KitchenHub.jsx` — the dish-mapping remove, and the whole SOP category/
+  recipe rename-move-duplicate-delete cluster (8 functions). `RECIPE_DB` is
+  a plain module-level object, not React state, so reverting it on failure
+  needed a dummy state bump (`bumpSopDb`) to force the re-render — same
+  trick as `permsTick` elsewhere in this app for the same reason.
+- `AccessManager.jsx` — role/department/section/venue delete and rename
+  (the matching "add" functions already alerted; these didn't).
+- Failed-load-shows-as-empty-list cluster: `BookedFunctionsView.jsx`,
+  `SalesCatalogueView.jsx`, `DishSectionsEditor.jsx`, `ConfigsPanel.jsx`,
+  `PricingConfigView.jsx` now show a small retry banner instead of silently
+  rendering as if there's genuinely nothing there.
+
+**Not done / residual:** the optimistic `logActivity(...)` calls throughout
+`KitchenHub.jsx`'s SOP cluster still fire before the write is confirmed, so
+a reverted action can leave one inaccurate activity-log entry behind — out
+of scope for this pass (activity log is an audit trail, not the state of
+record, and the far more serious half — the UI lying about what actually
+saved — is what this pass fixed). `offlineQueue.js`'s enqueue fallback (both
+IndexedDB and localStorage unavailable) now at least logs instead of losing
+the write with zero trace, but still has no UI-visible indicator — same
+reasoning, true total-write-loss here requires private-browsing-with-full-
+quota conditions this app doesn't otherwise guard against.
+
 **Dashboard edits to `events` could silently fail to save at all, with no
 error anywhere, forever.** `App.jsx`'s `setEvents` wrapper sends only the
 columns that changed vs. the previous local copy (a deliberate partial patch

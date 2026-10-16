@@ -183,7 +183,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // array resend here would silently delete it the moment any unrelated
   // dish gets toggled in Build Menu. Re-reading right before merging closes
   // that window — a stale-vs-fresh race becomes a no-op instead of data loss.
-  async function applyMenuDelta(eventId, delta) {
+  async function applyMenuDelta(eventId, delta, onFail) {
     try {
       var res = await supabase.from('events').select('menu').eq('id', eventId).single();
       if (res.error) throw res.error;
@@ -200,13 +200,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       });
     } catch (e) {
       console.error('[MenuPackages] applyMenuDelta failed:', e);
+      alert('Failed to save menu change: ' + (e.message || e));
+      if (onFail) onFail();
     }
   }
 
   // Same reasoning as applyMenuDelta, for the event_items side: insert/delete
   // exactly the one dish named in delta, never diff this screen's whole
   // local dish list against the DB's current rows.
-  async function applyEventItemsDelta(eventId, delta) {
+  async function applyEventItemsDelta(eventId, delta, onFail) {
     try {
       if (delta.action === 'add') {
         var insRes = await supabase.from('event_items').upsert(
@@ -227,6 +229,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
     } catch (e) {
       console.error('[MenuPackages] applyEventItemsDelta failed:', e);
+      alert('Failed to sync event items for menu change: ' + (e.message || e));
+      if (onFail) onFail();
     }
   }
 
@@ -245,20 +249,35 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     // Functions showing the old package name forever even though menu/
     // event_items correctly moved to the new package's dishes.
     var isPackageSwitch = delta && delta.action === 'package';
+    var eventId = selEv.id;
+    // Captured before the optimistic update below, so a confirmed background
+    // write failure can put the event's menu/menuPackage back the way it was
+    // instead of leaving every screen reading `events` showing a change that
+    // never actually saved.
+    var prevMenu = selEv.menu;
+    var prevMenuPackage = selEv.menuPackage;
+    function revertMenu() {
+      setEvents(function(prev) {
+        return (prev || []).map(function(e) {
+          if (e.id !== eventId) return e;
+          return isPackageSwitch ? { ...e, menu: prevMenu, menuPackage: prevMenuPackage } : { ...e, menu: prevMenu };
+        });
+      });
+    }
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
-        if (e.id !== selEv.id) return e;
+        if (e.id !== eventId) return e;
         return isPackageSwitch ? { ...e, menu: dishes, menuPackage: delta.pkgName } : { ...e, menu: dishes };
       });
     });
     if (delta && delta.name) {
-      applyMenuDelta(selEv.id, delta);
-      applyEventItemsDelta(selEv.id, delta);
+      applyMenuDelta(eventId, delta, revertMenu);
+      applyEventItemsDelta(eventId, delta, revertMenu);
     } else {
       // Bulk replace (quick-start from package / clear all) — a genuine full
       // replace is the correct, intended behavior here, already gated behind
       // an explicit confirm when it would shrink the menu a lot.
-      syncEventItemsFromKitchenMenu(selEv.id, dishes);
+      syncEventItemsFromKitchenMenu(eventId, dishes, revertMenu);
     }
   }
 
@@ -313,7 +332,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // happened to reopen the Booked Functions menu builder for that event. Mirror the
   // kitchen-dept portion of event_items to match here too — non-kitchen dept rows
   // (beverage/bakery/etc, edited separately in Booked Functions) are left untouched.
-  async function syncEventItemsFromKitchenMenu(eventId, dishes) {
+  async function syncEventItemsFromKitchenMenu(eventId, dishes, onFail) {
     try {
       var nameSet = {}; (dishes || []).forEach(function(n){ nameSet[n] = true; });
       var curRes = await supabase.from('event_items').select('dish_name').eq('event_id', eventId);
@@ -348,6 +367,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
     } catch (e) {
       console.error('[MenuPackages] syncEventItemsFromKitchenMenu failed:', e);
+      alert('Failed to sync event items for menu change: ' + (e.message || e));
+      if (onFail) onFail();
     }
   }
 
@@ -1199,6 +1220,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!window.confirm(warn)) return;
 
     setCsvSaving(true);
+    var subStepIssues = {}; // dish name -> true, for rows whose Hindi/store-mapping sub-write failed
     try {
       // 1. Group CSV rows into per-package section structures (preserves order)
       var byPkg = {};
@@ -1221,7 +1243,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var allDishNames = {}; csvRows.forEach(function(r) { allDishNames[r.dish] = true; });
       for (var name in allDishNames) {
         var ins = await supabase.from('dishes_master').insert({ dish_name: name }).select();
-        if (ins.error && ins.error.code !== '23505') console.warn('dishes_master insert', name, ins.error);
+        if (ins.error && ins.error.code !== '23505') { console.warn('dishes_master insert', name, ins.error); subStepIssues[name] = true; }
         upsertDishMaster(name, { is_active: true });
       }
 
@@ -1231,7 +1253,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         var seen = {}; var hindiUpsert = [];
         hindiRows.forEach(function(r) { if (!seen[r.dish]) { seen[r.dish] = true; hindiUpsert.push({ dish_name: r.dish, hi: r.hindi }); } });
         var hRes = await supabase.from('dish_hindi_map').upsert(hindiUpsert, { onConflict: 'dish_name' });
-        if (hRes.error) console.warn('dish_hindi_map upsert', hRes.error);
+        if (hRes.error) { console.warn('dish_hindi_map upsert', hRes.error); hindiUpsert.forEach(function(r) { subStepIssues[r.dish_name] = true; }); }
         else hindiUpsert.forEach(function(r) { upsertDishHindi(r.dish_name, r.hi); });
       }
 
@@ -1253,7 +1275,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           });
         });
         var sRes = await supabase.from('dish_store_map').upsert(storeUpsert, { onConflict: 'dish_name' });
-        if (sRes.error) console.warn('dish_store_map upsert', sRes.error);
+        if (sRes.error) { console.warn('dish_store_map upsert', sRes.error); storeUpsert.forEach(function(r) { subStepIssues[r.dish_name] = true; }); }
         else storeUpsert.forEach(function(r) {
           upsertDishStoreMap(r.dish_name, {
             ops_item_id: r.ops_item_id, ops_inventory_id: r.ops_inventory_id,
@@ -1282,7 +1304,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
       clearMenuPackageCaches();
       await refreshMenuPackages();
-      alert('Import complete: ' + csvRows.length + ' rows into ' + Object.keys(byPkg).length + ' package(s).');
+      var issueCount = Object.keys(subStepIssues).length;
+      var doneMsg = 'Import complete: ' + csvRows.length + ' rows into ' + Object.keys(byPkg).length + ' package(s).';
+      if (issueCount > 0) doneMsg += ' Note: ' + issueCount + ' row(s) had Hindi name or store-mapping save issues — check console for details.';
+      alert(doneMsg);
       setCsvOpen(false);
       if (byPkg[selPkg]) { setEditorSections(getSectionsForPackage(selPkg)); setDirty(false); }
     } catch (e) {

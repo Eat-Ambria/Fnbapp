@@ -103,10 +103,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     var inUse = safeArr(empDb).filter(s=>s.role===key).length;
     if(inUse>0){ window.alert('Cannot delete "'+r.label+'" — '+inUse+' staff member(s) still have this role. Reassign them first.'); return; }
     if(!window.confirm('Delete role "'+r.label+'"? This cannot be undone.')) return;
-    supabase.from('role_definitions').delete().eq('role_key',key).then(res=>{if(res.error)console.error('Role delete err:',res.error);});
-    deleteRoleDefinition(key);
-    logActivity('access','Role deleted: '+r.label,'role_delete',{roleKey:key},currentUser?.id);
-    bump();
+    supabase.from('role_definitions').delete().eq('role_key',key).then(res=>{
+      if(res.error){ window.alert('Could not delete role: '+res.error.message); return; }
+      deleteRoleDefinition(key);
+      logActivity('access','Role deleted: '+r.label,'role_delete',{roleKey:key},currentUser?.id);
+      bump();
+    });
   }
 
   // ── Screen Manager ("Manage Screens") ──
@@ -253,10 +255,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     var newIcon  = (patch.icon!=null ? patch.icon.trim() : d.icon) || d.icon;
     if(newLabel===d.label && newIcon===d.icon) return;
     var oldLabel = d.label;
-    d.label = newLabel; d.icon = newIcon;
-    supabase.from('team_departments').update({label:newLabel,icon:newIcon}).eq('id',deptId).then(r=>{if(r.error)console.error('Dept update err:',r.error);});
-    logActivity('access','Department updated: '+oldLabel+' → '+newLabel,'dept_update',{deptId:deptId},currentUser?.id);
-    bump();
+    supabase.from('team_departments').update({label:newLabel,icon:newIcon}).eq('id',deptId).then(r=>{
+      if(r.error){ window.alert('Could not rename department: '+r.error.message); return; }
+      d.label = newLabel; d.icon = newIcon;
+      logActivity('access','Department updated: '+oldLabel+' → '+newLabel,'dept_update',{deptId:deptId},currentUser?.id);
+      bump();
+    });
   }
   function addDept(label, icon){
     var trimmed = (label||'').trim();
@@ -276,11 +280,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(!d) return;
     if((d.sections||[]).length>0){ window.alert('Cannot delete "'+d.label+'" — it still has sections. Delete or move them first.'); return; }
     if(!window.confirm('Delete department "'+d.label+'"? This cannot be undone.')) return;
-    var idx = TEAM_DEPTS.findIndex(x=>x.id===deptId);
-    if(idx>=0) TEAM_DEPTS.splice(idx,1);
-    supabase.from('team_departments').delete().eq('id',deptId).then(r=>{if(r.error)console.error('Dept delete err:',r.error);});
-    logActivity('access','Department deleted: '+d.label,'dept_delete',{deptId:deptId},currentUser?.id);
-    bump();
+    supabase.from('team_departments').delete().eq('id',deptId).then(r=>{
+      if(r.error){ window.alert('Could not delete department: '+r.error.message); return; }
+      var idx = TEAM_DEPTS.findIndex(x=>x.id===deptId);
+      if(idx>=0) TEAM_DEPTS.splice(idx,1);
+      logActivity('access','Department deleted: '+d.label,'dept_delete',{deptId:deptId},currentUser?.id);
+      bump();
+    });
   }
   function addSection(deptId, name){
     var trimmed = (name||'').trim();
@@ -304,12 +310,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(!d) return;
     var idx = (d.sections||[]).indexOf(oldName);
     if(idx<0) return;
-    d.sections[idx] = trimmed;
-    var gi = ALL_DEPARTMENTS.indexOf(oldName);
-    if(gi>=0) ALL_DEPARTMENTS[gi] = trimmed;
-    supabase.from('team_sections').update({name:trimmed}).eq('dept_id',deptId).eq('name',oldName).then(r=>{if(r.error)console.error('Section rename err:',r.error);});
-    logActivity('access','Section renamed: '+oldName+' → '+trimmed,'section_rename',{deptId:deptId,from:oldName,to:trimmed},currentUser?.id);
-    bump();
+    supabase.from('team_sections').update({name:trimmed}).eq('dept_id',deptId).eq('name',oldName).then(r=>{
+      if(r.error){ window.alert('Could not rename section: '+r.error.message); return; }
+      d.sections[idx] = trimmed;
+      var gi = ALL_DEPARTMENTS.indexOf(oldName);
+      if(gi>=0) ALL_DEPARTMENTS[gi] = trimmed;
+      logActivity('access','Section renamed: '+oldName+' → '+trimmed,'section_rename',{deptId:deptId,from:oldName,to:trimmed},currentUser?.id);
+      bump();
+    });
   }
   function deleteSection(deptId, name){
     var usedBy = safeArr(empDb).filter(s=>s.section===name).length;
@@ -317,12 +325,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(!window.confirm(msg)) return;
     var d = TEAM_DEPTS.find(x=>x.id===deptId);
     if(!d) return;
-    d.sections = (d.sections||[]).filter(s=>s!==name);
-    var gi = ALL_DEPARTMENTS.indexOf(name);
-    if(gi>=0) ALL_DEPARTMENTS.splice(gi,1);
-    supabase.from('team_sections').delete().eq('dept_id',deptId).eq('name',name).then(r=>{if(r.error)console.error('Section delete err:',r.error);});
-    logActivity('access','Section deleted: '+name,'section_delete',{deptId:deptId,name:name},currentUser?.id);
-    bump();
+    supabase.from('team_sections').delete().eq('dept_id',deptId).eq('name',name).then(r=>{
+      if(r.error){ window.alert('Could not delete section: '+r.error.message); return; }
+      d.sections = (d.sections||[]).filter(s=>s!==name);
+      var gi = ALL_DEPARTMENTS.indexOf(name);
+      if(gi>=0) ALL_DEPARTMENTS.splice(gi,1);
+      logActivity('access','Section deleted: '+name,'section_delete',{deptId:deptId,name:name},currentUser?.id);
+      bump();
+    });
   }
   function addVenue(name){
     var trimmed = (name||'').trim();
@@ -345,12 +355,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if(!v || !trimmed || trimmed===v.name) return;
     if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); bump(); return; }
     var oldName = v.name;
-    var gi = VENUE_OPTIONS.indexOf(oldName);
-    v.name = trimmed;
-    if(gi>=0) VENUE_OPTIONS[gi] = trimmed;
-    supabase.from('home_venues').update({name:trimmed}).eq('id',venueId).then(r=>{if(r.error)console.error('Venue rename err:',r.error);});
-    logActivity('access','Home venue renamed: '+oldName+' → '+trimmed,'venue_rename',{venueId:venueId,from:oldName,to:trimmed},currentUser?.id);
-    bump();
+    supabase.from('home_venues').update({name:trimmed}).eq('id',venueId).then(r=>{
+      if(r.error){ window.alert('Could not rename venue: '+r.error.message); return; }
+      var gi = VENUE_OPTIONS.indexOf(oldName);
+      v.name = trimmed;
+      if(gi>=0) VENUE_OPTIONS[gi] = trimmed;
+      logActivity('access','Home venue renamed: '+oldName+' → '+trimmed,'venue_rename',{venueId:venueId,from:oldName,to:trimmed},currentUser?.id);
+      bump();
+    });
   }
   function deleteVenue(venueId){
     var v = HOME_VENUES.find(x=>x.id===venueId);
@@ -358,13 +370,15 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     var usedBy = safeArr(empDb).filter(s=>s.venue===v.name).length;
     var msg = usedBy>0 ? ('⚠ '+usedBy+' staff member(s) have "'+v.name+'" set as home venue. Delete anyway? Their record keeps it but it will vanish from this dropdown.') : ('Delete venue "'+v.name+'"?');
     if(!window.confirm(msg)) return;
-    var idx = HOME_VENUES.findIndex(x=>x.id===venueId);
-    if(idx>=0) HOME_VENUES.splice(idx,1);
-    var gi = VENUE_OPTIONS.indexOf(v.name);
-    if(gi>=0) VENUE_OPTIONS.splice(gi,1);
-    supabase.from('home_venues').delete().eq('id',venueId).then(r=>{if(r.error)console.error('Venue delete err:',r.error);});
-    logActivity('access','Home venue deleted: '+v.name,'venue_delete',{venueId:venueId},currentUser?.id);
-    bump();
+    supabase.from('home_venues').delete().eq('id',venueId).then(r=>{
+      if(r.error){ window.alert('Could not delete venue: '+r.error.message); return; }
+      var idx = HOME_VENUES.findIndex(x=>x.id===venueId);
+      if(idx>=0) HOME_VENUES.splice(idx,1);
+      var gi = VENUE_OPTIONS.indexOf(v.name);
+      if(gi>=0) VENUE_OPTIONS.splice(gi,1);
+      logActivity('access','Home venue deleted: '+v.name,'venue_delete',{venueId:venueId},currentUser?.id);
+      bump();
+    });
   }
 
   // ── State ──

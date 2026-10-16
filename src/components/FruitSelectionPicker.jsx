@@ -77,9 +77,18 @@ function FruitSelectionPicker({ eventId, dishName, lang = 'en' }) {
   async function setQty(id, qty) {
     const q = parseFloat(qty);
     if (!q || q <= 0) return;
+    const prevQty = (rows.find(r => r.id === id) || {}).qty_per_cover;
     setRows(p => p.map(r => r.id === id ? { ...r, qty_per_cover: q } : r));
-    try { await supabase.from('event_fruit_selections').update({ qty_per_cover: q }).eq('id', id); }
-    catch (e) { /* non-fatal — local state already updated, will resync next load */ }
+    try {
+      const res = await supabase.from('event_fruit_selections').update({ qty_per_cover: q }).eq('id', id);
+      if (res.error) throw res.error;
+    } catch (e) {
+      // A failed write means the NEXT load would silently revert to the old
+      // value anyway — revert now and say so, instead of leaving the user's
+      // typed value on screen as if it had actually persisted.
+      alert(T2('Quantity did not save and will revert:') + ' ' + (e.message || e));
+      setRows(p => p.map(r => r.id === id ? { ...r, qty_per_cover: prevQty } : r));
+    }
   }
 
   return (

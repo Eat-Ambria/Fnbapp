@@ -35,6 +35,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
 
   var [events, setEvents]       = useState([]);
   var [loading, setLoading]     = useState(true);
+  var [loadError, setLoadError] = useState(null);
   var [searchQ, setSearchQ]     = useState('');
   // null = the default upcoming-first date order; clicking a header switches
   // to sorting by that column, clicking it again flips asc/desc.
@@ -63,9 +64,11 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
           .order('date', { ascending: true });
       });
       setEvents(rows || []);
+      setLoadError(null);
     } catch (e) {
       console.error('[BookedFunctions] loadEvents failed:', e);
       setEvents([]);
+      setLoadError('Could not load booked functions: ' + (e.message || e));
     } finally {
       setLoading(false);
     }
@@ -81,6 +84,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       setFpMap(map);
     } catch (e) {
       console.error('[BookedFunctions] loadFpStatuses failed:', e);
+      setLoadError('Could not load Function Plan statuses: ' + (e.message || e));
     }
   }
 
@@ -193,6 +197,16 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
           {T2("Already-booked events — open one to correct or update its menu and service items.")}
         </div>
       </div>
+
+      {loadError && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.redBg, border: "1px solid " + C.redBorder, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.red }}>
+          <span style={{ flex: 1 }}>⚠ {T2(loadError)}</span>
+          <button onClick={function(){ loadEvents(); loadFpStatuses(); }}
+            style={{ padding: "5px 12px", borderRadius: 6, background: C.red, border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {T2("Retry")}
+          </button>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>

@@ -96,6 +96,7 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en", configTable = 
   var [values, setValues]   = useState({}); // { [dept_id]: { [config_key]: config_value } }
   var [loading, setLoading] = useState(true);
   var [toast, setToast]     = useState(null);
+  var [loadError, setLoadError] = useState(null);
 
   // ── Load all configs on mount ──
   async function loadConfigs() {
@@ -110,9 +111,11 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en", configTable = 
         next[r.dept_id][r.config_key] = r.config_value;
       });
       setValues(next);
+      setLoadError(null);
     } catch (e) {
       console.error('[ConfigsPanel] load failed:', e);
       setValues({});
+      setLoadError('Could not load configurations: ' + (e.message || e));
     } finally {
       setLoading(false);
     }
@@ -207,6 +210,16 @@ export function ConfigsPanel({ proposal, activeDept, lang = "en", configTable = 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {loadError && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: K.dangerBg, border: "1px solid " + K.dangerBorder, borderRadius: 14, padding: "10px 14px", fontSize: 12.5, color: K.danger }}>
+          <span style={{ flex: 1 }}>⚠ {T2(loadError)}</span>
+          <button onClick={loadConfigs}
+            style={{ padding: "6px 14px", borderRadius: 10, background: K.danger, border: "none", color: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {T2("Retry")}
+          </button>
+        </div>
+      )}
+
       {configs.map(function(cfg){
         var val = deptValues[cfg.key];
         var isSet = val !== undefined && val !== null;

@@ -314,17 +314,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // select it for this proposal, and tag which section/subsection pill it
   // shows under (this proposal only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
-    await createCustomDishInLibrary(supabase, name, catId);
-    setDishLibBump(function(n){ return n + 1; });
-    await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
-    if (sectionId) await saveSectionOverride(name, sectionId);
+    try {
+      await createCustomDishInLibrary(supabase, name, catId);
+      setDishLibBump(function(n){ return n + 1; });
+      // addDishItem only calls its onOptimistic setter AFTER a successful
+      // insert (see menuItemOps.js), so dishItems/setDishItems is never
+      // touched here before a throw — nothing to revert on failure.
+      await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      if (sectionId) await saveSectionOverride(name, sectionId);
+    } catch (e) {
+      console.error('[MenuBuilder] addCustomDish failed:', e);
+      sayFail(T2('Could not add that dish'), e);
+    }
   }
 
   // Same as addCustomDish, minus the library-creation step — for a dish the
   // chef picked from the existing library search instead of typing a new one.
   async function addExistingDish(name, sectionId) {
-    await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
-    if (sectionId) await saveSectionOverride(name, sectionId);
+    try {
+      await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      if (sectionId) await saveSectionOverride(name, sectionId);
+    } catch (e) {
+      console.error('[MenuBuilder] addExistingDish failed:', e);
+      sayFail(T2('Could not add that dish'), e);
+    }
   }
 
   // V76: manual re-seed — recovers proposals stuck with 0 selected because

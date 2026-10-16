@@ -19,6 +19,7 @@ export function SalesCatalogueView({ lang = "en", currentUser = null }) {
 
   var [meta, setMeta]         = useState({});       // { dish_name: {diet_tag, sales_dept, sales_description, hero_image_url} }
   var [loading, setLoading]   = useState(true);
+  var [loadError, setLoadError] = useState(null);
   var [saving, setSaving]     = useState({});       // { [dish_name]: 'saving' | 'saved' | 'error' }
   var [selected, setSelected] = useState({});       // { [dish_name]: true }
   var [uploading, setUploading] = useState({});     // { [dish_name]: true }
@@ -64,9 +65,11 @@ export function SalesCatalogueView({ lang = "en", currentUser = null }) {
         };
       });
       setMeta(m);
+      setLoadError(null);
     } catch (e) {
       console.error('[SalesCatalogue] loadMeta failed:', e);
       setMeta({});
+      setLoadError('Could not load sales catalogue data: ' + (e.message || e));
     } finally {
       setLoading(false);
     }
@@ -265,6 +268,16 @@ export function SalesCatalogueView({ lang = "en", currentUser = null }) {
           {T2("Enrich dishes with sales copy, hero images, diet tags, and department routing. Changes reflect immediately in the Menu Builder.")}
         </div>
       </div>
+
+      {loadError && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.redBg, border: "1px solid " + C.redBorder, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.red }}>
+          <span style={{ flex: 1 }}>⚠ {T2(loadError)}</span>
+          <button onClick={loadMeta}
+            style={{ padding: "5px 12px", borderRadius: 6, background: C.red, border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            {T2("Retry")}
+          </button>
+        </div>
+      )}
 
       {/* Stats bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>

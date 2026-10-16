@@ -67,6 +67,7 @@ function DishSectionsEditor(props) {
   // after that updates the data in place while the list stays mounted.
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   const [addingSection, setAddingSection] = useState(false);
   // Why an add was refused, shown next to the field. Without it the only
@@ -108,8 +109,10 @@ function DishSectionsEditor(props) {
       const assignments = {};
       (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
       setDishAssignments(assignments);
+      setLoadError(null);
     } catch (e) {
       console.error('[Sections] load failed:', e);
+      setLoadError('Could not load sections: ' + (e.message || e));
     } finally {
       setLoading(false);
       setHasLoadedOnce(true);
@@ -862,6 +865,16 @@ function DishSectionsEditor(props) {
 
   return (
     <div style={{ padding: '4px 0' }}>
+      {loadError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.redBg, border: '0.5px solid ' + C.red, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: C.red }}>
+          <span style={{ flex: 1 }}>⚠ {loadError}</span>
+          <button onClick={loadData}
+            style={{ padding: '5px 12px', borderRadius: 6, background: C.red, border: 'none', color: '#fff', fontSize: 11.5, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Dept picker */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {DEPTS.map(function(d){
