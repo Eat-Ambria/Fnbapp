@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { pinnedDeptForDish } from '../data/salesConfig.js';
-import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { hasPermission } from '../data/permissions.js';
@@ -187,8 +186,6 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
   var [dlg, setDlg] = useState(null);
   function ask(opts){ setDlg(opts); }
   function fail(title, err){ setDlg({ tone: 'danger', icon: 'alert', title: title, body: String((err && err.message) || err || ''), confirmLabel: T2('Close') }); }
-  var [hdrSlot, setHdrSlot] = useState(null);
-  useEffect(function(){ setHdrSlot(document.getElementById("kh-hdr-slot")); }, [mode]);
   var PAGE_SIZE = 12;
   useEffect(function(){ setPage(1); }, [searchQ, statusFilter, repFilter, sortKey, sortDir]);
 
@@ -503,24 +500,6 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
 
   return (
     <div style={{ padding: isMobile ? "4px 2px" : "24px 20px", maxWidth: 1280, margin: "0 auto" }}>
-      {/* Screen actions live in the page header plate, portalled into the slot
-          the shell renders there, so they sit on the banner rather than in a
-          row of their own pushing the list down. */}
-      {hdrSlot && createPortal((
-        <>
-          {mode === 'list' && canCreate && (
-            <KButton variant="brand" icon="plus" onClick={openNew}
-              style={{ padding: "12px 22px", borderRadius: K.rPill, fontSize: 14.5 }}>{T2("New Proposal")}</KButton>
-          )}
-          {mode !== 'list' && (
-            <KButton icon="chevronL" onClick={cancelForm}
-              style={{ padding: "11px 18px", borderRadius: K.rPill, fontSize: 14, background: "#FFFFFF", borderColor: K.hdrChipLine }}>
-              {T2("Back to list")}
-            </KButton>
-          )}
-        </>
-      ), hdrSlot)}
-
       {/* ── FORM (new / edit) ── */}
       {/* A dialog, not a panel pushed in above the list: editing a proposal is
           a task you finish and leave, and inline it left the table hanging
@@ -778,6 +757,10 @@ export function ProposalsView({ lang = "en", currentUser = null, empDb = [] }) {
                 <span style={{ fontSize: 14, color: K.hdrMeta, marginLeft: "auto" }}>
                   {filteredList.length} {filteredList.length === 1 ? T2("proposal") : T2("proposals")}
                 </span>
+                {canCreate && (
+                  <KButton variant="brand" icon="plus" onClick={openNew}
+                    style={{ padding: "12px 22px", borderRadius: K.rPill, fontSize: 14.5 }}>{T2("New Proposal")}</KButton>
+                )}
               </div>
             );
           })()}

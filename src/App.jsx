@@ -1539,8 +1539,11 @@ export default function App() {
               strip sits right below and already names the screen, so the
               brand plate above it was pure repetition (same icon, "Menu
               Packages" vs "Menu", same date) costing a whole band of height
-              on every one of its tabs, worst on a phone. */}
-          {screen!=="dashboard"&&screen!=="kitchen"&&screen!=="menus"&&(
+              on every one of its tabs, worst on a phone. Proposals, Booked
+              Functions and Sales Catalogue each have their own filter/tab
+              row immediately below that already names the screen, so the
+              same plate was pure repetition there too. */}
+          {screen!=="dashboard"&&screen!=="kitchen"&&screen!=="menus"&&screen!=="proposals"&&screen!=="sales_catalogue"&&screen!=="booked_functions"&&(
           <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
