@@ -1298,19 +1298,6 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
   return (
     <div>
-      {/* ── Heading ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, minWidth: 0 }}>
-        <span style={{ width: 46, height: 46, borderRadius: 14, flexShrink: 0, background: K.brand,
-          color: K.hdrBadgeIcon, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Icon name="utensils" size={22} strokeWidth={1.8} />
-        </span>
-        <span style={{ ...type.sectionHead, fontSize: 30, fontWeight: 700, letterSpacing: "-0.4px", color: K.hdrTitle }}>{T2("Menu")}</span>
-        <span style={{ padding: "5px 13px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 12.5,
-          fontWeight: 700, fontVariantNumeric: "tabular-nums", background: K.brand, color: "#FFFFFF", whiteSpace: "nowrap" }}>
-          {allEvs.length} {T2("upcoming functions")}
-        </span>
-      </div>
-
       {/* Tabs. Pills on their own rather than a row of emoji over a rule — the
           emoji were the only thing distinguishing them and they read as text.
           On a phone they scroll sideways as one line instead of wrapping to a
