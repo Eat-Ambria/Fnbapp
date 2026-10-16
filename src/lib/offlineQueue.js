@@ -72,6 +72,10 @@ export async function replayQueue(supabase) {
         if (entry.action === 'upsert') {
           const { error } = await supabase.from(entry.table).upsert(entry.record, { onConflict: entry.conflictKey || 'id' });
           ok = !error;
+        } else if (entry.action === 'update') {
+          const key = entry.conflictKey || 'id';
+          const { error } = await supabase.from(entry.table).update(entry.record).eq(key, entry.record[key]);
+          ok = !error;
         } else if (entry.action === 'delete') {
           const { error } = await supabase.from(entry.table).delete().eq(entry.key, entry.value);
           ok = !error;
@@ -104,6 +108,10 @@ export async function replayQueue(supabase) {
         let ok = false;
         if (entry.action === 'upsert') {
           const { error } = await supabase.from(entry.table).upsert(entry.record, { onConflict: entry.conflictKey || 'id' });
+          ok = !error;
+        } else if (entry.action === 'update') {
+          const key = entry.conflictKey || 'id';
+          const { error } = await supabase.from(entry.table).update(entry.record).eq(key, entry.record[key]);
           ok = !error;
         } else if (entry.action === 'delete') {
           const { error } = await supabase.from(entry.table).delete().eq(entry.key, entry.value);

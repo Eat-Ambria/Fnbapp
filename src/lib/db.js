@@ -43,14 +43,32 @@ export async function dbUpsert(table, record, conflictKey = 'id') {
     if (error) throw error;
   } catch(e) {
     console.warn('dbUpsert offline-queued:', table, e.message||e);
-    // TEMP DIAGNOSTIC (2026-10-16) — a Dashboard save of events.menu_package
-    // is silently failing to persist with no visible error anywhere. Surface
-    // it loudly for `events` writes so we can see the real Supabase error
-    // without needing dev tools open. Remove once root-caused.
-    if (table === 'events') {
-      try { alert('[DIAG] events upsert failed: ' + (e && e.message || e) + '\nrecord: ' + JSON.stringify(record)); } catch(_) {}
-    }
     await enqueue({ action: 'upsert', table, record, conflictKey });
+  }
+}
+
+// Use this instead of dbUpsert whenever the row is already known to exist and
+// `record` is only a PARTIAL patch (some columns, not all). Postgres validates
+// NOT NULL/CHECK constraints against the full proposed row BEFORE it even
+// looks at ON CONFLICT, so PostgREST's upsert(partialRecord) throws on any
+// table with a NOT NULL column the patch doesn't happen to include -- found
+// live via events: a patch of just {id, menu_package} 400'd with "null value
+// in column guest violates not-null constraint" and silently queued offline
+// forever, even though the row already existed and only menu_package needed
+// to change. A real UPDATE only touches the columns named in the SET clause
+// and never re-validates the columns it doesn't touch.
+export async function dbUpdate(table, record, conflictKey = 'id') {
+  try { localStorage.setItem('ambria_' + table + '_dirty', 'true'); } catch(e) {}
+  if (!supabase) {
+    await enqueue({ action: 'update', table, record, conflictKey });
+    return;
+  }
+  try {
+    const { error } = await supabase.from(table).update(record).eq(conflictKey, record[conflictKey]);
+    if (error) throw error;
+  } catch(e) {
+    console.warn('dbUpdate offline-queued:', table, e.message||e);
+    await enqueue({ action: 'update', table, record, conflictKey });
   }
 }
 

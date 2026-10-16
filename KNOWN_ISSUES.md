@@ -10,6 +10,38 @@ dispatch status — the fixes below assume you understand why they exist.
 
 ## Fixed 2026-10-16
 
+**Dashboard edits to `events` could silently fail to save at all, with no
+error anywhere, forever.** `App.jsx`'s `setEvents` wrapper sends only the
+columns that changed vs. the previous local copy (a deliberate partial patch
+— see the comment above it), via `dbUpsert` i.e. PostgREST's
+`.upsert(partialRecord, {onConflict:'id'})`. Postgres validates NOT
+NULL/CHECK constraints against the FULL proposed row before it even
+evaluates ON CONFLICT, so any partial patch that doesn't happen to include
+every NOT NULL column 400s — confirmed live: a `{id, menu_package}` patch
+(menu package changed, nothing else did) failed with `null value in column
+"guest" ... violates not-null constraint`, even though the row already
+existed and `guest` was never meant to change. The failure was completely
+silent: `dbUpsert` swallows the error and queues it to IndexedDB for later
+replay, which also uses `.upsert()` and fails identically every time, so it
+sits queued forever. This is why a Poonam Bansal event's menu package stuck
+on "Double Magnum Veg" through *six separate save attempts* with the dish
+list and headcounts updating fine around it — any patch that happened to
+touch enough fields (including something that made `guest` look "changed")
+worked; a patch isolated to just the package name never could. Root-caused
+by adding a temporary `alert()` on upsert failure (see git history) since
+nothing else surfaced it. Fixed with a new `dbUpdate()` (src/lib/db.js) —
+a genuine `UPDATE ... WHERE id = ...`, which only touches the named columns
+and never re-validates the ones it doesn't — used instead of `dbUpsert` for
+the `setEvents` wrapper's existing-row partial-patch path (new rows still
+use `dbUpsert` with the full record, which is fine). `offlineQueue.js`'s
+replay now also understands an `'update'` queue action for the same reason.
+**Not audited further:** other `dbUpsert` call sites in the codebase send
+near-complete records today and weren't reported broken, so they're untouched
+— but ANY future partial-patch upsert to a table with NOT NULL columns will
+hit this exact failure mode. If a save looks like it works (no error) but
+never shows up anywhere after a refresh, check whether it went through
+`dbUpsert` with a partial record on an existing row — that's the signature.
+
 **Menu Packages' "Quick start from package" silently desynced `menu_package`
 from the actual menu.** `MenuPackagesView.jsx`'s Build Menu tab lets an admin
 switch an already-booked event to an entirely different package in one

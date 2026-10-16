@@ -3,7 +3,7 @@
 
 import React, { useState, useRef, useEffect, Suspense } from "react";
 import { supabase } from './lib/supabase.js';
-import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from './lib/db.js';
+import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe } from './lib/db.js';
 import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
 
 // Data
@@ -217,13 +217,14 @@ export default function App() {
           if(k === 'id') return;
           if(JSON.stringify(full[k]) !== JSON.stringify(prevFull[k])) { patch[k] = full[k]; changed = true; }
         });
-        // TEMP DIAGNOSTIC (2026-10-16) — a Dashboard save of menu_package is
-        // silently not landing in the DB; nothing visible says why. Show the
-        // computed patch whenever menu_package is one of the fields detected
-        // as changed, so we can see whether it was even included before
-        // assuming the write itself failed. Remove once root-caused.
-        if('menu_package' in patch){ try{ alert('[DIAG] patch includes menu_package: ' + JSON.stringify(patch)); }catch(_){} }
-        if(changed) dbUpsert("events", patch, "id").catch(e=>console.error("ev sync:",e));
+        // dbUpdate, not dbUpsert: this is a PARTIAL patch on a row we already
+        // know exists (prevEv above). PostgREST's upsert() validates NOT NULL
+        // constraints against the full proposed INSERT row before it even
+        // considers ON CONFLICT, so a partial patch 400s on any NOT NULL
+        // column it doesn't happen to include (found live: a {id,menu_package}
+        // patch failed on events.guest being null) and silently queues offline
+        // forever. A real UPDATE only touches the named columns.
+        if(changed) dbUpdate("events", patch, "id").catch(e=>console.error("ev sync:",e));
       });
       prevMap.forEach((_,id) => {
         if(!nextMap.has(id)) {
