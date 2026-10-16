@@ -43,6 +43,13 @@ export async function dbUpsert(table, record, conflictKey = 'id') {
     if (error) throw error;
   } catch(e) {
     console.warn('dbUpsert offline-queued:', table, e.message||e);
+    // TEMP DIAGNOSTIC (2026-10-16) — a Dashboard save of events.menu_package
+    // is silently failing to persist with no visible error anywhere. Surface
+    // it loudly for `events` writes so we can see the real Supabase error
+    // without needing dev tools open. Remove once root-caused.
+    if (table === 'events') {
+      try { alert('[DIAG] events upsert failed: ' + (e && e.message || e) + '\nrecord: ' + JSON.stringify(record)); } catch(_) {}
+    }
     await enqueue({ action: 'upsert', table, record, conflictKey });
   }
 }

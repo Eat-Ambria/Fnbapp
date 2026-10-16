@@ -217,6 +217,12 @@ export default function App() {
           if(k === 'id') return;
           if(JSON.stringify(full[k]) !== JSON.stringify(prevFull[k])) { patch[k] = full[k]; changed = true; }
         });
+        // TEMP DIAGNOSTIC (2026-10-16) — a Dashboard save of menu_package is
+        // silently not landing in the DB; nothing visible says why. Show the
+        // computed patch whenever menu_package is one of the fields detected
+        // as changed, so we can see whether it was even included before
+        // assuming the write itself failed. Remove once root-caused.
+        if('menu_package' in patch){ try{ alert('[DIAG] patch includes menu_package: ' + JSON.stringify(patch)); }catch(_){} }
         if(changed) dbUpsert("events", patch, "id").catch(e=>console.error("ev sync:",e));
       });
       prevMap.forEach((_,id) => {
