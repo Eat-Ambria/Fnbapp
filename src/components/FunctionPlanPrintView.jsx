@@ -227,8 +227,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
-      <style>{"@media print { .fp-no-print { display: none !important; } }"}</style>
+    <div className="fp-print-root" style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
+      {/* Browsers don't paginate a `position: fixed` overlay as the page to
+          print — many fall back to printing whatever's in normal document
+          flow underneath it (the app shell: sidebar, nav, user chip, shrunk
+          to fit one page), which is the "tiny screenshot of the whole app"
+          bug. This view is nested arbitrarily deep inside the app tree
+          (wherever the screen that opened it put it), so hiding "everything
+          but this" can't rely on a parent/child selector — hide the whole
+          page's visibility, then restore it for just this subtree and pull
+          it to the page origin, same as the standard "print this one modal"
+          technique. */}
+      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose}
           style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -329,6 +339,17 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
             )}
           </div>
         </div>
+
+        {/* ── Layout information — stage/mandap placement, entry & exit, seating
+            plan, decor zones, parking. Free text, can run long (the Notes tab
+            gives it a 6-row box), so it gets its own full-width section rather
+            than being squeezed into a one-line bullet. ── */}
+        {fp && fp.layout_info && fp.layout_info.trim() && (
+          <div style={{ border: "2px solid #000", borderTop: "none", padding: "12px 16px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 6 }}>{T2("LAYOUT INFORMATION")}</div>
+            <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>
+          </div>
+        )}
 
         {/* ── Sign-off strip — Board to Read / Attn Chef / Checked-Approved-Circulated ── */}
         <div style={{ border: "2px solid #000", borderTop: "none" }}>
