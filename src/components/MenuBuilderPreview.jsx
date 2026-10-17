@@ -424,16 +424,26 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     return byDept;
   }, [sections, dishItems, salesMeta, templateInfo, dishSectionMap, sectionSalesDeptMap]);
 
-  // Sort depts in the sidebar order, filter to only those with items.
-  // V73: check both byDeptByCat and sectionGroupsByDept — a dept may have items
-  // only via section routing during initial load or if all its items are routed.
+  // The printed menu is read in eating order (drinks, then food), which is NOT
+  // the same as SALES_DEPTS' own order (Kitchen first there, since that's the
+  // department most often being edited) — the two lists serve different jobs
+  // and were never meant to match. Sections WITHIN a department still print in
+  // their sort_order (unaffected here — see sectionGroupsByDept above).
+  var PRINT_DEPT_ORDER = ['bev', 'kit', 'bak', 'frt'];
   var deptSections = useMemo(function(){
-    return SALES_DEPTS.filter(function(d){
+    var list = SALES_DEPTS.filter(function(d){
       if (ITEM_HAVING_DEPTS.indexOf(d.id) < 0) return false;
       var hasCat = byDeptByCat[d.id] && byDeptByCat[d.id].length > 0;
       var hasSec = sectionGroupsByDept[d.id] && sectionGroupsByDept[d.id].length > 0;
       return hasCat || hasSec;
     });
+    list.sort(function(a, b){
+      var ai = PRINT_DEPT_ORDER.indexOf(a.id); if (ai < 0) ai = PRINT_DEPT_ORDER.length;
+      var bi = PRINT_DEPT_ORDER.indexOf(b.id); if (bi < 0) bi = PRINT_DEPT_ORDER.length;
+      return ai - bi;
+    });
+    return list;
+  // eslint-disable-next-line
   }, [byDeptByCat, sectionGroupsByDept]);
 
   var totalItems = (dishItems || []).length;
