@@ -664,6 +664,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
   }
 
+  // Create a brand-new top-level dish_catalogue_sections row (not picked from
+  // the existing list) so it also shows up in the Dish Library's own Sections
+  // tab (DishSectionsEditor.jsx) going forward. dept:'kitchen' matches
+  // DishSectionsEditor's own section inserts (the only dept its UI can browse
+  // today — others are disabled stubs there); sales_dept:activeDept is what
+  // actually routes it to the Menu Builder tab this is being created from.
+  async function createCustomSection(name) {
+    // blockIfMenuLocked already alerts the user itself (matches
+    // addSectionFromLibrary's own handling above) -- a plain no-op return,
+    // not a throw, so the caller doesn't ALSO show a second "could not
+    // create" error on top of that alert.
+    if (blockIfMenuLocked()) return null;
+    var trimmed = (name || '').trim();
+    if (!trimmed) throw new Error(T2('Section name is required'));
+    var dupe = (sections || []).find(function(s){ return s.name && s.name.trim().toLowerCase() === trimmed.toLowerCase(); });
+    if (dupe) throw new Error(T2('A section named') + ' "' + trimmed + '" ' + T2('already exists — pick it from the list above instead.'));
+    var siblings = (sections || []).filter(function(s){ return !s.parent_section_id; });
+    var maxSort = siblings.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
+    var res = await supabase.from('dish_catalogue_sections')
+      .insert({ name: trimmed, dept: 'kitchen', sales_dept: activeDept, sort_order: maxSort + 10 })
+      .select('*').single();
+    if (res.error) throw res.error;
+    var row = res.data;
+    setSections(function(prev){ return [...(prev || []), row]; });
+    return row;
+  }
+
   // V88 — remove an ad-hoc pill (one created by "Add section from library",
   // not a real package section) from THIS event's menu builder: clears every
   // dish's tag pointing at it (and its subsection buckets) — metadata-only,
@@ -919,6 +946,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   onAddSectionFromLibrary={addSectionFromLibrary}
+                  onCreateCustomSection={createCustomSection}
                   onRemoveSection={removeAdHocSection}
                 />
               )}

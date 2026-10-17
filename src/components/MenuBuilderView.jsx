@@ -140,6 +140,30 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     return menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
   }
 
+  // Create a brand-new top-level dish_catalogue_sections row (not picked from
+  // the existing list) so it also shows up in the Dish Library's own Sections
+  // tab (DishSectionsEditor.jsx) going forward — not just tagged as an ad-hoc
+  // pill for this one proposal the way addSectionFromLibrary's existing
+  // sections are. dept:'kitchen' matches DishSectionsEditor's own section
+  // inserts (the only dept its UI can browse today — others are disabled
+  // stubs there); sales_dept:activeDept is what actually routes it to the
+  // Menu Builder tab the admin is creating it from.
+  async function createCustomSection(name) {
+    var trimmed = (name || '').trim();
+    if (!trimmed) throw new Error(T2('Section name is required'));
+    var dupe = (sections || []).find(function(s){ return s.name && s.name.trim().toLowerCase() === trimmed.toLowerCase(); });
+    if (dupe) throw new Error(T2('A section named') + ' "' + trimmed + '" ' + T2('already exists — pick it from the list above instead.'));
+    var siblings = (sections || []).filter(function(s){ return !s.parent_section_id; });
+    var maxSort = siblings.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
+    var res = await supabase.from('dish_catalogue_sections')
+      .insert({ name: trimmed, dept: 'kitchen', sales_dept: activeDept, sort_order: maxSort + 10 })
+      .select('*').single();
+    if (res.error) throw res.error;
+    var row = res.data;
+    setSections(function(prev){ return [...(prev || []), row]; });
+    return row;
+  }
+
   // V88 — remove an ad-hoc pill (one created by "Add section from library",
   // not a real package section) from THIS proposal's menu builder: clears
   // every dish's tag pointing at it (and its subsection buckets), same
@@ -654,6 +678,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   onAddSectionFromLibrary={addSectionFromLibrary}
+                  onCreateCustomSection={createCustomSection}
                   onRemoveSection={removeAdHocSection}
                 />
               )}
@@ -803,7 +828,7 @@ function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection }) {
   var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
@@ -959,10 +984,10 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
 
   // V87 — add a whole catalogue section (with its subsections) at once,
   // placed under whichever pill the user picks.
-  var [pendingSection, setPendingSection] = useState(null); // { catSectionId, targetId } | null
+  var [pendingSection, setPendingSection] = useState(null); // { catSectionId, targetId, customName } | null
   var [sectionSaving, setSectionSaving] = useState(false);
   function openSectionModal(){
-    setPendingSection({ catSectionId: '', targetId: '' });
+    setPendingSection({ catSectionId: '', targetId: '', customName: '' });
   }
   async function confirmAddSection(){
     if (!pendingSection || !pendingSection.catSectionId || !pendingSection.targetId || sectionSaving) return;
@@ -972,6 +997,29 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       setPendingSection(null);
     } catch (e) {
       sayFail(T2('Could not add that section'), e);
+    } finally {
+      setSectionSaving(false);
+    }
+  }
+
+  // A brand-new section is always empty, so finishing here and leaving the
+  // admin looking at a pill with nothing in it would just be a second click
+  // away from the obvious next step — open "Add dish" pre-targeted at it.
+  async function confirmCreateSection(){
+    if (!pendingSection || !pendingSection.customName || !pendingSection.customName.trim() || sectionSaving || !onCreateCustomSection) return;
+    setSectionSaving(true);
+    try {
+      var row = await onCreateCustomSection(pendingSection.customName.trim());
+      // A null row means the caller already handled (and alerted on) a
+      // reason not to proceed -- e.g. EventMenuBuilderView's locked-menu
+      // guard, which shows its own message. Just close quietly, no second
+      // error on top of that.
+      if (!row) { setPendingSection(null); return; }
+      await onAddSectionFromLibrary(row.id, row.id);
+      setPendingSection(null);
+      setPendingCustom({ name: '', catId: '', sectionId: row.id });
+    } catch (e) {
+      sayFail(T2('Could not create that section'), e);
     } finally {
       setSectionSaving(false);
     }
@@ -1403,6 +1451,24 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 );
               })}
             </div>
+
+            {onCreateCustomSection && (
+              <div style={{ marginBottom: 18, paddingTop: 14, borderTop: "1px dashed " + C.border }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Or create a new section")}</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={pendingSection.customName} autoFocus={false}
+                    onChange={function(e){ var v = e.target.value; setPendingSection(function(p){ return { ...p, customName: v }; }); }}
+                    onKeyDown={function(e){ if (e.key === "Enter") { e.preventDefault(); confirmCreateSection(); } }}
+                    placeholder={T2("e.g. Live Counters")} disabled={sectionSaving}
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, fontSize: 13, color: C.text, background: C.surface }} />
+                  <button onClick={confirmCreateSection} disabled={!pendingSection.customName.trim() || sectionSaving}
+                    style={{ padding: "8px 16px", borderRadius: 8, background: C.wine, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: sectionSaving ? "wait" : "pointer", opacity: (!pendingSection.customName.trim() || sectionSaving) ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                    {sectionSaving ? T2("Creating…") : T2("Create")}
+                  </button>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.faint, marginTop: 6 }}>{T2("Adds it to the Dish Library's section list too, and opens Add Dish so you can put something in it right away.")}</div>
+              </div>
+            )}
 
             {placementOptions.length > 0 && (
               <>
