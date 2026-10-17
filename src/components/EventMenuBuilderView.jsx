@@ -21,6 +21,7 @@ import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows }
 import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
+import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 import { KModal } from './KitchenUI.jsx';
 import { getFpUnlockCode } from '../data/appSettings.js';
 import { K, type } from '../utils/theme.js';
@@ -46,6 +47,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // while picking dishes, and open by default it takes 232px permanently.
   var [railOpen, setRailOpen] = useState(false);
   var [activeSubTab, setActiveSubTab] = useState(initialTab); // 'items' | 'fp'
+  var [showPreview, setShowPreview] = useState(false);
   // V88 — dept-scoped choice between the item-picker and the Configs panel
   // (Service/Crockery/Transport), same pattern as MenuBuilderView.jsx's proposal
   // builder. Independent of activeSubTab, which switches the whole page between
@@ -725,6 +727,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       }
     : null;
 
+  if (showPreview) {
+    return (
+      <MenuBuilderPreview
+        // MenuBuilderPreview only reads .guest_name/.id/.status off `proposal`
+        // (diet comes from templateInfo, generalized for exactly this reuse —
+        // see MenuBuilderPreview.jsx). status:'sent' permanently suppresses
+        // its "Mark as Sent" button, which is a proposal-to-client workflow
+        // that doesn't apply to an already-booked event.
+        proposal={{ id: event.id, guest_name: event.guest, status: 'sent' }}
+        dishItems={dishItems}
+        salesMeta={salesMeta}
+        templateInfo={templateInfo}
+        onClose={function(){ setShowPreview(false); }}
+        lang={lang}
+        currentUser={currentUser}
+      />
+    );
+  }
+
   if (showFPPrint) {
     return (
       <FunctionPlanPrintView
@@ -778,6 +799,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           <button onClick={function(){ setActiveSubTab('fp'); }}
             style={{ padding: "8px 14px", borderRadius: 8, background: activeSubTab === 'fp' ? C.wine : C.surface, border: "1px solid " + (activeSubTab === 'fp' ? C.wine : C.border), color: activeSubTab === 'fp' ? "#fff" : C.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
             📋 {T2("FP")}
+          </button>
+          <button onClick={function(){ setShowPreview(true); }} disabled={dishItems.length === 0}
+            title={dishItems.length === 0 ? T2("Add items first before previewing") : T2("Open a printable/PDF menu preview")}
+            style={{ padding: "8px 14px", borderRadius: 8, background: C.wine, border: "1px solid " + C.wine, color: "#fff", fontSize: 13, fontWeight: 700, cursor: dishItems.length === 0 ? "not-allowed" : "pointer", opacity: dishItems.length === 0 ? 0.5 : 1 }}>
+            👁 {T2("Preview Menu")}
           </button>
         </div>
       </div>

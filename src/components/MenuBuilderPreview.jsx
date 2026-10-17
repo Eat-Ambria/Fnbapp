@@ -461,8 +461,13 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
     return out;
   }, [deptSections, sectionGroupsByDept, byDeptByCat]);
 
-  var dietLine = proposal.menu_diet === 'veg' ? T2("VEGETARIAN")
-               : proposal.menu_diet === 'nonveg' ? T2("NON-VEGETARIAN") : "";
+  // Reads off templateInfo.diet (already computed the same way — via
+  // detectPackageDiet — by both this preview's callers: ProposalsView's menu
+  // builder and Booked Functions' Items tab) rather than proposal.menu_diet,
+  // so this one component works for either an actual `proposal` row or an
+  // already-booked `event`, which has no menu_diet column of its own.
+  var dietLine = templateInfo.diet === 'veg' ? T2("VEGETARIAN")
+               : templateInfo.diet === 'nonveg' ? T2("NON-VEGETARIAN") : "";
   var tierName = (templateInfo && templateInfo.name) || T2("Curated Menu");
 
   // ── Mark as Sent ──
@@ -524,7 +529,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
 
       {/* ── The menu itself ── */}
       <div className="ambria-print-card" style={{ maxWidth: 820, margin: "22px auto 60px" }}>
-        <Sheet><Cover tier={tierName} diet={dietLine} proposal={proposal} T2={T2} /></Sheet>
+        <Sheet><Cover tier={tierName} diet={dietLine} dietRaw={templateInfo.diet} proposal={proposal} T2={T2} /></Sheet>
 
         {pages.map(function(pg, i){
           return (
@@ -561,9 +566,9 @@ function Art({ src, alt, className, style }) {
   );
 }
 
-function Cover({ tier, diet, proposal, T2 }) {
+function Cover({ tier, diet, dietRaw, proposal, T2 }) {
   return (
-    <div className="amb-cover" style={{ backgroundImage: "url(" + coverPhoto(proposal.menu_diet) + ")" }}>
+    <div className="amb-cover" style={{ backgroundImage: "url(" + coverPhoto(dietRaw) + ")" }}>
       <Art src={ART.logoLight} alt="Ambria Cuisines" className="amb-cover-mark" />
       <div className="amb-cover-tag">{T2("Curated to indulge, crafted to impress!")}</div>
       <div className="amb-cover-title">{tier}</div>
