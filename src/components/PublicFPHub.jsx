@@ -25,8 +25,14 @@ export function PublicFPHub({ events, lang = "en" }) {
   var [selEvId, setSelEvId] = useState(function(){
     try { return new URLSearchParams(window.location.search).get('event') || null; } catch (e) { return null; }
   });
-  var [search, setSearch]       = useState('');
-  var [dateFilter, setDateFilter] = useState('all'); // all | today | tomorrow | week
+
+  // ── Calendar: pick a date first, then the day's functions show below it. ──
+  var now = new Date();
+  var [calYr, setCalYr] = useState(now.getFullYear());
+  var [calMo, setCalMo] = useState(now.getMonth());
+  var [selDate, setSelDate] = useState(null);
+  function prevMo(){ setCalMo(function(m){ if (m === 0) { setCalYr(function(y){ return y - 1; }); return 11; } return m - 1; }); }
+  function nextMo(){ setCalMo(function(m){ if (m === 11) { setCalYr(function(y){ return y + 1; }); return 0; } return m + 1; }); }
 
   // Same read MenuPackagesView's list uses to show FP status without opening
   // each function — not made / made / locked.
@@ -69,34 +75,33 @@ export function PublicFPHub({ events, lang = "en" }) {
     } catch (e) {}
   }
 
-  var weekAhead = localDateStr(new Date(Date.now() + 7 * 86400000));
-
   var upcoming = useMemo(function(){
-    return safeArr(events)
-      .filter(function(e){ return e.date && e.date >= TODAY; })
-      .filter(function(e){
-        if (dateFilter === 'today') return e.date === TODAY;
-        if (dateFilter === 'tomorrow') return e.date === TOMORROW;
-        if (dateFilter === 'week') return e.date <= weekAhead;
-        return true;
-      })
-      .filter(function(e){
-        if (!search.trim()) return true;
-        var q = search.trim().toLowerCase();
-        return (e.guest || '').toLowerCase().indexOf(q) >= 0 || (e.venue || '').toLowerCase().indexOf(q) >= 0;
-      })
-      .sort(function(a, b){
-        if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
-        return (a.time || '').localeCompare(b.time || '');
-      });
-  // eslint-disable-next-line
-  }, [events, search, dateFilter]);
+    return safeArr(events).filter(function(e){ return e.date && e.date >= TODAY; });
+  }, [events]);
 
-  var byDate = useMemo(function(){
+  var eventsByDate = useMemo(function(){
     var m = {};
     upcoming.forEach(function(e){ (m[e.date] = m[e.date] || []).push(e); });
+    Object.keys(m).forEach(function(date){
+      m[date].sort(function(a, b){ return (a.time || '').localeCompare(b.time || ''); });
+    });
     return m;
   }, [upcoming]);
+
+  var cells = useMemo(function(){
+    var first = new Date(calYr, calMo, 1);
+    var startWeekday = first.getDay();
+    var daysInMonth = new Date(calYr, calMo + 1, 0).getDate();
+    var arr = [];
+    for (var i = 0; i < startWeekday; i++) arr.push(null);
+    for (var d = 1; d <= daysInMonth; d++) arr.push(d);
+    while (arr.length % 7 !== 0) arr.push(null);
+    return arr;
+  }, [calYr, calMo]);
+
+  var dayEvs = selDate ? (eventsByDate[selDate] || []) : [];
+  var MO_N = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   // Every hook above runs on every render regardless of selEv — this branch
   // has to come after all of them, never before, or clicking a card changes
@@ -137,52 +142,92 @@ export function PublicFPHub({ events, lang = "en" }) {
         </div>
 
         <div style={{ fontSize: 12.5, color: K.hdrMeta, padding: "0 4px" }}>
-          {T2("Shared link — no login needed. Tap a function once its Function Plan is ready to view it.")}
+          {T2("Shared link — no login needed. Pick a date below, then tap a function once its Function Plan is ready to view it.")}
         </div>
 
-        {/* ── Controls ── */}
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ flex: "1 1 260px", display: "flex", alignItems: "center", gap: 9, background: "#fff", border: "1px solid " + K.line, borderRadius: 999, padding: "10px 16px" }}>
-            <Icon name="search" size={15} strokeWidth={2} color={K.textFaint} />
-            <input value={search} onChange={function(e){ setSearch(e.target.value); }}
-              placeholder={T2("Search by client or venue…")}
-              style={{ border: "none", outline: "none", flex: 1, fontSize: 13, background: "transparent", color: K.text }} />
+        {/* ── Calendar ── */}
+        <div style={{ backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, borderRadius: 20, overflow: "hidden", boxShadow: K.shadowCard }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px", flexWrap: "wrap" }}>
+            <span style={{ width: 42, height: 42, borderRadius: 13, flexShrink: 0, background: "#F0EEE7", color: K.hdrMeta, display: "flex", alignItems: "center", justifyContent: "center", marginRight: 4 }}>
+              <Icon name="calendarDays" size={19} strokeWidth={1.8} />
+            </span>
+            <div style={{ ...type.sectionHead, fontSize: 24, fontWeight: 700, color: K.hdrTitle, letterSpacing: "-0.4px", marginRight: 6 }}>
+              {T2(MO_N[calMo])} {calYr}
+            </div>
+            <button onClick={prevMo} aria-label={T2("Previous month")}
+              style={{ width: 34, height: 34, borderRadius: 999, border: "1px solid " + K.cardWarmLine, background: "#FFFFFF", cursor: "pointer", color: K.textBody, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="chevronL" size={15} strokeWidth={2.1} />
+            </button>
+            <button onClick={nextMo} aria-label={T2("Next month")}
+              style={{ width: 34, height: 34, borderRadius: 999, border: "1px solid " + K.cardWarmLine, background: "#FFFFFF", cursor: "pointer", color: K.textBody, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="chevronR" size={15} strokeWidth={2.1} />
+            </button>
+            <button onClick={function(){ setCalYr(now.getFullYear()); setCalMo(now.getMonth()); setSelDate(TODAY); }}
+              style={{ marginLeft: 6, padding: "8px 20px", borderRadius: 999, background: "#FFFFFF", border: "1px solid " + K.cardWarmLine, color: K.textBody, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {T2("Today")}
+            </button>
           </div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            {[
-              { id: 'all',      label: T2('All') },
-              { id: 'today',    label: T2('Today') },
-              { id: 'tomorrow', label: T2('Tomorrow') },
-              { id: 'week',     label: T2('This week') },
-            ].map(function(f){
-              var on = dateFilter === f.id;
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", background: "#F4F2EC", borderTop: "1px solid " + K.cardWarmLine, borderBottom: "1px solid " + K.cardWarmLine }}>
+            {DY.map(function(d){ return <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: K.hdrMeta, padding: "9px 0" }}>{T2(d)}</div>; })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))" }}>
+            {cells.map(function(dNum, i){
+              var dt = dNum ? localDateStr(new Date(calYr, calMo, dNum)) : null;
+              var evs = dt ? (eventsByDate[dt] || []) : [];
+              var isToday = dt === TODAY;
+              var isSel = dt === selDate;
+              var isPast = dt && dt < TODAY;
+              var clickable = dt && !isPast;
               return (
-                <button key={f.id} onClick={function(){ setDateFilter(f.id); }}
-                  style={{ padding: "8px 16px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                    border: "1px solid " + (on ? K.brand : K.line), background: on ? K.brand : "#fff", color: on ? "#fff" : K.textBody }}>
-                  {f.label}
-                </button>
+                <div key={i} onClick={function(){ if (clickable) setSelDate(dt); }}
+                  className={clickable ? "kh-calcell" : undefined}
+                  style={{ minHeight: 60, padding: 3, cursor: clickable ? "pointer" : "default", minWidth: 0,
+                    borderBottom: "1px solid " + K.lineSoft, borderRight: (i % 7) < 6 ? "1px solid " + K.lineSoft : "none",
+                    opacity: dNum ? (isPast ? 0.42 : 1) : 0.32 }}>
+                  <div style={{ height: "100%", borderRadius: 10, padding: "4px 5px", display: "flex", flexDirection: "column", alignItems: "center",
+                    background: isSel ? K.sageSel : isToday ? "#F6EFDD" : "transparent",
+                    border: "1px solid " + (isToday ? K.goldSoft : "transparent") }}>
+                    {dNum && (<>
+                      <span style={{ minWidth: 20, height: 20, padding: "0 5px", borderRadius: 999, boxSizing: "border-box",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontVariantNumeric: "tabular-nums",
+                        fontWeight: isToday || isSel ? 700 : 500,
+                        background: isToday ? "#F2D9C8" : "transparent",
+                        color: isSel ? K.sageText : isToday ? K.gold : K.textBody }}>{dNum}</span>
+                      {evs.length > 0 && (
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", marginTop: 3, background: isPast ? K.textFaint : K.brand }} />
+                      )}
+                    </>)}
+                  </div>
+                </div>
               );
             })}
           </div>
         </div>
 
-        {/* ── List ── */}
-        {Object.keys(byDate).length === 0 && (
-          <div style={{ textAlign: "center", padding: 40, color: K.textFaint, fontSize: 13 }}>{T2("No upcoming functions")}</div>
-        )}
-
-        {Object.entries(byDate).map(function(entry){
-          var date = entry[0]; var evs = entry[1];
-          var isToday = date === TODAY;
-          var isTmrw = date === TOMORROW;
-          var d = new Date(date + "T00:00");
-          var tone = isToday ? { bg: K.brand, fg: "#FFFFFF" } : isTmrw ? { bg: K.warnBg, fg: K.warn } : { bg: "#FFFFFF", fg: K.hdrMeta };
-          var eyebrow = isToday ? T2("Today") : isTmrw ? T2("Tomorrow") : d.toLocaleDateString("en", { weekday: 'short', day: 'numeric', month: 'short' });
+        {/* ── Functions on the picked date ── */}
+        {selDate && (function(){
+          var isToday = selDate === TODAY;
+          var isTmrw = selDate === TOMORROW;
+          var d = new Date(selDate + "T00:00");
+          var label = isToday ? T2("Today") : isTmrw ? T2("Tomorrow") : d.toLocaleDateString("en", { weekday: 'long', day: 'numeric', month: 'long' });
           return (
-            <div key={date}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase", color: K.textFaint, marginBottom: 10, paddingLeft: 2 }}>{eyebrow}</div>
-              {evs.map(function(ev){
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <span style={{ ...type.sectionHead, fontSize: 18, color: K.hdrTitle }}>{label}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: dayEvs.length ? K.brandText : K.textFaint,
+                  background: dayEvs.length ? K.brandBg : K.surfaceAlt, border: "1px solid " + (dayEvs.length ? K.brandBorder : K.line),
+                  padding: "4px 11px", borderRadius: 999 }}>
+                  {dayEvs.length} {dayEvs.length === 1 ? T2("function") : T2("functions")}
+                </span>
+              </div>
+
+              {dayEvs.length === 0 && (
+                <div style={{ textAlign: "center", padding: 32, color: K.textFaint, fontSize: 13, backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, borderRadius: 16 }}>
+                  {T2("No functions on this date")}
+                </div>
+              )}
+
+              {dayEvs.map(function(ev){
                 var fpSt = fpStatusFor(ev);
                 var clickable = fpSt.key === 'made' || fpSt.key === 'locked';
                 var badgeTone = fpSt.key === 'locked' ? { bg: K.okBg, fg: K.ok, border: K.okBorder }
@@ -198,12 +243,6 @@ export function PublicFPHub({ events, lang = "en" }) {
                         borderRadius: 18, padding: "16px 20px", cursor: clickable ? "pointer" : "default",
                         overflow: "hidden", boxShadow: K.shadowCard, opacity: clickable ? 1 : 0.62 }}>
                       <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: isToday ? K.brand : isTmrw ? K.warn : "transparent" }} />
-                      <span style={{ width: 62, height: 62, borderRadius: 16, flexShrink: 0, background: tone.bg,
-                        border: "1px solid " + (isToday ? K.brand : K.cardWarmLine),
-                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                        <span style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: tone.fg }}>{d.getDate()}</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: "uppercase", letterSpacing: 0.6, color: tone.fg }}>{d.toLocaleString("en", { month: "short" })}</span>
-                      </span>
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 16, fontWeight: 700, color: K.hdrTitle }}>{ev.guest || T2("Function")}</span>
@@ -228,7 +267,7 @@ export function PublicFPHub({ events, lang = "en" }) {
               })}
             </div>
           );
-        })}
+        })()}
 
         <div style={{ textAlign: "center", fontSize: 11.5, color: K.textFaint, padding: "18px 0 6px" }}>
           {T2("Ambria FnB Operations · Get Your Venue Events Pvt Ltd")}
