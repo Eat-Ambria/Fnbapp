@@ -276,10 +276,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </FRow>
           <FRow>
             <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
-            <FCell value="" label="MAX GTD" />
-            <FCell value="" label="MODE OF PAYMENT" />
-            <FCell value="" label="RATE" />
-            <FCell value="" label="ADV & ANY" last />
+            <FCell value={(fp && fp.ops_manager_name) || ''} label="OPERATION MANAGER" />
+            <FCell value={(fp && fp.ops_manager_contact) || ''} label="MANAGER CONTACT" last />
           </FRow>
           <FRow thick>
             <FCell value="" label="DIRECT" />
