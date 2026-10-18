@@ -18,11 +18,12 @@ var SPICE_LEVELS = [
   { id: 'extra_spicy',  label: 'Extra Spicy', icon: '🔥' },
 ];
 
-// Order is deliberate: rendered as a 2-col grid with row-major placement, so
-// consecutive pairs here become (left column, right column) of the same row —
-// chaat/snacks/main course/wind-up down the left, assembly/baarat/jaimala/
-// phera down the right.
+// The flat list of every timing field — order here doesn't drive the
+// Timings panel's layout (see TIME_FIELD_GROUPS below for that); this is
+// what FunctionPlanPrintView's bullet summary and saveFPField's column
+// lookup iterate.
 var TIME_FIELDS = [
+  { id: 'function_start_time', label: 'Function start' },
   { id: 'chaat_time',       label: 'Chaat' },
   { id: 'assembly_time',    label: 'Assembly' },
   { id: 'snacks_time',      label: 'Snacks' },
@@ -41,16 +42,23 @@ var TIME_FIELDS = [
 // one row instead of landing on two separate, unrelated rows. Built by
 // referencing TIME_FIELDS' ids rather than replacing that list, since
 // FunctionPlanPrintView's bullet summary still reads the flat list.
+//
+// Order is deliberate, row-major into the 2-col grid below, pairing each
+// kitchen/service milestone with the ceremony step it's timed around rather
+// than two unrelated columns: function start bookends with wind-up, then
+// assembly/chaat, snacks/baarat, main course/jaimala, live/phera — the
+// actual sequence of a wedding function from start to finish.
 var TIME_FIELD_GROUPS = [
-  { label: 'Chaat',       start: 'chaat_time',      end: 'chaat_end_time' },
-  { label: 'Assembly',    start: 'assembly_time' },
-  { label: 'Snacks',      start: 'snacks_time',     end: 'snacks_end_time' },
-  { label: 'Baarat',      start: 'baarat_time' },
-  { label: 'Main course', start: 'main_course_time' },
-  { label: 'Jaimala',     start: 'jaimala_time' },
-  { label: 'Wind-up',     start: 'windup_time' },
-  { label: 'Phera',       start: 'phera_time' },
-  { label: 'Live',        start: 'live_start_time', end: 'live_end_time' },
+  { label: 'Function start', start: 'function_start_time' },
+  { label: 'Wind-up',        start: 'windup_time' },
+  { label: 'Assembly',       start: 'assembly_time' },
+  { label: 'Chaat',          start: 'chaat_time',      end: 'chaat_end_time' },
+  { label: 'Snacks',         start: 'snacks_time',     end: 'snacks_end_time' },
+  { label: 'Baarat',         start: 'baarat_time' },
+  { label: 'Main course',    start: 'main_course_time' },
+  { label: 'Jaimala',        start: 'jaimala_time' },
+  { label: 'Live',           start: 'live_start_time', end: 'live_end_time' },
+  { label: 'Phera',          start: 'phera_time' },
 ];
 
 var EQUIP_FIELDS = [
