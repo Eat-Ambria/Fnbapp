@@ -69,19 +69,6 @@ export function PublicFPHub({ events, lang = "en" }) {
     } catch (e) {}
   }
 
-  if (selEv) {
-    return (
-      <EventMenuBuilderView
-        event={selEv}
-        onClose={backToList}
-        lang={lang}
-        currentUser={null}
-        initialTab="fp"
-        autoOpenPrint={true}
-      />
-    );
-  }
-
   var weekAhead = localDateStr(new Date(Date.now() + 7 * 86400000));
 
   var upcoming = useMemo(function(){
@@ -110,6 +97,22 @@ export function PublicFPHub({ events, lang = "en" }) {
     upcoming.forEach(function(e){ (m[e.date] = m[e.date] || []).push(e); });
     return m;
   }, [upcoming]);
+
+  // Every hook above runs on every render regardless of selEv — this branch
+  // has to come after all of them, never before, or clicking a card changes
+  // how many hooks ran and React throws (minified error #300/#310).
+  if (selEv) {
+    return (
+      <EventMenuBuilderView
+        event={selEv}
+        onClose={backToList}
+        lang={lang}
+        currentUser={null}
+        initialTab="fp"
+        autoOpenPrint={true}
+      />
+    );
+  }
 
   return (
     <div className="kh-scope" style={{ minHeight: "100vh", background: K.canvas, padding: "32px 16px" }}>
