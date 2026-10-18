@@ -10,7 +10,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { RECIPE_DB, createCustomDishInLibrary } from '../data/recipeData.js';
+import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -171,7 +171,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       try {
         var rows = await fetchAllRows(function(){
           return supabase.from('dish_catalogue_sections')
-            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id, addon_price_per_pax')
+            .select('id, name, sort_order, sop_category_hint, sales_dept, dept, parent_section_id, addon_price_per_pax, no_auto_select')
             .order('sort_order', { ascending: true });
         });
         if (!cancelled) setSections(rows || []);
@@ -275,7 +275,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       // never manually customized — the real menu only exists as the resolved
       // package's dish list (same as App.jsx resolves it for display elsewhere).
       var pkgName = resolvePkgName(evRes.data.menu_package);
-      if (pkgName) seedNames = MENU_PACKAGES[pkgName] || [];
+      if (pkgName) {
+        // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
+        // auto-seeded from a raw package list — see filterAutoSeedable's own
+        // comment. Only applies to this fresh-from-package fallback, not to
+        // an already-curated legacyMenu above (never strip an existing,
+        // deliberate selection during a one-time migration).
+        seedNames = await menuItemOps.filterAutoSeedable(MENU_PACKAGES[pkgName] || []);
+      }
     }
     if (seedNames.length === 0) {
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', event.id);
@@ -565,15 +572,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // eslint-disable-next-line
   }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
 
+  // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10)
+  // are never part of the package's EFFECTIVE default, even though they're
+  // listed in templateInfo.dishes — so menuDiffByDept below must not count
+  // an unpicked one as a "removed" dish. Mirrors filterAutoSeedable's own
+  // logic (menuItemOps.js) but computed locally since this needs to be a
+  // synchronous useMemo, not an async DB round-trip, and `sections` is
+  // already loaded here for other reasons.
+  var noAutoSelectDishNames = useMemo(function(){
+    var noAutoIds = new Set((sections || []).filter(function(s){ return s.no_auto_select; }).map(function(s){ return s.id; }));
+    if (noAutoIds.size === 0) return new Set();
+    var out = new Set();
+    getAllDishes({ includeInactive: true }).forEach(function(d){ if (d.section_id && noAutoIds.has(d.section_id)) out.add(d.dish_name); });
+    return out;
+  }, [sections]);
+
   // ── Package vs. actual-selection diff, per dept, for the printable FP ──
   // Replaces a full dish-by-dish listing with just the package name plus
   // whatever changed against it: a dept with only additions is an "Add-on"
   // (green), only removals is a "Deduction" (red), and both together is a
   // "Swap" (blue) — kitchen/service only need to see what differs from the
-  // base package, not re-read the whole menu every time.
+  // base package, not re-read the whole menu every time. A picked Soup
+  // Station dish shows as an "Add-on" (it's a deliberate pick out of many
+  // options), never as part of a silent baseline; an unpicked one is just
+  // absent, not a "Deduction" — see noAutoSelectDishNames above.
   var menuDiffByDept = useMemo(function(){
     if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
-    var pkgSet = new Set(templateInfo.dishes);
+    var pkgSet = new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
     var selSet = new Set(dishItems.map(function(x){ return x.dish_name; }));
     var addedByDept = {}, removedByDept = {};
     dishItems.forEach(function(x){
@@ -583,6 +608,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       }
     });
     templateInfo.dishes.forEach(function(name){
+      if (noAutoSelectDishNames.has(name)) return; // never part of the baseline to begin with
       if (!selSet.has(name)) {
         var dept = pinnedDeptForDish(name) || dishNameToPkgDept[name] || DEFAULT_DEPT;
         (removedByDept[dept] = removedByDept[dept] || []).push(name);
@@ -598,7 +624,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
+  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
@@ -708,7 +734,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
-      var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, templateInfo.dishes, setDishItems);
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
       if (result.added.length === 0) { alert(T2('All package dishes are already selected.')); return; }
       await mirrorKitchenMenu(result.nextItems);
     } catch (e) {

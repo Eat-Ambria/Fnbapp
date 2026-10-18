@@ -25,6 +25,27 @@
 // module existed — see the per-function notes below before changing either.
 
 import { supabase } from './supabase.js';
+import { getAllDishes } from '../data/recipeData.js';
+
+// Dishes belonging to a dish_catalogue_sections row flagged no_auto_select
+// (e.g. Soup Station: the package lists 8-10 options but only 2-3 are ever
+// actually served) should never be bulk-added as "defaults" -- the whole
+// point of that flag is that picking from the section is a deliberate
+// choice, not a formality everyone has to manually undo every time. Used by
+// both the initial package-seed and the "Load defaults" button in both
+// MenuBuilderView.jsx and EventMenuBuilderView.jsx.
+export async function filterAutoSeedable(dishNames) {
+  if (!dishNames || dishNames.length === 0) return dishNames || [];
+  var secRes = await supabase.from('dish_catalogue_sections').select('id').eq('no_auto_select', true);
+  if (secRes.error || !secRes.data || secRes.data.length === 0) return dishNames;
+  var noAutoIds = new Set(secRes.data.map(function(s){ return s.id; }));
+  var sectionByDish = {};
+  getAllDishes({ includeInactive: true }).forEach(function(d){ if (d.section_id) sectionByDish[d.dish_name] = d.section_id; });
+  return dishNames.filter(function(name){
+    var sid = sectionByDish[name];
+    return !(sid && noAutoIds.has(sid));
+  });
+}
 
 // OPTIMISTIC (state applied before the DB call resolves) — matches both
 // files' existing toggleDish. Throws on DB error; caller catches, refetches

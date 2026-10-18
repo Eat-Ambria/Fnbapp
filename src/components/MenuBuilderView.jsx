@@ -233,7 +233,10 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
 
     setSeeding(true);
     try {
-      var rows = templateInfo.dishes.map(function(d, i){
+      // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
+      // auto-seeded — see filterAutoSeedable's own comment.
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var rows = seedDishes.map(function(d, i){
         return { proposal_id: proposal.id, dish_name: d, is_addon: false, ordering: i };
       });
       var ins = await supabase.from('proposal_items').insert(rows).select();
@@ -374,7 +377,8 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     if (!proposal || !proposal.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
-      var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, templateInfo.dishes, setDishItems);
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
       if (result.added.length === 0) say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.'));
     } catch (e) {
       console.error('[MenuBuilder] loadPackageDefaults failed:', e);
