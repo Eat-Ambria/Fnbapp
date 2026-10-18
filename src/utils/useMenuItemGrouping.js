@@ -131,21 +131,39 @@ export function useMenuItemGrouping(params) {
     return out;
   }, [sections, activeDept, catSubsByParent, allDishes]);
 
-  // Template dishes NOT present in dishes_master. Render in Extras with ⚠ so
-  // sales/kitchen can see catalogue mismatches without losing the pre-seeded item.
+  // Template dishes AND actually-selected dishes NOT present in dishes_master.
+  // Render in Extras with ⚠ so sales/kitchen can see catalogue mismatches
+  // without losing the item. The selected-dishes half matters on its own: a
+  // dish seeded straight from a raw LMS events.menu snapshot (which can name
+  // a dish slightly differently than our own catalogue/package definition,
+  // e.g. "Yellow Dal Tadka & Tawa Phulka-Live" for what the catalogue simply
+  // calls "Dal Tadka") can be a real, selected event_items row — counted in
+  // totals, showing up in the FP's diff as an unexplained "+ addition" — while
+  // being in NEITHER allDishes NOR templateInfo.dishes, so it rendered
+  // nowhere in this screen at all. Nobody could see it to review or remove.
   var phantomDishes = useMemo(function(){
-    if (!templateInfo.dishes || templateInfo.dishes.length === 0) return [];
     var nameSet = {};
     allDishes.forEach(function(d){ nameSet[d.name] = true; });
-    return templateInfo.dishes
-      .filter(function(name){ return !nameSet[name]; })
-      .map(function(name){
-        return {
-          name: name, hindi: '', catId: 'other', catName: 'Extras', catIcon: '⚠',
-          image: '', notes: '', section_id: null, sort_in_section: null, isPhantom: true,
-        };
-      });
-  }, [allDishes, templateInfo.dishes]);
+    var seen = {};
+    var out = [];
+    (templateInfo.dishes || []).forEach(function(name){
+      if (nameSet[name] || seen[name]) return;
+      seen[name] = true;
+      out.push(name);
+    });
+    dishItems.forEach(function(x){
+      var name = x.dish_name;
+      if (nameSet[name] || seen[name]) return;
+      seen[name] = true;
+      out.push(name);
+    });
+    return out.map(function(name){
+      return {
+        name: name, hindi: '', catId: 'other', catName: 'Extras', catIcon: '⚠',
+        image: '', notes: '', section_id: null, sort_in_section: null, isPhantom: true,
+      };
+    });
+  }, [allDishes, templateInfo.dishes, dishItems]);
 
   var selectedSet = useMemo(function(){
     var s = {}; dishItems.forEach(function(x){ s[x.dish_name] = true; }); return s;
