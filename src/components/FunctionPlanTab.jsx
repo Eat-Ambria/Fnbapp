@@ -47,12 +47,16 @@ var TIME_FIELDS = [
 // kitchen/service milestone with the ceremony step it's timed around rather
 // than two unrelated columns: function start bookends with wind-up, then
 // assembly/chaat, snacks/baarat, main course/jaimala, live/phera — the
-// actual sequence of a wedding function from start to finish.
+// actual sequence of a wedding function from start to finish. Every
+// start/end range (Chaat, Snacks, Live) is kept in the LEFT slot of its row
+// on purpose: a grid column's width is set by the widest row in that whole
+// column, so ranges landing in both columns at once (rather than only the
+// left) forces both columns wide and overflows the panel.
 var TIME_FIELD_GROUPS = [
   { label: 'Function start', start: 'function_start_time' },
   { label: 'Wind-up',        start: 'windup_time' },
-  { label: 'Assembly',       start: 'assembly_time' },
   { label: 'Chaat',          start: 'chaat_time',      end: 'chaat_end_time' },
+  { label: 'Assembly',       start: 'assembly_time' },
   { label: 'Snacks',         start: 'snacks_time',     end: 'snacks_end_time' },
   { label: 'Baarat',         start: 'baarat_time' },
   { label: 'Main course',    start: 'main_course_time' },
