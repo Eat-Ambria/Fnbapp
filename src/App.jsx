@@ -28,6 +28,7 @@ import { ripple } from './utils/ripple.js';
 import { Icon } from './components/Icons.jsx';
 import { ErrorBoundary, Avatar } from './components/SharedUI.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import { PublicFPHub } from './components/PublicFPHub.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { DeptView } from './components/DeptView.jsx';
 import { StaffView } from './components/StaffView.jsx';
@@ -433,6 +434,11 @@ export default function App() {
     });
   };
 
+  // Public FP hub flag — read once; this never changes within a page's lifetime
+  // (reaching it with a different ?fp means a fresh navigation/reload anyway).
+  const [isPublicFP] = useState(function(){
+    try { return new URLSearchParams(window.location.search).get('fp') != null; } catch(e) { return false; }
+  });
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
   const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
@@ -923,6 +929,10 @@ export default function App() {
       </div>
     </div>
   );
+  // Public Function Plan hub — a no-login, link-shareable page (?fp=1) for
+  // people with no app account. Checked ahead of the login gate, after the
+  // boot load above has already hydrated events/MENU_PACKAGES/sales configs.
+  if(isPublicFP) return <PublicFPHub events={events} lang={lang}/>;
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} onLogout={handleLogout} lang={lang}/>;
