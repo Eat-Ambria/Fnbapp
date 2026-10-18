@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
@@ -587,6 +587,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [sections]);
 
+  // A whole catalogue section added ad hoc for this event (via "Add section
+  // from library", including a brand-new section created on the spot) isn't
+  // a "Swap" against the package — there's no prior baseline for a section
+  // that didn't exist in the package at all. Grouped under its own heading
+  // in the FP instead, so "we added a whole new section" reads as what it
+  // is, not as a pile of stray additions mixed into the flat diff list.
+  var pkgSectionIds = useMemo(function(){
+    var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+    return new Set(pkgSecs.map(function(s){ return s.id; }));
+  }, [templateInfo.name]);
+
+  var newSectionsByDept = useMemo(function(){
+    var out = {}; // deptId -> { sectionId: { name, dishes: [] } }
+    Object.keys(sectionOverrides || {}).forEach(function(dishName){
+      var targetId = sectionOverrides[dishName];
+      if (!targetId) return;
+      var sec = (sections || []).find(function(s){ return s.id === targetId; });
+      if (!sec) return; // not a real catalogue section id (e.g. '__extras__')
+      if (pkgSectionIds.has(targetId)) return; // a real package section, not ad hoc
+      var dept = sectionSalesDeptMap[targetId] || 'kit';
+      if (!out[dept]) out[dept] = {};
+      if (!out[dept][targetId]) out[dept][targetId] = { name: sec.name, dishes: [] };
+      out[dept][targetId].dishes.push(dishName);
+    });
+    return out;
+  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap]);
+
   // ── Package vs. actual-selection diff, per dept, for the printable FP ──
   // Replaces a full dish-by-dish listing with just the package name plus
   // whatever changed against it: a dept with only additions is an "Add-on"
@@ -600,8 +627,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
     var pkgSet = new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
     var selSet = new Set(dishItems.map(function(x){ return x.dish_name; }));
+    // Already reported via newSectionsByDept below — don't also list these as
+    // a plain "+" addition in the regular diff.
+    var newSectionDishNames = new Set();
+    Object.keys(newSectionsByDept).forEach(function(dept){
+      Object.keys(newSectionsByDept[dept]).forEach(function(sid){
+        newSectionsByDept[dept][sid].dishes.forEach(function(n){ newSectionDishNames.add(n); });
+      });
+    });
     var addedByDept = {}, removedByDept = {};
     dishItems.forEach(function(x){
+      if (newSectionDishNames.has(x.dish_name)) return;
       if (!pkgSet.has(x.dish_name)) {
         var dept = effectiveDeptForDish(x.dish_name);
         (addedByDept[dept] = addedByDept[dept] || []).push(x.dish_name);
@@ -618,13 +654,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     SALES_DEPTS.forEach(function(d){
       var added = addedByDept[d.id] || [];
       var removed = removedByDept[d.id] || [];
-      if (added.length === 0 && removed.length === 0) return;
-      var kind = (added.length > 0 && removed.length > 0) ? 'swap' : (added.length > 0 ? 'addon' : 'deduction');
-      out[d.id] = { added: added, removed: removed, kind: kind };
+      var newSections = newSectionsByDept[d.id] ? Object.values(newSectionsByDept[d.id]) : [];
+      if (added.length === 0 && removed.length === 0 && newSections.length === 0) return;
+      // null when a dept has ONLY a new section and nothing else differs —
+      // there's no +/- diff list to label in that case, just the section block.
+      var kind = (added.length > 0 && removed.length > 0) ? 'swap'
+        : (added.length > 0 ? 'addon' : (removed.length > 0 ? 'deduction' : null));
+      out[d.id] = { added: added, removed: removed, kind: kind, newSections: newSections };
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames]);
+  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, newSectionsByDept]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {

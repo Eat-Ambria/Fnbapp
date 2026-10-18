@@ -300,12 +300,28 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                   SALES_DEPTS.map(function(d){
                     var diff = menuDiffByDept && menuDiffByDept[d.id];
                     if (!diff) return null;
-                    var meta = DIFF_KIND_META[diff.kind];
+                    var meta = diff.kind ? DIFF_KIND_META[diff.kind] : null;
                     return (
                       <div key={d.id} style={{ breakInside: "avoid" }}>
-                        <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                        {diff.added.map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
-                        {diff.removed.map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
+                        {meta && (
+                          <>
+                            <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
+                            {diff.added.map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                            {diff.removed.map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
+                          </>
+                        )}
+                        {/* A whole catalogue section added just for this event — never
+                            part of the package, so it's its own block, not a "Swap"/
+                            "Add-on" diff line: the kitchen needs to know a NEW SECTION
+                            exists, not just that some extra dishes got added somewhere. */}
+                        {(diff.newSections || []).map(function(sec){
+                          return (
+                            <div key={sec.name} style={{ breakInside: "avoid" }}>
+                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New section")}: {sec.name})</span></SubHead>
+                              {sec.dishes.map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })
