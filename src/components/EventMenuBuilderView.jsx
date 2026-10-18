@@ -598,9 +598,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return new Set(pkgSecs.map(function(s){ return s.id; }));
   }, [templateInfo.name]);
 
+  // "Add section from library" tags EVERY dish in that catalogue section into
+  // sectionOverrides up front (so whichever ones get toggled on land in the
+  // right pill) — tagged is not the same as selected. Without the selSet
+  // check below, the FP listed the section's full dish list even when only
+  // one of them was ever actually toggled on.
+  var selectedDishNames = useMemo(function(){
+    return new Set(dishItems.map(function(x){ return x.dish_name; }));
+  }, [dishItems]);
+
   var newSectionsByDept = useMemo(function(){
     var out = {}; // deptId -> { sectionId: { name, dishes: [] } }
     Object.keys(sectionOverrides || {}).forEach(function(dishName){
+      if (!selectedDishNames.has(dishName)) return; // tagged, never actually added
       var targetId = sectionOverrides[dishName];
       if (!targetId) return;
       var sec = (sections || []).find(function(s){ return s.id === targetId; });
@@ -612,7 +622,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       out[dept][targetId].dishes.push(dishName);
     });
     return out;
-  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap]);
+  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap, selectedDishNames]);
 
   // ── Package vs. actual-selection diff, per dept, for the printable FP ──
   // Replaces a full dish-by-dish listing with just the package name plus
@@ -626,7 +636,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var menuDiffByDept = useMemo(function(){
     if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
     var pkgSet = new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
-    var selSet = new Set(dishItems.map(function(x){ return x.dish_name; }));
+    var selSet = selectedDishNames;
     // Already reported via newSectionsByDept below — don't also list these as
     // a plain "+" addition in the regular diff.
     var newSectionDishNames = new Set();
