@@ -943,12 +943,24 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   var [customSaving, setCustomSaving] = useState(false);
   var placementOptions = useMemo(function(){
     var out = [];
+    var seen = {};
     groupedByCat.forEach(function(g){
-      out.push({ id: g.id, label: g.name });
-      (g.subGroups || []).forEach(function(sg){ out.push({ id: sg.id, label: g.name + ' › ' + sg.name }); });
+      out.push({ id: g.id, label: g.name }); seen[g.id] = true;
+      (g.subGroups || []).forEach(function(sg){ out.push({ id: sg.id, label: g.name + ' › ' + sg.name }); seen[sg.id] = true; });
+    });
+    // Also offer every catalogue section routed to this dept that isn't
+    // already a pill in THIS menu — a custom section someone created in a
+    // different proposal/event (via "Add section from library") is a real,
+    // global dish_catalogue_sections row and should be placeable here right
+    // away, not hidden until someone separately "Add section from library"s
+    // it into this specific menu too.
+    (catalogueSectionOptions || []).forEach(function(o){
+      if (seen[o.id]) return;
+      seen[o.id] = true;
+      out.push({ id: o.id, label: o.label });
     });
     return out;
-  }, [groupedByCat]);
+  }, [groupedByCat, catalogueSectionOptions]);
   function openCustomModal(){
     setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '' });
   }
