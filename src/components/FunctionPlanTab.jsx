@@ -36,6 +36,8 @@ var TIME_FIELDS = [
   { id: 'snacks_end_time',  label: 'Snacks end' },
   { id: 'live_start_time',  label: 'Live start' },
   { id: 'live_end_time',    label: 'Live end' },
+  { id: 'valet_start_time', label: 'Valet start' },
+  { id: 'valet_end_time',   label: 'Valet end' },
 ];
 
 // How the Timings panel actually lays its rows out: a start/end pair shares
@@ -63,6 +65,7 @@ var TIME_FIELD_GROUPS = [
   { label: 'Jaimala',        start: 'jaimala_time' },
   { label: 'Live',           start: 'live_start_time', end: 'live_end_time' },
   { label: 'Phera',          start: 'phera_time' },
+  { label: 'Valet',          start: 'valet_start_time', end: 'valet_end_time' },
 ];
 
 var EQUIP_FIELDS = [
