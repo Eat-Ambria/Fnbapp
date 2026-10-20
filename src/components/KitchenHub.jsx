@@ -1481,7 +1481,24 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // but that revert needs its own re-render trigger since nothing else is
   // guaranteed to re-render this component after the async error lands.
   const [, bumpSopDb] = useState(0);
+  // A ref, not state: a fast double-tap (the "Save recipe"/"Save changes"
+  // button isn't disabled while saving, and the modal only unmounts once
+  // React processes setSopModal(null) a render later — plenty of time for a
+  // second tap, especially on a kitchen tablet's touch input, which fires a
+  // second event before that re-render lands) ran this whole function twice,
+  // pushing the same new recipe into RECIPE_DB.recipes twice: two cards on
+  // screen immediately, but only ever one real row actually reached Supabase
+  // (the second push's own insert either duplicated server-side too or — for
+  // most of this bug's reports — the second call's `recipeNameTaken` check
+  // should have caught it but ran against a RECIPE_DB that already had the
+  // first call's optimistic push in it, so it's genuinely ambiguous which
+  // one "wins"). A reload re-fetches RECIPE_DB fresh from that one real row,
+  // which is why it always "self-fixes" to 1 card on refresh. A ref (not
+  // state) blocks the second call synchronously, before React even gets a
+  // chance to re-render and disable the button on its own.
+  const savingSopRef=useRef(false);
   function saveSop(){
+    if(savingSopRef.current) return;
     const f=sopForm;
     if(!f.name.trim()||!f.catId||f.steps.length===0)return alert("Name, category and at least 1 step required");
     const blankStepIdx=f.steps.findIndex(s=>!s.t.trim());
@@ -1491,6 +1508,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // findRecipeForDish only ever resolves one of the two, by scan order.
     const selfId=sopModal.mode==="edit"?sopModal.origId:null;
     if(recipeNameTaken(f.name,selfId))return alert(T2("A recipe is already named this — pick a different name."));
+    savingSopRef.current=true;
     const recObj={n:f.name.trim(),sub:f.sub.trim(),bg:!!f.bg,steps:f.steps.map(s=>{const hasSubs=s.subs&&s.subs.filter(sb=>sb.t.trim()).length>0;return{t:s.t,i:s.i,tm:hasSubs?0:(+s.tm||0),ccp:s.ccp||null,d1:!!s.d1,...(hasSubs?{subs:s.subs.filter(sb=>sb.t.trim()).map(sb=>({t:sb.t,i:sb.i||"",tm:+sb.tm||0,ccp:sb.ccp||""}))}:{})};})};
     // Update local RECIPE_DB — matched by id (sopModal.origId), not name: two
     // recipes can share a dish_name (even in the same category), and finding
@@ -1518,8 +1536,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     // Updating the existing row by its own id needs none of that: the
     // ingredients column is untouched because it's the same row.
     (async()=>{
-      const sb=supabase;if(!sb)return;
       try{
+        const sb=supabase;if(!sb)return;
         let error;
         if(sopModal.mode==="edit"&&sopModal.origId!=null){
           ({error}=await sb.from('recipes').update({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('id',sopModal.origId));
@@ -1535,6 +1553,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         bumpSopDb(x=>x+1);
         setSopRecipe(origRecipe||null);
         alert('Could not save recipe: '+(e.message||e));
+      }finally{
+        savingSopRef.current=false;
       }
     })();
     logActivity('kitchen', (sopModal.mode==='edit'?'SOP updated: ':'SOP created: ')+recObj.n, sopModal.mode==='edit'?'sop_update':'sop_create', {dish:recObj.n, catId:f.catId}, currentUser?.id);

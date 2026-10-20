@@ -9,6 +9,7 @@
 // Place in: src/components/FunctionPlanPrintView.jsx
 
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
@@ -226,7 +227,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
   var attnChefLines = [fp && fp.allergies, fp && fp.service_notes, fp && fp.general_notes]
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
 
-  return (
+  return createPortal(
     <div className="fp-print-root" style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
       {/* Browsers don't paginate a `position: fixed` overlay as the page to
           print — many fall back to printing whatever's in normal document
@@ -248,7 +249,20 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           screenshot-like page instead of flowing a long FP across as many
           printed pages as it needs. `inset:auto` + an explicit `height:auto`
           and `overflow:visible` let the box grow to its real content height,
-          which is what a browser's print engine actually paginates. */}
+          which is what a browser's print engine actually paginates.
+          Still not enough by itself, though: this view is mounted deep
+          inside the app tree (BookedFunctions -> EventMenuBuilderView), and
+          ANY ancestor with its own CSS `transform` (ripple effects, sidebar
+          slide transitions — common in this app) becomes the containing
+          block for every `position:fixed`/`absolute` descendant below it,
+          not the real viewport. If that ancestor also clips overflow, the
+          print engine genuinely has less content to paginate, no matter
+          what this element's own height/overflow say — still "1 page" in
+          the print preview even with the CSS above. Portalling straight to
+          `document.body` (same fix as the notification bell / Used In
+          popovers / Ingredients modal elsewhere this session) makes this a
+          direct child of body, with no transformed/clipping ancestor
+          between it and the real page. */}
       <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose}
@@ -396,7 +410,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
