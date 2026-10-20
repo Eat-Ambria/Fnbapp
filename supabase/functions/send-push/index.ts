@@ -42,12 +42,14 @@ Deno.serve(async (req) => {
     );
 
     // target_staff_id (a specific device owner) wins over target_role
-    // (a coarse group — currently only 'kitchen' = head_chef + section_*).
+    // (a coarse group — currently only 'kitchen' = head_chef + admin + section_*).
+    // Mirrors isKitchenRole() in src/components/NotificationCenter.jsx — keep
+    // both in sync by hand, there's no shared import across this boundary.
     let q = supabase.from("push_subscriptions").select("*");
     if (notif.target_staff_id) {
       q = q.eq("staff_id", notif.target_staff_id);
     } else if (notif.target_role === "kitchen") {
-      q = q.or("role.eq.head_chef,role.like.section_*");
+      q = q.or("role.eq.head_chef,role.eq.admin,role.like.section_*");
     } else if (notif.target_role) {
       q = q.eq("role", notif.target_role);
     }

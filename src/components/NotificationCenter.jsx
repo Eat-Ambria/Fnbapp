@@ -14,9 +14,15 @@ import { Icon } from './Icons.jsx';
 import { supabase } from '../lib/supabase.js';
 import { dbSubscribe } from '../lib/db.js';
 
+// Gates the bell, the 'kitchen' notification match, and push-subscription
+// registration — admin included (not just head_chef/section_*) so admin sees
+// and gets pushed the same FP-released/changed alerts kitchen stations do.
+// The send-push edge function (supabase/functions/send-push/index.ts) mirrors
+// this same role set server-side for the actual push fan-out — keep both in
+// sync by hand, there's no shared import across the client/edge-function boundary.
 export function isKitchenRole(currentUser) {
   if (!currentUser || !currentUser.role) return false;
-  return currentUser.role === 'head_chef' || currentUser.role.startsWith('section_');
+  return currentUser.role === 'head_chef' || currentUser.role === 'admin' || currentUser.role.startsWith('section_');
 }
 function staffIdOf(currentUser) {
   return (currentUser && (currentUser.staff_id || currentUser.staffListId || currentUser.id)) || null;
@@ -171,7 +177,10 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
       if (panelRef.current && panelRef.current.contains(e.target)) return;
       setOpen(false);
     }
-    function onScroll() { setOpen(false); }
+    // Scrolling the panel's own notification list (it's overflowY:auto)
+    // dispatches a capture-phase scroll event too — ignore it, only close
+    // on a scroll of the page underneath.
+    function onScroll(e) { if (panelRef.current && panelRef.current.contains(e.target)) return; setOpen(false); }
     document.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', place);
