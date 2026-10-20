@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { C, OPS_IMG_BASE } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, safeArr, safeNum, TOMORROW } from '../utils/helpers.js';
+import { TODAY, safeArr, safeNum, TOMORROW, categorizeIngredientWithOverride, INGR_CATEGORY_ORDER, normIngName } from '../utils/helpers.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
@@ -445,7 +445,29 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
-  const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion}}
+  const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion, category_override}}
+  // Same override map the Ordering Sheet reads (KitchenHub.jsx) — this one's
+  // free, ingredientMap above already pulls category_override via select('*').
+  // Keyed by normIngName since ingredient_name here often carries the Hindi
+  // name appended ("Chaat Masala चाट मसाला") while categorizeIngredient()
+  // is given the plain English name.
+  const ingrCatOverrides = useMemo(() => {
+    const m = {};
+    Object.values(ingredientMap).forEach(row => { if (row.category_override) m[normIngName(row.ingredient_name)] = row.category_override; });
+    return m;
+  }, [ingredientMap]);
+  async function saveIngredientCategory(ingName, category) {
+    // Only ingredient_name + category_override in the write — ing.name here
+    // is already the exact key an existing ops-mapped row uses (isMapped
+    // above relies on that same exact match), so this never needs to touch
+    // ingredient_hindi or any ops_* column on that row.
+    setIngredientMap(prev => ({ ...prev, [ingName]: { ...(prev[ingName] || { ingredient_name: ingName }), category_override: category || null } }));
+    const { error } = await supabase.from('ingredient_item_map').upsert(
+      { ingredient_name: ingName, category_override: category || null },
+      { onConflict: 'ingredient_name' }
+    );
+    if (error) console.error('[StoreModule] saveIngredientCategory failed:', error);
+  }
   const [fruitSelections, setFruitSelections] = useState([]); // rows from event_fruit_selections — per-function fruit-counter picks made in Fruits Ops
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
   const [recipesModalIng, setRecipesModalIng] = useState(null); // {name,hindi,unit,dishes:[]} — showing which recipes use this ingredient
@@ -2439,6 +2461,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           <span style={{padding:"1px 8px",borderRadius:999,background:"#F0EEE7",color:K.textBody,fontWeight:600}}>{ing.unit}</span>
                           <button onClick={()=>setIngMergeModal({sources:[ing.name],target:ing.name,unit:ing.unit})}
                             title={T2("Edit unit — updates every recipe using this ingredient")} style={smallBtn}>✎</button>
+                        </div>
+                        <div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontSize:10.5,color:K.textFaint}}>{T2("Category")}:</span>
+                          <select value={mapping&&mapping.category_override?mapping.category_override:""}
+                            onChange={e=>saveIngredientCategory(ing.name,e.target.value)}
+                            title={T2("Correct the auto-detected ordering-sheet category")}
+                            style={{fontSize:10.5,border:`1px solid ${K.cardWarmLine}`,borderRadius:6,padding:"1px 4px",color:K.textBody,background:"#fff",cursor:"pointer"}}>
+                            <option value="">{T2(categorizeIngredientWithOverride(ing.name,{}))} ({T2("auto")})</option>
+                            {INGR_CATEGORY_ORDER.filter(c=>c!=="Other").map(c=><option key={c} value={c}>{T2(c)}</option>)}
+                          </select>
                         </div>
                       </div>
 

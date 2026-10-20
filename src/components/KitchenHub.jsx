@@ -4,7 +4,7 @@ import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
 import { fetchAllRows } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
@@ -45,7 +45,7 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 // demand) but kept in place, not deleted, since it may come back later —
 // flip this back to true to re-enable editing the qty cells.
 const OS_EDIT_ENABLED = false;
-function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
+function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osEdits, setOsEdits] = useState({});
   // Collapsed-category set, not an open-category one — so a category that
@@ -74,7 +74,7 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   // groups by — ingredients don't need a second, different classification
   // scheme just because this is a different screen.
   const byCat = {};
-  visibleRows.forEach(r=>{ const cat = categorizeIngredient(r.n); (byCat[cat]=byCat[cat]||[]).push(r); });
+  visibleRows.forEach(r=>{ const cat = categorizeIngredientWithOverride(r.n, ingrCatOverrides); (byCat[cat]=byCat[cat]||[]).push(r); });
   const orderedCats = INGR_CATEGORY_ORDER.filter(cat=>byCat[cat]&&byCat[cat].length>0);
   const colSpan = 2 + osGroups.length + 1;
   function toggleCat(cat) {
@@ -151,6 +151,14 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
                   </div>
                 )}
               </span>
+              {cat==='Other' && onSaveCategory && (
+                <select onClick={e=>e.stopPropagation()} value="" onChange={e=>{if(e.target.value) onSaveCategory(r.n, e.target.value);}}
+                  title={T2("Move to a category")}
+                  style={{marginLeft:8,fontSize:9.5,border:`1px solid ${C.border}`,borderRadius:6,padding:"1px 3px",color:C.muted,background:"#fff",cursor:"pointer"}}>
+                  <option value="">{T2("Move…")}</option>
+                  {INGR_CATEGORY_ORDER.filter(c=>c!=='Other').map(c=><option key={c} value={c}>{T2(c)}</option>)}
+                </select>
+              )}
             </td>
             <td style={{...tdStyle,color:C.muted}}>{r.u}</td>
             {OS_EDIT_ENABLED ? osGroups.map(g=>{
@@ -779,6 +787,42 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // 9E — ingredient_item_map cache for migration nudges (lazy loaded on ing editor open)
   const [iimMap, setIimMap] = useState({});                    // {ingredient_name_lowercase: {ops_inventory_id, ops_item_name}}
   const [iimLoaded, setIimLoaded] = useState(false);
+  // Ordering Sheet "Other" category override — a separate small fetch from
+  // iimMap above (different purpose, different key normalization: this one
+  // strips Hindi via normIngName so it lines up with a plain recipe
+  // ingredient name, iimMap doesn't need to). {normIngName(name): category}
+  const [ingrCatOverrides, setIngrCatOverrides] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchAllRows(() => supabase.from('ingredient_item_map').select('ingredient_name, category_override'));
+      if (cancelled) return;
+      const m = {};
+      (rows || []).forEach(r => { if (r.category_override) m[normIngName(r.ingredient_name)] = r.category_override; });
+      setIngrCatOverrides(m);
+    })();
+    const ch = supabase.channel('iim-cat-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_item_map' }, (p) => {
+      const row = p.new || p.old;
+      if (!row || !row.ingredient_name) return;
+      const key = normIngName(row.ingredient_name);
+      setIngrCatOverrides(prev => {
+        const n = { ...prev };
+        if (p.eventType === 'DELETE' || !p.new || !p.new.category_override) delete n[key];
+        else n[key] = p.new.category_override;
+        return n;
+      });
+    }).subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+  async function saveIngrCategoryOverride(ingName, category) {
+    const key = normIngName(ingName);
+    setIngrCatOverrides(prev => { const n = { ...prev }; if (category) n[key] = category; else delete n[key]; return n; });
+    const { error } = await supabase.from('ingredient_item_map').upsert(
+      { ingredient_name: ingName, category_override: category || null },
+      { onConflict: 'ingredient_name' }
+    );
+    if (error) console.error('[KitchenHub] saveIngrCategoryOverride failed:', error);
+  }
   const [ingDirty, setIngDirty] = useState(false);
   const [csvImport, setCsvImport] = useState(null); // {recipe, catId, recipeName, basePax, currentCount, parsedItems, warnings} | null
   const [ingDragIdx, setIngDragIdx] = useState(null);
@@ -6337,7 +6381,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
                         </div>
                         <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
-                          <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2} />
+                          <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2}
+                            ingrCatOverrides={ingrCatOverrides} onSaveCategory={saveIngrCategoryOverride} />
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
                           <button onClick={()=>{setShowOrderingSheet(false);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>

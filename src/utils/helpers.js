@@ -268,6 +268,27 @@ function categorizeIngredient(name) {
 // Display order (matches typical store walking order: produce → cold → dry → spices → liquid)
 const INGR_CATEGORY_ORDER = ['Vegetables & herbs', 'Dairy & eggs', 'Meat & seafood', 'Grains & flour', 'Spices & seasonings', 'Oils, sauces & sweets', 'Liquids & stocks', 'Other'];
 
+// ingredient_item_map.ingredient_name often carries the Hindi name appended
+// (e.g. "Chaat Masala चाट मसाला"), while a recipe's own ingredient name is
+// English-only ("Chaat Masala") — an exact-string match between the two
+// would miss almost every row. Strip Devanagari (U+0900–U+097F) and
+// collapse whitespace/case before comparing either side.
+function normIngName(s) {
+  return (s || '').replace(/[ऀ-ॿ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// categorizeIngredient() is a pure heuristic (regex over the name) with no
+// way to be corrected — an ingredient it misreads as "Other" stays "Other"
+// forever. ingrCatOverrides is a { normIngName(name): category } map,
+// hydrated from ingredient_item_map.category_override (see KitchenHub's
+// Ordering Sheet and Store's Ingredient Map, both of which let someone set
+// it); this wraps categorizeIngredient to check that override first.
+function categorizeIngredientWithOverride(name, overrides) {
+  const ov = overrides && overrides[normIngName(name)];
+  if (ov && INGR_CATEGORY_ORDER.indexOf(ov) >= 0) return ov;
+  return categorizeIngredient(name);
+}
+
 // ── Dish-tracking merge ────────────────────────────────────────────────────
 // Step state lives in nested maps keyed by step: manual, manualAt, starts,
 // doneElapsed, stepTm. Every "Done" handler builds its update by spreading the
@@ -327,4 +348,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };
