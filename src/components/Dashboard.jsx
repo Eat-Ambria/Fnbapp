@@ -108,6 +108,7 @@ function Pager({page,pages,onPage,from,shown,total,T2}) {
 function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const isMobile = useIsMobile();
+  const [fyTipOpen, setFyTipOpen] = useState(false); // hover popover on the FY total tile
   const [lmsSyncing, setLmsSyncing] = useState(false);
   const [lmsResult, setLmsResult] = useState(null); // {status,events_upserted,...} or {status:'error',message}
   const [lmsLastSync, setLmsLastSync] = useState(null); // timestamp string
@@ -275,6 +276,13 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   const fyStartYr = mo>=3 ? yr : yr-1;
   const FY_START=`${fyStartYr}-04-01`, FY_END=`${fyStartYr+1}-03-31`;
   const fyEvs=safeEvs.filter(ev=>ev.date>=FY_START&&ev.date<=FY_END);
+  // Menu-type breakdown for the FY total tile's hover tooltip — grouped by the
+  // base package name, not describeEventMenu's "+ Addons/+ Swaps" variants,
+  // since the ask is "how many functions of each menu type", not how many
+  // were customized.
+  const fyMenuCounts={};
+  fyEvs.forEach(ev=>{ const name=ev.menuPackage||T2("Custom"); fyMenuCounts[name]=(fyMenuCounts[name]||0)+1; });
+  const fyMenuBreakdown=Object.entries(fyMenuCounts).sort((a,b)=>b[1]-a[1]);
 
 
   // Kitchen stats
@@ -652,12 +660,33 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:topSlot?0:18}}>
         {/* Spacer: pushes the totals and actions to the right. */}
         <div style={{marginRight:"auto"}}/>
-        {[{label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
-          {label:`${T2("FY total")} · ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
+        {[{id:"month",label:T2("Events this month"),icon:"calendar",n:monthEvs.length},
+          {id:"fy",label:`${T2("FY total")} · ${String(fyStartYr).slice(2)}–${String(fyStartYr+1).slice(2)}`,icon:"chart",n:fyEvs.length}
          ].map(s=>(
-          <div key={s.label} style={{display:"flex",alignItems:"center",gap:10,
+          <div key={s.label}
+            onMouseEnter={s.id==="fy"?()=>setFyTipOpen(true):undefined}
+            onMouseLeave={s.id==="fy"?()=>setFyTipOpen(false):undefined}
+            style={{display:"flex",alignItems:"center",gap:10,position:"relative",
             padding:"6px 16px 6px 7px",
             borderRadius:13,backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
+            {s.id==="fy"&&fyTipOpen&&(
+              <div style={{position:"absolute",top:"100%",right:0,marginTop:8,zIndex:20,minWidth:220,
+                backgroundColor:"#fff",border:`1px solid ${K.cardWarmLine}`,borderRadius:14,boxShadow:K.shadowLift,
+                padding:"12px 14px"}}>
+                <div style={{fontFamily:K.fontBody,fontSize:10.5,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",
+                  color:K.textFaint,marginBottom:8}}>{T2("By menu type")}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {fyMenuBreakdown.map(([name,count])=>(
+                    <div key={name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14}}>
+                      <span style={{fontFamily:K.fontBody,fontSize:12.5,color:K.hdrTitle,overflow:"hidden",
+                        textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</span>
+                      <span style={{fontFamily:K.fontBody,fontSize:12.5,fontWeight:700,color:K.brand,
+                        fontVariantNumeric:"tabular-nums",flexShrink:0}}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:K.sageBg,
               border:`1px solid ${K.sageBorder}`,color:K.brand,
               display:"flex",alignItems:"center",justifyContent:"center"}}>

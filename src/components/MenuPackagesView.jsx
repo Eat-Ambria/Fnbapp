@@ -154,13 +154,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // per-dish classification cost, and only when the underlying data changes.
   var EV_PAGE_SIZE = 25;
   var [evPage, setEvPage] = useState(1);
+  // Defaults to today (unchanged behaviour) — winding it back to a past date
+  // lets the team look up what an already-happened function's menu was.
+  var [evFromDate, setEvFromDate] = useState(TODAY);
 
   var allEvs = useMemo(function() {
-    return safeArr(events).filter(function(e) { return e.date && e.date >= TODAY; }).sort(function(a, b) {
+    return safeArr(events).filter(function(e) { return e.date && e.date >= evFromDate; }).sort(function(a, b) {
       if (a.date !== b.date) return (a.date || "").localeCompare(b.date || "");
       return (a.time || "").localeCompare(b.time || "");
     });
-  }, [events]);
+  }, [events, evFromDate]);
   var selEv = allEvs.find(function(e) { return e.id === selEvId; }) || null;
 
   var pagedEvs = useMemo(function() {
@@ -1360,8 +1363,26 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       {/* ════════════════════════════════════════════════════════ */}
       {mainTab === "events" && !selEv && (
         <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, background: K.cardWarm, border: "1px solid " + K.cardWarmLine, borderRadius: 12, padding: "8px 14px" }}>
+              <Icon name="calendarDays" size={15} strokeWidth={1.8} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: K.hdrMeta }}>{T2("From")}</span>
+              <input type="date" value={evFromDate}
+                onChange={function(e){ setEvFromDate(e.target.value || TODAY); setEvPage(1); }}
+                style={{ border: "1px solid " + K.cardWarmLine, borderRadius: 8, padding: "5px 8px", fontSize: 13, fontFamily: K.fontBody, color: K.hdrTitle, background: "#fff" }} />
+            </span>
+            {evFromDate !== TODAY && (
+              <button onClick={function(){ setEvFromDate(TODAY); setEvPage(1); }}
+                style={{ padding: "8px 14px", borderRadius: 999, background: "#fff", border: "1px solid " + K.cardWarmLine, color: K.textBody, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                {T2("Reset to today")}
+              </button>
+            )}
+          </div>
+
           {Object.keys(byDate).length === 0 && (
-            <div style={{ textAlign: "center", padding: 40, color: C.muted, fontSize: 13 }}>{T2("No upcoming functions")}</div>
+            <div style={{ textAlign: "center", padding: 40, color: C.muted, fontSize: 13 }}>
+              {evFromDate < TODAY ? T2("No functions found from that date") : T2("No upcoming functions")}
+            </div>
           )}
           {Object.entries(byDate).map(function(entry) {
             var date = entry[0]; var evs = entry[1];
