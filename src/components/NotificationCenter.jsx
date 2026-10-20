@@ -180,7 +180,16 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
     function place() {
       if (!btnRef.current) return;
       var r = btnRef.current.getBoundingClientRect();
-      setPanelPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+      var margin = 12;
+      // A fixed 340px panel positioned by `right` alone (no clamp) ran its
+      // left edge straight off a phone's screen — the bell sits near the
+      // left on a narrow header, so `right` computed from it is huge.
+      var width = Math.min(340, window.innerWidth - margin * 2);
+      var right = window.innerWidth - r.right;
+      var maxRight = window.innerWidth - width - margin;
+      if (right > maxRight) right = maxRight;
+      if (right < margin) right = margin;
+      setPanelPos({ top: r.bottom + 8, right: right, width: width });
     }
     place();
     function onDown(e) {
@@ -238,7 +247,7 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
       </button>
 
       {open && panelPos && createPortal(
-        <div ref={panelRef} style={{ position: "fixed", top: panelPos.top, right: panelPos.right, width: 340, maxHeight: 420, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
+        <div ref={panelRef} style={{ position: "fixed", top: panelPos.top, right: panelPos.right, width: panelPos.width, maxHeight: 420, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid " + K.lineSoft, position: "sticky", top: 0, background: K.surface }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: K.text }}>{T2("Notifications")}</span>
             {unread.length > 0 && (
