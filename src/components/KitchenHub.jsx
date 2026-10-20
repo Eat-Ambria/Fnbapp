@@ -5752,6 +5752,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
       {/* --- PLANNING TAB — production_plans (Phase 4) --- */}
       {tab==="planning"&&(()=>{
+        // Planning's writes (yield pins, Apply, Accept/Clear overrides, the
+        // Ordering Sheet's quantity edits/category moves) are admin/head_chef
+        // only from here on — everyone else still sees the full tab (dates,
+        // dishes, auto/pinned values, ingredients) but every control that
+        // would change a number is disabled or hidden instead of removing
+        // the tab outright.
+        const canEditPlanning = currentUser?.role==='admin' || currentUser?.role==='head_chef';
         const upcomingEvs = evList
           .filter(e => e.date >= TODAY)
           .sort((a,b)=>{
@@ -6375,7 +6382,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   <div style={{marginBottom:12,padding:"12px 18px",borderRadius:16,backgroundColor:K.cardWarm,
                     border:`1px solid ${isDirty?K.brandBorder:K.cardWarmLine}`,
                     boxShadow:isDirty?`${K.shadowCard}, 0 0 0 2px ${K.brandBg}`:K.shadowCard,
-                    position:"sticky",top:0,zIndex:5}}>
+                    position:"sticky",top:0,zIndex:5,
+                    opacity:canEditPlanning?1:0.65,pointerEvents:canEditPlanning?undefined:"none"}}>
                     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:8}}>
                       <div style={{display:"flex",alignItems:"flex-start",gap:10,minWidth:0}}>
                         <span style={{width:32,height:32,borderRadius:10,flexShrink:0,background:K.sageBg,
@@ -6387,7 +6395,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                               loudest control on the screen and it was labelled
                               like a footnote. */}
                           <div style={{...type.cardTitle,fontSize:14.5,color:K.hdrTitle}}>{T2("Yield Adjustment")}</div>
-                          <div style={{...type.body,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{T2("Scales every dish (auto + override). Overrides stay pinned at their custom values.")}</div>
+                          <div style={{...type.body,fontSize:11.5,color:K.hdrMeta,marginTop:1}}>{canEditPlanning?T2("Scales every dish (auto + override). Overrides stay pinned at their custom values."):T2("View only — ask an Admin or Head Chef to change this.")}</div>
                         </div>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:16}}>
@@ -6543,7 +6551,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                           sectionsTotalKg += (effKgSec||0);
                           secFactors[sec.name] = sec.yield.kg>0 ? (effKgSec/sec.yield.kg) : 0;
-                          sectionEffList.push({name:sec.name, yieldKg:sec.yield.kg, effKgSec});
+                          sectionEffList.push({name:sec.name, yieldKg:sec.yield.kg, effKgSec, isOverride:isSecOverride});
                         });
                         ingrList = getIngrForYield(it.dish, Math.round(sectionsTotalKg*10)/10, secFactors);
                         if(ingrList && !dishYieldInfo[it.dish]) dishYieldInfo[it.dish] = {rowCtx:{...ctx,recipe:st.recipe}, useSections:true, mult, sections:sectionEffList};
@@ -6556,7 +6564,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
                         if(effKg!=null){
                           ingrList = getIngrForYield(it.dish, effKg);
-                          if(!dishYieldInfo[it.dish]) dishYieldInfo[it.dish] = {rowCtx:{...ctx,recipe:st.recipe}, useSections:false, mult, effKg};
+                          if(!dishYieldInfo[it.dish]) dishYieldInfo[it.dish] = {rowCtx:{...ctx,recipe:st.recipe}, useSections:false, mult, effKg, isOverride};
                         }
                       }
                       const colId = osColIdFor(g, it);
@@ -6630,10 +6638,18 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   // Clears whatever target-yield override is pinned on every dish
                   // contributing to this section cell, reverting each back to its
                   // auto-computed yield — undoes applyOrderingSheetQtyEdit (or any
-                  // other manual pin on these dishes) in one click. A no-op per
-                  // dish that was never overridden, so it's safe to offer always.
+                  // other manual pin on these dishes) in one click. Confirms first:
+                  // a pin is a deliberate chef decision and must only ever go away
+                  // from an explicit action, never a silent side effect of this
+                  // button — same safety bar as the bulk "Clear overrides" button
+                  // elsewhere in Planning, which asks before clearing anything too.
                   async function resetOrderingSheetQty(row, colId){
                     const dishNames = (row.usedInBySection && row.usedInBySection[colId]) || [];
+                    const pinnedNames = dishNames.filter(n=>{
+                      const info = dishYieldInfo[n];
+                      return info && (info.useSections ? info.sections.some(s=>s.isOverride) : info.isOverride);
+                    });
+                    if(pinnedNames.length>0 && !confirm(T2("This will also clear the pinned yield on: ")+pinnedNames.join(", ")+T2(". Continue?"))) return;
                     const skipped = [];
                     for(const dishName of dishNames){
                       const info = dishYieldInfo[dishName];
@@ -6656,7 +6672,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredient Ordering Sheet")}</div>
                           <div style={{fontSize:12,color:C.muted,marginTop:2}}>{selEv.guest||T2("Function")} · {fmtDate(selEv.date)} · {selEv.pax} {T2("pax")}</div>
                         </div>
-                        <div style={{padding:"12px 20px",borderBottom:`1px solid ${C.border}`,background:C.purpleBg,flexShrink:0}}>
+                        <div style={{padding:"12px 20px",borderBottom:`1px solid ${C.border}`,background:C.purpleBg,flexShrink:0,
+                          opacity:canEditPlanning?1:0.65,pointerEvents:canEditPlanning?undefined:"none"}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:8}}>
                             <div style={{fontSize:11,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:.5}}>⚖️ {T2("Live yield adjust")}</div>
                             <div style={{display:"flex",alignItems:"baseline",gap:4}}>
@@ -6688,12 +6705,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                               );
                             })}
                           </div>
-                          <div style={{fontSize:9,color:C.faint,marginTop:4}}>{T2("Changes here apply to the Yield adjustment card too — click Apply there to save.")}</div>
+                          <div style={{fontSize:9,color:C.faint,marginTop:4}}>{canEditPlanning?T2("Changes here apply to the Yield adjustment card too — click Apply there to save."):T2("View only — ask an Admin or Head Chef to change this.")}</div>
                         </div>
                         <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
                           <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2}
-                            ingrCatOverrides={ingrCatOverrides} onSaveCategory={saveIngrCategoryOverride}
-                            onEditSectionQty={applyOrderingSheetQtyEdit} onResetSectionQty={resetOrderingSheetQty} />
+                            ingrCatOverrides={ingrCatOverrides} onSaveCategory={canEditPlanning?saveIngrCategoryOverride:undefined}
+                            onEditSectionQty={canEditPlanning?applyOrderingSheetQtyEdit:undefined} onResetSectionQty={canEditPlanning?resetOrderingSheetQty:undefined} />
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
                           <button onClick={()=>{setShowOrderingSheet(false);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
@@ -6708,7 +6725,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 )}
 
                 {/* Bulk action bar */}
-                {dishes.length>0 && (
+                {dishes.length>0 && canEditPlanning && (
                   <div style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",backgroundColor:K.cardWarm,
                     border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,borderRadius:16,marginBottom:14,flexWrap:"wrap"}}>
                     <button onClick={async()=>{
@@ -6909,16 +6926,18 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                     onBlur={()=>{const d=planDrafts[draftKey];if(d===undefined)return;const ds=String(d).trim();const ss=String(savedVal??"");if(ds===ss)return;if(!isSecOverride && ds!=="" && ds===String(secAutoScaled)){setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});return;}saveYield(it.dish, d, rowCtx, sec.name);}}
                                     onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                     placeholder={String(secAutoScaled)}
-                                    disabled={isSaving||isCombinedMode}
+                                    disabled={isSaving||isCombinedMode||!canEditPlanning}
                                     title={isCombinedMode ? T2("Switch to one function to pin a section") : undefined}
                                     style={{width:"100%",padding:"8px 11px",borderRadius:10,border:`1px solid ${isSecOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:13,fontWeight:isSecOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:(isSaving||isCombinedMode)?0.6:1}} />
                                   <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>kg</span>
                                   <div>
                                     {isSaving ? (
                                       <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint,fontStyle:"italic"}}>{T2("Saving")}…</span>
-                                    ) : isSecOverride ? (
+                                    ) : isSecOverride ? ( canEditPlanning ? (
                                       <button onClick={revertSecToAuto} title={T2("Revert to auto")} style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>{T2("Pinned")} <span style={{fontSize:13,lineHeight:1}}>×</span></button>
                                     ) : (
+                                      <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Pinned")}</span>
+                                    )) : (
                                       <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.ok,background:K.okBg,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Auto")}</span>
                                     )}
                                   </div>
@@ -6966,15 +6985,17 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                 onBlur={()=>onYieldBlur(it.dish, rowCtx)}
                                 onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                 placeholder={suggested!=null?String(suggested):"—"}
-                                disabled={isSaving}
+                                disabled={isSaving||!canEditPlanning}
                                 style={{width:"100%",padding:"8px 11px",borderRadius:10,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:13,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
                               <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>kg</span>
                               <div>
                                 {isSaving ? (
                                   <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint,fontStyle:"italic"}}>{T2("Saving")}…</span>
-                                ) : isOverride ? (
+                                ) : isOverride ? ( canEditPlanning ? (
                                   <button onClick={revertToAuto} title={T2("Revert to auto")} style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>{T2("Pinned")} <span style={{fontSize:13,lineHeight:1}}>×</span></button>
                                 ) : (
+                                  <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.brandText,background:K.brandBg,border:`1px solid ${K.brandBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Pinned")}</span>
+                                )) : (
                                   <span style={{padding:"5px 11px",borderRadius:999,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,color:K.ok,background:K.okBg,border:`1px solid ${K.okBorder}`,whiteSpace:"nowrap",display:"inline-block"}}>{T2("Auto")}</span>
                                 )}
                               </div>
@@ -6999,7 +7020,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                     onBlur={()=>{onYieldBlur(it.dish, rowCtx); setPlanPcsDrafts(p=>{const c={...p};delete c[it.dish];return c;});}}
                                     onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
                                     placeholder={suggestedPcs!=null?String(suggestedPcs):"—"}
-                                    disabled={isSaving}
+                                    disabled={isSaving||!canEditPlanning}
                                     style={{width:"100%",padding:"6px 9px",borderRadius:9,border:`1px solid ${isOverride?K.brandBorder:K.cardWarmLine}`,fontFamily:K.fontBody,fontSize:12.5,fontWeight:isOverride?700:500,fontVariantNumeric:"tabular-nums",textAlign:"right",background:"#FFFFFF",color:K.hdrTitle,opacity:isSaving?0.6:1}} />
                                   <span style={{fontFamily:K.fontBody,fontSize:12,color:K.hdrMeta}}>{T2("pcs")}</span>
                                   <span/>

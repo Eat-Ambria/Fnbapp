@@ -3,7 +3,7 @@
 // correct/update menu + service items post-booking (separate from Proposals, which
 // are pre-booking drafts). Place in: src/components/BookedFunctionsView.jsx
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
@@ -55,8 +55,16 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   // Plan, just not re-edit the menu post-booking.
   var isAdmin = !!(currentUser && currentUser.role === 'admin');
 
-  async function loadEvents() {
-    setLoading(true);
+  // `background` is true for a realtime-triggered refresh — it must NOT flip
+  // `loading` back to true (the "60+ row UPDATE burst every ~15min from the
+  // LMS sync's own events upsert" case below): doing so re-showed the full
+  // ⏳ spinner over an already-loaded list on every single one of those rows,
+  // which is what read as "glitching and refreshing continuously" — the
+  // table itself was fine each time, but the loading flash made it look like
+  // the page was stuck in a reload loop. Only the real first load (and an
+  // explicit Retry click) should show that spinner.
+  async function loadEvents(background) {
+    if (!background) setLoading(true);
     try {
       var rows = await fetchAllRows(function(){
         return supabase.from('events').select('*')
@@ -67,10 +75,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       setLoadError(null);
     } catch (e) {
       console.error('[BookedFunctions] loadEvents failed:', e);
-      setEvents([]);
+      if (!background) setEvents([]);
       setLoadError('Could not load booked functions: ' + (e.message || e));
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
 
@@ -97,10 +105,25 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   // a different tab) went unnoticed here until the user navigated away and
   // back. Full re-fetch on any change — same "small table, cheap to re-pull"
   // approach App.jsx already uses for menu_packages/role_definitions.
+  //
+  // Debounced, and always a BACKGROUND reload (see loadEvents' own comment):
+  // the LMS sync Edge Function (see MEMORY.md) upserts the whole `events`
+  // table on a timer across every open device, which fires this subscription
+  // dozens of times in a single burst — one postgres_changes event per row it
+  // touches, not one per sync run. Reacting to each of those individually
+  // meant ~80 consecutive full-table re-fetches (each flashing the spinner,
+  // before this fix) every time a sync burst landed. Collapsing a burst into
+  // one trailing re-fetch, ~1.2s after the LAST change in it, cuts that to
+  // the one refresh that actually matters.
+  var reloadTimerRef = useRef(null);
   useEffect(function(){
-    var u1 = dbSubscribe('events', function(){ loadEvents(); });
+    function debouncedReload(){
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(function(){ loadEvents(true); }, 1200);
+    }
+    var u1 = dbSubscribe('events', debouncedReload);
     var u2 = dbSubscribe('event_function_plans', function(){ loadFpStatuses(); });
-    return function(){ u1(); u2(); };
+    return function(){ u1(); u2(); if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
