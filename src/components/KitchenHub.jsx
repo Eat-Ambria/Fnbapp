@@ -25,6 +25,20 @@ import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
 
+// Function Planning's auto yield-adjust default, before anyone has touched
+// the slider for that event (events.yield_multiplier_auto) — bigger
+// functions waste proportionally less per pax, so the default eases down in
+// tiers instead of assuming every function wants a flat 100%. Once a chef
+// clicks Apply the event is pinned (yield_multiplier_auto:false) and keeps
+// whatever value was applied regardless of pax.
+function defaultYieldPctForPax(pax) {
+  const p = Number(pax) || 0;
+  if (p >= 1500) return 70;
+  if (p >= 800) return 80;
+  if (p >= 500) return 90;
+  return 100;
+}
+
 // Tints for the SOP library's tiles — category circles and recipe monograms.
 // Rotated by position, because neither a category nor a recipe carries a colour
 // of its own in RECIPE_DB. Pitched a shade deeper than they would be on white:
@@ -45,7 +59,7 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 // demand) but kept in place, not deleted, since it may come back later —
 // flip this back to true to re-enable editing the qty cells.
 const OS_EDIT_ENABLED = false;
-function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory, onEditSectionQty }) {
+function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory, onEditSectionQty, onResetSectionQty }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osUsedInPos, setOsUsedInPos] = useState(null); // {top,left} — portaled out of the modal's overflow:auto, see below
   const [osSecUsedInOpen, setOsSecUsedInOpen] = useState(null);
@@ -233,6 +247,16 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
                           </button>
                         </div>
                         <div style={{fontSize:9,color:C.faint,marginTop:5,lineHeight:1.3}}>{T2("Scales each dish above's own yield by the same ratio.")}</div>
+                        {onResetSectionQty && (
+                          <button disabled={osSecSaving} onClick={async()=>{
+                              setOsSecSaving(true);
+                              try { await onResetSectionQty(r, g.id); setOsSecUsedInOpen(null); }
+                              finally { setOsSecSaving(false); }
+                            }}
+                            style={{width:"100%",marginTop:6,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:10.5,fontWeight:600,cursor:osSecSaving?"progress":"pointer"}}>
+                            {T2("Reset to original")}
+                          </button>
+                        )}
                       </>)}
                     </div>,
                     document.body
@@ -1099,15 +1123,26 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   useEffect(()=>{
     if(!planEvId) return;
     if(planEvId.startsWith('__combined__:')){
-      // No single event's multiplier applies to a combined day — start at
-      // 100% each time; Apply then writes it uniformly to every function.
-      setYieldAdjustPct(100);
-      setYieldSavedPct(100);
+      // No single event's multiplier applies to a combined day — start from
+      // the pax-tier default for the day's combined pax each time; Apply
+      // then writes that value (and pins it) uniformly to every function.
+      const date = planEvId.slice('__combined__:'.length);
+      const totalPax = evList.filter(e=>e.date===date).reduce((s,e)=>s+(+e.pax||0),0);
+      const pct = defaultYieldPctForPax(totalPax);
+      setYieldAdjustPct(pct);
+      setYieldSavedPct(pct);
       return;
     }
     const ev = evList.find(e=>e.id===planEvId);
     if(!ev) return;
-    const pct = Math.round((Number(ev.yield_multiplier)||1.0) * 100);
+    // yield_multiplier_auto:false means a chef has explicitly Applied a
+    // value for this event — that pin sticks regardless of pax. Still true
+    // (the default, including for any event from before this column
+    // existed) means nobody has touched it yet, so the pax-tier default
+    // applies instead of a flat 100%.
+    const pct = ev.yield_multiplier_auto===false
+      ? Math.round((Number(ev.yield_multiplier)||1.0) * 100)
+      : defaultYieldPctForPax(ev.pax);
     setYieldAdjustPct(pct);
     setYieldSavedPct(pct);
     // Deliberately NOT depending on evList — realtime updates from other tabs shouldn't clobber a slider mid-drag
@@ -6197,7 +6232,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     // Combined mode has no single event to write to — apply the
                     // same multiplier uniformly to every function on the day.
                     const targetIds = isCombinedMode ? dateEvs.map(e=>e.id) : [planEvId];
-                    supabase.from('events').update({yield_multiplier: uiMult}).in('id', targetIds).then(({error})=>{
+                    supabase.from('events').update({yield_multiplier: uiMult, yield_multiplier_auto: false}).in('id', targetIds).then(({error})=>{
                       setYieldSaving(false);
                       if(error){ console.error('[yield_multiplier save]', error); alert((T2?T2("Failed to save yield: "):"Failed to save yield: ")+error.message); return; }
                       setYieldSavedPct(yieldAdjustPct);
@@ -6459,6 +6494,28 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     }
                     if(skipped.length) alert(T2("Sectioned recipe — switch to its own function's tab to adjust: ")+skipped.join(", "));
                   }
+                  // Clears whatever target-yield override is pinned on every dish
+                  // contributing to this section cell, reverting each back to its
+                  // auto-computed yield — undoes applyOrderingSheetQtyEdit (or any
+                  // other manual pin on these dishes) in one click. A no-op per
+                  // dish that was never overridden, so it's safe to offer always.
+                  async function resetOrderingSheetQty(row, colId){
+                    const dishNames = (row.usedInBySection && row.usedInBySection[colId]) || [];
+                    const skipped = [];
+                    for(const dishName of dishNames){
+                      const info = dishYieldInfo[dishName];
+                      if(!info) continue;
+                      if(info.useSections){
+                        if(isCombinedMode){ skipped.push(dishName); continue; }
+                        for(const sec of info.sections){
+                          await saveYield(dishName, "", info.rowCtx, sec.name);
+                        }
+                      } else {
+                        await saveYield(dishName, "", info.rowCtx);
+                      }
+                    }
+                    if(skipped.length) alert(T2("Sectioned recipe — switch to its own function's tab to reset: ")+skipped.join(", "));
+                  }
                   return(
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);}}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
@@ -6503,7 +6560,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
                           <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2}
                             ingrCatOverrides={ingrCatOverrides} onSaveCategory={saveIngrCategoryOverride}
-                            onEditSectionQty={applyOrderingSheetQtyEdit} />
+                            onEditSectionQty={applyOrderingSheetQtyEdit} onResetSectionQty={resetOrderingSheetQty} />
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
                           <button onClick={()=>{setShowOrderingSheet(false);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
