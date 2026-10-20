@@ -820,11 +820,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             return sp.perms.some(p=>editPerms.includes(p.id));
           });
           const allScreenIds = Object.keys(SCREEN_PERMISSIONS);
-          // Toggle a whole screen on/off
+          // Toggle a whole screen on/off. Turning on bundles the screen's
+          // core perms only (permsFromScreens excludes subTabs — those are
+          // opt-in extras with their own toggle, below); turning off clears
+          // everything for that screen, subTabs included.
           function toggleScreenAccess(sid) {
             const sp = SCREEN_PERMISSIONS[sid].perms.map(p=>p.id);
             const isOn = sp.some(p=>editPerms.includes(p));
-            setEditPerms(prev => isOn ? prev.filter(id=>!sp.includes(id)) : [...new Set([...prev,...sp])]);
+            setEditPerms(prev => isOn ? prev.filter(id=>!sp.includes(id)) : [...new Set([...prev,...permsFromScreens([sid])])]);
           }
           // Apply a role preset
           function applyRole(roleKey) {
@@ -903,14 +906,35 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                   {allScreenIds.map(sid=>{
                     const screen = SCREEN_PERMISSIONS[sid];
                     const isOn = enabledScreens.includes(sid);
+                    const subTabs = (screen.subTabs||[]).map(pid=>(screen.perms||[]).find(p=>p.id===pid)).filter(Boolean);
                     return(
-                      <div key={sid} onClick={()=>toggleScreenAccess(sid)}
-                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,
-                          border:`1px solid ${isOn?C.green+"40":C.borderLight}`,background:isOn?C.greenBg+"20":"transparent",
-                          cursor:"pointer",transition:"all .15s"}}>
-                        <PToggle on={isOn} onChange={()=>toggleScreenAccess(sid)}/>
-                        <span style={{fontSize:16}}>{screen.icon}</span>
-                        <span style={{fontSize:12,fontWeight:isOn?600:400,color:isOn?C.green:C.faint}}>{screen.label}</span>
+                      <div key={sid} style={{display:"flex",flexDirection:"column",gap:5}}>
+                        <div onClick={()=>toggleScreenAccess(sid)}
+                          style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,
+                            border:`1px solid ${isOn?C.green+"40":C.borderLight}`,background:isOn?C.greenBg+"20":"transparent",
+                            cursor:"pointer",transition:"all .15s"}}>
+                          <PToggle on={isOn} onChange={()=>toggleScreenAccess(sid)}/>
+                          <span style={{fontSize:16}}>{screen.icon}</span>
+                          <span style={{fontSize:12,fontWeight:isOn?600:400,color:isOn?C.green:C.faint}}>{screen.label}</span>
+                        </div>
+                        {/* Sub-tab perms — only meaningful once the screen itself is
+                            on; a tablet with Kitchen Hub off has no tab bar to add
+                            Planning/Analytics to in the first place. */}
+                        {isOn && subTabs.length>0 && (
+                          <div style={{display:"flex",flexWrap:"wrap",gap:5,paddingLeft:14}}>
+                            {subTabs.map(p=>{
+                              const pOn = editPerms.includes(p.id);
+                              return (
+                                <div key={p.id} onClick={()=>setEditPerms(prev=>pOn?prev.filter(id=>id!==p.id):[...prev,p.id])}
+                                  style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:999,cursor:"pointer",
+                                    border:`1px solid ${pOn?C.green+"40":C.borderLight}`,background:pOn?C.greenBg+"20":"transparent"}}>
+                                  <PToggle on={pOn} onChange={()=>setEditPerms(prev=>pOn?prev.filter(id=>id!==p.id):[...prev,p.id])}/>
+                                  <span style={{fontSize:10.5,fontWeight:pOn?600:400,color:pOn?C.green:C.faint}}>{T2(p.label.replace(/^View /,"").replace(/ tab$/,""))}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

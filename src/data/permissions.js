@@ -17,7 +17,13 @@
 // never do once hydration has run.
 const SCREEN_PERMISSIONS_DEFAULT = {
   dashboard:      {label:"Dashboard",           icon:"📊", perms:[{id:"dashboard.view",type:"view",label:"View dashboard KPIs"},{id:"dashboard.closure_report",type:"action",label:"Generate closure report"},{id:"dashboard.export",type:"action",label:"Export reports"}]},
-  kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"}]},
+  kitchen:        {label:"Kitchen Hub",         icon:"👨‍🍳", perms:[{id:"kitchen.view",type:"view",label:"View today's tasks"},{id:"kitchen.d1_view",type:"view",label:"View D-1 prep"},{id:"kitchen.d1_mark_done",type:"action",label:"Mark prep done"},{id:"kitchen.mark_ready",type:"action",label:"Mark dish ready"},{id:"kitchen.start_timer",type:"action",label:"Start/stop timers"},{id:"kitchen.store_collect",type:"action",label:"Collect from store"},{id:"kitchen.quality_rate",type:"action",label:"Rate ingredient quality"},{id:"kitchen.scaling_view",type:"view",label:"View pax scaling"},{id:"kitchen.scaling_apply",type:"action",label:"Apply scaling"},{id:"kitchen.sops_view",type:"view",label:"View recipe SOPs"},{id:"kitchen.menu_view",type:"view",label:"View menu packages"},{id:"kitchen.planning_view",type:"view",label:"View Planning tab"},{id:"kitchen.analytics_view",type:"view",label:"View Analytics tab"}],
+                  // Sub-tabs inside Kitchen Hub a section tablet doesn't get by
+                  // default (see isSectionUser in KitchenHub.jsx) but can be
+                  // granted individually — exposed as their own toggles in
+                  // Access Manager instead of bundled into the one Kitchen Hub
+                  // on/off switch above.
+                  subTabs:["kitchen.planning_view","kitchen.analytics_view"]},
   menus:          {label:"Menu Packages",       icon:"📜", perms:[{id:"menus.view",type:"view",label:"View menus"}]},
   transport:      {label:"Transport",           icon:"🚛", group:"OPERATIONS", perms:[{id:"transport.view",type:"view",label:"View dispatch"},{id:"transport.dispatch",type:"action",label:"Mark dispatch"},{id:"transport.temp_log",type:"action",label:"Log fridge temp"},{id:"transport.loading_check",type:"action",label:"Loading checklist"}]},
   store:          {label:"Store & Inventory",   icon:"📦", group:"OPERATIONS", perms:[{id:"store.view",type:"view",label:"View inventory"},{id:"store.issue",type:"action",label:"Issue items"},{id:"store.receive",type:"action",label:"Receive items"},{id:"store.barcode_scan",type:"action",label:"Scan barcodes"},{id:"store.smart_issue",type:"action",label:"Smart issue"},{id:"store.edit_stock",type:"action",label:"Edit stock levels"}]},
@@ -287,11 +293,17 @@ function getScreensForRole(roleKey) {
 }
 
 // ── HELPER: Build permissions array from a screen list (for saving) ──
+// Excludes a screen's subTabs perm ids — those are deliberately opt-in
+// extras (see SCREEN_PERMISSIONS_DEFAULT.kitchen.subTabs), never bundled in
+// by a role preset, "All On", or "Copy from" another staff. They can only be
+// turned on by their own individual Access Manager toggle.
 function permsFromScreens(screenIds) {
   const perms = [];
   screenIds.forEach(sid => {
     const sp = SCREEN_PERMISSIONS[sid];
-    if (sp) sp.perms.forEach(p => { if (!perms.includes(p.id)) perms.push(p.id); });
+    if (!sp) return;
+    const subTabIds = sp.subTabs || [];
+    sp.perms.forEach(p => { if (!subTabIds.includes(p.id) && !perms.includes(p.id)) perms.push(p.id); });
   });
   return perms;
 }

@@ -91,6 +91,14 @@ const SHOW_BELL = false;
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
   const [screen,setScreen]           = useState("dashboard");
+  // Set by a notification click (NotificationCenter's onOpenEvent) — jumps to
+  // Menu Packages' Build Menu tab and tells it which event's FP to auto-open.
+  // Consumed once then cleared, same one-shot pattern as fpViewEvId itself.
+  const [pendingFpEventId, setPendingFpEventId] = useState(null);
+  function openEventFP(eventId) {
+    setScreen('menus');
+    setPendingFpEventId(eventId);
+  }
   const [lang,setLang]               = useState("en");
   // Lazy init: on a phone the sidebar is a slide-in overlay (see .ash-sidebar
   // mobile CSS in theme.js), so starting it open would cover the whole screen
@@ -1255,7 +1263,8 @@ export default function App() {
       case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
-      case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}/>;
+      case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}
+                                       openFPEventId={pendingFpEventId} onOpenedFP={()=>setPendingFpEventId(null)}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff} checklistsCfg={dbChecklists} setChecklistsCfg={setDbChecklists}/>;
@@ -1589,8 +1598,10 @@ export default function App() {
 
           {/* Kitchen notification bell (V92) — head_chef accounts only reach this
               shell (section tablets use the other header, above); self-contained,
-              renders nothing for anyone else. */}
-          <NotificationCenter currentUser={currentUser} T2={T2} />
+              renders nothing for anyone else. onOpenEvent only wired here, not
+              on the section-tablet instance above — Menu Packages is an admin/
+              sales screen a section tablet wouldn't have permission to reach. */}
+          <NotificationCenter currentUser={currentUser} T2={T2} onOpenEvent={openEventFP} />
         </div>
         )}
 

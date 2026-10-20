@@ -79,7 +79,7 @@ function timeAgo(iso) {
   return Math.floor(hr / 24) + 'd ago';
 }
 
-export function NotificationCenter({ currentUser, T2 = function (s) { return s; } }) {
+export function NotificationCenter({ currentUser, T2 = function (s) { return s; }, onOpenEvent }) {
   var isKitchen = isKitchenRole(currentUser);
   var myId = staffIdOf(currentUser);
   var [items, setItems] = useState([]);
@@ -272,17 +272,23 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
               )}
             </div>
           )}
-          {items.length === 0 ? (
-            <div style={{ padding: "28px 16px", textAlign: "center", color: K.textFaint, fontSize: 12.5 }}>{T2("Nothing yet.")}</div>
+          {unread.length === 0 ? (
+            <div style={{ padding: "28px 16px", textAlign: "center", color: K.textFaint, fontSize: 12.5 }}>{T2("You're all caught up.")}</div>
           ) : (
-            items.map(function (row) {
-              var unreadRow = isUnread(row);
+            // Read notifications drop off the list entirely rather than
+            // sticking around greyed out — this panel is a to-do list of
+            // what's new, not a permanent log.
+            unread.map(function (row) {
               return (
-                <div key={row.id} onClick={function () { markRead(row); }}
-                  style={{ padding: "11px 14px", borderBottom: "1px solid " + K.lineSoft, cursor: unreadRow ? "pointer" : "default", background: unreadRow ? K.accentSoft : "transparent", display: "flex", gap: 9, alignItems: "flex-start" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: unreadRow ? K.accent : "transparent", flexShrink: 0, marginTop: 5 }} />
+                <div key={row.id}
+                  onClick={function () {
+                    markRead(row);
+                    if (row.event_id && onOpenEvent) { onOpenEvent(row.event_id); setOpen(false); }
+                  }}
+                  style={{ padding: "11px 14px", borderBottom: "1px solid " + K.lineSoft, cursor: "pointer", background: K.accentSoft, display: "flex", gap: 9, alignItems: "flex-start" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: K.accent, flexShrink: 0, marginTop: 5 }} />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: unreadRow ? 700 : 600, color: K.text }}>{row.title}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: K.text }}>{row.title}</div>
                     {row.body && <div style={{ fontSize: 11.5, color: K.textMuted, marginTop: 2 }}>{row.body}</div>}
                     <div style={{ fontSize: 10.5, color: K.textFaint, marginTop: 3 }}>{timeAgo(row.created_at)}</div>
                   </div>

@@ -93,7 +93,7 @@ function SortableDish({ id, disabled, children }) {
   });
 }
 
-function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents }) {
+function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents, openFPEventId = null, onOpenedFP }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
@@ -128,6 +128,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // "View FP" on a list card — a lightweight peek at the Function Plan print
   // view without leaving the list for the full item-builder (selEvId's flow).
   var [fpViewEvId, setFpViewEvId] = useState(null);
+  // A notification click (App.jsx's openEventFP) sets this to jump straight
+  // to that event's FP print — one-shot, same as fpViewEvId's own click-to-
+  // open flow, just triggered from outside instead of a card's "FP" button.
+  useEffect(function() {
+    if (!openFPEventId) return;
+    setFpViewEvId(openFPEventId);
+    if (onOpenedFP) onOpenedFP();
+  // eslint-disable-next-line
+  }, [openFPEventId]);
   // Same FP status read as Booked Functions — not made / made / locked — so
   // this list doesn't need opening the FP just to find out it's locked.
   var [fpMap, setFpMap] = useState({});
@@ -2274,7 +2283,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       )}
 
       {fpViewEvId && (() => {
-        var fpEv = allEvs.find(function(e) { return e.id === fpViewEvId; });
+        // allEvs alone (checked first, keeps the common path cheap) is
+        // filtered to evFromDate — a notification can point at an event that
+        // filter is currently hiding, so fall back to the full list.
+        var fpEv = allEvs.find(function(e) { return e.id === fpViewEvId; }) || safeArr(events).find(function(e) { return e.id === fpViewEvId; });
         if (!fpEv) { setFpViewEvId(null); return null; }
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>

@@ -2049,8 +2049,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     {v:"analytics",l:T2("Analytics"), icon:"chart"},
     {v:"closing", l:T2("Closing"),    icon:"check"},
   ];
+  // Planning/Analytics aren't part of a section tablet's core floor-work set
+  // (today/d1/sops/closing always on), but can be granted per-tablet via
+  // Access Manager's Kitchen Hub sub-tab toggles (kitchen.planning_view /
+  // kitchen.analytics_view) — see SCREEN_PERMISSIONS_DEFAULT.kitchen.subTabs.
   const TABS_FILTERED = isSectionUser
-    ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v))
+    ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v)
+        || (t.v==='planning' && hasPermission(currentUser,'kitchen.planning_view'))
+        || (t.v==='analytics' && hasPermission(currentUser,'kitchen.analytics_view')))
     : TABS;
 
   // -- Inline dish card (shows live progress) --
