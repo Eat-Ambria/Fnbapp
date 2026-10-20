@@ -223,14 +223,22 @@ function EventDayTab({
     try { localStorage.setItem(D1_DISMISS_KEY, localDateStr(new Date())); } catch { /* private mode */ }
   }
 
-  // ── Overtime alarm bookkeeping — StepRow pushes its own key into this ref while overdue+unmuted;
-  // an effect after every render turns the single shared alarm on/off based on whether the ref is non-empty ──
+  // ── Overtime alarm bookkeeping ──
+  // overdueRef/overdueCollector still exists because StepRow still writes to
+  // it (and still needs alarmMuted/muteAlarm/clearMuteAlarm for its per-step
+  // mute button) — but it is no longer what decides whether the siren plays.
+  // It used to be: StepRow pushed its own key into this ref DURING ITS OWN
+  // RENDER, and an effect after every render started/stopped the shared
+  // alarm based on whether the ref was non-empty. That meant a dish (or its
+  // whole section) had to be EXPANDED on screen for its overdue step to ever
+  // get reported at all — collapsing it, or just never opening it, left the
+  // alarm silent even with a step sitting well past its timer. See the
+  // render-independent scan below (after byDish is built) for the fix.
   const overdueRef = useRef([]);
   overdueRef.current = [];
   const [alarmMuted, setAlarmMuted] = useState({});
   function muteAlarm(key) { setAlarmMuted(p => p[key] ? p : { ...p, [key]: true }); }
   function clearMuteAlarm(key) { setAlarmMuted(p => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; }); }
-  useEffect(() => { if (overdueRef.current.length > 0) startAlarm(); else stopAlarm(); });
   useEffect(() => () => stopAlarm(), []);
 
   // ── Section-level "Collect from store" (scope: combined vs per-function) ──
@@ -557,6 +565,63 @@ function EventDayTab({
   const secKeys = Object.keys(bySec).sort();
   const totalDishes = Object.keys(byDish).length;
 
+  // ── Render-independent overdue scan ──
+  // Walks every dish in byDish (built above regardless of which section/dish
+  // card is expanded) directly against kitchenTracking + its own step list —
+  // the same read StepRow itself does — instead of relying on StepRow to
+  // self-report only while mounted. Runs every 1s tick, same key format
+  // StepRow's mute button already writes (dKey+"|step_"+si[+"_sub_"+sbi]) so
+  // an existing mute still suppresses it here. overdueDishes drives the "which
+  // recipe is alarming" indicator; see its render below.
+  const [overdueDishes, setOverdueDishes] = useState([]); // [{dKey,name}]
+  useEffect(() => {
+    const keys = [];
+    const dishesMap = new Map(); // dKey -> name, deduped
+    Object.entries(byDish).forEach(([name, info]) => {
+      const d = ds(info.fEvId, info.fIdx, name);
+      if (!d || !d.starts) return;
+      const nonStore = getFullSteps(name).filter(s => !s.store);
+      const dKey = isCombined ? ck(name) : dk(info.fEvId, info.fIdx);
+      nonStore.forEach((step, si) => {
+        if (step.subs && step.subs.length > 0) {
+          step.subs.forEach((sb, sbi) => {
+            if (!(sb.tm > 0)) return;
+            const subKey = "step_" + si + "_sub_" + sbi;
+            const started = d.starts[subKey];
+            if (!started || (d.manual && d.manual[subKey])) return;
+            if (Math.floor((Date.now() - started) / 1000) < sb.tm) return;
+            const alarmKey = dKey + "|" + subKey;
+            if (alarmMuted[alarmKey]) return;
+            keys.push(alarmKey); dishesMap.set(dKey, name);
+          });
+        } else {
+          if (stepDone(d, si, step)) return;
+          const started = d.starts[si];
+          if (!started) return;
+          const tm = d.stepTm?.[si] || step.tm || 0;
+          if (!(tm > 0) || Math.floor((Date.now() - started) / 1000) < tm) return;
+          const alarmKey = dKey + "|step_" + si;
+          if (alarmMuted[alarmKey]) return;
+          keys.push(alarmKey); dishesMap.set(dKey, name);
+        }
+      });
+    });
+    if (keys.length > 0) startAlarm(); else stopAlarm();
+    setOverdueDishes(prev => {
+      const next = Array.from(dishesMap, ([k, n]) => ({ dKey: k, name: n }));
+      if (prev.length === next.length && prev.every((p, i) => p.dKey === next[i].dKey)) return prev;
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, kt, alarmMuted]);
+  function jumpToOverdueDish(name) {
+    const info = byDish[name];
+    if (!info) return;
+    setOpenSecs(p => ({ ...p, [info.catId]: true }));
+    const dKey = isCombined ? ck(name) : dk(info.fEvId, info.fIdx);
+    setOpenDishes(p => ({ ...p, [dKey]: true }));
+  }
+
   // Stats
   const readyDishes = Object.values(byDish).filter(d => ds(d.fEvId, d.fIdx, d.name).ready).length;
   const inProgressDishes = Object.values(byDish).filter(d => {
@@ -571,6 +636,29 @@ function EventDayTab({
 
   return (
     <div>
+      {/* ── Overtime alarm indicator ──
+          The siren is one shared sound with no way to tell which dish (or
+          which of several) is actually overdue — this names them, and lets a
+          tap jump straight to that dish's card (opening its section too, if
+          that's also collapsed) instead of hunting for it by ear. */}
+      {overdueDishes.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12,
+          borderRadius: K.rLg, background: K.dangerBg || "#FDECEC", border: `1px solid ${K.dangerBorder || C.redBorder}` }}>
+          <span style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, background: C.red, color: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="alert" size={15} strokeWidth={2.2}/>
+          </span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.red }}>{T2("Overtime")}:</span>
+          {overdueDishes.map(od => (
+            <button key={od.dKey} onClick={() => jumpToOverdueDish(od.name)}
+              style={{ padding: "5px 12px", borderRadius: K.rPill, border: `1px solid ${C.redBorder}`, background: "#fff",
+                color: C.red, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              {dishLabel(od.name, lang)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── D-1 prep status ──
           The "Event Day — <date> / <guest> (<pax> · <time>)" bar used to sit
           here, but the page header already carries exactly that, so it was the

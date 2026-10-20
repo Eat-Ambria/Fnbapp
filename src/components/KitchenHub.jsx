@@ -1886,14 +1886,85 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   useEffect(()=>{const t=setInterval(()=>setTick(k=>k+1),1000);return()=>clearInterval(t);},[]);
   // Overtime siren on Prep Day — the same shared siren Event Day uses. Only
   // driven while the Prep Day tab is showing, so it never cuts off Event Day's
-  // own alarm. The collector is refilled by the StepRows on every render.
+  // own alarm.
+  // overdueCollector/prepOverdueRef still exists because StepRow still writes
+  // to it (and still needs prepAlarmMuted/prepMuteAlarm/prepClearMuteAlarm for
+  // its per-step mute button) — but it no longer decides whether the siren
+  // plays: that used to be refilled by StepRow DURING ITS OWN RENDER, so a
+  // dish (or its section accordion) had to be expanded on screen for its
+  // overdue step to be reported at all. See the render-independent scan
+  // below, which — like EventDayTab.jsx's matching fix — walks every D-1
+  // dish directly off kitchenTracking instead.
   const prepOverdueRef=useRef([]);
   prepOverdueRef.current=[];
   const [prepAlarmMuted,setPrepAlarmMuted]=useState({});
   const prepMuteAlarm=key=>setPrepAlarmMuted(p=>p[key]?p:{...p,[key]:true});
   const prepClearMuteAlarm=key=>setPrepAlarmMuted(p=>{if(!p[key])return p;const n={...p};delete n[key];return n;});
-  useEffect(()=>{ if(tab!=="d1") return; if(prepOverdueRef.current.length>0) startAlarm(); else stopAlarm(); });
   useEffect(()=>()=>{ if(tab==="d1") stopAlarm(); },[tab]);
+  // Built unconditionally (tomorrowEvs/d1FnFilter are both top-level state,
+  // not gated behind tab==="d1") so this hook's call order never changes —
+  // a hook can't live inside the tab==="d1" IIFE lower down, which only runs
+  // (and only builds its own bySecD1 dish list) while that tab is active.
+  // Deliberately skips bg-gravy pseudo-dishes that block also injects, same
+  // scope decision as EventDayTab.jsx's matching scan.
+  const [overdueD1Dishes,setOverdueD1Dishes]=useState([]); // [{dKey,name}]
+  useEffect(()=>{
+    if(tab!=="d1"){ stopAlarm(); return; }
+    const d1IsCombined = d1FnFilter==="combined";
+    const d1FilteredEvs = d1IsCombined ? tomorrowEvs : tomorrowEvs.filter(e=>e.id===d1FnFilter);
+    const byDishD1Scan = {};
+    d1FilteredEvs.forEach(ev=>{
+      menuArr(ev).forEach((name,idx)=>{
+        if(getSectionForDish(name)==="Beverages" || isFruitSelectionDish(name)) return;
+        if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
+        if(!byDishD1Scan[name]) byDishD1Scan[name]={fEvId:ev.id,fIdx:idx};
+      });
+    });
+    const keys=[]; const dishesMap=new Map();
+    Object.entries(byDishD1Scan).forEach(([name,info])=>{
+      const d=ds(info.fEvId,info.fIdx,name);
+      if(!d||!d.starts) return;
+      const allSteps=getStepsForDish(name);
+      const steps=allSteps.length>0?allSteps:[{t:"Mesa",i:"",tm:600},{t:"Primary prep",i:"",tm:480}];
+      const dKey="d1|"+name;
+      steps.forEach((step,si)=>{
+        const sk="step_"+si;
+        if(step.subs&&step.subs.length>0){
+          step.subs.forEach((sb,sbi)=>{
+            if(!(sb.tm>0)) return;
+            const subKey=sk+"_sub_"+sbi;
+            const started=d.starts[subKey];
+            if(!started||(d.manual&&d.manual[subKey])) return;
+            if(Math.floor((Date.now()-started)/1000)<sb.tm) return;
+            const alarmKey=dKey+"|"+subKey;
+            if(prepAlarmMuted[alarmKey]) return;
+            keys.push(alarmKey); dishesMap.set(dKey,name);
+          });
+        } else {
+          const done=!!(d.manual&&d.manual[sk]);
+          if(done) return;
+          const started=d.starts[sk];
+          if(!started) return;
+          const tm=step.tm||0;
+          if(!(tm>0)||Math.floor((Date.now()-started)/1000)<tm) return;
+          const alarmKey=dKey+"|"+sk;
+          if(prepAlarmMuted[alarmKey]) return;
+          keys.push(alarmKey); dishesMap.set(dKey,name);
+        }
+      });
+    });
+    if(keys.length>0) startAlarm(); else stopAlarm();
+    setOverdueD1Dishes(prev=>{
+      const next=Array.from(dishesMap,([k,n])=>({dKey:k,name:n}));
+      if(prev.length===next.length&&prev.every((p,i)=>p.dKey===next[i].dKey)) return prev;
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tab,tick,kt,prepAlarmMuted,d1FnFilter]);
+  function jumpToOverdueD1Dish(name){
+    setExpandedSecs(p=>({...p,["d1sec_"+getCatIdForDish(name)]:true}));
+    setExpandedDishes(p=>{const n=new Set(p); n.add("d1dish_"+name.replace(/\s/g,"_")); return n;});
+  }
 
   // -- State helpers (auto-save to kitchenTracking — combined cooking keys) --
   function dk(evId,idx){return evId+"|"+idx;}
@@ -3440,6 +3511,28 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               );
             })()}
 
+            {/* Overtime alarm indicator — same fix/shape as Event Day's: names
+                which dish is actually overdue and jumps straight to its card
+                (opening its section too, if collapsed) instead of leaving the
+                siren with no way to tell which of possibly several it is. */}
+            {overdueD1Dishes.length>0 && (
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",marginBottom:14,
+                borderRadius:K.rLg,background:K.dangerBg,border:`1px solid ${K.dangerBorder}`}}>
+                <span style={{width:28,height:28,borderRadius:"50%",flexShrink:0,background:C.red,color:"#fff",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Icon name="alert" size={15} strokeWidth={2.2}/>
+                </span>
+                <span style={{fontSize:12.5,fontWeight:700,color:C.red}}>{T2("Overtime")}:</span>
+                {overdueD1Dishes.map(od=>(
+                  <button key={od.dKey} onClick={()=>jumpToOverdueD1Dish(od.name)}
+                    style={{padding:"5px 12px",borderRadius:K.rPill,border:`1px solid ${C.redBorder}`,background:"#fff",
+                      color:C.red,fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                    {dishLabel(od.name,lang)}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Stats — the same tiles Event Day leads with, so the two tabs read
                 as one screen rather than two different products. */}
             {(()=>{
@@ -3584,22 +3677,62 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       const allStepsFn = getStepsForDish(dishName);
                       const d1Only = allStepsFn; // TEMP: showing all steps regardless of d1 tag
                       const steps = d1Only.length>0?d1Only:[{t:"Mesa",i:"Wash, cut, measure all ingredients",tm:600,d1:true},{t:"Primary prep",i:"Prepare base masala / paste",tm:480,d1:true}];
-                      const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name).mesaDone;
+                      // Same card anatomy Event Day's dish cards use (photo/emoji
+                      // tile, name + "pax · steps" subtitle, status pill, animated
+                      // chevron) — this used to be a much smaller hand-rolled row
+                      // (an 18px checkbox-style badge, "pax — date" subtitle, a
+                      // static ▶/▼ glyph) that had drifted out of sync with Event
+                      // Day's own redesign, so the two tabs read as two different
+                      // products for what is the same underlying dish.
+                      const d2dRow = ds(dish.fEvId,dish.fIdx,dish.name);
+                      const isDone = !!d2dRow.mesaDone;
+                      const stepDoneCount = steps.filter((s,si)=>{
+                        const sk="step_"+si;
+                        if(s.subs&&s.subs.length>0) return s.subs.every((_,sbi)=>!!(d2dRow.manual&&d2dRow.manual[sk+"_sub_"+sbi]));
+                        return !!(d2dRow.manual&&d2dRow.manual[sk]);
+                      }).length;
+                      const anyRunningRow = !isDone && steps.some((s,si)=>{
+                        const sk="step_"+si;
+                        return !!(d2dRow.starts&&d2dRow.starts[sk]);
+                      });
+                      const dishImgRow = getDishImageUrl(dishName, true);
+                      const dishEmojiRow = (RECIPE_DB.cats.find(c=>c.id===dish.catId)?.icon) || "🍽";
                       return(
-                        <div key={dishName} style={{marginBottom:6}}>
-                          <div onClick={()=>toggleDish(cKey)} style={{cursor:"pointer",borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                            <div style={{padding:"10px 14px",background:isDone?C.greenBg:C.darkCard,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                                <div style={{width:18,height:18,borderRadius:5,background:isDone?C.green:C.gold,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isDone&&<span style={{fontSize:9,fontWeight:700,color:"#fff"}}>✓</span>}</div>
-                                <div><div style={{fontSize:12,fontWeight:700,color:isDone?C.green:C.text,textDecoration:isDone?"line-through":"none"}}>{dishLabel(dishName, lang)}{dish.isBaseGravy&&<span style={{marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.goldBg,border:`1px solid ${C.goldBorder}`,fontSize:9,color:C.gold,fontWeight:700}}>🥘 Base</span>}</div><div style={{fontSize:10,color:C.faint}}>{dish.totalPax} pax — {d1Label}</div></div>
-                              </div>
-                              <span style={{fontSize:12,color:C.muted}}>{isExp?"▼":"▶"}</span>
+                        <div key={dishName} style={{marginBottom:8,position:"relative",
+                          backgroundColor:K.surface,borderRadius:K.rLg,
+                          border:`1px solid ${isDone?K.brandBorder:K.line}`,
+                          boxShadow:isDone?"0 1px 3px rgba(28,61,43,.10), 0 8px 22px rgba(28,61,43,.10)":K.shadowCard,
+                          overflow:"hidden"}}>
+                          {isDone&&<span style={{position:"absolute",left:0,top:0,bottom:0,width:4,background:K.brand,zIndex:2}}/>}
+                          <div onClick={()=>toggleDish(cKey)} style={{cursor:"pointer",padding:"13px 15px 13px 18px",
+                            display:"flex",gap:12,alignItems:"center",
+                            background:isDone?`linear-gradient(100deg, ${K.brandBg} 0%, rgba(231,241,234,.45) 46%, ${K.surface} 82%)`:"transparent"}}>
+                            <div style={{width:56,height:56,borderRadius:13,flexShrink:0,overflow:"hidden",background:K.segChipBg,border:`1px solid ${K.line}`,
+                              display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>
+                              {dishImgRow
+                                ? <img src={dishImgRow} alt="" aria-hidden="true" loading="lazy" onError={e=>{e.currentTarget.style.display="none";}} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                                : dishEmojiRow}
                             </div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:15.5,fontWeight:700,lineHeight:1.25,color:isDone?K.brand:K.hdrTitle,overflowWrap:"anywhere"}}>
+                                {dishLabel(dishName, lang)}
+                                {dish.isBaseGravy&&<span style={{marginLeft:6,padding:"1px 6px",borderRadius:5,background:C.goldBg,border:`1px solid ${C.goldBorder}`,fontSize:9,color:C.gold,fontWeight:700}}>🥘 Base</span>}
+                              </div>
+                              <div style={{fontSize:12.5,color:K.textMuted,marginTop:3}}>
+                                {dish.totalPax} {T2("pax")} · {stepDoneCount}/{steps.length} {T2("steps")}
+                              </div>
+                            </div>
+                            <span style={{marginLeft:"auto",flexShrink:0,display:"flex",alignItems:"center"}}>
+                              {isDone
+                                ? <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:K.rPill,background:K.brand,color:"#fff",fontSize:11.5,fontWeight:700,whiteSpace:"nowrap"}}><Icon name="check" size={12} strokeWidth={2.6}/>{T2("Prep done")}</span>
+                                : <KPill toneName={anyRunningRow?"warn":"idle"} size="sm">{anyRunningRow?T2("In progress"):T2("Not started")}</KPill>}
+                            </span>
+                            <span style={{color:K.textFaint,display:"flex",flexShrink:0,transition:"transform .2s",transform:isExp?"rotate(90deg)":"none"}}><Icon name="chevronR" size={15}/></span>
                           </div>
 
                           {isExp&&(()=>{
                             return(
-                              <div style={{padding:"8px 12px",borderRadius:"0 0 10px 10px",background:C.surface,border:`1px solid ${C.border}`,borderTop:"none"}}>
+                              <div style={{padding:"0 15px 15px",borderTop:`1px solid ${C.border}`,marginTop:2,paddingTop:10}}>
                                 {(()=>{const pax=dish.totalPax||0;const {ing,effKg,warn,planned}=dish.isBaseGravy?getScaledIngredients(dishName,dish.fEvId,{overrideKg:dish.totalKg}):getScaledIngredients(dishName,dish.fEvId,{overrideKg:sumEffKgAcrossFns(dishName,dish.fns),overridePax:sumAdjPaxAcrossFns(dish.fns)});if(!ing||ing.length===0)return null;const yieldLbl=effKg?`${T2("target")} ${effKg.toFixed(1).replace(/\.0$/,"")} kg`:`${pax} pax`;return(
                                   <div style={{background:C.bg,borderRadius:8,padding:"8px 12px",marginBottom:8,border:`1px solid ${warn?C.redBorder:C.borderLight}`,opacity:0.85}}>
                                     {warn==='no_base_yield'&&<div style={{fontSize:9,fontWeight:700,color:C.red,marginBottom:5,padding:"3px 6px",background:C.redBg,borderRadius:5,border:`1px solid ${C.redBorder}`}}>⚠ {T2("Missing base_yield in SOP")}</div>}
@@ -7678,7 +7811,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
       {/* --- Ingredient Usage Modal --- */}
       {yieldModal && (
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>{setYieldModal(null);yieldModal.onConfirm();}}>
+        // Tapping the backdrop used to silently discard whatever quantity
+        // was already typed (it called onConfirm() directly, bypassing
+        // proceedToIngredientUsage() and its yieldQty read entirely) — a
+        // real data-loss trap for a stray tap outside the modal on a tablet.
+        // Routing it through the same path "Next" uses keeps whatever's
+        // typed (or proceeds empty, same as before, if nothing was typed).
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={proceedToIngredientUsage}>
           <div className="kh-modal-card kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,width:"100%",maxWidth:430,boxShadow:K.shadowLift,overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
             <div style={{position:"relative",padding:"22px 24px 16px",borderBottom:`1px solid ${K.modalLine}`}}>
               <div style={{display:"flex",gap:13,alignItems:"center"}}>
@@ -7812,7 +7951,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       })()}
 
       {usageModal && (
-        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}}>
+        // Same fix as yieldModal above: the backdrop used to call
+        // onConfirm() bare, skipping saveUsageAndDone() entirely — losing
+        // any typed actual-usage numbers AND the yield quantity already
+        // captured in the previous modal (saveUsageAndDone is what actually
+        // passes usageModal.made through). Routing through saveUsageAndDone
+        // instead means a stray backdrop tap behaves like Save, not Skip.
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:K.modalScrim,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={saveUsageAndDone}>
           <div className="kh-modal-card kh-cardart" style={{backgroundColor:K.surface,border:`1px solid ${K.modalLine}`,borderRadius:K.modalRadius,width:"100%",maxWidth:560,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:K.shadowLift}} onClick={e=>e.stopPropagation()}>
             <div style={{padding:"22px 24px 16px",borderBottom:`1px solid ${K.modalLine}`,flexShrink:0}}>
               <div style={{display:"flex",gap:13,alignItems:"center"}}>
