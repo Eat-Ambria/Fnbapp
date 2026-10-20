@@ -48,6 +48,11 @@ const OS_EDIT_ENABLED = false;
 function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osEdits, setOsEdits] = useState({});
+  // Collapsed-category set, not an open-category one — so a category that
+  // shows up for the first time (a new dish pulling in a new ingredient
+  // category) starts expanded, same as every category did before grouping
+  // existed, instead of silently starting hidden.
+  const [osCollapsed, setOsCollapsed] = useState(() => new Set());
   // A changed yield % invalidates every override's basis — same reset the
   // yield controls already trigger explicitly; this covers it even if a
   // future caller changes yieldAdjustPct some other way.
@@ -58,6 +63,16 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
   if (rows.length===0) {
     return <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>;
+  }
+  // Same store-walking-order categorizer the Collect-from-store view already
+  // groups by — ingredients don't need a second, different classification
+  // scheme just because this is a different screen.
+  const byCat = {};
+  rows.forEach(r=>{ const cat = categorizeIngredient(r.n); (byCat[cat]=byCat[cat]||[]).push(r); });
+  const orderedCats = INGR_CATEGORY_ORDER.filter(cat=>byCat[cat]&&byCat[cat].length>0);
+  const colSpan = 2 + osGroups.length + 1;
+  function toggleCat(cat) {
+    setOsCollapsed(prev=>{ const n=new Set(prev); if(n.has(cat)) n.delete(cat); else n.add(cat); return n; });
   }
   return (
     <table onClick={()=>setOsUsedInOpen(null)} style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
@@ -75,16 +90,31 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
           <th style={{...secThStyle,color:C.text}}>{T2("Total")}</th>
         </tr>
       </thead>
-      <tbody>
-        {rows.map((r,i)=>(
+      {orderedCats.map(cat=>{
+        const catRows = byCat[cat];
+        const isOpen = !osCollapsed.has(cat);
+        return (
+          <tbody key={cat}>
+            <tr onClick={e=>{e.stopPropagation(); toggleCat(cat);}} style={{cursor:"pointer"}}>
+              <td colSpan={colSpan} style={{padding:"7px 4px",background:C.purpleBg,borderBottom:`1px solid ${C.border}`,borderTop:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{display:"flex",color:C.purple,transform:isOpen?"rotate(180deg)":"none",transition:"transform .15s ease"}}>
+                    <Icon name="chevronD" size={13} strokeWidth={2.1}/>
+                  </span>
+                  <span style={{fontSize:11.5,fontWeight:700,color:C.purple,textAlign:"left"}}>{T2(cat)}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:C.purple,opacity:.75}}>{catRows.length}</span>
+                </div>
+              </td>
+            </tr>
+            {isOpen && catRows.map((r,i)=>(
           <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
-            <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===i?5:"auto"}}>
+            <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===(cat+i)?5:"auto"}}>
               <span style={{position:"relative",display:"inline-block"}}>
-                <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===i?null:i);}}
+                <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===(cat+i)?null:(cat+i));}}
                   style={{cursor:r.usedIn.length?"pointer":"default",textDecoration:r.usedIn.length?"underline dotted":"none",textUnderlineOffset:2}}>
                   {r.n}
                 </span>
-                {osUsedInOpen===i && r.usedIn.length>0 && (
+                {osUsedInOpen===(cat+i) && r.usedIn.length>0 && (
                   <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,zIndex:30,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
                     <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
                     {r.usedIn.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
@@ -112,8 +142,10 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
             }) : osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
             <td style={{...tdStyle,fontWeight:700,color:C.text}}>{OS_EDIT_ENABLED ? roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0)) : roundQ(r.total)}</td>
           </tr>
-        ))}
-      </tbody>
+            ))}
+          </tbody>
+        );
+      })}
     </table>
   );
 }

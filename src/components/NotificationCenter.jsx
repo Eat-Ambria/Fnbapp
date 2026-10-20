@@ -8,6 +8,7 @@
 // Place in: src/components/NotificationCenter.jsx
 
 import React, { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { K } from '../utils/theme.js';
 import { Icon } from './Icons.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -77,7 +78,14 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
   var myId = staffIdOf(currentUser);
   var [items, setItems] = useState([]);
   var [open, setOpen] = useState(false);
+  // Anchor coords for the portaled panel below — some headers this bell sits
+  // in (the section-tablet plate) clip their own content with overflow:hidden
+  // for a decorative border-radius, which silently clipped the dropdown to a
+  // sliver when it rendered inline. Portaled to <body> and positioned fixed
+  // instead, same escape-hatch KModal/KToast already use for this class of bug.
+  var [panelPos, setPanelPos] = useState(null); // { top, right } in viewport px
   var btnRef = useRef(null);
+  var panelRef = useRef(null);
 
   function matchesMe(row) {
     if (row.target_staff_id) return row.target_staff_id === myId;
@@ -147,12 +155,31 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
     // eslint-disable-next-line
   }, [isKitchen, myId]);
 
-  // ── Outside click closes the dropdown. ──
+  // ── Position the portaled panel against the bell, and close on outside
+  //    click/scroll (fixed-position coords go stale the moment the page under
+  //    it scrolls, same as any anchored popover). ──
   useEffect(function () {
     if (!open) return;
-    function onDown(e) { if (btnRef.current && !btnRef.current.contains(e.target)) setOpen(false); }
+    function place() {
+      if (!btnRef.current) return;
+      var r = btnRef.current.getBoundingClientRect();
+      setPanelPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+    }
+    place();
+    function onDown(e) {
+      if (btnRef.current && btnRef.current.contains(e.target)) return;
+      if (panelRef.current && panelRef.current.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onScroll() { setOpen(false); }
     document.addEventListener('mousedown', onDown);
-    return function () { document.removeEventListener('mousedown', onDown); };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', place);
+    return function () {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', place);
+    };
   }, [open]);
 
   if (!isKitchen) return null;
@@ -190,8 +217,8 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
         )}
       </button>
 
-      {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 340, maxHeight: 420, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
+      {open && panelPos && createPortal(
+        <div ref={panelRef} style={{ position: "fixed", top: panelPos.top, right: panelPos.right, width: 340, maxHeight: 420, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid " + K.lineSoft, position: "sticky", top: 0, background: K.surface }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: K.text }}>{T2("Notifications")}</span>
             {unread.length > 0 && (
@@ -218,7 +245,8 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
               );
             })
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
