@@ -237,8 +237,19 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           but this" can't rely on a parent/child selector — hide the whole
           page's visibility, then restore it for just this subtree and pull
           it to the page origin, same as the standard "print this one modal"
-          technique. */}
-      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; } .fp-no-print { display: none !important; } }"}</style>
+          technique.
+          Pulling it out of `position:fixed` wasn't enough on its own, though:
+          the root's own inline style also sets `inset:0` (a fixed top+right+
+          bottom+left, i.e. a box pinned to exactly one viewport tall) and
+          `overflowY:"auto"` for its on-screen scrolling. Neither is cleared
+          by just switching `position` to `absolute` — `bottom:0` still
+          stretches the box to exactly one page's height with the rest
+          scrollable-and-clipped, which is what printed as a single
+          screenshot-like page instead of flowing a long FP across as many
+          printed pages as it needs. `inset:auto` + an explicit `height:auto`
+          and `overflow:visible` let the box grow to its real content height,
+          which is what a browser's print engine actually paginates. */}
+      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose}
           style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
