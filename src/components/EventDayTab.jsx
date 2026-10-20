@@ -1263,7 +1263,7 @@ function EventDayTab({
                   // actually ready, so that's what this pill should say.
                   const prepped = d.mesaDone || (totalSteps > 0 && doneCount === totalSteps);
                   const runIdx = nonStore.findIndex(x => d.starts?.[x.origIdx] && !stepDone(d, x.origIdx, x.step));
-                  const anyRunning = runIdx >= 0;
+                  const anyRunning = runIdx >= 0 || doneCount > 0;
 
                   // Timer for dish row
                   let timerDisplay = null;

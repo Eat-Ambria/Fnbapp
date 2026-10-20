@@ -3736,10 +3736,10 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         if(s.subs&&s.subs.length>0) return s.subs.every((_,sbi)=>!!(d2dRow.manual&&d2dRow.manual[sk+"_sub_"+sbi]));
                         return !!(d2dRow.manual&&d2dRow.manual[sk]);
                       }).length;
-                      const anyRunningRow = !isDone && steps.some((s,si)=>{
+                      const anyRunningRow = !isDone && (stepDoneCount>0 || steps.some((s,si)=>{
                         const sk="step_"+si;
                         return !!(d2dRow.starts&&d2dRow.starts[sk]);
-                      });
+                      }));
                       const dishImgRow = getDishImageUrl(dishName, true);
                       const dishEmojiRow = (RECIPE_DB.cats.find(c=>c.id===dish.catId)?.icon) || "🍽";
                       return(

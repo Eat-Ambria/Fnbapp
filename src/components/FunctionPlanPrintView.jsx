@@ -271,7 +271,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           popovers / Ingredients modal elsewhere this session) makes this a
           direct child of body, with no transformed/clipping ancestor
           between it and the real page. */}
-      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } .fp-print-cols { display: block !important; } .fp-print-col-left { border-right: none !important; border-bottom: 2px solid #000 !important; } }"}</style>
+      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose}
           style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -319,15 +319,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
         </div>
 
         {/* ── Two boxed columns — Customized Menu | F&B and Banquet Informations ──
-            On screen these sit side by side (a CSS Grid row). For print that's
-            wrong: a grid row is exactly as tall as its taller cell, so once the
-            menu column needed more room than fit on the remaining page, the
-            WHOLE row (both cells) jumped to the next page together, leaving
-            most of the previous page blank under the shorter F&B column — "why
-            are the swaps coming from the second page". The fp-print-cols class
-            (see the print <style> above) drops to one full-width column at
-            print time instead, so each section flows and paginates on its own
-            — no shared row height, no forced blank space. */}
+            These stay side by side for print too, matching the on-screen
+            layout — the actual bug behind "why are the swaps coming from the
+            second page" wasn't the two columns themselves, it was each
+            department's long swap list having `breakInside:"avoid"`, which
+            forces an unbreakable block (and the WHOLE grid row carrying it,
+            since a grid row is as tall as its tallest cell) to jump wholesale
+            to the next page rather than split — leaving most of the previous
+            page blank under the shorter F&B column. Now that only the
+            (short, one-line) SubHead headings get `breakAfter:"avoid"` and the
+            long lists below them are free to split, the columns can run side
+            by side and continue in the same left/right position on
+            subsequent pages like a normal two-column print layout. */}
         <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
           <div className="fp-print-col-left" style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
             <ColTitle>{T2("Customized Menu")} :</ColTitle>
