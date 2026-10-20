@@ -189,7 +189,18 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
       var maxRight = window.innerWidth - width - margin;
       if (right > maxRight) right = maxRight;
       if (right < margin) right = margin;
-      setPanelPos({ top: r.bottom + 8, right: right, width: width });
+      // The bell now also lives at the BOTTOM of the sidebar — opening
+      // downward unconditionally (the only direction this ever supported)
+      // pushed the panel off the bottom of the screen from there. Open
+      // whichever side has more room, and cap height to what's actually
+      // available so it's never cut off on the chosen side either.
+      var spaceBelow = window.innerHeight - r.bottom - margin;
+      var spaceAbove = r.top - margin;
+      var openDown = spaceBelow >= Math.min(420, spaceAbove) || spaceBelow >= spaceAbove;
+      var maxHeight = Math.min(420, openDown ? spaceBelow : spaceAbove);
+      setPanelPos(openDown
+        ? { top: r.bottom + 8, right: right, width: width, maxHeight: maxHeight }
+        : { bottom: window.innerHeight - r.top + 8, right: right, width: width, maxHeight: maxHeight });
     }
     place();
     function onDown(e) {
@@ -247,7 +258,7 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
       </button>
 
       {open && panelPos && createPortal(
-        <div ref={panelRef} style={{ position: "fixed", top: panelPos.top, right: panelPos.right, width: panelPos.width, maxHeight: 420, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
+        <div ref={panelRef} style={{ position: "fixed", top: panelPos.top, bottom: panelPos.bottom, right: panelPos.right, width: panelPos.width, maxHeight: panelPos.maxHeight, overflowY: "auto", background: K.surface, border: "1px solid " + K.line, borderRadius: 14, boxShadow: K.shadowLift, zIndex: 10002 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid " + K.lineSoft, position: "sticky", top: 0, background: K.surface }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: K.text }}>{T2("Notifications")}</span>
             {unread.length > 0 && (

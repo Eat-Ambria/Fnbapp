@@ -47,6 +47,7 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 const OS_EDIT_ENABLED = false;
 function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
+  const [osUsedInPos, setOsUsedInPos] = useState(null); // {top,left} — portaled out of the modal's overflow:auto, see below
   const [osEdits, setOsEdits] = useState({});
   // Collapsed-category set, not an open-category one — so a category that
   // shows up for the first time (a new dish pulling in a new ingredient
@@ -140,15 +141,26 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
           <tr key={i} style={{borderBottom:`1px solid ${C.borderLight}`}}>
             <td style={{...tdStyle,textAlign:"left",fontWeight:500,color:C.text,position:"sticky",left:0,background:C.surface,whiteSpace:"normal",wordBreak:"break-word",zIndex:osUsedInOpen===(cat+i)?5:"auto"}}>
               <span style={{position:"relative",display:"inline-block"}}>
-                <span onClick={e=>{e.stopPropagation(); if(r.usedIn.length) setOsUsedInOpen(osUsedInOpen===(cat+i)?null:(cat+i));}}
+                <span onClick={e=>{
+                    e.stopPropagation();
+                    if (!r.usedIn.length) return;
+                    if (osUsedInOpen===(cat+i)) { setOsUsedInOpen(null); return; }
+                    // Portaled to <body> (see below) — the modal's own
+                    // overflow:auto body was clipping this to a sliver,
+                    // same class of bug the notification bell had.
+                    var rect = e.currentTarget.getBoundingClientRect();
+                    setOsUsedInPos({ top: rect.bottom+4, left: Math.min(rect.left, window.innerWidth-240-12) });
+                    setOsUsedInOpen(cat+i);
+                  }}
                   style={{cursor:r.usedIn.length?"pointer":"default",textDecoration:r.usedIn.length?"underline dotted":"none",textUnderlineOffset:2}}>
                   {r.n}
                 </span>
-                {osUsedInOpen===(cat+i) && r.usedIn.length>0 && (
-                  <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,marginTop:4,zIndex:30,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
+                {osUsedInOpen===(cat+i) && r.usedIn.length>0 && osUsedInPos && createPortal(
+                  <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:osUsedInPos.top,left:osUsedInPos.left,zIndex:10030,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px"}}>
                     <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")}</div>
                     {r.usedIn.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </span>
               {cat==='Other' && onSaveCategory && (

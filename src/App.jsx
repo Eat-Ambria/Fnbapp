@@ -1501,9 +1501,9 @@ export default function App() {
         {/* Account — moved out of the top bar and into the panel, where the
             person's identity sits with the navigation rather than floating over
             the content. The menu opens UPWARD because this sits at the bottom. */}
-        <div ref={userMenuRef} style={{position:"relative",zIndex:4,flexShrink:0,marginTop:"auto",padding:"10px 12px 12px",borderTop:`1px solid ${K.sbLine}`}}>
+        <div ref={userMenuRef} style={{position:"relative",zIndex:4,flexShrink:0,marginTop:"auto",padding:"10px 12px 12px",borderTop:`1px solid ${K.sbLine}`,display:"flex",alignItems:"center",gap:8}}>
           <button ref={userChipRef} className="ash-userchip ash-btn kh-rip" onPointerDown={ripple} onClick={openUserMenu}
-            style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"8px 10px",borderRadius:12,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,cursor:"pointer",textAlign:"left"}}>
+            style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0,padding:"8px 10px",borderRadius:12,background:K.sbChipBg,border:`1px solid ${K.sbChipLine}`,cursor:"pointer",textAlign:"left"}}>
             <Avatar name={currentUser?.name||"A"} size={30} index={0}/>
             <span style={{minWidth:0,flex:1}}>
               <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.sbText,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{currentUser?.name}</span>
@@ -1511,6 +1511,7 @@ export default function App() {
             </span>
             <Icon name="chevronD" size={14} color={K.sbLabel} style={{flexShrink:0,transform:userMenuOpen?"rotate(180deg)":"none",transition:"transform .18s"}}/>
           </button>
+          {(SHOW_BELL||isKitchenRole(currentUser))&&<NotificationCenter currentUser={currentUser} T2={T2} onOpenEvent={openEventFP}/>}
           {userMenuOpen&&userMenuPos&&(
             <div style={{position:"fixed",...userMenuPos,zIndex:10002,background:K.surface,border:`1px solid ${K.line}`,borderRadius:14,boxShadow:K.shadowLift,overflow:"hidden",padding:4}}>
               <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${K.lineSoft}`,marginBottom:4}}>
@@ -1587,23 +1588,9 @@ export default function App() {
 
         {/* Header + screen share one scroll container, so the brand plate scrolls
             away with the content instead of pinning and clipping it. */}
-        {/* ── ALERTS BAR ──
-            Slim row holding just the notification bell. Transform + opacity only
-            when hiding: collapsing its height changed the scroll container's size,
-            which moved scrollTop, which fired another scroll event with the
-            opposite direction — the bar flapped open and shut. */}
-        {(SHOW_BELL||isKitchenRole(currentUser))&&(
-        <div style={{position:"relative",zIndex:20,flexShrink:0,padding:"10px 32px 0",display:"flex",alignItems:"center",gap:10}}>
-
-
-          {/* Kitchen notification bell (V92) — head_chef accounts only reach this
-              shell (section tablets use the other header, above); self-contained,
-              renders nothing for anyone else. onOpenEvent only wired here, not
-              on the section-tablet instance above — Menu Packages is an admin/
-              sales screen a section tablet wouldn't have permission to reach. */}
-          <NotificationCenter currentUser={currentUser} T2={T2} onOpenEvent={openEventFP} />
-        </div>
-        )}
+        {/* The notification bell used to float here as its own slim bar above the
+            page header; moved into the sidebar footer next to the user chip
+            (see the account block above) so it's not a lone floating icon. */}
 
         {/* ── PAGE HEADER — brand plate ──
             Outside the scroll container on purpose: it names the screen you are
