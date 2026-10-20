@@ -337,6 +337,19 @@ const KITCHEN_CSS = `
   background: ${K.segSelBg};
   animation: kh-fillup .42s cubic-bezier(.22,1,.36,1) forwards;
 }
+
+/* Landing spot for "jump to this overdue step" (the Overtime banner in Event
+   Day / Prep Day) — a few quick pulses of the step's own danger colour so the
+   chef's eye finds it immediately after the scroll, then settles back to the
+   step's normal border with nothing left over. */
+@keyframes kh-flashstep {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217,70,63,0); }
+  15%, 45%, 75% { box-shadow: 0 0 0 3px rgba(217,70,63,.55); }
+}
+.kh-flashstep {
+  animation: kh-flashstep 2.1s ease-in-out;
+  border-radius: 10px;
+}
 @media (prefers-reduced-motion: reduce) {
   .kh-fillup { display: none; }
   .kh-scope .kh-seg:active { transform: none; }

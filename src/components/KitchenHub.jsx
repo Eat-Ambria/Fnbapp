@@ -1938,7 +1938,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
             if(Math.floor((Date.now()-started)/1000)<sb.tm) return;
             const alarmKey=dKey+"|"+subKey;
             if(prepAlarmMuted[alarmKey]) return;
-            keys.push(alarmKey); dishesMap.set(dKey,name);
+            keys.push(alarmKey); if(!dishesMap.has(dKey)) dishesMap.set(dKey,{name,sk:subKey});
           });
         } else {
           const done=!!(d.manual&&d.manual[sk]);
@@ -1949,21 +1949,44 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           if(!(tm>0)||Math.floor((Date.now()-started)/1000)<tm) return;
           const alarmKey=dKey+"|"+sk;
           if(prepAlarmMuted[alarmKey]) return;
-          keys.push(alarmKey); dishesMap.set(dKey,name);
+          keys.push(alarmKey); if(!dishesMap.has(dKey)) dishesMap.set(dKey,{name,sk});
         }
       });
     });
     if(keys.length>0) startAlarm(); else stopAlarm();
     setOverdueD1Dishes(prev=>{
-      const next=Array.from(dishesMap,([k,n])=>({dKey:k,name:n}));
-      if(prev.length===next.length&&prev.every((p,i)=>p.dKey===next[i].dKey)) return prev;
+      const next=Array.from(dishesMap,([k,v])=>({dKey:k,name:v.name,stepKey:v.sk}));
+      if(prev.length===next.length&&prev.every((p,i)=>p.dKey===next[i].dKey&&p.stepKey===next[i].stepKey)) return prev;
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[tab,tick,kt,prepAlarmMuted,d1FnFilter]);
-  function jumpToOverdueD1Dish(name){
+  // Expands the dish's section + card, then scrolls the actual overdue step
+  // into view and flashes it — "open the card, scroll me TO the step, so I
+  // can close it" was the ask: landing on the card and leaving the chef to
+  // hunt through (possibly many) steps for the one that's overdue wasn't
+  // actually faster than finding it by hand.
+  const [flashStepId,setFlashStepId]=useState(null);
+  function jumpToOverdueD1Dish(name,stepKey){
     setExpandedSecs(p=>({...p,["d1sec_"+getCatIdForDish(name)]:true}));
     setExpandedDishes(p=>{const n=new Set(p); n.add("d1dish_"+name.replace(/\s/g,"_")); return n;});
+    // The id is on the wrapper around the whole STEP (StepRow renders a
+    // sub-step's own timer/controls internally, not as a separate element to
+    // target), so an overdue sub-step's key still resolves to its parent.
+    const topStepKey=(stepKey||"").replace(/_sub_\d+$/,"");
+    const elId="d1step-"+name.replace(/\s/g,"_")+"-"+topStepKey;
+    let tries=0;
+    const tryScroll=()=>{
+      const el=document.getElementById(elId);
+      if(el){
+        el.scrollIntoView({behavior:"smooth",block:"center"});
+        setFlashStepId(elId);
+        setTimeout(()=>setFlashStepId(cur=>cur===elId?null:cur),2200);
+      } else if(++tries<20){
+        requestAnimationFrame(tryScroll);
+      }
+    };
+    requestAnimationFrame(tryScroll);
   }
 
   // -- State helpers (auto-save to kitchenTracking — combined cooking keys) --
@@ -2038,7 +2061,9 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       const title = cleanStepText(step.t);
       const rawDesc = cleanStepText(step.i||step.desc||"");
       const desc = rawDesc && !title.includes(rawDesc) && !rawDesc.includes(title) ? rawDesc : "";
-      return <StepRow key={si} num={si+1} title={title} desc={desc} ccp={step.ccp?cleanStepText(step.ccp):null}
+      const stepElId = "d1step-"+dish.name.replace(/\s/g,"_")+"-"+sk;
+      return <div key={si} id={stepElId} className={flashStepId===stepElId?"kh-flashstep":undefined}>
+      <StepRow num={si+1} title={title} desc={desc} ccp={step.ccp?cleanStepText(step.ccp):null}
         subs={subs?subs.map(sb=>({...sb,t:cleanStepText(sb.t),i:cleanStepText(sb.i||"")})):null}
         stepKey={sk} d2d={d2d} setDsFn={setDsFn}
         done={done} running={started&&!done} overdue={overdue}
@@ -2049,7 +2074,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         doneTime={d2d.manualAt?.[sk]||null} doneElapsed={d2d.doneElapsed?.[sk]??null}
         large={large} lang={lang} parentKey={"d1|"+dish.name}
         alarmMuted={prepAlarmMuted} muteAlarm={prepMuteAlarm} clearMuteAlarm={prepClearMuteAlarm} overdueCollector={prepOverdueRef}
-      />;
+      /></div>;
     });
   }
   function setDs(evId,idx,upd,dishInfo){
@@ -3524,7 +3549,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 </span>
                 <span style={{fontSize:12.5,fontWeight:700,color:C.red}}>{T2("Overtime")}:</span>
                 {overdueD1Dishes.map(od=>(
-                  <button key={od.dKey} onClick={()=>jumpToOverdueD1Dish(od.name)}
+                  <button key={od.dKey} onClick={()=>jumpToOverdueD1Dish(od.name,od.stepKey)}
                     style={{padding:"5px 12px",borderRadius:K.rPill,border:`1px solid ${C.redBorder}`,background:"#fff",
                       color:C.red,fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
                     {dishLabel(od.name,lang)}

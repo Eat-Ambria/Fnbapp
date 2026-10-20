@@ -592,7 +592,7 @@ function EventDayTab({
             if (Math.floor((Date.now() - started) / 1000) < sb.tm) return;
             const alarmKey = dKey + "|" + subKey;
             if (alarmMuted[alarmKey]) return;
-            keys.push(alarmKey); dishesMap.set(dKey, name);
+            keys.push(alarmKey); if (!dishesMap.has(dKey)) dishesMap.set(dKey, { name, sk: subKey });
           });
         } else {
           if (stepDone(d, si, step)) return;
@@ -602,24 +602,43 @@ function EventDayTab({
           if (!(tm > 0) || Math.floor((Date.now() - started) / 1000) < tm) return;
           const alarmKey = dKey + "|step_" + si;
           if (alarmMuted[alarmKey]) return;
-          keys.push(alarmKey); dishesMap.set(dKey, name);
+          keys.push(alarmKey); if (!dishesMap.has(dKey)) dishesMap.set(dKey, { name, sk: "step_" + si });
         }
       });
     });
     if (keys.length > 0) startAlarm(); else stopAlarm();
     setOverdueDishes(prev => {
-      const next = Array.from(dishesMap, ([k, n]) => ({ dKey: k, name: n }));
-      if (prev.length === next.length && prev.every((p, i) => p.dKey === next[i].dKey)) return prev;
+      const next = Array.from(dishesMap, ([k, v]) => ({ dKey: k, name: v.name, stepKey: v.sk }));
+      if (prev.length === next.length && prev.every((p, i) => p.dKey === next[i].dKey && p.stepKey === next[i].stepKey)) return prev;
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, kt, alarmMuted]);
-  function jumpToOverdueDish(name) {
+  // Expands the dish's section + card, then scrolls the actual overdue step
+  // into view and flashes it, same fix as KitchenHub.jsx's Prep Day version —
+  // landing on the card and leaving the chef to hunt through its steps for
+  // the overdue one wasn't actually faster than finding it unaided.
+  const [flashStepId, setFlashStepId] = useState(null);
+  function jumpToOverdueDish(name, stepKey) {
     const info = byDish[name];
     if (!info) return;
     setOpenSecs(p => ({ ...p, [info.catId]: true }));
     const dKey = isCombined ? ck(name) : dk(info.fEvId, info.fIdx);
     setOpenDishes(p => ({ ...p, [dKey]: true }));
+    const topStepKey = (stepKey || "").replace(/_sub_\d+$/, "");
+    const elId = "edstep-" + dKey.replace(/[^\w-]/g, "_") + "-" + topStepKey;
+    let tries = 0;
+    const tryScroll = () => {
+      const el = document.getElementById(elId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setFlashStepId(elId);
+        setTimeout(() => setFlashStepId(cur => cur === elId ? null : cur), 2200);
+      } else if (++tries < 20) {
+        requestAnimationFrame(tryScroll);
+      }
+    };
+    requestAnimationFrame(tryScroll);
   }
 
   // Stats
@@ -650,7 +669,7 @@ function EventDayTab({
           </span>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: C.red }}>{T2("Overtime")}:</span>
           {overdueDishes.map(od => (
-            <button key={od.dKey} onClick={() => jumpToOverdueDish(od.name)}
+            <button key={od.dKey} onClick={() => jumpToOverdueDish(od.name, od.stepKey)}
               style={{ padding: "5px 12px", borderRadius: K.rPill, border: `1px solid ${C.redBorder}`, background: "#fff",
                 color: C.red, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               {dishLabel(od.name, lang)}
@@ -1488,7 +1507,9 @@ function EventDayTab({
                                   const prevItem = gi > 0 ? prePrep[gi - 1] : null;
                                   const prevDone = gIdx === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||step.desc||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
-                                  return <StepRow key={si} num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
+                                  const stepElId = "edstep-"+dKey.replace(/[^\w-]/g,"_")+"-step_"+si;
+                                  return <div key={si} id={stepElId} className={flashStepId===stepElId?"kh-flashstep":undefined}>
+                                  <StepRow num={gIdx + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done || d1Done} running={started && !done && !d1Done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={SEQUENTIAL_STEPS && !prevDone}
@@ -1500,7 +1521,7 @@ function EventDayTab({
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser} lang={lang}
                                     parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
-                                  />;
+                                  /></div>;
                                 })}
 
                                 {cooking.length > 0 && (
@@ -1521,7 +1542,9 @@ function EventDayTab({
                                   const prevItem = allPrev.length > 0 ? allPrev[allPrev.length - 1] : null;
                                   const prevDone = allPrev.length === 0 ? secStoreDone : (prevItem ? stepDone(d, prevItem.origIdx, prevItem.step) : false);
                                   const cTitle=cleanStepText(step.t)+(step.live?" 🔴":"");const cDesc=cleanStepText(step.i||step.desc||"");const cDescShow=cDesc&&!cTitle.includes(cDesc)&&!cDesc.includes(cTitle)?cDesc:"";
-                                  return <StepRow key={si} num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
+                                  const stepElId = "edstep-"+dKey.replace(/[^\w-]/g,"_")+"-step_"+si;
+                                  return <div key={si} id={stepElId} className={flashStepId===stepElId?"kh-flashstep":undefined}>
+                                  <StepRow num={prePrep.length + ci + 1} title={cTitle} desc={cDescShow} ccp={step.ccp?cleanStepText(step.ccp):null}
                                     subs={step.subs||null} stepKey={"step_"+si} d2d={d} setDsFn={(upd)=>setDs(dish.fEvId,dish.fIdx,upd,dish)}
                                     done={done} running={started && !done} overdue={overdue}
                                     elapsedSec={el} timerSec={tm} locked={SEQUENTIAL_STEPS && !prevDone}
@@ -1532,7 +1555,7 @@ function EventDayTab({
                                     doneElapsed={d.doneElapsed?.[si] ?? null}
                                     large={isSectionUser} lang={lang}
                                     parentKey={dKey} alarmMuted={alarmMuted} muteAlarm={muteAlarm} clearMuteAlarm={clearMuteAlarm} overdueCollector={overdueRef}
-                                  />;
+                                  /></div>;
                                 })}
                               </div>
                             );
