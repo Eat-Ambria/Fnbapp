@@ -147,7 +147,15 @@ function ColTitle({ children }) {
 }
 
 function SubHead({ children }) {
-  return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>{children}</div>;
+  // breakAfter, not breakInside on the whole block below it: a department's
+  // dish list can run to 20+ lines, easily taller than a full page's
+  // remaining room, and forcing that entire block to stay together just
+  // pushed it wholesale onto the next page — the exact "why is the menu on
+  // page 2 while everything else sits on an almost-empty page 1" bug. This
+  // only keeps the heading itself from being stranded alone at a page's
+  // bottom edge; the list under it is free to split wherever it naturally
+  // runs out of room.
+  return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4, breakAfter: "avoid" }}>{children}</div>;
 }
 
 function Bullet({ children, dot }) {
@@ -263,7 +271,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           popovers / Ingredients modal elsewhere this session) makes this a
           direct child of body, with no transformed/clipping ancestor
           between it and the real page. */}
-      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
+      <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } .fp-print-cols { display: block !important; } .fp-print-col-left { border-right: none !important; border-bottom: 2px solid #000 !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose}
           style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -310,9 +318,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
           </FRow>
         </div>
 
-        {/* ── Two boxed columns — Customized Menu | F&B and Banquet Informations ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
-          <div style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
+        {/* ── Two boxed columns — Customized Menu | F&B and Banquet Informations ──
+            On screen these sit side by side (a CSS Grid row). For print that's
+            wrong: a grid row is exactly as tall as its taller cell, so once the
+            menu column needed more room than fit on the remaining page, the
+            WHOLE row (both cells) jumped to the next page together, leaving
+            most of the previous page blank under the shorter F&B column — "why
+            are the swaps coming from the second page". The fp-print-cols class
+            (see the print <style> above) drops to one full-width column at
+            print time instead, so each section flows and paginates on its own
+            — no shared row height, no forced blank space. */}
+        <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
+          <div className="fp-print-col-left" style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
             <ColTitle>{T2("Customized Menu")} :</ColTitle>
             {packageName ? (
               <div>
@@ -325,7 +342,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                     if (!diff) return null;
                     var meta = diff.kind ? DIFF_KIND_META[diff.kind] : null;
                     return (
-                      <div key={d.id} style={{ breakInside: "avoid" }}>
+                      <div key={d.id}>
                         {meta && (
                           <>
                             <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
@@ -339,7 +356,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                             exists, not just that some extra dishes got added somewhere. */}
                         {(diff.newSections || []).map(function(sec){
                           return (
-                            <div key={sec.name} style={{ breakInside: "avoid" }}>
+                            <div key={sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New section")}: {sec.name})</span></SubHead>
                               {sec.dishes.map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
@@ -356,7 +373,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                   var names = (itemsByDept && itemsByDept[d.id]) || [];
                   if (names.length === 0) return null;
                   return (
-                    <div key={d.id} style={{ breakInside: "avoid" }}>
+                    <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
                       {names.map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
                     </div>
@@ -369,7 +386,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
             )}
           </div>
 
-          <div style={{ padding: "14px 16px" }}>
+          <div className="fp-print-col-right" style={{ padding: "14px 16px" }}>
             <ColTitle>{T2("F&B and Banquet Informations")}</ColTitle>
             {bullets.length === 0 ? (
               <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Nothing recorded yet.")}</div>
