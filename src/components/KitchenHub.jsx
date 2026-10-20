@@ -45,11 +45,13 @@ const SOP_TINTS = ["#F3DEE3","#EFE3CF","#DDEADF","#F8E2CB","#DEE7F4","#ECDFF1","
 // demand) but kept in place, not deleted, since it may come back later —
 // flip this back to true to re-enable editing the qty cells.
 const OS_EDIT_ENABLED = false;
-function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory }) {
+function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory, onEditSectionQty }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osUsedInPos, setOsUsedInPos] = useState(null); // {top,left} — portaled out of the modal's overflow:auto, see below
   const [osSecUsedInOpen, setOsSecUsedInOpen] = useState(null);
   const [osSecUsedInPos, setOsSecUsedInPos] = useState(null); // same portal pattern, keyed per section-cell instead of per item name
+  const [osSecEditDraft, setOsSecEditDraft] = useState("");
+  const [osSecSaving, setOsSecSaving] = useState(false);
   const [osEdits, setOsEdits] = useState({});
   // Collapsed-category set, not an open-category one — so a category that
   // shows up for the first time (a new dish pulling in a new ingredient
@@ -194,23 +196,44 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
             }) : osGroups.map(g=>{
               const secKey = cat+i+"|"+g.id;
               const dishesHere = (r.usedInBySection && r.usedInBySection[g.id]) || [];
+              const curQty = r.bySection[g.id];
               return (
                 <td key={g.id} style={{...tdStyle,position:"relative"}}>
                   <span onClick={e=>{
                       e.stopPropagation();
-                      if (!dishesHere.length) return;
+                      if (!dishesHere.length || !curQty) return;
                       if (osSecUsedInOpen===secKey) { setOsSecUsedInOpen(null); return; }
                       var rect = e.currentTarget.getBoundingClientRect();
                       setOsSecUsedInPos({ top: rect.bottom+4, left: Math.min(rect.left, window.innerWidth-240-12) });
+                      setOsSecEditDraft(roundQ(curQty));
                       setOsSecUsedInOpen(secKey);
                     }}
                     style={{cursor:dishesHere.length?"pointer":"default",textDecoration:dishesHere.length?"underline dotted":"none",textUnderlineOffset:2}}>
-                    {roundQ(r.bySection[g.id])}
+                    {roundQ(curQty)}
                   </span>
                   {osSecUsedInOpen===secKey && dishesHere.length>0 && osSecUsedInPos && createPortal(
-                    <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:osSecUsedInPos.top,left:osSecUsedInPos.left,zIndex:10030,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px",textAlign:"left"}}>
+                    <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:osSecUsedInPos.top,left:osSecUsedInPos.left,zIndex:10030,minWidth:190,maxWidth:240,maxHeight:260,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px",textAlign:"left"}}>
                       <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")} · {g.name}</div>
                       {dishesHere.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
+                      {onEditSectionQty && (<>
+                        <div style={{borderTop:`1px solid ${C.borderLight}`,marginTop:7,paddingTop:7,display:"flex",alignItems:"center",gap:6}}>
+                          <input type="number" step="any" value={osSecEditDraft} disabled={osSecSaving}
+                            onChange={e=>setOsSecEditDraft(e.target.value)}
+                            onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}
+                            style={{width:70,boxSizing:"border-box",padding:"4px 6px",border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,fontFamily:K.fontBody,outline:"none"}}/>
+                          <button disabled={osSecSaving} onClick={async()=>{
+                              const v = parseFloat(osSecEditDraft);
+                              if(isNaN(v)||v<0) return;
+                              setOsSecSaving(true);
+                              try { await onEditSectionQty(r, g.id, v); setOsSecUsedInOpen(null); }
+                              finally { setOsSecSaving(false); }
+                            }}
+                            style={{flex:1,padding:"4px 8px",borderRadius:6,border:"none",background:C.wine,color:"#fff",fontSize:11,fontWeight:700,cursor:osSecSaving?"progress":"pointer"}}>
+                            {osSecSaving?T2("Saving…"):T2("Save")}
+                          </button>
+                        </div>
+                        <div style={{fontSize:9,color:C.faint,marginTop:5,lineHeight:1.3}}>{T2("Scales each dish above's own yield by the same ratio.")}</div>
+                      </>)}
                     </div>,
                     document.body
                   )}
@@ -229,11 +252,12 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
 
 // Planning → a section's dish table, opened from its tile. KModal's look, but its
 // own component on purpose: KModal sits at z-index 10000, and the dish rows in
-// here open the ingredient modal (planIngrModal, z-index 9999, not portalled) —
-// under a KModal that would land BEHIND the table it was opened from. This one
-// sits at 9000, so anything a row opens comes up on top. Portalled to <body>,
-// Escape / scrim / × close it. Inputs inside keep saving on blur exactly as in
-// the page.
+// here open the ingredient modal (planIngrModal, portalled to <body> at
+// z-index 9500 — it used to render un-portalled, which trapped it in this
+// component's own stacking context and put it BEHIND this table instead of
+// on top of it). This one sits at 9000, so anything a row opens comes up on
+// top. Portalled to <body>, Escape / scrim / × close it. Inputs inside keep
+// saving on blur exactly as in the page.
 function PlanSectionModal({ open, onClose, icon, title, meta, children }) {
   // onClose is a fresh arrow on every KitchenHub render (it re-renders on a 1s timer), so it is
   // read through a ref — the key listener and scroll lock are set up once per open, not per tick.
@@ -6325,6 +6349,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   }
                   const ingrMap = {}; // key: "name|unitFamily" -> {n,fam,bySection:{colId:baseQty},total:baseQty,dishes:Set}
                   const osColMeta = {}; // colId -> {id,name,icon}
+                  // Per-dish current yield, captured alongside the same ingredient
+                  // math above — lets editing a quantity cell below work backward
+                  // to scale down the contributing dish's own output yield by the
+                  // same ratio (see applyOrderingSheetQtyEdit), instead of the edit
+                  // being a display-only override with no effect on Planning.
+                  const dishYieldInfo = {}; // dish -> {rowCtx, useSections, mult, effKg} | {rowCtx, useSections:true, mult, sections:[{name,yieldKg,effKgSec}]}
                   orderedGroups.forEach(g=>{
                     g.items.forEach(it=>{
                       const st = it.st;
@@ -6335,6 +6365,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       let ingrList = null;
                       if(useSections){
                         const secFactors = {};
+                        const sectionEffList = [];
                         let sectionsTotalKg = 0;
                         recSections.forEach(sec=>{
                           const secAutoRaw = Math.round(daySectionAutoKg(it.dish,basePax,sec.yield.kg)*10)/10;
@@ -6344,8 +6375,10 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           const effKgSec = isSecOverride ? Number(savedVal) : secAutoScaled;
                           sectionsTotalKg += (effKgSec||0);
                           secFactors[sec.name] = sec.yield.kg>0 ? (effKgSec/sec.yield.kg) : 0;
+                          sectionEffList.push({name:sec.name, yieldKg:sec.yield.kg, effKgSec});
                         });
                         ingrList = getIngrForYield(it.dish, Math.round(sectionsTotalKg*10)/10, secFactors);
+                        if(ingrList && !dishYieldInfo[it.dish]) dishYieldInfo[it.dish] = {rowCtx:{...ctx,recipe:st.recipe}, useSections:true, mult, sections:sectionEffList};
                       } else {
                         const suggestedRaw = st.baseYield ? daySuggested(it.dish, selEv.pax/basePax*st.baseYield) : null;
                         const isOverride = isRealOverride(it.dish);
@@ -6353,7 +6386,10 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         const effKg = isOverride
                           ? (overrideKgRaw!=null ? Math.round(overrideKgRaw*mult*10)/10 : null)
                           : (suggestedRaw!=null ? Math.round(suggestedRaw*mult*10)/10 : null);
-                        if(effKg!=null) ingrList = getIngrForYield(it.dish, effKg);
+                        if(effKg!=null){
+                          ingrList = getIngrForYield(it.dish, effKg);
+                          if(!dishYieldInfo[it.dish]) dishYieldInfo[it.dish] = {rowCtx:{...ctx,recipe:st.recipe}, useSections:false, mult, effKg};
+                        }
                       }
                       const colId = osColIdFor(g, it);
                       if(OS_EXCLUDE_CATS.has(colId)) return;
@@ -6394,6 +6430,35 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     Object.keys(r.dishesBySection).forEach(k=>{ usedInBySection[k] = Array.from(r.dishesBySection[k]).sort((a,b)=>a.localeCompare(b)); });
                     return { n:r.n, u:unit, bySection, total:r.total/div, usedIn, usedInBySection };
                   }).sort((a,b)=>a.n.localeCompare(b.n));
+                  // Editing a section's ingredient quantity works backward: the
+                  // ratio of new/old quantity is applied uniformly to the output
+                  // yield of every dish in that section using this ingredient, so
+                  // (per the user's own example) 10kg Paneer split 5/5 across two
+                  // Chinese dishes, edited down to 8kg, becomes 4/4 — each dish's
+                  // WHOLE recipe scales down by the same 0.8 ratio, which is what
+                  // naturally keeps the split proportional to each dish's own share.
+                  async function applyOrderingSheetQtyEdit(row, colId, newDisplayedQty){
+                    const oldQty = row.bySection[colId];
+                    if(!oldQty || oldQty<=0 || !(newDisplayedQty>=0)) return;
+                    const ratio = newDisplayedQty/oldQty;
+                    const dishNames = (row.usedInBySection && row.usedInBySection[colId]) || [];
+                    const skipped = [];
+                    for(const dishName of dishNames){
+                      const info = dishYieldInfo[dishName];
+                      if(!info) continue;
+                      if(info.useSections){
+                        if(isCombinedMode){ skipped.push(dishName); continue; }
+                        for(const sec of info.sections){
+                          const newRaw = Math.round((sec.effKgSec*ratio/(info.mult||1))*100)/100;
+                          await saveYield(dishName, newRaw, info.rowCtx, sec.name);
+                        }
+                      } else {
+                        const newRaw = Math.round((info.effKg*ratio/(info.mult||1))*100)/100;
+                        await saveYield(dishName, newRaw, info.rowCtx);
+                      }
+                    }
+                    if(skipped.length) alert(T2("Sectioned recipe — switch to its own function's tab to adjust: ")+skipped.join(", "));
+                  }
                   return(
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);}}>
                       <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:960,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
@@ -6437,7 +6502,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         </div>
                         <div style={{flex:1,overflow:"auto",padding:"0 20px"}}>
                           <OrderingSheetTable rows={rows} osGroups={osGroups} yieldAdjustPct={yieldAdjustPct} T2={T2}
-                            ingrCatOverrides={ingrCatOverrides} onSaveCategory={saveIngrCategoryOverride} />
+                            ingrCatOverrides={ingrCatOverrides} onSaveCategory={saveIngrCategoryOverride}
+                            onEditSectionQty={applyOrderingSheetQtyEdit} />
                         </div>
                         <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
                           <button onClick={()=>{setShowOrderingSheet(false);}} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
@@ -7617,8 +7683,16 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           if (q >= 1)  return Math.round(q * 100) / 100;
           return Math.round(q * 1000) / 1000;
         };
-        return (
-          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPlanIngrModal(null)}>
+        // Portaled to <body>, same fix as the notification bell / Used In
+        // popovers this session: this modal can be opened from a row inside
+        // PlanSectionModal, which is ITSELF portaled to <body> — an
+        // un-portaled z-index:9999 here only wins against local siblings, not
+        // against another element that already escaped to <body> at a lower
+        // z-index, so it rendered behind it. Portaling plus a z-index above
+        // PlanSectionModal's 9000 fixes both the stacking-context trap and
+        // the ordering.
+        return createPortal(
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9500,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setPlanIngrModal(null)}>
             <div style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}} onClick={e=>e.stopPropagation()}>
               <div style={{padding:"16px 20px",borderBottom:"1px solid "+C.border}}>
                 <div style={{fontSize:15,fontWeight:700,color:C.text}}>📋 {T2("Ingredients")}</div>
@@ -7675,7 +7749,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 <button onClick={()=>setPlanIngrModal(null)} style={{width:"100%",padding:"12px",borderRadius:10,background:C.wine,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Close")}</button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         );
       })()}
 
