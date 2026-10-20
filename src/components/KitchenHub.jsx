@@ -48,6 +48,8 @@ const OS_EDIT_ENABLED = false;
 function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrides, onSaveCategory }) {
   const [osUsedInOpen, setOsUsedInOpen] = useState(null);
   const [osUsedInPos, setOsUsedInPos] = useState(null); // {top,left} — portaled out of the modal's overflow:auto, see below
+  const [osSecUsedInOpen, setOsSecUsedInOpen] = useState(null);
+  const [osSecUsedInPos, setOsSecUsedInPos] = useState(null); // same portal pattern, keyed per section-cell instead of per item name
   const [osEdits, setOsEdits] = useState({});
   // Collapsed-category set, not an open-category one — so a category that
   // shows up for the first time (a new dish pulling in a new ingredient
@@ -103,7 +105,7 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
   }
   return (<>
     {searchBar}
-    <table onClick={()=>setOsUsedInOpen(null)} style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
+    <table onClick={()=>{setOsUsedInOpen(null);setOsSecUsedInOpen(null);}} style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
       <colgroup>
         <col style={{width:140}}/>
         <col style={{width:44}}/>
@@ -189,7 +191,32 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
                       color:overridden?C.amber:C.text,fontWeight:overridden?700:400}}/>
                 </td>
               );
-            }) : osGroups.map(g=><td key={g.id} style={tdStyle}>{roundQ(r.bySection[g.id])}</td>)}
+            }) : osGroups.map(g=>{
+              const secKey = cat+i+"|"+g.id;
+              const dishesHere = (r.usedInBySection && r.usedInBySection[g.id]) || [];
+              return (
+                <td key={g.id} style={{...tdStyle,position:"relative"}}>
+                  <span onClick={e=>{
+                      e.stopPropagation();
+                      if (!dishesHere.length) return;
+                      if (osSecUsedInOpen===secKey) { setOsSecUsedInOpen(null); return; }
+                      var rect = e.currentTarget.getBoundingClientRect();
+                      setOsSecUsedInPos({ top: rect.bottom+4, left: Math.min(rect.left, window.innerWidth-240-12) });
+                      setOsSecUsedInOpen(secKey);
+                    }}
+                    style={{cursor:dishesHere.length?"pointer":"default",textDecoration:dishesHere.length?"underline dotted":"none",textUnderlineOffset:2}}>
+                    {roundQ(r.bySection[g.id])}
+                  </span>
+                  {osSecUsedInOpen===secKey && dishesHere.length>0 && osSecUsedInPos && createPortal(
+                    <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:osSecUsedInPos.top,left:osSecUsedInPos.left,zIndex:10030,minWidth:180,maxWidth:240,maxHeight:180,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,.18)",padding:"8px 10px",textAlign:"left"}}>
+                      <div style={{fontSize:9.5,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:5}}>{T2("Used in")} · {g.name}</div>
+                      {dishesHere.map((dn,dni)=>(<div key={dni} style={{fontSize:12,color:C.text,padding:"2px 0",whiteSpace:"nowrap"}}>{dn}</div>))}
+                    </div>,
+                    document.body
+                  )}
+                </td>
+              );
+            })}
             <td style={{...tdStyle,fontWeight:700,color:C.text}}>{OS_EDIT_ENABLED ? roundQ(osGroups.reduce((s,g)=>{const k=r.n+"|"+g.id;const v=osEdits[k]!==undefined?parseFloat(osEdits[k]):r.bySection[g.id];return s+(isNaN(v)?0:(v||0));},0)) : roundQ(r.total)}</td>
           </tr>
             ))}
@@ -3539,6 +3566,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       })()}
 
       {tab==="sops"&&(()=>{
+        // Head Chef gets the same recipe-editing controls as Admin here —
+        // category/recipe/ingredient/step edits are their job day-to-day;
+        // every other admin-only action in Kitchen Hub (menu-built flag,
+        // destructive reset) stays admin-only, so this is scoped to just
+        // the SOPs tab rather than widened everywhere currentUser.role is checked.
+        const canEditSops = currentUser?.role==='admin' || currentUser?.role==='head_chef';
         // Map section filter to relevant SOP category IDs
         const allowedCats = allowedCatIds;
         const filteredCats = allowedCats ? safeArr(RECIPE_DB.cats).filter(c=>allowedCats.includes(c.id)) : safeArr(RECIPE_DB.cats);
@@ -3705,7 +3738,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         </span>
                       </button>
 
-                      {currentUser?.role==='admin'&&(
+                      {canEditSops&&(
                         <div style={{position:"absolute",top:10,right:10,zIndex:menuOpen?22:2}}>
                           <button className={"kh-sopmenu"+(menuOpen?" is-open":"")} title={T2("Options")}
                             onClick={e=>{e.stopPropagation();setCatMenuId(menuOpen?null:cat.id);}}
@@ -3742,7 +3775,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     </div>);
                   })}
 
-                  {currentUser?.role==='admin'&&(addingCategory?(
+                  {canEditSops&&(addingCategory?(
                     <div style={{backgroundColor:K.cardWarm,border:`1.5px solid ${K.brand}`,borderRadius:18,padding:16,
                       boxShadow:K.shadowCard,boxSizing:"border-box",display:"flex",flexDirection:"column",gap:10}}>
                       <span style={{width:56,height:56,borderRadius:"50%",background:K.brandBg,color:K.brand,
@@ -3893,7 +3926,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   {!sopBulkMode&&(
                     <div style={{position:"absolute",top:10,right:10,bottom:10,display:"flex",flexDirection:"column",
                       alignItems:"flex-end",justifyContent:"space-between",gap:6,zIndex:recipeMenu===rk?22:2}}>
-                      {currentUser?.role==='admin'?(
+                      {canEditSops?(
                         <div style={{position:"relative"}}>
                           <button className={"kh-sopmenu"+(recipeMenu===rk?" is-open":"")} title={T2("Options")}
                             onClick={e=>{e.stopPropagation();setRecipeMenu(recipeMenu===rk?null:rk);}}
@@ -3992,7 +4025,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 ), hdrSlot)}
                 {/* Toolbar — Select on the left, Sort on the right. */}
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-                  {currentUser?.role==='admin'&&allR.length>0&&(
+                  {canEditSops&&allR.length>0&&(
                     <button className="kh-btn kh-rip" onPointerDown={ripple}
                       onClick={()=>{setSopBulkMode(p=>!p);setSopSelected(new Set());}}
                       style={{display:"inline-flex",alignItems:"center",gap:9,padding:"12px 18px",borderRadius:K.rPill,
@@ -4034,7 +4067,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   </div>
                   <div style={{marginLeft:"auto",display:"flex",gap:10,flexShrink:0}}>
                     {sortMenu()}
-                    {currentUser?.role==='admin'&&(
+                    {canEditSops&&(
                       <KButton variant="brand" icon="plus" onClick={()=>openSopAdd(sopCat)}
                         style={{padding:"12px 18px",borderRadius:K.rPill,fontSize:14}}>{T2("Add Recipe")}</KButton>
                     )}
@@ -4109,7 +4142,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       const catObjSop=safeArr(RECIPE_DB.cats).find(c=>c.id===sopCat);
                       const tintSop=SOP_TINTS[Math.max(0,safeArr(RECIPE_DB.recipes[sopCat]).findIndex(r=>r.n===sopRecipe.n))%SOP_TINTS.length];
                       const photo=recipePhoto(sopRecipe);
-                      const isAdmin=currentUser?.role==='admin';
+                      const isAdmin=canEditSops;
                       return (
                       <span style={{position:"relative",width:88,height:88,borderRadius:22,flexShrink:0,
                         background:`linear-gradient(145deg, ${tintSop} 0%, rgba(255,255,255,.75) 130%)`,
@@ -4136,7 +4169,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         )}
                       </span>);
                     })()}
-                    {currentUser?.role==='admin'&&(
+                    {canEditSops&&(
                       // Outside the tile, not inside it: the tile has
                       // overflow:hidden so the photo can be clipped round, and a
                       // control placed inside would be clipped with it.
@@ -4215,7 +4248,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     )}
                   </div>
                   </div>
-                  {currentUser?.role==='admin'&&(
+                  {canEditSops&&(
                     <div style={{display:"flex",gap:10,flexShrink:0,flexWrap:"wrap"}}>
                       {!editingSteps?(
                         <>
@@ -4257,7 +4290,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       {nIngNow>0?`${nIngNow} ${T2("ingredients")}`:T2("No ingredients")}
                       {!!fallbackIng&&` (${T2("legacy")})`}
                     </span>
-                    {currentUser?.role==='admin'&&!ingModal&&(<>
+                    {canEditSops&&!ingModal&&(<>
                       <KButton size="sm" icon="note" onClick={()=>{openIngEditor(sopRecipe,sopCat);}}
                         style={{padding:"8px 14px",borderRadius:K.rPill,fontSize:13,background:"#FFFFFF",borderColor:K.cardWarmLine}}>
                         {sopRecipe.ingredients?.items?.length>0?T2("Edit"):T2("Add")}
@@ -4594,11 +4627,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                               <th key={pi} style={{...th,textAlign:"center",minWidth:70}}>{p}</th>
                             ))}
                           <th style={{...th,textAlign:"left",minWidth:110}}>{T2("Notes")}</th>
-                          {currentUser?.role==='admin'&&<th style={{...th,textAlign:"center",width:96}}>{T2("Actions")}</th>}
+                          {canEditSops&&<th style={{...th,textAlign:"center",width:96}}>{T2("Actions")}</th>}
                         </tr></thead>
                         <tbody>
                           {ing2.items.map((ing,ii)=>{
-                            const nCols=(isNewSchema?4:3+(ing2.pax_sizes?.length||0))+1+(currentUser?.role==='admin'?1:0);
+                            const nCols=(isNewSchema?4:3+(ing2.pax_sizes?.length||0))+1+(canEditSops?1:0);
                             if(ing.isSection){
                               const secYk=ing.yield?.kg,secYp=ing.yield?.pcs;
                               const secYldLbl=secYk?`${secYk} kg${secYp?` (~${secYp} pcs)`:''}`:(secYp?`${secYp} pcs`:null);
@@ -4649,7 +4682,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                   the one place that writes this table back to
                                   Supabase. A row-level delete here would need a
                                   second save path — deliberately not duplicated. */}
-                              {currentUser?.role==='admin'&&(
+                              {canEditSops&&(
                                 <td style={{...td,textAlign:"center",whiteSpace:"nowrap"}}>
                                   <button className="kh-iconbtn kh-rip" onPointerDown={ripple} title={T2("Edit in ingredient editor")}
                                     onClick={()=>openIngEditor(sopRecipe,sopCat)}
@@ -4827,7 +4860,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           )}
                         </div>
                       </div>
-                      {currentUser?.role==='admin' && !editingSteps && (
+                      {canEditSops && !editingSteps && (
                         <KButton variant={hasYield?"brand":"accent"} icon={hasYield?"note":"plus"}
                           onClick={()=>{ setYieldForm({kg: kg ?? "", pcs: pcs ?? ""}); setEditingYield(true); }}
                           style={{padding:"13px 22px",borderRadius:K.rPill,fontSize:14,
@@ -4851,7 +4884,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       <span style={{display:"block",fontSize:13,color:K.hdrMeta,marginTop:2}}>{T2("Step-by-step process to prepare this recipe")}</span>
                     </span>
                   </span>
-                  {currentUser?.role==='admin'&&!editingSteps&&(
+                  {canEditSops&&!editingSteps&&(
                     // Enters the step editor with one blank step already added.
                     // sopAddStep is a functional update, so it lands on the form
                     // openSopEdit just queued rather than on a stale one.
@@ -5064,7 +5097,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                           {step.tm>0&&<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:K.warn,background:K.warnBg,border:`1px solid ${K.warnBorder}`,padding:"4px 10px",borderRadius:K.rPill,marginTop:8}}><Icon name="clock" size={12} strokeWidth={2.1}/>{fmtT(step.tm)}</span>}
                           {step.ccp&&<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:K.danger,background:"#FFFFFF",border:`1px solid ${K.dangerBorder}`,padding:"4px 10px",borderRadius:K.rPill,marginTop:8,marginLeft:7}}><Icon name="alert" size={12} strokeWidth={2.1}/>CCP: {step.ccp}</span>}
                         </div>
-                        {currentUser?.role==='admin'&&(
+                        {canEditSops&&(
                           <button className="kh-sopmenu is-open kh-rip" onPointerDown={ripple} title={T2("Edit steps")}
                             onClick={()=>{openSopEdit(sopRecipe,sopCat);setEditingSteps(true);}}
                             style={{width:30,height:30,borderRadius:"50%",flexShrink:0,background:"#FFFFFF",
@@ -6335,11 +6368,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         // buckets — otherwise "Milk" vs "milk" from two different
                         // recipes would split the same way the unit casing did.
                         const key = (ing.n||"").toLowerCase().trim()+"|"+fam;
-                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0, dishes:new Set()};
+                        if(!ingrMap[key]) ingrMap[key] = {n:ing.n, fam, bySection:{}, total:0, dishes:new Set(), dishesBySection:{}};
                         const baseQty = osToBaseQty(ing.q, ing.u);
                         ingrMap[key].bySection[colId] = (ingrMap[key].bySection[colId]||0) + baseQty;
                         ingrMap[key].total += baseQty;
                         ingrMap[key].dishes.add(it.dish);
+                        if(!ingrMap[key].dishesBySection[colId]) ingrMap[key].dishesBySection[colId] = new Set();
+                        ingrMap[key].dishesBySection[colId].add(it.dish);
                       });
                     });
                   });
@@ -6355,7 +6390,9 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     const bySection = {};
                     Object.keys(r.bySection).forEach(k=>{ bySection[k] = r.bySection[k]/div; });
                     const usedIn = Array.from(r.dishes).sort((a,b)=>a.localeCompare(b));
-                    return { n:r.n, u:unit, bySection, total:r.total/div, usedIn };
+                    const usedInBySection = {};
+                    Object.keys(r.dishesBySection).forEach(k=>{ usedInBySection[k] = Array.from(r.dishesBySection[k]).sort((a,b)=>a.localeCompare(b)); });
+                    return { n:r.n, u:unit, bySection, total:r.total/div, usedIn, usedInBySection };
                   }).sort((a,b)=>a.n.localeCompare(b.n));
                   return(
                     <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>{setShowOrderingSheet(false);}}>

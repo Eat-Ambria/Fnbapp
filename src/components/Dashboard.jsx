@@ -502,9 +502,9 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
                   {l:"Type",k:"type",t:"sel",o:["Wedding","Reception","Corporate","Birthday","Other"],ic:"tag"},
                   {l:"Date",k:"date",t:"date",req:true,ic:"calendar"},
                   {l:"Time",k:"time",ph:"7:30 PM",ic:"clock"},
-                  {l:"Total pax",k:"pax",t:"number",ph:"500",req:true,ic:"users"},
-                  {l:"Veg",k:"veg",t:"number",ph:"300",ic:"apple"},
-                  {l:"Non-veg",k:"nonveg",t:"number",ph:"200",ic:"flame"},
+                  {l:"Total pax",k:"pax",t:"number",ph:"0",req:true,ic:"users"},
+                  {l:"Veg",k:"veg",t:"number",ph:"0",ic:"apple"},
+                  {l:"Non-veg",k:"nonveg",t:"number",ph:"0",ic:"flame"},
                   {l:"Menu package",k:"menuPackage",t:"sel",o:["(Custom)",...Object.keys(MENU_PACKAGES)],ic:"plate"}].map(f=>(
                   <FieldCard key={f.k} icon={f.ic} label={T2(f.l)} required={f.req}>
                     {f.t==="sel"?<select value={form[f.k]} onChange={e=>setForm(p=>({...p,[f.k]:e.target.value}))} style={fld} className="kh-planinput">{f.o.map(o=><option key={o}>{o}</option>)}</select>
