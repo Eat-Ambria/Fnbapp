@@ -53,28 +53,55 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
   // category) starts expanded, same as every category did before grouping
   // existed, instead of silently starting hidden.
   const [osCollapsed, setOsCollapsed] = useState(() => new Set());
+  const [osSearch, setOsSearch] = useState('');
   // A changed yield % invalidates every override's basis — same reset the
   // yield controls already trigger explicitly; this covers it even if a
   // future caller changes yieldAdjustPct some other way.
   useEffect(()=>{ setOsEdits({}); }, [yieldAdjustPct]);
   const roundQ = q => { if(!q) return "—"; if(q>=10) return String(Math.round(q*10)/10); if(q>=1) return String(Math.round(q*100)/100); return String(Math.round(q*1000)/1000); };
-  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:4};
+  // Sits below the search bar's own sticky row, not stacked at the same
+  // top:0 — two sticky rows at an identical offset paint on top of each other.
+  const SEARCH_BAR_H = 44;
+  const thStyle = {padding:"6px 4px",textAlign:"right",fontSize:9,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.3,borderBottom:`2px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:SEARCH_BAR_H,background:C.surface,zIndex:4};
   const secThStyle = {...thStyle,width:56,maxWidth:56,whiteSpace:"normal",wordBreak:"break-word",lineHeight:1.25,verticalAlign:"bottom"};
   const tdStyle = {padding:"5px 4px",textAlign:"right",color:C.text,fontSize:11,whiteSpace:"nowrap"};
   if (rows.length===0) {
     return <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredient data for this event's dishes")}</div>;
   }
+  const searchQ = osSearch.trim().toLowerCase();
+  const visibleRows = searchQ ? rows.filter(r=>r.n.toLowerCase().includes(searchQ)) : rows;
   // Same store-walking-order categorizer the Collect-from-store view already
   // groups by — ingredients don't need a second, different classification
   // scheme just because this is a different screen.
   const byCat = {};
-  rows.forEach(r=>{ const cat = categorizeIngredient(r.n); (byCat[cat]=byCat[cat]||[]).push(r); });
+  visibleRows.forEach(r=>{ const cat = categorizeIngredient(r.n); (byCat[cat]=byCat[cat]||[]).push(r); });
   const orderedCats = INGR_CATEGORY_ORDER.filter(cat=>byCat[cat]&&byCat[cat].length>0);
   const colSpan = 2 + osGroups.length + 1;
   function toggleCat(cat) {
     setOsCollapsed(prev=>{ const n=new Set(prev); if(n.has(cat)) n.delete(cat); else n.add(cat); return n; });
   }
-  return (
+  const searchBar = (
+    <div style={{display:"flex",alignItems:"center",gap:8,height:SEARCH_BAR_H,boxSizing:"border-box",padding:"0 4px",position:"sticky",top:0,zIndex:7,background:C.surface}}>
+      <Icon name="search" size={14} strokeWidth={2} color={C.muted}/>
+      <input type="text" value={osSearch} onChange={e=>setOsSearch(e.target.value)}
+        placeholder={T2("Search ingredient…")}
+        style={{flex:1,maxWidth:260,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 10px",
+          fontSize:12,fontFamily:K.fontBody,color:C.text,outline:"none"}}/>
+      {osSearch && (
+        <button onClick={()=>setOsSearch('')} style={{border:"none",background:"transparent",color:C.muted,fontSize:11,fontWeight:600,cursor:"pointer"}}>
+          {T2("Clear")}
+        </button>
+      )}
+    </div>
+  );
+  if (visibleRows.length===0) {
+    return (<>
+      {searchBar}
+      <div style={{padding:"30px 0",fontSize:12,color:C.muted,fontStyle:"italic",textAlign:"center"}}>{T2("No ingredients match")} "{osSearch}"</div>
+    </>);
+  }
+  return (<>
+    {searchBar}
     <table onClick={()=>setOsUsedInOpen(null)} style={{width:"100%",borderCollapse:"collapse",fontSize:11,tableLayout:"fixed"}}>
       <colgroup>
         <col style={{width:140}}/>
@@ -92,7 +119,10 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
       </thead>
       {orderedCats.map(cat=>{
         const catRows = byCat[cat];
-        const isOpen = !osCollapsed.has(cat);
+        // While searching, every category with a match stays open regardless
+        // of its collapsed state — collapsing is a "tidy the full list" tool,
+        // not something that should hide the thing just searched for.
+        const isOpen = searchQ ? true : !osCollapsed.has(cat);
         return (
           <tbody key={cat}>
             <tr onClick={e=>{e.stopPropagation(); toggleCat(cat);}} style={{cursor:"pointer"}}>
@@ -147,7 +177,7 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2 }) {
         );
       })}
     </table>
-  );
+  </>);
 }
 
 // Planning → a section's dish table, opened from its tile. KModal's look, but its

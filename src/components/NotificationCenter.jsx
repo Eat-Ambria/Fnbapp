@@ -102,27 +102,34 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
     return !(Array.isArray(row.read_by) && myId && row.read_by.indexOf(myId) >= 0);
   }
 
-  // ── Web push registration — runs once per login for a kitchen account. ──
-  useEffect(function () {
-    if (!isKitchen || !currentUser) return;
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  // ── Web push registration. ──
+  // 'needs-action': permission is still default and nothing has asked for it
+  // via an actual click — most browsers silently swallow
+  // Notification.requestPermission() when it isn't called from a direct user
+  // gesture, so the boot-time effect below only auto-completes a subscription
+  // that's already granted; anything short of that surfaces a button instead
+  // of silently doing nothing.
+  var [pushStatus, setPushStatus] = useState('idle'); // idle|subscribed|needs-action|denied|unsupported
+  function ensurePushSubscription(fromClick) {
+    if (!isKitchen || !currentUser) return Promise.resolve();
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { setPushStatus('unsupported'); return Promise.resolve(); }
     var vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidKey) return;
-    var cancelled = false;
-    (async function () {
+    if (!vapidKey) { setPushStatus('unsupported'); return Promise.resolve(); }
+    return (async function () {
       try {
-        if (Notification.permission === 'denied') return;
+        if (Notification.permission === 'denied') { setPushStatus('denied'); return; }
         var reg = await navigator.serviceWorker.ready;
         var sub = await reg.pushManager.getSubscription();
         if (!sub) {
+          if (!fromClick && Notification.permission !== 'granted') { setPushStatus('needs-action'); return; }
           var perm = await Notification.requestPermission();
-          if (perm !== 'granted' || cancelled) return;
+          if (perm === 'denied') { setPushStatus('denied'); return; }
+          if (perm !== 'granted') { setPushStatus('needs-action'); return; }
           sub = await reg.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(vapidKey),
           });
         }
-        if (cancelled) return;
         var json = sub.toJSON();
         await supabase.from('push_subscriptions').upsert({
           endpoint: json.endpoint,
@@ -132,11 +139,15 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
           auth: json.keys.auth,
           user_agent: navigator.userAgent,
         }, { onConflict: 'endpoint' });
+        setPushStatus('subscribed');
       } catch (e) {
         console.error('[NotificationCenter] push subscribe failed:', e);
+        setPushStatus('needs-action');
       }
     })();
-    return function () { cancelled = true; };
+  }
+  useEffect(function () {
+    ensurePushSubscription(false);
     // eslint-disable-next-line
   }, [isKitchen, myId]);
 
@@ -236,6 +247,22 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
               </button>
             )}
           </div>
+          {(pushStatus === 'needs-action' || pushStatus === 'denied') && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid " + K.lineSoft, background: K.accentSoft }}>
+              <Icon name="bell" size={14} color={K.accent} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: K.textBody, lineHeight: 1.4 }}>
+                {pushStatus === 'denied'
+                  ? T2("Notifications are blocked for this site — enable them in your browser's site settings to get alerts when the app is closed.")
+                  : T2("Get notified even when this tab is closed.")}
+              </div>
+              {pushStatus === 'needs-action' && (
+                <button onClick={function () { ensurePushSubscription(true); }}
+                  style={{ flexShrink: 0, border: "none", borderRadius: 999, background: K.accent, color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 12px", cursor: "pointer" }}>
+                  {T2("Enable")}
+                </button>
+              )}
+            </div>
+          )}
           {items.length === 0 ? (
             <div style={{ padding: "28px 16px", textAlign: "center", color: K.textFaint, fontSize: 12.5 }}>{T2("Nothing yet.")}</div>
           ) : (
