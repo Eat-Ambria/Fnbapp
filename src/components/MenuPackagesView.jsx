@@ -977,12 +977,23 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     var flatDishes = flattenSectionsToDishes(serialized);
     setSaving(true);
     try {
+      // Read the row back post-write rather than caching the local `serialized`
+      // object verbatim: Postgres's jsonb storage re-orders object keys (by key
+      // length, then lexically) on every round trip, so a future conflict
+      // check's live SELECT never comes back byte-identical to this tab's own
+      // pre-write JS object even when nothing else touched the row —
+      // JSON.stringify saw that as "changed elsewhere" on every second-and-later
+      // autosave in the same editing session, even with only one person editing.
+      // Caching the string the DB itself just handed back keeps the baseline in
+      // the same canonical form the next live check will compare against.
       var res = await supabase.from('menu_packages')
         .update({ dishes: flatDishes, sections: serialized })
-        .eq('name', selPkg);
+        .eq('name', selPkg)
+        .select('sections, dishes')
+        .single();
       if (res.error) throw res.error;
       setPackageSections(selPkg, serialized, flatDishes);
-      lastKnownPkgRef.current = { sections: JSON.stringify(serialized), dishes: JSON.stringify(flatDishes) };
+      lastKnownPkgRef.current = { sections: JSON.stringify(res.data.sections), dishes: JSON.stringify(res.data.dishes) };
 
       clearMenuPackageCaches();
       await refreshMenuPackages();
