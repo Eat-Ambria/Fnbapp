@@ -3738,6 +3738,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       }).length;
                       const anyRunningRow = !isDone && (stepDoneCount>0 || steps.some((s,si)=>{
                         const sk="step_"+si;
+                        if(s.subs&&s.subs.length>0) return s.subs.some((_,sbi)=>!!(d2dRow.starts&&d2dRow.starts[sk+"_sub_"+sbi]));
                         return !!(d2dRow.starts&&d2dRow.starts[sk]);
                       }));
                       const dishImgRow = getDishImageUrl(dishName, true);

@@ -1263,7 +1263,15 @@ function EventDayTab({
                   // actually ready, so that's what this pill should say.
                   const prepped = d.mesaDone || (totalSteps > 0 && doneCount === totalSteps);
                   const runIdx = nonStore.findIndex(x => d.starts?.[x.origIdx] && !stepDone(d, x.origIdx, x.step));
-                  const anyRunning = runIdx >= 0 || doneCount > 0;
+                  // A step's own d.starts[origIdx] is only ever set when it has
+                  // no sub-steps — one WITH sub-steps tracks each sub-step's own
+                  // start under "step_<origIdx>_sub_<i>" instead (see stepDone
+                  // above), so runIdx alone missed a dish mid-way through a
+                  // sub-stepped step and showed "Pending" while a sub-step timer
+                  // was visibly counting down right below it.
+                  const anySubRunning = nonStore.some(x => Array.isArray(x.step.subs) && x.step.subs.length > 0 &&
+                    x.step.subs.some((_, sbi) => !!(d.starts && d.starts['step_' + x.origIdx + '_sub_' + sbi])));
+                  const anyRunning = runIdx >= 0 || doneCount > 0 || anySubRunning;
 
                   // Timer for dish row
                   let timerDisplay = null;
