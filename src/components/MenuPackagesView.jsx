@@ -579,16 +579,21 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (names.length === 0) return;
     var picked = {}; names.forEach(function(n) { picked[n] = true; });
     setEditorSections(function(prev) {
-      // Strip picked dishes from every section
+      // Strip picked dishes from every section — spread the rest of each
+      // section through untouched. This used to rebuild every section as a
+      // bare {id, name, sop_category, dishes}, which silently dropped
+      // sales_dept, catalogue_section_id (the catalogue link) and
+      // subsections off EVERY section in the package on any bulk move, not
+      // just the ones actually touched.
       var stripped = prev.map(function(s) {
-        return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).filter(function(n) { return !picked[n]; }) };
+        return { ...s, dishes: (s.dishes || []).filter(function(n) { return !picked[n]; }) };
       });
       // Append picked (in original picked order) to target, skipping duplicates
       return stripped.map(function(s) {
         if (s.id !== targetSecId) return s;
         var have = {}; (s.dishes || []).forEach(function(n) { have[n] = true; });
         var toAdd = names.filter(function(n) { return !have[n]; });
-        return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).concat(toAdd) };
+        return { ...s, dishes: (s.dishes || []).concat(toAdd) };
       });
     });
     setSelectedDishes({});
