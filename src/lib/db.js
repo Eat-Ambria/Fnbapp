@@ -31,22 +31,36 @@ export async function dbLoad(table, fallback = []) {
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
-  // Date-scoping for high-growth tables: newest first, last 90 days. Older
-  // data fetched on demand.
-  let q = supabase.from(table).select('*').range(0, 49999);
-  if (table === 'ingredient_usage_log') {
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
-    q = supabase.from(table).select('*').gte('created_at', cutoff.toISOString()).order('created_at', { ascending: false }).range(0, 49999);
-  }
-  const { data, error } = await q;
-  if (error || !data) {
+  // A single .range(0, 49999) call here used to look like it asked for up
+  // to 50,000 rows, but PostgREST enforces its own server-side max-rows cap
+  // (1000 on this project) regardless of what the client's range requests —
+  // it silently returns only the first page and stops, no error, no
+  // indication anything was left behind. kitchen_tracking quietly grew past
+  // that cap (6000+ rows) and this was truncating it to its first 1000 rows
+  // on every single load: whichever dishes' tracking rows didn't happen to
+  // be in that first page read back as if no progress had ever been
+  // recorded, even though the data was sitting safely in Supabase the whole
+  // time. fetchAllRows pages through with .range() in a loop until a page
+  // comes back short, so every row actually reaches the app regardless of
+  // how large the table has grown.
+  try {
+    let data;
+    if (table === 'ingredient_usage_log') {
+      // Date-scoping for this one high-growth, append-only log: newest
+      // first, last 90 days. Older rows are fetched on demand elsewhere.
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+      data = await fetchAllRows(() => supabase.from(table).select('*').gte('created_at', cutoff.toISOString()).order('created_at', { ascending: false }));
+    } else {
+      data = await fetchAllRows(() => supabase.from(table).select('*'));
+    }
+    try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
+    return data;
+  } catch (error) {
     try {
       const cached = localStorage.getItem(key);
       return cached ? JSON.parse(cached) : fallback;
     } catch(e) { return fallback; }
   }
-  try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
-  return data;
 }
 
 export async function dbUpsert(table, record, conflictKey = 'id') {
