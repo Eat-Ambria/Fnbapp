@@ -2,6 +2,7 @@
 // Decomposed: all screens, data, and utilities are in separate modules
 
 import React, { useState, useRef, useEffect, Suspense } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe } from './lib/db.js';
 import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
@@ -1160,7 +1161,17 @@ export default function App() {
               )}
             </div>
 
-            {showPinReset && (
+            {showPinReset && createPortal(
+              // Portalled to document.body: .ash-sidebar is position:fixed
+              // with its own z-index (3 desktop / 50 mobile), which makes it
+              // a stacking context of its own — a descendant's z-index, no
+              // matter how high, only ever competes against other things
+              // INSIDE that context. A screen's own full-page overlay (e.g.
+              // StoreModule's Ingredient Map, z-index 9999) lives outside the
+              // sidebar entirely, so it was stacking above the whole sidebar
+              // subtree — Reset PIN included — regardless of this div's own
+              // z-index:10050. Same fix as the FP print view / notification
+              // bell / Used-In popovers elsewhere in this app.
               <div onClick={()=>setShowPinReset(false)} style={{position:"fixed",inset:0,zIndex:10050,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
                 <div onClick={e=>e.stopPropagation()} style={{background:K.surface,borderRadius:16,padding:"22px 22px 20px",maxWidth:360,width:"100%",boxShadow:K.shadowLift,border:`1px solid ${K.line}`}}>
                   <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
@@ -1182,7 +1193,8 @@ export default function App() {
                     <button onClick={()=>setShowPinReset(false)} style={{padding:"11px 18px",borderRadius:10,background:"transparent",border:`1px solid ${K.line}`,color:K.textMuted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Footer plate — the wave, the artwork and the strapline are all
@@ -1576,7 +1588,12 @@ export default function App() {
           )}
         </div>
 
-        {showPinReset && (
+        {showPinReset && createPortal(
+          // Portalled for the same reason as the other Reset PIN modal above —
+          // .ash-sidebar is its own stacking context, so a full-page overlay
+          // from elsewhere (e.g. StoreModule's Ingredient Map) was rendering
+          // above this entire sidebar subtree regardless of this div's own
+          // z-index.
           <div onClick={()=>setShowPinReset(false)} style={{position:"fixed",inset:0,zIndex:10050,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
             <div onClick={e=>e.stopPropagation()} style={{background:K.surface,borderRadius:16,padding:"22px 22px 20px",maxWidth:360,width:"100%",boxShadow:K.shadowLift,border:`1px solid ${K.line}`}}>
               <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
@@ -1598,7 +1615,8 @@ export default function App() {
                 <button onClick={()=>setShowPinReset(false)} style={{padding:"11px 18px",borderRadius:10,background:"transparent",border:`1px solid ${K.line}`,color:K.textMuted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* ── Footer artwork ──
