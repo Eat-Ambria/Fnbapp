@@ -1937,12 +1937,13 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       menuArr(ev).forEach((name,idx)=>{
         if(getSectionForDish(name)==="Beverages" || isFruitSelectionDish(name)) return;
         if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
-        if(!byDishD1Scan[name]) byDishD1Scan[name]={fEvId:ev.id,fIdx:idx};
+        if(!byDishD1Scan[name]) byDishD1Scan[name]={fEvId:ev.id,fIdx:idx,fns:[]};
+        byDishD1Scan[name].fns.push({evId:ev.id,idx});
       });
     });
     const keys=[]; const dishesMap=new Map();
     Object.entries(byDishD1Scan).forEach(([name,info])=>{
-      const d=ds(info.fEvId,info.fIdx,name);
+      const d=ds(info.fEvId,info.fIdx,name,info.fns);
       if(!d||!d.starts) return;
       const allSteps=getStepsForDish(name);
       const steps=allSteps.length>0?allSteps:[{t:"Mesa",i:"",tm:600},{t:"Primary prep",i:"",tm:480}];
@@ -2014,9 +2015,31 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   function ck(dishName){return "dish|"+dishName;}
   // Fresh TOMORROW re-derived on every call — module-load TOMORROW goes stale on tabs open across midnight
   function _freshTomorrow(){ const _d=new Date();_d.setDate(_d.getDate()+1);return localDateStr(_d); }
-  function ds(evId,idx,dishName){
+  function ds(evId,idx,dishName,fns){
     const _TOM=_freshTomorrow();
-    if(d1FnFilter==="combined" && dishName) return kt["__combined_"+_TOM]?.[ck(dishName)]||{};
+    if(d1FnFilter==="combined" && dishName){
+      var cb0=kt["__combined_"+_TOM]?.[ck(dishName)];
+      if(cb0 && Object.keys(cb0).length) return cb0;
+      // Combined bucket empty doesn't mean no progress exists — a chef may
+      // have tracked this dish while a SPECIFIC function's tab was selected
+      // (not Combined), which only ever writes that function's own per-event
+      // key (see setDs's non-combined branch). Switching to Combined
+      // afterward used to show the dish as completely untouched even though
+      // every step was ticked off — the data wasn't lost, this view just
+      // never looked at it. Aggregate every contributing function's own key
+      // (fns is the same list byDishD1 builds, already ALL functions sharing
+      // this dish whenever d1FnFilter is "combined") so it surfaces here too.
+      if(fns && fns.length){
+        var agg={};
+        fns.forEach(fn=>{
+          var row=kt[fn.evId]?.[dk(fn.evId,fn.idx)];
+          if(row && Object.keys(row).length) agg=mergeDishState(agg,row);
+        });
+        delete agg.mesaDone;
+        if(Object.keys(agg).length) return agg;
+      }
+      return {};
+    }
     var perEv=kt[evId]?.[dk(evId,idx)]||{};
     if(dishName && !Object.keys(perEv).length){
       var cb=kt["__combined_"+_TOM]?.[ck(dishName)]||{};
@@ -2064,7 +2087,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // drifted: older styling, and none of Event Day's fixes. State keys are the
   // same "step_N" / "step_N_sub_M" shape StepRow already writes for sub-steps.
   function renderPrepSteps(dish, steps, large){
-    const d2d = ds(dish.fEvId,dish.fIdx,dish.name);
+    const d2d = ds(dish.fEvId,dish.fIdx,dish.name,dish.fns);
     const setDsFn = upd => setDs(dish.fEvId,dish.fIdx,upd,dish);
     const subsOf = s => Array.isArray(s.subs)&&s.subs.length>0 ? s.subs : null;
     const isStepDone = (s,si)=>{ const sk="step_"+si; const subs=subsOf(s); return subs ? subs.every((_,sbi)=>!!(d2d.manual&&d2d.manual[sk+"_sub_"+sbi])) : !!(d2d.manual&&d2d.manual[sk]); };
@@ -2116,6 +2139,25 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       } else {
         const k2=dk(evId,idx);
         o[evId]={...(o[evId]||{}),[k2]:mergeDishState(o[evId]?.[k2],upd)};
+        // Mirror step progress into the shared combined bucket too — the
+        // reverse of the branch above. Without this, a chef tracking a dish
+        // while a SPECIFIC function's tab was selected (not Combined) wrote
+        // only to that function's own key; switching the filter to Combined
+        // afterward (or another tablet opening straight into Combined) read
+        // from the combined bucket alone, found nothing there, and showed
+        // the dish as untouched even though every step was ticked off —
+        // tracking wasn't lost, it just wasn't visible from that view.
+        // mesaDone is excluded for the same reason the other branch excludes
+        // it: this one function being done doesn't mean every other function
+        // sharing this dish is also done.
+        if(dishInfo?.name){
+          const cKey=ck(dishInfo.name);
+          var propUpdRev=Object.assign({},upd); delete propUpdRev.mesaDone;
+          if(Object.keys(propUpdRev).length>0){
+            var _ckRev="__combined_"+_TOM;
+            o[_ckRev]={...(o[_ckRev]||{}),[cKey]:mergeDishState(o[_ckRev]?.[cKey],propUpdRev)};
+          }
+        }
       }
       return o;
     });
@@ -3495,7 +3537,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         });
         const allSecs = Object.keys(bySecD1).sort();
 
-        const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+        const totalD1Done = Object.values(byDishD1).filter(d=>ds(d.fEvId,d.fIdx,d.name,d.fns).mesaDone).length;
         const totalD1 = Object.keys(byDishD1).length;
         const totalD1Pax = filteredEvs.reduce((s,e)=>s+(+e.pax||0),0);
         const combinedPax = d1Evs.reduce((s,e)=>s+(+e.pax||0),0);
@@ -3637,7 +3679,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                 if(secItems.length===0) return null;
                 const prepItems = secItems.filter(d=>!d.eventDayOnly);
                 const eventOnlyCount = secItems.length - prepItems.length;
-                const doneCount = prepItems.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+                const doneCount = prepItems.filter(d=>ds(d.fEvId,d.fIdx,d.name,d.fns).mesaDone).length;
                 const totalCount = secItems.length;
                 const prepTotal = prepItems.length;
                 const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
@@ -3647,11 +3689,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                     {secOpen&&<div style={{padding:"10px 14px 14px"}}>
                       {renderSecStoreCardD1(sec, secItems, catObj2?.name || sec, true)}
                       {[...secItems].sort((a,b)=>{const ab=findRecipeForDish(a.name)?.bg?1:0;const bb=findRecipeForDish(b.name)?.bg?1:0;return bb-ab;}).map((dish,di)=>{
-                        const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name).mesaDone;
+                        const isDone = !!ds(dish.fEvId,dish.fIdx,dish.name,dish.fns).mesaDone;
                         // Dish tracking state + section-store completion, used by the
                         // "Mark prep done" gate further down. Both were referenced there
                         // but never declared in this scope (ReferenceError on expand).
-                        const d2s = ds(dish.fEvId,dish.fIdx,dish.name);
+                        const d2s = ds(dish.fEvId,dish.fIdx,dish.name,dish.fns);
                         const ssDone = !!ssReadD1(sec).end;
                         const cKey = `d1dish_${dish.name.replace(/\s/g,"_")}`;
                         const isExp = expandedDishes.has(cKey);
@@ -3706,7 +3748,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               const secOpen = isSecOpen("d1sec_"+sec);
               if(secItems.length===0) return null;
               const prepItemsA = secItems.filter(d=>!d.eventDayOnly);
-              const doneCount = prepItemsA.filter(d=>ds(d.fEvId,d.fIdx,d.name).mesaDone).length;
+              const doneCount = prepItemsA.filter(d=>ds(d.fEvId,d.fIdx,d.name,d.fns).mesaDone).length;
               const totalCount = secItems.length;
               const prepTotal = prepItemsA.length;
               const secPct = prepTotal>0?Math.round(doneCount/prepTotal*100):100;
@@ -3729,7 +3771,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       // static ▶/▼ glyph) that had drifted out of sync with Event
                       // Day's own redesign, so the two tabs read as two different
                       // products for what is the same underlying dish.
-                      const d2dRow = ds(dish.fEvId,dish.fIdx,dish.name);
+                      const d2dRow = ds(dish.fEvId,dish.fIdx,dish.name,dish.fns);
                       const isDone = !!d2dRow.mesaDone;
                       const stepDoneCount = steps.filter((s,si)=>{
                         const sk="step_"+si;
@@ -3787,7 +3829,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                                   </div>);})()}
                                 <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:.6}}>📋 {T2("Steps")} — {steps.length}</div>
                                 {renderPrepSteps(dish,steps,false)}
-                                {(()=>{const d2f=ds(dish.fEvId,dish.fIdx,dish.name);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
+                                {(()=>{const d2f=ds(dish.fEvId,dish.fIdx,dish.name,dish.fns);const elapsed=d2f.dishStartedAt?Math.floor((Date.now()-d2f.dishStartedAt)/60000):0;return(<div>{elapsed>0&&<div style={{fontSize:10,color:C.muted,textAlign:"center",marginBottom:4}}>⏱ {T2("Total time")}: {elapsed} min</div>}<button onClick={e=>{e.stopPropagation();openUsageModal(dish,dish.totalPax,true,()=>{setDs(dish.fEvId,dish.fIdx,{mesaDone:true,dishCompletedAt:Date.now()},dish);});}} style={{width:"100%",padding:"10px",borderRadius:8,background:C.green,color:"#fff",border:"none",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:40}}>✅ {T2("Mark prep done")} — {dish.totalPax} pax</button></div>);})()}
                               </div>);})()}
                         </div>
                       
