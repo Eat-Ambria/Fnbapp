@@ -460,6 +460,12 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // before the first load.
   var lastKnownPkgRef = useRef(null);
   var [pkgConflict, setPkgConflict] = useState(null); // {remoteSections, remoteDishes} | null
+  // Always-current mirror of editorSections, readable from inside an
+  // in-flight savePackage()'s async continuation — see the staleness check
+  // there. A plain closure over editorSections only ever sees the snapshot
+  // from the render that called savePackage, never what's been typed since.
+  var editorSectionsRef = useRef(null);
+  editorSectionsRef.current = editorSections;
   // V89 — dnd-kit's SortableContext takes its `items` array by reference; a
   // brand-new array (from `.map()`) on every render — even one that only
   // edited a dish inside ONE section, leaving every section's id/order
@@ -978,6 +984,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         console.warn('[MenuPackages] conflict check failed, saving anyway:', e);
       }
     }
+    // Snapshot the exact array this save is persisting — compared against
+    // editorSectionsRef.current once the write round-trips back (see below).
+    var sectionsAtSaveStart = editorSections;
     var serialized = serializeSections(editorSections);
     var flatDishes = flattenSectionsToDishes(serialized);
     setSaving(true);
@@ -1002,8 +1011,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
       clearMenuPackageCaches();
       await refreshMenuPackages();
-      setEditorSections(serialized);
-      setDirty(false);
+      // This write takes two round trips (the conflict check above, then this
+      // update+select) — easily long enough for someone to keep typing (e.g.
+      // renaming a section) after the 1.2s autosave debounce already fired.
+      // Blindly writing the serialized/trimmed snapshot back here used to
+      // stomp whatever they'd typed in that window with this save's now-stale
+      // copy, which is exactly what made renaming feel like it was fighting
+      // the keyboard. Only sync editorSections back from the save if nothing
+      // has changed since it started; otherwise leave their newer text alone
+      // — it's still marked dirty and the autosave effect picks it up next.
+      if (editorSectionsRef.current === sectionsAtSaveStart) {
+        setEditorSections(serialized);
+        setDirty(false);
+      }
     } catch (e) {
       console.error('savePackage failed:', e);
       alert('Save failed: ' + (e.message || e));
@@ -1031,8 +1051,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(function() { savePackage(); }, 1200);
     return function() { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  // `saving` has to be a dep too: if the user keeps typing WHILE a save is
+  // in flight, this effect still re-runs (editorSections changed) but bails
+  // out on the `saving` guard above and schedules nothing — then when that
+  // save finishes (saving -> false) with nothing else having changed in the
+  // meantime, there's no OTHER dependency left to re-trigger this effect, so
+  // the just-typed, still-dirty text would sit unsaved until one more
+  // keystroke woke it up. Listing `saving` makes that false->true->false
+  // transition itself re-check "still dirty? schedule it" right away.
   // eslint-disable-next-line
-  }, [dirty, editorSections, isAdmin]);
+  }, [dirty, editorSections, isAdmin, saving]);
 
   // Switching packages while an edit is still debouncing would otherwise
   // silently drop it (the editor reloads from source on selPkg change) — flush
