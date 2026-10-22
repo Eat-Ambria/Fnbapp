@@ -255,10 +255,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // ── Load sales_items_meta ──
   async function loadSalesMeta() {
     try {
-      var res = await supabase.from('sales_items_meta').select('*');
-      if (res.error) throw res.error;
+      // fetchAllRows, not a plain .select('*') — this table is keyed one row
+      // per dish, so it scales with the dish catalogue (already 600+ rows
+      // there) and would silently truncate at PostgREST's 1000-row cap with
+      // no error the same way kitchen_tracking did otherwise.
+      var rows = await fetchAllRows(function(){ return supabase.from('sales_items_meta').select('*'); });
       var m = {};
-      (res.data || []).forEach(function(r){
+      (rows || []).forEach(function(r){
         m[r.dish_name] = {
           diet_tag:          r.diet_tag || DEFAULT_DIET,
           sales_dept:        r.sales_dept || DEFAULT_DEPT,

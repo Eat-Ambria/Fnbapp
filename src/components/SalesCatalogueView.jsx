@@ -9,6 +9,7 @@ import { hasPermission } from '../data/permissions.js';
 import { getAllDishes, getCatIdForDish, RECIPE_DB, resolveDishHindi } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, DIET_TAGS, DIET_TAG_MAP, DEFAULT_DIET, DEFAULT_DEPT } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
+import { fetchAllRows } from '../lib/db.js';
 
 const STORAGE_BUCKET = 'sales-hero-images';
 
@@ -52,10 +53,13 @@ export function SalesCatalogueView({ lang = "en", currentUser = null }) {
   async function loadMeta() {
     setLoading(true);
     try {
-      var res = await supabase.from('sales_items_meta').select('*');
-      if (res.error) throw res.error;
+      // fetchAllRows, not a plain .select('*') — this is the screen that
+      // enriches sales_items_meta one row per dish, so its row count heads
+      // straight for the dish catalogue's own size (600+ already); a plain
+      // select silently truncates at PostgREST's 1000-row cap with no error.
+      var rows = await fetchAllRows(function(){ return supabase.from('sales_items_meta').select('*'); });
       var m = {};
-      (res.data || []).forEach(function(r){
+      (rows || []).forEach(function(r){
         m[r.dish_name] = {
           diet_tag:          r.diet_tag || null,
           sales_dept:        r.sales_dept || null,

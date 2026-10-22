@@ -177,10 +177,12 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // ── Load sales_items_meta ──
   async function loadSalesMeta() {
     try {
-      var res = await supabase.from('sales_items_meta').select('*');
-      if (res.error) throw res.error;
+      // fetchAllRows, not a plain .select('*') — see EventMenuBuilderView.jsx's
+      // loadSalesMeta for why: this table scales with the dish catalogue and
+      // would silently truncate at PostgREST's 1000-row cap otherwise.
+      var rows = await fetchAllRows(function(){ return supabase.from('sales_items_meta').select('*'); });
       var m = {};
-      (res.data || []).forEach(function(r){
+      (rows || []).forEach(function(r){
         m[r.dish_name] = {
           diet_tag:          r.diet_tag || DEFAULT_DIET,
           sales_dept:        r.sales_dept || DEFAULT_DEPT,

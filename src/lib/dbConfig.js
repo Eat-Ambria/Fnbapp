@@ -24,6 +24,7 @@
  */
 
 import { supabase } from './supabase.js';
+import { fetchAllRows } from './db.js';
 
 // ── Generic loader with localStorage fallback ──
 async function loadTable(table, fallback = [], transform = null) {
@@ -37,8 +38,15 @@ async function loadTable(table, fallback = [], transform = null) {
   }
 
   try {
-    const { data, error } = await supabase.from(table).select('*');
-    if (error || !data || data.length === 0) throw new Error(error?.message || 'empty');
+    // A plain .select('*') here used to silently truncate to PostgREST's
+    // server-side max-rows cap (1000) the moment a table grew past it, with
+    // no error — exactly the bug that made kitchen_tracking lose ~83% of its
+    // rows on every load (see dbLoad in db.js). None of this loader's tables
+    // have crossed that line yet, but recipes/recipe_ingredients/dishes_master
+    // only grow as the menu does, so this is the same fix applied before it
+    // has a chance to bite here too.
+    const data = await fetchAllRows(() => supabase.from(table).select('*'));
+    if (!data || data.length === 0) throw new Error('empty');
     const result = transform ? transform(data) : data;
     try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
     return result;
