@@ -8,6 +8,7 @@
 // Place in: src/components/FunctionPlanTab.jsx
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { K } from '../utils/theme.js';
 import { Icon, KButton, KBanner } from './KitchenUI.jsx';
 
@@ -202,6 +203,8 @@ function getLmsPlateInfo(event) {
 export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locked, onRequestLock, onRequestUnlock }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
+  var [showHistory, setShowHistory] = useState(false);
+  var fpHistory = (fp && Array.isArray(fp.fp_history)) ? fp.fp_history : [];
 
   function val(field) {
     if (drafts[field] !== undefined) return drafts[field];
@@ -291,10 +294,52 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
         <div style={{ display: "flex", gap: 8 }}>
+          <KButton variant="ghost" icon="clock" onClick={function(){ setShowHistory(true); }}>{T2("History")}{fpHistory.length > 0 ? " (" + fpHistory.length + ")" : ""}</KButton>
           <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
           {!locked && <KButton variant="accent" icon="lock" onClick={onRequestLock}>{T2("Mark as Final")}</KButton>}
         </div>
       </div>
+
+      {/* ── Change history — every FP field save, lock/unlock, and menu
+          add/remove appends a timestamped entry here (see saveFPField /
+          writeFpLockState / logFpHistory in EventMenuBuilderView.jsx). This
+          exists because the "last-minute change" notification Kitchen gets
+          on an unlock is transient — once it's dismissed there was nowhere
+          to go back and see exactly what changed, or who changed it. */}
+      {showHistory && createPortal(
+        // Portalled to document.body — this tab is mounted deep inside
+        // BookedFunctionsView -> EventMenuBuilderView, and this app has more
+        // than one ancestor along that path with its own CSS transform
+        // (ripple effects, slide-in panels), any of which becomes the
+        // containing block for a plain position:fixed modal and can clip or
+        // mis-stack it regardless of z-index — same root cause already fixed
+        // this session for the FP print view and the Reset PIN modal.
+        <div onClick={function(){ setShowHistory(false); }} style={{ position: "fixed", inset: 0, zIndex: 10050, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={function(e){ e.stopPropagation(); }} style={{ background: K.surface, borderRadius: 16, padding: "20px 22px", maxWidth: 540, width: "100%", maxHeight: "78vh", display: "flex", flexDirection: "column", boxShadow: K.shadowLift, border: "1px solid " + K.line }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexShrink: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: K.text }}>{T2("Change History")}</div>
+              <button type="button" onClick={function(){ setShowHistory(false); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: K.textMuted, display: "flex", padding: 4 }}>
+                <Icon name="close" size={18} />
+              </button>
+            </div>
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {fpHistory.length === 0 ? (
+                <div style={{ fontSize: 13, color: K.textFaint, fontStyle: "italic", padding: "24px 0", textAlign: "center" }}>{T2("No changes recorded yet.")}</div>
+              ) : fpHistory.slice().reverse().map(function(h, i){
+                return (
+                  <div key={i} style={{ padding: "10px 13px", borderRadius: 10, background: K.surfaceAlt, border: "1px solid " + K.lineSoft }}>
+                    <div style={{ fontSize: 13, color: K.text, fontWeight: 600 }}>{h.summary}</div>
+                    <div style={{ fontSize: 11, color: K.textFaint, marginTop: 4 }}>
+                      {h.at ? new Date(h.at).toLocaleString() : ""}{h.by ? " · " + h.by : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {locked && (
         <KBanner toneName="brand" icon="lock" style={{ marginBottom: 16 }}

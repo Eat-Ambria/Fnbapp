@@ -19,7 +19,7 @@ import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItem
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
 import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows } from './MenuBuilderView.jsx';
 import { ConfigsPanel } from './ConfigsPanel.jsx';
-import { FunctionPlanTab } from './FunctionPlanTab.jsx';
+import { FunctionPlanTab, TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 import { KModal } from './KitchenUI.jsx';
@@ -35,6 +35,38 @@ import { useIsMobile } from '../utils/useIsMobile.js';
 // Normalize punctuation/case before comparing so this still resolves.
 function normalizePkgName(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Human-readable labels for the FP change history (see logFpHistory /
+// saveFPField below) — built from the same TIME_FIELDS/EQUIP_FIELDS lists
+// FunctionPlanTab.jsx renders from, plus every other named column on
+// event_function_plans, so a history entry reads as "Chaat time" rather
+// than the raw "chaat_time" column name.
+var FP_FIELD_LABELS = (function(){
+  var out = {
+    guest_preference: 'Guest Preference', spice_tolerance: 'Spice tolerance',
+    corkage_price: 'Corkage cost', corkage_details: 'Corkage details',
+    room_info_enabled: 'Room info', room_check_in: 'Room check-in',
+    room_check_out: 'Room check-out', room_count: 'Room count',
+    drivers_food_required: 'Drivers food', drivers_food_count: 'Drivers food count',
+    drivers_food_rate: 'Drivers food rate', drivers_food_coupon: 'Drivers food coupon',
+    ops_manager_name: 'Operation Manager name', ops_manager_contact: 'Operation Manager contact',
+    allergies: 'Allergies / dietary restrictions', service_notes: 'Service style notes',
+    general_notes: 'General notes', layout_info: 'Layout information',
+    guest_signature_name: 'Signed by', guest_signature: 'Guest signature',
+  };
+  TIME_FIELDS.forEach(function(f){ out[f.id] = f.label; });
+  EQUIP_FIELDS.forEach(function(f){
+    out[f.id + '_enabled'] = f.label; out[f.id + '_count'] = f.label + ' count'; out[f.id + '_price'] = f.label + ' price';
+  });
+  return out;
+})();
+
+function formatFpHistoryValue(field, v) {
+  if (field === 'guest_signature') return v ? '(signed)' : '(cleared)';
+  if (v === null || v === undefined || v === '') return '(empty)';
+  if (typeof v === 'boolean') return v ? 'On' : 'Off';
+  return String(v);
 }
 
 export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false }) {
@@ -345,6 +377,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // are already covered by the package's own per-head budget.
   function toggleFoc(dishName) {
     if (blockIfMenuLocked()) return;
+    var cur = dishItems.find(function(x){ return x.dish_name === dishName; });
+    var willBeFoc = !(cur && cur.foc);
+    logFpHistory((willBeFoc ? T2('Marked FOC') : T2('Removed FOC')) + ': ' + dishName);
     return menuItemOps.toggleFocItem(itemsOpsConfig, dishItems, dishName, setDishItems);
   }
 
@@ -365,6 +400,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var next = isOut ? outsourcedDishes.filter(function(n){ return n !== dishName; }) : outsourcedDishes.concat([dishName]);
     var prev = outsourcedDishes;
     setOutsourcedDishes(next);
+    logFpHistory((isOut ? T2('Unmarked outsourced') : T2('Marked outsourced')) + ': ' + dishName);
     try {
       var res = await supabase.from('events').update({ outsourced_dishes: next }).eq('id', event.id);
       if (res.error) throw res.error;
@@ -452,8 +488,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }
 
   async function saveFPField(field, value) {
+    var prevVal = fp ? fp[field] : undefined;
+    var who = (currentUser && currentUser.name) || null;
     var next = { ...(fp || { event_id: event.id }), [field]: value };
-    if (!next.created_by && currentUser && currentUser.name) next.created_by = currentUser.name;
+    if (!next.created_by && who) next.created_by = who;
+    // Only log an actual change — a field that's blurred without being
+    // touched still calls onSaveField in a couple of spots (e.g. re-saving
+    // guest_signature_name alongside the signature itself), and that isn't
+    // a change worth cluttering the history with.
+    if (prevVal !== value && !(prevVal == null && value == null)) {
+      var label = FP_FIELD_LABELS[field] || field;
+      var summary = T2('Changed') + ' ' + T2(label) + ': ' + formatFpHistoryValue(field, prevVal) + ' → ' + formatFpHistoryValue(field, value);
+      next.fp_history = [ ...((fp && fp.fp_history) || []), { at: new Date().toISOString(), by: who, summary: summary } ];
+    }
     setFp(next);
     try {
       var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
@@ -463,6 +510,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     } catch (e) {
       console.error('[EventMenuBuilder] saveFPField failed:', e);
       alert(T2('Failed to save:') + ' ' + (e.message || e));
+    }
+  }
+
+  // Shared append-only history write for anything that changes the FP but
+  // doesn't go through saveFPField/writeFpLockState — menu dish add/remove,
+  // FOC toggles, outsourced toggles. One extra upsert per action; best-effort
+  // (a history write failing should never undo or block the action itself).
+  async function logFpHistory(summary) {
+    var who = (currentUser && currentUser.name) || null;
+    var base = fp || { event_id: event.id };
+    var next = { ...base, fp_history: [ ...((base.fp_history) || []), { at: new Date().toISOString(), by: who, summary: summary } ] };
+    if (!next.created_by && who) next.created_by = who;
+    setFp(next);
+    try {
+      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      if (res.error) throw res.error;
+      setFp(res.data);
+    } catch (e) {
+      console.error('[EventMenuBuilder] logFpHistory failed:', e);
     }
   }
 
@@ -497,9 +563,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return true;
   }
 
-  async function writeFpLockState(patch, histEntry) {
+  async function writeFpLockState(patch, histEntry, fpHistorySummary) {
     var next = { ...(fp || { event_id: event.id }), ...patch,
-      lock_history: [ ...((fp && fp.lock_history) || []), histEntry ] };
+      lock_history: [ ...((fp && fp.lock_history) || []), histEntry ],
+      fp_history: [ ...((fp && fp.fp_history) || []), { at: histEntry.at, by: histEntry.by, summary: fpHistorySummary } ] };
     if (!next.created_by && currentUser && currentUser.name) next.created_by = currentUser.name;
     setFp(next);
     try {
@@ -536,7 +603,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var who = (currentUser && currentUser.name) || null;
     await writeFpLockState(
       { locked: true, locked_at: new Date().toISOString(), locked_by: who },
-      { action: 'locked', by: who, at: new Date().toISOString() }
+      { action: 'locked', by: who, at: new Date().toISOString() },
+      T2('Marked Final — sent to Kitchen')
     );
     setFpLockModal(null);
     notifyKitchen('fp_locked', T2('FP released') + ': ' + (event.guest || T2('Function')),
@@ -550,7 +618,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode) return;
     await writeFpLockState(
       { locked: false },
-      { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason }
+      { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason },
+      T2('Unlocked for a late change') + ' — ' + reason
     );
     setFpLockModal(null);
     setUnlockReason('');
@@ -682,6 +751,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var dept = effectiveDeptForDish(dishName);
     try {
       var result = await menuItemOps.toggleDishItem(itemsOpsConfig, dishItems, dishName, !!templateSet[dishName], setDishItems);
+      logFpHistory((result.action === 'added' ? T2('Added dish') : T2('Removed dish')) + ': ' + dishName);
       if (dept === 'kit') await mirrorKitchenMenu(result.nextItems);
     } catch (e) {
       console.error('[EventMenuBuilder] toggle failed:', e);
@@ -705,6 +775,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       await createCustomDishInLibrary(supabase, name, catId);
       setDishLibBump(function(n){ return n + 1; });
       var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      logFpHistory(T2('Added dish') + ': ' + name);
       if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
       if (sectionId) await saveSectionOverride(name, sectionId);
     } catch (e) {
@@ -722,6 +793,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (blockIfMenuLocked()) return;
     try {
       var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      logFpHistory(T2('Added dish') + ': ' + name);
       if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
       if (sectionId) await saveSectionOverride(name, sectionId);
     } catch (e) {
