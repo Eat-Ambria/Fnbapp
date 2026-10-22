@@ -187,7 +187,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
   // set-up, staffing and timing notes under one heading. ──
   var bullets = [];
   if (fp) {
-    if (fp.guest_preference) bullets.push('Guest preference — ' + fp.guest_preference);
+    // Printers (and PDF export) drop background colors by default unless the
+    // browser's own "Background graphics" print option is on — WebkitPrintColorAdjust
+    // / printColorAdjust: "exact" forces this highlight to actually show up on
+    // the printed page regardless of that checkbox, not just in the on-screen preview.
+    if (fp.guest_preference) bullets.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
     if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
     if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : ''));
     TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' start time @ ' + fp[f.id]); });
