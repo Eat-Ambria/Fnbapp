@@ -8,7 +8,7 @@ import { ripple } from '../utils/ripple.js';
 import { Icon, KButton } from './KitchenUI.jsx';
 import { VENUE_OPTIONS } from '../data/staffData.js';
 
-function LoginScreen({ empDb, onLogin, lang="en" }) {
+function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
   const T2 = s => T(s, lang);
   const safeDb = safeArr(empDb);
   const [empId,  setEmpId]  = useState("");
@@ -95,6 +95,7 @@ function LoginScreen({ empDb, onLogin, lang="en" }) {
         </div>
 
         {/* Form */}
+        {forceLogoutMsg&&<div className="fade-in" style={{background:"#FFF8E6",border:"1px solid #E8C94A",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#8A6D00",marginBottom:18}}>{forceLogoutMsg}</div>}
         <div style={{marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:1.2}}>{T2("Employee ID")}</div>
           <input

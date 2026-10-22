@@ -449,6 +449,7 @@ export default function App() {
   });
   const [outsideChefAtt,setOutsideChefAtt] = useState([]);
   const [currentUser,setCurrentUser] = useState(null);
+  const [forceLogoutMsg,setForceLogoutMsg] = useState(null);
   const [empDb, setEmpDb]             = useState(EMPLOYEE_DB_INIT);
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
@@ -519,19 +520,38 @@ export default function App() {
           if(cid) {
             const fresh = mergedStaff.find(s => (s.staff_id||s.staffListId||s.id) === cid);
             if(fresh) {
-              // This DB refresh used to blindly overwrite venue with the
-              // static Home Venue configured in Access Manager, silently
-              // discarding whatever the tablet's own login screen asked for
-              // that day ("Where is this tablet located today?" — see
-              // LoginScreen.jsx). A section tablet answers that prompt on
-              // every login precisely because it moves between venues, so
-              // that answer — persisted to ambria_venue_override, most
-              // recent wins — is the current location, not the seed default.
-              let venueOverride = null;
-              try { venueOverride = localStorage.getItem("ambria_venue_override"); } catch(e) {}
-              const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid, venue: venueOverride || cached?.venue || fresh.venue};
-              setCurrentUser(refreshed);
-              localStorage.setItem("ambria_session_user", JSON.stringify(refreshed));
+              // A device that was closed (or offline) when an admin reset
+              // this user's PIN never saw the realtime UPDATE below — it
+              // reopens straight into the stale cached session from
+              // localStorage (set just above, before this DB round-trip).
+              // Catch that here too: if the PIN this device last knew no
+              // longer matches the DB, the reset happened while it was away
+              // and this session is exactly the kind of already-open-under-
+              // the-old-PIN session a reset is supposed to kick.
+              if(cached?.pin!=null && String(cached.pin)!==String(fresh.pin)){
+                setCurrentUser(null);
+                setForceLogoutMsg(T2("Your PIN was reset. Please log in again with your new PIN."));
+                try{
+                  localStorage.removeItem("ambria_session_user");
+                  localStorage.removeItem("ambria_emp_id");
+                  localStorage.removeItem("ambria_pin");
+                  localStorage.removeItem("ambria_remember");
+                }catch(e){}
+              } else {
+                // This DB refresh used to blindly overwrite venue with the
+                // static Home Venue configured in Access Manager, silently
+                // discarding whatever the tablet's own login screen asked for
+                // that day ("Where is this tablet located today?" — see
+                // LoginScreen.jsx). A section tablet answers that prompt on
+                // every login precisely because it moves between venues, so
+                // that answer — persisted to ambria_venue_override, most
+                // recent wins — is the current location, not the seed default.
+                let venueOverride = null;
+                try { venueOverride = localStorage.getItem("ambria_venue_override"); } catch(e) {}
+                const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid, venue: venueOverride || cached?.venue || fresh.venue};
+                setCurrentUser(refreshed);
+                localStorage.setItem("ambria_session_user", JSON.stringify(refreshed));
+              }
             }
           }
         }
@@ -660,6 +680,27 @@ export default function App() {
           if(!prev) return prev;
           const pid=prev.staffListId||prev.staff_id||prev.id;
           if(pid!==payload.new.staff_id) return prev;
+          // A PIN reset must kick every OTHER already-open session for this
+          // user, not just patch their data in place — otherwise a device
+          // still holds a live session under a PIN it no longer knows, which
+          // defeats the point of resetting it. The device that itself just
+          // performed a self-service PIN change (savePinReset) already
+          // applied the new PIN to its own currentUser optimistically before
+          // writing to Supabase, so prev.pin already equals payload.new.pin
+          // there and this echo is a no-op; only a device that's seeing the
+          // new PIN for the first time — reset by an admin, or by this same
+          // user from a different device — gets logged out here.
+          if(prev.pin!=null && String(prev.pin)!==String(payload.new.pin)){
+            try{
+              localStorage.removeItem("ambria_session_user");
+              localStorage.removeItem("ambria_emp_id");
+              localStorage.removeItem("ambria_pin");
+              localStorage.removeItem("ambria_remember");
+            }catch(e){}
+            setActiveDept(null);
+            setForceLogoutMsg(T2("Your PIN was reset. Please log in again with your new PIN."));
+            return null;
+          }
           // Keep this device's own venue answer, same precedent as the
           // boot-time refresh above — a section tablet's "where is this
           // tablet today" answer must not get silently overwritten by
@@ -856,6 +897,7 @@ export default function App() {
 
   function handleLogin(emp){
     setCurrentUser(emp);
+    setForceLogoutMsg(null);
     try{ localStorage.setItem("ambria_session_user",JSON.stringify(emp)); }catch(e){}
   }
   function handleLogout(){
@@ -942,7 +984,7 @@ export default function App() {
   // boot load above has already hydrated events/MENU_PACKAGES/sales configs.
   if(isPublicFP) return <PublicFPHub events={events} lang={lang}/>;
   // Login
-  if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang}/>;  // Staff self-service
+  if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang} forceLogoutMsg={forceLogoutMsg}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
