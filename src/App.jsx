@@ -176,16 +176,70 @@ export default function App() {
           if(nw.state === 'installed') armIfWaiting();
         });
       });
-      // SPA rarely does a full navigation, so also poll for updates directly —
-      // otherwise the browser may not check again for a long time.
-      var poll = setInterval(function(){ reg.update().catch(function(){}); }, 15*60*1000);
-      return function(){ clearInterval(poll); };
+      // A timer alone misses tablets/phones: the moment the screen locks or
+      // the app backgrounds, mobile browsers throttle or fully suspend JS
+      // timers — a kitchen tablet sitting idle (or just asleep) for most of
+      // a shift may never see its 15-minute interval actually fire, so a
+      // pushed update's banner silently never appears until someone happens
+      // to hard-refresh. visibilitychange/focus fire reliably even when
+      // timers don't — the OS has to wake the page to show it again at all —
+      // so re-checking right then catches an update the instant the device
+      // is picked back up, not just on a laptop that never backgrounds.
+      function checkNow(){ reg.update().catch(function(){}); }
+      function checkIfVisible(){ if(document.visibilityState==='visible') checkNow(); }
+      checkNow(); // don't wait 15 minutes for the very first check either
+      document.addEventListener('visibilitychange', checkIfVisible);
+      window.addEventListener('focus', checkNow);
+      var poll = setInterval(checkNow, 5*60*1000);
+      return function(){
+        clearInterval(poll);
+        document.removeEventListener('visibilitychange', checkIfVisible);
+        window.removeEventListener('focus', checkNow);
+      };
     });
   },[]);
   function applyPwaUpdate(){
     if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
     else { window.location.reload(); }
   }
+  // Auto-apply once an update is ready, but only once it's genuinely safe to
+  // reload — a tablet that's been left open all shift may never get an
+  // explicit "Update Now" tap, so waiting on that alone meant it just ran
+  // stale code indefinitely. Re-checked every 15s until ALL of these hold,
+  // never forced on a deadline:
+  //   - no input/textarea/select/contentEditable currently has focus — every
+  //     text field in this app (FP notes, custom dish names, corkage
+  //     details…) only saves on blur, so while one still has focus nothing
+  //     typed into it is lost yet by continuing to wait;
+  //   - no live camera stream on screen (the "Mark prep done" selfie
+  //     capture flow uses a <video> with a MediaStream srcObject);
+  //   - at least 2 minutes since the last tap/touch/key anywhere on the
+  //     page — genuinely idle, not just "not currently typing".
+  // The banner stays visible throughout, so anyone can still tap "Update
+  // Now" sooner themselves.
+  useEffect(function(){
+    if(!updateReady) return;
+    var lastActivity = Date.now();
+    function markActivity(){ lastActivity = Date.now(); }
+    var activityEvents = ['pointerdown','touchstart','keydown'];
+    activityEvents.forEach(function(ev){ document.addEventListener(ev, markActivity); });
+    function isSafeToApply(){
+      var ae = document.activeElement;
+      var tag = ae && ae.tagName;
+      if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT' || (ae && ae.isContentEditable)) return false;
+      var videos = document.querySelectorAll('video');
+      for(var i=0;i<videos.length;i++){ if(videos[i].srcObject) return false; }
+      return (Date.now() - lastActivity) >= 2*60*1000;
+    }
+    var checkTimer = setInterval(function(){
+      if(isSafeToApply()) applyPwaUpdate();
+    }, 15*1000);
+    return function(){
+      clearInterval(checkTimer);
+      activityEvents.forEach(function(ev){ document.removeEventListener(ev, markActivity); });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[updateReady]);
 
   // ── Events ──
   // Full candidate DB record for one event row — same construction for both

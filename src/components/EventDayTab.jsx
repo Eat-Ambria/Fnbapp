@@ -79,6 +79,29 @@ function stopAlarm() {
   if (_alarmOsc) { try { _alarmOsc.stop(); } catch (e) {} try { _alarmOsc.disconnect(); } catch (e) {} _alarmOsc = null; }
   if (_alarmGain) { try { _alarmGain.disconnect(); } catch (e) {} _alarmGain = null; }
 }
+// Browsers refuse to let a Web Audio AudioContext actually produce sound
+// unless it's created/resumed directly inside a genuine user gesture (a
+// click/tap/keypress) — one created or resumed from an automatic timer or
+// effect, like the render-independent overdue scans in EventDayTab/
+// KitchenHub calling startAlarm() with no gesture of their own, stays
+// silently suspended. The code runs, _alarmPlaying flips true, but nothing
+// is audible — until whatever NEXT real tap happens to touch this same
+// context (e.g. opening the overdue dish itself), which is exactly why the
+// siren seemed to need that tap to "wake up". Unlocking the context here on
+// the very first tap/key ANYWHERE on the page — logging in, switching a tab,
+// anything — means it's already running by the time an automatic scan calls
+// startAlarm() later, so the siren is audible immediately instead of only
+// after someone happens to open the overdue dish.
+if (typeof document !== "undefined") {
+  const _unlockAlarmAudio = () => {
+    try {
+      if (!_alarmCtx) _alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (_alarmCtx.state === "suspended") _alarmCtx.resume();
+    } catch (e) {}
+  };
+  document.addEventListener("pointerdown", _unlockAlarmAudio, { once: true, capture: true });
+  document.addEventListener("keydown", _unlockAlarmAudio, { once: true, capture: true });
+}
 
 // ── Sub-components ──
 function ProgressBar({ pct, color, h = 4 }) {
