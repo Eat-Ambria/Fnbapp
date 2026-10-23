@@ -1031,6 +1031,32 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   const [anSecModal, setAnSecModal] = useState(null); // Analytics: the section (cid) whose dishes are open in a modal
   function toggleAnalyticsDish(n){setAnalyticsExp(p=>{const s=new Set(p);s.has(n)?s.delete(n):s.add(n);return s;});}
   function fetchUsageLogs(evIds){fetchAllRows(()=>supabase.from('ingredient_usage_log').select('*').in('event_id',evIds)).then(data=>setUsageLogs(data||[])).catch(()=>setUsageLogs([]));}
+  // dbLoad('kitchen_tracking', ...) now only boots the last 3 days (see
+  // db.js) to keep egress flat instead of growing forever — but Analytics
+  // can look up ANY past event. historicalKt is a local, read-only cache
+  // fetched on demand per event the moment it's actually opened here, kept
+  // entirely separate from the `kt` prop/App.jsx's kitchenTracking state so
+  // it can never trigger App.jsx's sync-to-Supabase effect (which would
+  // otherwise treat these freshly-merged-in keys as new local edits and
+  // write them straight back up).
+  const [historicalKt, setHistoricalKt] = useState({});
+  const KT_RESERVED_KEYS_LOCAL = useRef(new Set(["id","ev_id","dish_key","data","created_at","updated_at","client_id","client_write_ts"])).current;
+  function fetchHistoricalKt(evIds, combinedKey){
+    const wantedKeys=[...evIds,combinedKey].filter(Boolean).filter(k=>!(kt && kt[k]));
+    if(wantedKeys.length===0) return;
+    fetchAllRows(()=>supabase.from('kitchen_tracking').select('*').in('ev_id',wantedKeys)).then(rows=>{
+      if(!rows||!rows.length) return;
+      setHistoricalKt(prev=>{
+        const merged={...prev};
+        rows.forEach(row=>{
+          if(KT_RESERVED_KEYS_LOCAL.has(row.dish_key)) return;
+          if(!merged[row.ev_id]) merged[row.ev_id]={...(merged[row.ev_id]||{})};
+          merged[row.ev_id]={...merged[row.ev_id],[row.dish_key]:row.data??{}};
+        });
+        return merged;
+      });
+    }).catch(e=>console.error('[Analytics] historical kitchen_tracking fetch failed:',e));
+  }
   useEffect(()=>{
     if(tab!=="analytics"||!analyticsEvId) return;
     const aEvs=safeArr(events);
@@ -1053,6 +1079,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       if(channel&&supabase) supabase.removeChannel(channel);
     };
   },[tab,analyticsEvId]);
+  // Separate from the usage-log effect above on purpose: this one fires as
+  // soon as a DATE is picked, before any single event is — so the per-date
+  // event list's "tracked" badges resolve correctly for an old date without
+  // needing the user to click into each event first. Scoped to just that
+  // date's events, never the whole table.
+  useEffect(()=>{
+    if(tab!=="analytics") return;
+    const aEvs=safeArr(events);
+    const targetDate=analyticsDate||(analyticsEvId&&analyticsEvId!=="__combined"?aEvs.find(e=>e.id===analyticsEvId)?.date:null)||[...new Set(aEvs.map(e=>e.date))].sort().reverse()[0];
+    if(!targetDate) return;
+    const dateEvIds=aEvs.filter(e=>e.date===targetDate).map(e=>e.id);
+    fetchHistoricalKt(dateEvIds,"__combined_"+targetDate);
+  },[tab,analyticsEvId,analyticsDate]);
 
   // -- Planning (Phase 4) --
   const [planEvId, setPlanEvId] = useState(null);
@@ -7144,11 +7183,15 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       })()}
 
       {tab==="analytics"&&(()=>{
+        // historicalKt only ever fills in event ids the boot-scoped `kt`
+        // doesn't already have (see fetchHistoricalKt above), so a plain
+        // merge is safe — `kt` always wins for anything it actually holds.
+        const ktA={...historicalKt,...kt};
         const allEvs=[...todayEvs,...tomorrowEvs,...evList.filter(e=>e.date!==TODAY&&e.date!==TOMORROW)];
         const uniqueDates=[...new Set(allEvs.map(e=>e.date))].sort().reverse();
         const selDate=analyticsDate||uniqueDates[0]||TODAY;
         const combKey="__combined_"+selDate;
-        const hasCombined=kt[combKey]&&Object.keys(kt[combKey]).length>0;
+        const hasCombined=ktA[combKey]&&Object.keys(ktA[combKey]).length>0;
         const dateEvs=allEvs.filter(e=>e.date===selDate);
         const selId=analyticsEvId||(dateEvs[0]?.id||null);
         function buildPerf(dishName,d2s){
@@ -7182,11 +7225,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         }
         const perfs=[];const seen=new Set();
         if(selId==="__combined"){
-          Object.entries(kt[combKey]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|")){const n=k.slice(5);perfs.push(buildPerf(n,d2s));seen.add(n);}});
+          Object.entries(ktA[combKey]||{}).forEach(([k,d2s])=>{if(k.startsWith("dish|")){const n=k.slice(5);perfs.push(buildPerf(n,d2s));seen.add(n);}});
           allEvs.forEach(ev=>{menuArr(ev).forEach(name=>{if(!seen.has(name)){perfs.push(buildPerf(name,{}));seen.add(name);}});});
         } else if(selId){
           const ev=allEvs.find(e=>e.id===selId);
-          if(ev)menuArr(ev).forEach((name,idx)=>{if(!seen.has(name)){const d2s=kt[combKey]?.["dish|"+name]||kt[selId]?.[selId+"|"+idx]||{};perfs.push(buildPerf(name,d2s));seen.add(name);}});
+          if(ev)menuArr(ev).forEach((name,idx)=>{if(!seen.has(name)){const d2s=ktA[combKey]?.["dish|"+name]||ktA[selId]?.[selId+"|"+idx]||{};perfs.push(buildPerf(name,d2s));seen.add(name);}});
         }
         const done=perfs.filter(p=>p.isDone);const started=perfs.filter(p=>!p.isDone&&p.actT>0);
         const byS={};perfs.forEach(p=>{if(!byS[p.catId])byS[p.catId]={n:p.catName,ic:p.catIcon,co:p.catColor,ds:[]};byS[p.catId].ds.push(p);});
@@ -7275,7 +7318,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                   <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
                     {cells2.map((cell,i)=>{const dt=cDate(cell);const evs2=dt?eod2(dt):[];const isT=dt===todayS;const isS=dt===selDate;
                       const vCols=[...new Set(evs2.map(e=>anaGp(e.venue).c))];
-                      const hasTracked=evs2.some(e=>Object.keys(kt[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);
+                      const hasTracked=evs2.some(e=>Object.keys(ktA[e.id]||{}).filter(k=>!k.startsWith("__")).length>0);
                       return(
                         <div key={i} onClick={()=>{if(!dt)return;setAnalyticsDate(dt);setAnalyticsEvId(null);setAnalyticsExp(new Set());}}
                           className={dt?"kh-calcell":undefined}
@@ -7343,7 +7386,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         <span style={{fontFamily:K.fontBody,fontSize:14.5,fontWeight:700}}>{T2("Combined — all functions")}</span>
                       </button>
                     )}
-                    {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(kt[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
+                    {dateEvs.map(ev=>{const isSel=selId===ev.id;const tracked=Object.keys(ktA[ev.id]||{}).filter(k=>!k.startsWith("__")).length;const mc=menuArr(ev).length;const vc=anaGp(ev.venue);return(
                       <button key={ev.id} onClick={()=>{setAnalyticsEvId(ev.id);setAnalyticsExp(new Set());}}
                         className="kh-fncard kh-rip" onPointerDown={ripple}
                         style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"14px 16px 14px 0",

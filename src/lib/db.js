@@ -50,6 +50,17 @@ export async function dbLoad(table, fallback = []) {
       // first, last 90 days. Older rows are fetched on demand elsewhere.
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
       data = await fetchAllRows(() => supabase.from(table).select('*').gte('created_at', cutoff.toISOString()).order('created_at', { ascending: false }));
+    } else if (table === 'kitchen_tracking') {
+      // Same reasoning as ingredient_usage_log above: this table only ever
+      // grows (every tick of every step, forever) and the boot-time screens
+      // (Prep Day/Event Day/D2D continuation) never need anything older than
+      // a couple of days. Scoping the boot load to the last 3 days by
+      // updated_at keeps egress flat instead of growing forever. The one
+      // screen that genuinely needs older rows — Kitchen Hub's Analytics tab,
+      // which can look up any past event — fetches those on demand itself
+      // (see KitchenHub.jsx's historicalKt) instead of relying on this load.
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 3);
+      data = await fetchAllRows(() => supabase.from(table).select('*').gte('updated_at', cutoff.toISOString()).order('updated_at', { ascending: false }));
     } else {
       data = await fetchAllRows(() => supabase.from(table).select('*'));
     }
