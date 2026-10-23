@@ -128,7 +128,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       });
       if(error) throw new Error(error.message||'Edge function error');
       setLmsResult(data);
-      const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+      const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short',timeZone:'Asia/Kolkata'});
       setLmsLastSync(now);
       try{localStorage.setItem('ambria_lms_last_sync',now);}catch(e){}
     }catch(err){

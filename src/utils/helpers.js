@@ -3,7 +3,7 @@
 
 function localDateStr(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${dd}`;}
 const TODAY = localDateStr(new Date());
-const TODAY_LABEL = new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+const TODAY_LABEL = new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric",timeZone:"Asia/Kolkata"});
 const CUR_YEAR = new Date().getFullYear();
 function relDate(daysFromToday){
   const d=new Date(); d.setDate(d.getDate()+daysFromToday);
@@ -49,9 +49,13 @@ function calcDispatch(time){
 
 
 function fmtStamp(ts) {
+  // Always format in IST explicitly — a device's own system timezone can be
+  // misconfigured (seen on a kitchen tablet showing times ~12.5h off from
+  // IST), and without an explicit timeZone, toLocaleString falls back to
+  // whatever timezone the device THINKS it's in instead of actual IST.
   var d = ts ? new Date(ts) : new Date();
-  return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}) + ' ' +
-         d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+  return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",timeZone:"Asia/Kolkata"}) + ' ' +
+         d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"});
 }
 
 // Client-side JPEG compression via canvas. maxDim caps largest side; quality 0-1.

@@ -96,7 +96,7 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
     if (!ts) return '';
     try {
       const d = new Date(ts);
-      return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+      return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
     } catch { return ts; }
   }
 

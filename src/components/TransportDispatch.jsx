@@ -183,7 +183,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     const ci=STATUS_FLOW.indexOf(asgn.status);
     if(ci<0||ci>=STATUS_FLOW.length-1)return;
     const next=STATUS_FLOW[ci+1];
-    const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+    const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"});
     const patch={status:next};
     if(next==="Dispatched")patch.dispatched_at=now;
     if(next==="At Venue")patch.arrived_at=now;
@@ -319,7 +319,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         const ROW_STATUS_FLOW = ["Ready","Loaded","Delivered"];
         function cycleRowStatus(rowId){
           if(!setTransportQueue) return;
-          const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+          const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"});
           setTransportQueue(prev=>prev.map(r=>{
             if(r.id!==rowId) return r;
             const ci=ROW_STATUS_FLOW.indexOf(r.status);
@@ -697,7 +697,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
         const asgn=(dispatches.find(d=>d.evId===ev.id)?.assignments||[]).find(a=>a.vehicleId===challanFor.vehicleId)||{};
         const rows=loadedRowsFor(ev.id,challanFor.vehicleId);
         const now=new Date();
-        const nowStr=now.toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+        const nowStr=now.toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"});
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setChallanFor(null)}>
             <style>{"@media print { body * { visibility: hidden; } .td-challan, .td-challan * { visibility: visible; } .td-challan { position: fixed !important; inset: 0 !important; margin: 0 !important; max-height: none !important; box-shadow: none !important; } .td-challan-hide { display: none !important; } }"}</style>

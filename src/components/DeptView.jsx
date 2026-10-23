@@ -347,7 +347,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <div style={{textAlign:"right",marginRight:8}}>
-            <div style={{fontSize:16,fontWeight:700,color:C.text}}>{time.toLocaleTimeString(lang==="hi"?"hi-IN":"en-IN",{hour:"2-digit",minute:"2-digit"})}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.text}}>{time.toLocaleTimeString(lang==="hi"?"hi-IN":"en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}</div>
             <div style={{fontSize:12,color:C.muted}}>{TODAY_LABEL}</div>
           </div>
           <button onClick={()=>{setSelDept(null);setDeptTab(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:44}}>🔄 {T2("Change Dept")}</button>
@@ -925,7 +925,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                             );
                           })}
                           {steps.every((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);})&&!bd.ready&&(
-                            <button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}}));}}
+                            <button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}}));}}
                               style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:48}}>
                               ✅ {T2("Mark as Ready")} — {b.name}
                             </button>
@@ -1066,7 +1066,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                             );
                           })}
                           {steps.every((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);})&&!bd.ready&&(
-                            <button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}}));}}
+                            <button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}}));}}
                               style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:48}}>
                               ✅ {T2("Mark as Ready")} — {b.name}
                             </button>
@@ -1109,7 +1109,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
         const STATUSES=["🏠 At Base","📦 Loading","🚛 En Route","📍 At Venue","↩ Returning"];
         const STATUS_COLORS={"🏠 At Base":C.muted,"📦 Loading":C.amber,"🚛 En Route":C.gold,"📍 At Venue":C.green,"↩ Returning":"#5B8FD0"};
         function setVeh(vId,data){setVehStatus(p=>({...p,[vId]:{...(p[vId]||{status:"🏠 At Base",event:"",driver:"",trips:[]}),...data}}));}
-        function logTrip(vId,action){setVehStatus(p=>{const v=p[vId]||{trips:[]};return{...p,[vId]:{...v,trips:[...safeArr(v.trips),{action,time:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}]}};});}
+        function logTrip(vId,action){setVehStatus(p=>{const v=p[vId]||{trips:[]};return{...p,[vId]:{...v,trips:[...safeArr(v.trips),{action,time:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}]}};});}
 
         const activeVeh = VEHICLES.filter(v=>(vehStatus[v.id]?.status||"🏠 At Base")!=="🏠 At Base").length;
         return(

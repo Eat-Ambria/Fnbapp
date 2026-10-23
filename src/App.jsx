@@ -696,7 +696,7 @@ export default function App() {
               if(data?.status==='success') console.log(`✅ LMS auto-sync: ${data.events_upserted} events`);
               else console.warn('LMS auto-sync returned:',data);
               try{localStorage.setItem('ambria_lms_last_sync_ts',String(Date.now()));}catch(e){}
-              const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
+              const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short',timeZone:'Asia/Kolkata'});
               try{localStorage.setItem('ambria_lms_last_sync',now);}catch(e){}
             })
             .catch(e=>console.warn('LMS auto-sync failed:',e));

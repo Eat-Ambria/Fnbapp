@@ -127,7 +127,7 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         ...item,
         checked: nowChecked,
         checkedBy: nowChecked ? (currentUser?.name || "Staff") : null,
-        checkedAt: nowChecked ? new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : null,
+        checkedAt: nowChecked ? new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : null,
       };
     });
     // Pre-edit snapshot, so a failed save can be rolled back below rather

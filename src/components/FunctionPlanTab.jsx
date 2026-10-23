@@ -330,7 +330,7 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
                   <div key={i} style={{ padding: "10px 13px", borderRadius: 10, background: K.surfaceAlt, border: "1px solid " + K.lineSoft }}>
                     <div style={{ fontSize: 13, color: K.text, fontWeight: 600 }}>{h.summary}</div>
                     <div style={{ fontSize: 11, color: K.textFaint, marginTop: 4 }}>
-                      {h.at ? new Date(h.at).toLocaleString() : ""}{h.by ? " · " + h.by : ""}
+                      {h.at ? new Date(h.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ""}{h.by ? " · " + h.by : ""}
                     </div>
                   </div>
                 );
@@ -344,7 +344,7 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
       {locked && (
         <KBanner toneName="brand" icon="lock" style={{ marginBottom: 16 }}
           title={T2("Locked — sent to Kitchen")}
-          sub={(fp && fp.locked_by ? (fp.locked_by + ' · ') : '') + (fp && fp.locked_at ? new Date(fp.locked_at).toLocaleString() : '')}
+          sub={(fp && fp.locked_by ? (fp.locked_by + ' · ') : '') + (fp && fp.locked_at ? new Date(fp.locked_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '')}
           right={<KButton variant="ghost" icon="lock" onClick={onRequestUnlock}>{T2("Unlock to edit")}</KButton>} />
       )}
 

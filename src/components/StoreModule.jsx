@@ -1475,7 +1475,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           <div style={{...type.cardTitle,fontSize:19,color:K.hdrTitle}}>{T2("Store & Inventory")}</div>
           <div style={{fontSize:12,color:K.hdrMeta,marginTop:2}}>
             {loading ? "Loading from inventory system…" : items.length + " " + T2("items")}
-            {lastSync && <span> · Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>}
+            {lastSync && <span> · Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}</span>}
             {loadError && <span style={{color:K.warn,fontWeight:600}}> · {loadError}</span>}
           </div>
           </div>
@@ -1731,7 +1731,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   </span>
                 ))}
               </div>
-              {lastSync && <span>🔄 Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</span>}
+              {lastSync && <span>🔄 Synced {lastSync.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}</span>}
             </div>
           </div>
           </>}
@@ -2910,7 +2910,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {printReq&&(()=>{
         const allGroups = buildOrderListGroups();
         const toPrint = printReq.mode==="all" ? allGroups : allGroups.filter(g=>g.meta.key===printReq.key);
-        const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
+        const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric",timeZone:"Asia/Kolkata"});
         return (
           <div style={{position:"fixed",inset:0,zIndex:9999,background:"#fff",overflow:"auto"}}>
             <style>{"@media print { .ol-print-toolbar{display:none !important;} .ol-print-page{page-break-after:always;} .ol-print-page:last-child{page-break-after:auto;} }"}</style>
