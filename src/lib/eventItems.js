@@ -87,8 +87,20 @@ export async function getEventItemsByDept(event) {
   const out = { kit: [], bev: [], bak: [], frt: [], svc: [], crk: [], trn: [] };
   if (!event || !event.id) return out;
 
+  // kitchen_tracking's per-function rows are keyed by this array's INDEX
+  // (see EventDayTab.jsx/KitchenHub.jsx's dk(evId, idx)), so the order this
+  // query returns directly decides which dish a tablet's recorded progress
+  // belongs to. Without an explicit order, Postgres is free to return these
+  // rows in a different order on every call even when nothing in event_items
+  // actually changed — and since this function feeds events.menu (rewritten
+  // on every app boot and every Planning/Items-tab open, see
+  // syncKitchenMenuMirror below), that reordering silently reassigned a
+  // dish's already-recorded steps/timestamps to whatever OTHER dish ended up
+  // at its old index. `ordering` is the column every other screen that
+  // assembles this same list already sorts by (dbConfig.js, MenuBuilderView,
+  // EventMenuBuilderView) — this was the one place that didn't.
   const [itemsRes, sectionsRes, metaRes] = await Promise.all([
-    supabase.from('event_items').select('dish_name').eq('event_id', event.id),
+    supabase.from('event_items').select('dish_name').eq('event_id', event.id).order('ordering', { ascending: true }),
     supabase.from('dish_catalogue_sections').select('id, sales_dept, parent_section_id'),
     supabase.from('sales_items_meta').select('dish_name, sales_dept'),
   ]);
