@@ -146,15 +146,19 @@ function EventDayTab({
     const _TOD = _freshToday();
     if (isCombined && dishName) {
       var combinedRow = kt["__combined_"+_TOD]?.[ck(dishName)] || {};
-      if (Object.keys(combinedRow).length) return combinedRow;
       // D-1 prep done yesterday while a SPECIFIC function (not "combined")
       // was selected on the Prep Day tab is written only to that function's
-      // own per-event row — never to this combined key (KitchenHub.jsx's
-      // setDs only propagates out of combined mode, never into it). Without
-      // this fallback, a dish prepped that way looked exactly like it was
-      // never touched once Event Day's default "combined" view opened on it.
+      // own per-event row. setDs's non-combined branch now mirrors every new
+      // write into the combined bucket too (see setDs above), but rows
+      // written before that fix — or any future edge case — would otherwise
+      // sit invisible here forever: ALWAYS fold in every contributing
+      // function's own row on top of the combined one (mergeDishState keys
+      // starts/manual/doneElapsed/etc. in per-step, so this can only add
+      // data, never erase something the combined row already had). Without
+      // this, a step started from one function's own view could run — and
+      // alarm — there while Combined kept showing it as never started.
       var fns = (byDish[dishName]?.fns?.length) ? byDish[dishName].fns : [{ evId, idx }];
-      var folded = {};
+      var folded = combinedRow;
       fns.forEach(function(fn){ folded = mergeDishState(folded, kt[fn.evId]?.[dk(fn.evId, fn.idx != null ? fn.idx : idx)] || {}); });
       return folded;
     }
@@ -185,6 +189,23 @@ function EventDayTab({
       } else {
         const k2 = dk(evId, idx);
         o[evId] = { ...(o[evId] || {}), [k2]: mergeDishState(o[evId]?.[k2], upd) };
+        // Mirror into the combined bucket too (minus mesaDone — transport is
+        // per-event), symmetric to the isCombined branch above. Without this,
+        // a step started/done while viewing one SPECIFIC function was never
+        // reflected in Combined view's own kt["__combined_"+date] row — and
+        // ds()'s combined-mode read returns that row as-is the moment it has
+        // ANY keys at all (e.g. just `ready`), never falling back to fold in
+        // per-function data once it's non-empty. That's what made the
+        // overtime siren/"Overtime" banner show correctly in an individual
+        // function's view but go silent in Combined for the very same step.
+        if (dishInfo?.name) {
+          var propUpdFwd = Object.assign({}, upd); delete propUpdFwd.mesaDone;
+          if (Object.keys(propUpdFwd).length > 0) {
+            const cKeyFwd = ck(dishInfo.name);
+            const _ckFwd = "__combined_" + _TOD;
+            o[_ckFwd] = { ...(o[_ckFwd] || {}), [cKeyFwd]: mergeDishState(o[_ckFwd]?.[cKeyFwd], propUpdFwd) };
+          }
+        }
       }
       return o;
     });
