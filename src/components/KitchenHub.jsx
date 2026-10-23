@@ -2062,7 +2062,21 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   }
 
   // -- State helpers (auto-save to kitchenTracking — combined cooking keys) --
-  function dk(evId,idx){return evId+"|"+idx;}
+  // Per-function tracking used to be keyed by this dish's ARRAY INDEX inside
+  // menuArr(ev) — but that array (events.menu) gets rebuilt from event_items
+  // whenever the menu changes, and nothing guaranteed a dish kept the same
+  // index across a rebuild (see eventItems.js's ordering fix). A reorder
+  // silently reattached one dish's recorded steps/timestamps to whatever
+  // OTHER dish ended up at its old index. Keying by the dish's own NAME
+  // instead (same scheme ck() below already uses for the combined bucket,
+  // which never had this bug) makes a dish's tracking immune to its menu
+  // position ever changing again.
+  function dk(evId,dishName){return evId+"|"+dishName;}
+  // Every row ever written before this change used the old idx-based key —
+  // dkLegacy + the read-side fallback in ds() below keep that history
+  // readable (by whatever index the dish CURRENTLY occupies) instead of
+  // abandoning it the moment this ships. New writes only ever use dk().
+  function dkLegacy(evId,idx){return evId+"|"+idx;}
   function ck(dishName){return "dish|"+dishName;}
   // Fresh TOMORROW re-derived on every call — module-load TOMORROW goes stale on tabs open across midnight
   function _freshTomorrow(){ const _d=new Date();_d.setDate(_d.getDate()+1);return localDateStr(_d); }
@@ -2083,7 +2097,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       if(fns && fns.length){
         var agg={};
         fns.forEach(fn=>{
-          var row=kt[fn.evId]?.[dk(fn.evId,fn.idx)];
+          var row=kt[fn.evId]?.[dk(fn.evId,dishName)];
+          if(!(row && Object.keys(row).length) && fn.idx!=null) row=kt[fn.evId]?.[dkLegacy(fn.evId,fn.idx)];
           if(row && Object.keys(row).length) agg=mergeDishState(agg,row);
         });
         delete agg.mesaDone;
@@ -2091,7 +2106,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
       }
       return {};
     }
-    var perEv=kt[evId]?.[dk(evId,idx)]||{};
+    var perEv=kt[evId]?.[dk(evId,dishName)]||{};
+    if(!Object.keys(perEv).length && idx!=null) perEv=kt[evId]?.[dkLegacy(evId,idx)]||{};
     if(dishName && !Object.keys(perEv).length){
       var cb=kt["__combined_"+_TOM]?.[ck(dishName)]||{};
       if(Object.keys(cb).length){var r=Object.assign({},cb);delete r.mesaDone;return r;}
@@ -2183,12 +2199,12 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         var propUpd=Object.assign({},upd); delete propUpd.mesaDone;
         if(Object.keys(propUpd).length>0){
           (dishInfo.fns||[]).forEach(fn=>{
-            const k2=dk(fn.evId,fn.idx);
+            const k2=dk(fn.evId,dishInfo.name);
             o[fn.evId]={...(o[fn.evId]||{}),[k2]:mergeDishState(o[fn.evId]?.[k2],propUpd)};
           });
         }
       } else {
-        const k2=dk(evId,idx);
+        const k2=dishInfo?.name?dk(evId,dishInfo.name):dkLegacy(evId,idx);
         o[evId]={...(o[evId]||{}),[k2]:mergeDishState(o[evId]?.[k2],upd)};
         // Mirror step progress into the shared combined bucket too — the
         // reverse of the branch above. Without this, a chef tracking a dish

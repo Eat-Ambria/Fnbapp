@@ -138,7 +138,23 @@ function EventDayTab({
   }
 
   // ── State helpers (combined cooking keys) ──
-  function dk(evId, idx) { return evId + "|" + idx; }
+  // Per-function tracking used to be keyed by this dish's ARRAY INDEX inside
+  // menuArr(ev) — but that array (events.menu) gets rebuilt from event_items
+  // whenever the menu changes, and nothing guaranteed a dish kept the same
+  // index across a rebuild. A reorder (even a spurious one — see db.js /
+  // eventItems.js's ordering fix) silently reattached one dish's recorded
+  // steps/timestamps to whatever OTHER dish ended up at its old index —
+  // confirmed live: a fully-completed, signed-off dish's progress turned out
+  // to belong to an entirely different dish once its index had moved on.
+  // Keying by the dish's own NAME instead (same scheme ck() below already
+  // uses for the combined bucket, which never had this bug) makes a dish's
+  // tracking immune to its menu position ever changing again.
+  function dk(evId, dishName) { return evId + "|" + dishName; }
+  // Every row ever written before this change used the old idx-based key —
+  // dkLegacy + the read-side fallback in ds() below keep that history
+  // readable (by whatever index the dish CURRENTLY occupies) instead of
+  // abandoning it the moment this ships. New writes only ever use dk().
+  function dkLegacy(evId, idx) { return evId + "|" + idx; }
   function ck(dishName) { return "dish|" + dishName; }
   // Fresh TODAY re-derived on every call — module-load TODAY goes stale on tabs open across midnight
   function _freshToday(){ return localDateStr(new Date()); }
@@ -159,10 +175,15 @@ function EventDayTab({
       // alarm — there while Combined kept showing it as never started.
       var fns = (byDish[dishName]?.fns?.length) ? byDish[dishName].fns : [{ evId, idx }];
       var folded = combinedRow;
-      fns.forEach(function(fn){ folded = mergeDishState(folded, kt[fn.evId]?.[dk(fn.evId, fn.idx != null ? fn.idx : idx)] || {}); });
+      fns.forEach(function(fn){
+        var fnRow = kt[fn.evId]?.[dk(fn.evId, dishName)] || {};
+        if (!Object.keys(fnRow).length) { var fi = fn.idx != null ? fn.idx : idx; if (fi != null) fnRow = kt[fn.evId]?.[dkLegacy(fn.evId, fi)] || {}; }
+        folded = mergeDishState(folded, fnRow);
+      });
       return folded;
     }
-    var perEv = kt[evId]?.[dk(evId, idx)] || {};
+    var perEv = kt[evId]?.[dk(evId, dishName)] || {};
+    if (!Object.keys(perEv).length && idx != null) perEv = kt[evId]?.[dkLegacy(evId, idx)] || {};
     if (dishName && !Object.keys(perEv).length) {
       var cb = kt["__combined_"+_TOD]?.[ck(dishName)] || {};
       if (Object.keys(cb).length) { var r = Object.assign({}, cb); delete r.mesaDone; return r; }
@@ -182,12 +203,12 @@ function EventDayTab({
         var propUpd = Object.assign({}, upd); delete propUpd.mesaDone;
         if (Object.keys(propUpd).length > 0) {
           (dishInfo.fns || []).forEach(fn => {
-            const k2 = dk(fn.evId, fn.idx);
+            const k2 = dk(fn.evId, dishInfo.name);
             o[fn.evId] = { ...(o[fn.evId] || {}), [k2]: mergeDishState(o[fn.evId]?.[k2], propUpd) };
           });
         }
       } else {
-        const k2 = dk(evId, idx);
+        const k2 = dishInfo?.name ? dk(evId, dishInfo.name) : dkLegacy(evId, idx);
         o[evId] = { ...(o[evId] || {}), [k2]: mergeDishState(o[evId]?.[k2], upd) };
         // Mirror into the combined bucket too (minus mesaDone — transport is
         // per-event), symmetric to the isCombined branch above. Without this,
@@ -632,7 +653,7 @@ function EventDayTab({
       const d = ds(info.fEvId, info.fIdx, name);
       if (!d || !d.starts) return;
       const nonStore = getFullSteps(name).filter(s => !s.store);
-      const dKey = isCombined ? ck(name) : dk(info.fEvId, info.fIdx);
+      const dKey = isCombined ? ck(name) : dk(info.fEvId, name);
       nonStore.forEach((step, si) => {
         if (step.subs && step.subs.length > 0) {
           step.subs.forEach((sb, sbi) => {
@@ -674,7 +695,7 @@ function EventDayTab({
     const info = byDish[name];
     if (!info) return;
     setOpenSecs(p => ({ ...p, [info.catId]: true }));
-    const dKey = isCombined ? ck(name) : dk(info.fEvId, info.fIdx);
+    const dKey = isCombined ? ck(name) : dk(info.fEvId, name);
     setOpenDishes(p => ({ ...p, [dKey]: true }));
     const topStepKey = (stepKey || "").replace(/_sub_\d+$/, "");
     const elId = "edstep-" + dKey.replace(/[^\w-]/g, "_") + "-" + topStepKey;
@@ -1288,7 +1309,7 @@ function EventDayTab({
               <div className="kh-dishwrap" style={{ background: K.surfaceAlt, borderTop: `1px solid ${K.lineSoft}`, padding: "10px 14px 14px" }}>
                <div className="kh-dishgrid">
                 {items.map((dish, di) => {
-                  const dKey = isCombined ? ck(dish.name) : dk(dish.fEvId, dish.fIdx);
+                  const dKey = isCombined ? ck(dish.name) : dk(dish.fEvId, dish.name);
                   const d = ds(dish.fEvId, dish.fIdx, dish.name);
                   const isReady = !!d.ready;
                   const steps = getFullSteps(dish.name);
