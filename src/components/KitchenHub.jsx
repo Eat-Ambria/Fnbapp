@@ -1929,7 +1929,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // scope decision as EventDayTab.jsx's matching scan.
   const [overdueD1Dishes,setOverdueD1Dishes]=useState([]); // [{dKey,name}]
   useEffect(()=>{
-    if(tab!=="d1"){ stopAlarm(); return; }
+    // Just skip the scan while not on Prep Day — NOT stopAlarm(). This effect
+    // re-runs every tick regardless of which tab is active (see the comment
+    // above), and EventDayTab mounts its OWN overdue scan + startAlarm() at
+    // the same time whenever Event Day is the active tab. Effects fire
+    // child-before-parent in a commit, so EventDayTab's effect (child) ran
+    // first and started the siren for ITS overdue dishes — then this one
+    // (parent, same tick) unconditionally killed it a moment later, every
+    // single tick, which is why the siren never actually sounded on Event
+    // Day: it was being started and immediately stopped again in the same
+    // instant. The cleanup above (line 1923) already stops Prep Day's OWN
+    // alarm exactly once when actually navigating away from "d1" — that's
+    // the only place this scan needs to turn the siren off.
+    if(tab!=="d1"){ return; }
     const d1IsCombined = d1FnFilter==="combined";
     const d1FilteredEvs = d1IsCombined ? tomorrowEvs : tomorrowEvs.filter(e=>e.id===d1FnFilter);
     const byDishD1Scan = {};

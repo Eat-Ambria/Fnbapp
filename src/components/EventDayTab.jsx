@@ -597,6 +597,13 @@ function EventDayTab({
   // an existing mute still suppresses it here. overdueDishes drives the "which
   // recipe is alarming" indicator; see its render below.
   const [overdueDishes, setOverdueDishes] = useState([]); // [{dKey,name}]
+  // Dedicated unmount-only cleanup, separate from the tick-driven scan below
+  // on purpose: that effect re-runs every second and must NOT stop the siren
+  // on every one of those re-runs (it would glitch on and off instead of
+  // sounding continuously) — only when this tab is actually navigated away
+  // from (unmounting EventDayTab entirely) should its own alarm stop. Same
+  // split KitchenHub.jsx's Prep Day scan already uses for the same reason.
+  useEffect(() => () => { stopAlarm(); }, []);
   useEffect(() => {
     const keys = [];
     const dishesMap = new Map(); // dKey -> name, deduped
