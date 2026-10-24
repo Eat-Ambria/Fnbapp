@@ -5955,6 +5955,11 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         const isCombinedMode = !!planEvId && isCombinedId(planEvId) && dateEvs.length>0;
         const realSelEv = (planEvId && !isCombinedId(planEvId)) ? upcomingEvs.find(e=>e.id===planEvId) : null;
         const combinedRange = planEvId && isCombinedId(planEvId) ? combinedRangeOf(planEvId) : null;
+        // Shared by the calendar grid (range highlight) and the selected-date
+        // card below it — a stray planRangeEnd before planSelDate (stale
+        // state) just collapses back to the single-day case.
+        const effRangeEnd = (planSelDate && planRangeEnd && planRangeEnd>=planSelDate) ? planRangeEnd : planSelDate;
+        const isRange = !!planSelDate && effRangeEnd !== planSelDate;
         const combinedEv = isCombinedMode ? {
           id: planEvId,
           guest: dateEvs.length>1 ? dateEvs.length+" "+T2("functions combined") : (dateEvs[0].guest||T2("Function")),
@@ -6284,19 +6289,44 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       const dt = cellDate(cell);
                       const evs2 = dt ? evsOnDate(dt) : [];
                       const isToday = dt === TODAY;
-                      const isSel = dt === planSelDate;
+                      // Two-click range: pick a start day, then an end day —
+                      // only while already sitting on a single-day Combined
+                      // selection with no range yet. A third click (or one
+                      // while a specific function, not Combined, is picked)
+                      // always starts a brand new single-day selection, same
+                      // as the original one-click behaviour.
+                      const isStart = dt === planSelDate;
+                      const isEnd = dt === effRangeEnd && effRangeEnd !== planSelDate;
+                      const isInRange = !!(dt && planSelDate && dt > planSelDate && dt < effRangeEnd);
+                      const isSel = isStart || isEnd;
+                      function onClick(){
+                        if(!dt) return;
+                        const pickingRangeEnd = planSelDate && !isRange && isCombinedId(planEvId) && dt!==planSelDate;
+                        if(pickingRangeEnd){
+                          const from = dt<planSelDate ? dt : planSelDate;
+                          const to = dt<planSelDate ? planSelDate : dt;
+                          setPlanSelDate(from); setPlanRangeEnd(to); setPlanEvId(makeCombinedId(from,to));
+                          return;
+                        }
+                        if(dt===planSelDate && !isRange){ setPlanSelDate(null); setPlanRangeEnd(null); setPlanEvId(null); return; }
+                        setPlanSelDate(dt); setPlanRangeEnd(null); setPlanEvId(makeCombinedId(dt));
+                      }
                       const shownEvs = evs2.slice(0,1);
                       return(
-                        <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanRangeEnd(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanRangeEnd(null);setPlanEvId(makeCombinedId(dt));}}}
+                        <div key={i} onClick={onClick}
                           className={dt?"kh-calcell":undefined}
                           style={{minHeight:68,padding:3,cursor:dt?"pointer":"default",minWidth:0,
                             borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
                             opacity:cell.c?1:.32}}>
                           {/* The selection is an inset tile, not a flooded cell:
                               filled edge to edge it merges with its neighbours
-                              across the hairlines and stops looking like one day. */}
+                              across the hairlines and stops looking like one day.
+                              A range's start/end get the full "picked" fill;
+                              the days between get a lighter wash so the whole
+                              span reads as one selection without needing the
+                              tiles to visually connect edge-to-edge. */}
                           <div style={{height:"100%",borderRadius:10,padding:"4px 5px",overflow:"hidden",
-                            background:isSel?K.sageSel:isToday?"#F6EFDD":"transparent",
+                            background:isSel?K.sageSel:isInRange?K.sageBg:isToday?"#F6EFDD":"transparent",
                             border:`1px solid ${isToday?K.goldSoft:"transparent"}`}}>
                             <div style={{display:"flex",marginBottom:2}}>
                               <span style={{minWidth:20,height:20,padding:"0 5px",borderRadius:999,boxSizing:"border-box",
@@ -6347,20 +6377,10 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               const dObj = new Date(+dp[0], (+dp[1])-1, +dp[2]);
               const WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
               const MO_L = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-              // A "to" date before "from" (stale state, or a bad paste into
-              // the native picker) just collapses back to the single-day
-              // range instead of producing an inverted/empty one.
-              const effRangeEnd = (planRangeEnd && planRangeEnd>=planSelDate) ? planRangeEnd : planSelDate;
-              const isRange = effRangeEnd !== planSelDate;
+              // Range picking happens on the calendar grid itself (click a
+              // start day, then an end day).
               const tp = isRange ? String(effRangeEnd).split("-") : null;
               const toObj = tp ? new Date(+tp[0], (+tp[1])-1, +tp[2]) : null;
-              function onRangeEndChange(v){
-                const next = (v && v>planSelDate) ? v : null;
-                setPlanRangeEnd(next);
-                // Already mid-plan on this date (combined or not) → extend the
-                // live selection immediately instead of waiting for another tap.
-                if(planEvId && isCombinedId(planEvId)) setPlanEvId(makeCombinedId(planSelDate, next||planSelDate));
-              }
               const nEv = dateEvs.length;
               const dateCard = (
                 <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
@@ -6377,27 +6397,15 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       {nEv} {nEv===1?T2("function scheduled"):T2("functions scheduled")}
                     </span>
                   </div>
-                  {/* Plan between 2 dates — every function from "from" through
-                      "to" feeds one shared Combined plan, same as a single day
-                      already did. Always visible (not just once something's
-                      selected) so a chef can widen the range before picking
-                      Combined at all. */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,paddingTop:12,borderTop:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
-                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("From")}</span>
-                    <span style={{fontFamily:K.fontBody,fontSize:12.5,fontWeight:700,color:K.hdrTitle}}>{planSelDate}</span>
-                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta,marginLeft:4}}>{T2("To")}</span>
-                    <input type="date" value={effRangeEnd} min={planSelDate}
-                      onChange={e=>onRangeEndChange(e.target.value)}
-                      style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${K.cardWarmLine}`,
-                        fontFamily:K.fontBody,fontSize:12.5,color:K.hdrTitle,background:"#FFFFFF"}}/>
-                    {isRange && (
-                      <button onClick={()=>onRangeEndChange(null)}
+                  {isRange && (
+                    <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${K.cardWarmLine}`}}>
+                      <button onClick={()=>{setPlanRangeEnd(null);setPlanEvId(makeCombinedId(planSelDate));}}
                         style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${K.cardWarmLine}`,background:"transparent",
                           color:K.hdrMeta,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
                         {T2("Reset to 1 day")}
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
               if(nEv===0) return(
