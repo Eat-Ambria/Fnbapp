@@ -517,6 +517,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const c = localStorage.getItem(OPS_CACHE_KEY);
         if (c) { const p = JSON.parse(c); if (p.data?.length) setItems(p.data); }
       } catch(e){}
+      // fetchOpsCateringItems/fetchOpsEquipmentItems both silently return []
+      // when opsSupabase is null — with no VITE_OPS_SUPABASE_URL/_ANON_KEY
+      // configured at build time, that [] + a successful setLastSync() looks
+      // EXACTLY like a real sync that genuinely found 0 items, with nothing
+      // in the UI to tell the two apart. Surface it explicitly instead.
+      if (!opsSupabase) {
+        setLoadError("Inventory system not connected — VITE_OPS_SUPABASE_URL/VITE_OPS_SUPABASE_ANON_KEY missing from this build.");
+        setLoading(false);
+        return;
+      }
       // 2. Fetch fresh from Ops (store consumables + equipment)
       try {
         const [storeItems, equipItems] = await Promise.all([

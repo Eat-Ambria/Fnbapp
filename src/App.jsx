@@ -1738,8 +1738,11 @@ export default function App() {
               on every one of its tabs, worst on a phone. Proposals, Booked
               Functions and Sales Catalogue each have their own filter/tab
               row immediately below that already names the screen, so the
-              same plate was pure repetition there too. */}
-          {screen!=="dashboard"&&screen!=="kitchen"&&screen!=="menus"&&screen!=="proposals"&&screen!=="sales_catalogue"&&screen!=="booked_functions"&&(
+              same plate was pure repetition there too. Store & Inventory's
+              own header card (icon, "Store & Inventory", item count + last
+              synced time, Inventory/Requirements/Order Lists/Ingredient Map
+              tabs) right below made this one the same repetition again. */}
+          {screen!=="dashboard"&&screen!=="kitchen"&&screen!=="menus"&&screen!=="proposals"&&screen!=="sales_catalogue"&&screen!=="booked_functions"&&screen!=="store"&&(
           <div style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",background:K.hdrBg,border:`1px solid ${K.hdrLine}`,borderRadius:22,boxShadow:K.shadowCard,padding:"15px 24px",display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
 
             {/* Decorative leaf, top-right */}
