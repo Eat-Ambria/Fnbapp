@@ -1113,14 +1113,23 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     }
     const COMBINED_PREFIX = '__combined__:';
     if(typeof planEvId==='string' && planEvId.startsWith(COMBINED_PREFIX)){
-      const d = planEvId.slice(COMBINED_PREFIX.length);
-      safeArr(events).filter(e=>e.date===d).forEach(heal);
+      // "<from>..<to>" — a single date encodes as "<d>..<d>" (see
+      // makeCombinedId below), so this one split handles both a single day
+      // and a multi-day range.
+      const raw = planEvId.slice(COMBINED_PREFIX.length);
+      const sep = raw.indexOf('..');
+      const from = sep>=0 ? raw.slice(0,sep) : raw;
+      const to = sep>=0 ? raw.slice(sep+2) : raw;
+      safeArr(events).filter(e=>e.date>=from && e.date<=to).forEach(heal);
     } else {
       const ev = safeArr(events).find(e=>e.id===planEvId);
       if(ev) heal(ev);
     }
   },[planEvId]);
   const [planSelDate, setPlanSelDate] = useState(null);
+  // End date of a multi-day "plan between 2 dates" range — null means the
+  // range is just planSelDate alone (the original single-day behaviour).
+  const [planRangeEnd, setPlanRangeEnd] = useState(null);
   const [planCalMo, setPlanCalMo] = useState(()=>new Date().getMonth());
   const [planUnmappedOpen, setPlanUnmappedOpen] = useState(false); // Planning: the "Unmapped" list starts folded
   const [planSecModal, setPlanSecModal] = useState(null); // Planning: the section (cat id) whose dish table is open in a modal
@@ -5931,19 +5940,26 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         // the ingredient modal) works unchanged either way.
         const COMBINED_PREFIX = '__combined__:';
         const isCombinedId = id => typeof id==='string' && id.startsWith(COMBINED_PREFIX);
-        const combinedDateOf = id => id.slice(COMBINED_PREFIX.length);
-        const makeCombinedId = d => COMBINED_PREFIX+d;
+        // "<from>..<to>" — a single day encodes as "<d>..<d>", so every
+        // reader below handles a range and a single date the same way.
+        function combinedRangeOf(id){
+          const raw = id.slice(COMBINED_PREFIX.length);
+          const sep = raw.indexOf('..');
+          return sep>=0 ? { from: raw.slice(0,sep), to: raw.slice(sep+2) } : { from: raw, to: raw };
+        }
+        const makeCombinedId = (from,to) => COMBINED_PREFIX+from+'..'+(to||from);
 
         const dateEvs = planEvId && isCombinedId(planEvId)
-          ? upcomingEvs.filter(e=>e.date===combinedDateOf(planEvId))
+          ? (()=>{ const {from,to} = combinedRangeOf(planEvId); return upcomingEvs.filter(e=>e.date>=from && e.date<=to); })()
           : (planSelDate ? upcomingEvs.filter(e=>e.date===planSelDate) : []);
         const isCombinedMode = !!planEvId && isCombinedId(planEvId) && dateEvs.length>0;
         const realSelEv = (planEvId && !isCombinedId(planEvId)) ? upcomingEvs.find(e=>e.id===planEvId) : null;
+        const combinedRange = planEvId && isCombinedId(planEvId) ? combinedRangeOf(planEvId) : null;
         const combinedEv = isCombinedMode ? {
           id: planEvId,
           guest: dateEvs.length>1 ? dateEvs.length+" "+T2("functions combined") : (dateEvs[0].guest||T2("Function")),
           pax: dateEvs.reduce((s,e)=>s+(+e.pax||0),0),
-          date: combinedDateOf(planEvId),
+          date: combinedRange.from,
           time: null,
           venue: dateEvs.length>1 ? T2("Multiple venues") : (dateEvs[0].venue||""),
           menu: Array.from(new Set(dateEvs.flatMap(e=>menuArr(e)))),
@@ -6252,7 +6268,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         cursor:"pointer",color:K.textBody,display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <Icon name="chevronR" size={15} strokeWidth={2.1} />
                     </button>
-                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanEvId(makeCombinedId(TODAY));}}
+                    <button onClick={()=>{const t=new Date();setPlanCalYr(t.getFullYear());setPlanCalMo(t.getMonth());setPlanSelDate(TODAY);setPlanRangeEnd(null);setPlanEvId(makeCombinedId(TODAY));}}
                       className="kh-calnav"
                       style={{marginLeft:6,padding:"8px 20px",borderRadius:999,background:"#FFFFFF",
                         border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
@@ -6271,7 +6287,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                       const isSel = dt === planSelDate;
                       const shownEvs = evs2.slice(0,1);
                       return(
-                        <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanEvId(makeCombinedId(dt));}}}
+                        <div key={i} onClick={()=>{if(!dt)return;if(isSel){setPlanSelDate(null);setPlanRangeEnd(null);setPlanEvId(null);}else{setPlanSelDate(dt);setPlanRangeEnd(null);setPlanEvId(makeCombinedId(dt));}}}
                           className={dt?"kh-calcell":undefined}
                           style={{minHeight:68,padding:3,cursor:dt?"pointer":"default",minWidth:0,
                             borderBottom:`1px solid ${K.lineSoft}`,borderRight:(i%7)<6?`1px solid ${K.lineSoft}`:"none",
@@ -6331,19 +6347,56 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               const dObj = new Date(+dp[0], (+dp[1])-1, +dp[2]);
               const WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
               const MO_L = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+              // A "to" date before "from" (stale state, or a bad paste into
+              // the native picker) just collapses back to the single-day
+              // range instead of producing an inverted/empty one.
+              const effRangeEnd = (planRangeEnd && planRangeEnd>=planSelDate) ? planRangeEnd : planSelDate;
+              const isRange = effRangeEnd !== planSelDate;
+              const tp = isRange ? String(effRangeEnd).split("-") : null;
+              const toObj = tp ? new Date(+tp[0], (+tp[1])-1, +tp[2]) : null;
+              function onRangeEndChange(v){
+                const next = (v && v>planSelDate) ? v : null;
+                setPlanRangeEnd(next);
+                // Already mid-plan on this date (combined or not) → extend the
+                // live selection immediately instead of waiting for another tap.
+                if(planEvId && isCombinedId(planEvId)) setPlanEvId(makeCombinedId(planSelDate, next||planSelDate));
+              }
               const nEv = dateEvs.length;
               const dateCard = (
                 <div style={{padding:"18px 22px",borderRadius:18,backgroundColor:K.cardWarm,
                   border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
                   <div style={{fontFamily:K.fontBody,fontSize:13,fontWeight:600,color:K.hdrMeta}}>{T2(WD[dObj.getDay()])}</div>
-                  <div style={{...type.sectionHead,fontSize:25,color:K.hdrTitle,marginTop:3}}>
-                    {dObj.getDate()} {T2(MO_L[dObj.getMonth()])} {dObj.getFullYear()}
+                  <div style={{...type.sectionHead,fontSize:isRange?21:25,color:K.hdrTitle,marginTop:3}}>
+                    {isRange
+                      ? `${dObj.getDate()} ${T2(MO_L[dObj.getMonth()])} – ${toObj.getDate()} ${T2(MO_L[toObj.getMonth()])} ${toObj.getFullYear()}`
+                      : `${dObj.getDate()} ${T2(MO_L[dObj.getMonth()])} ${dObj.getFullYear()}`}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,color:K.hdrMeta}}>
                     <Icon name="calendar" size={15} strokeWidth={1.9}/>
                     <span style={{fontFamily:K.fontBody,fontSize:13}}>
                       {nEv} {nEv===1?T2("function scheduled"):T2("functions scheduled")}
                     </span>
+                  </div>
+                  {/* Plan between 2 dates — every function from "from" through
+                      "to" feeds one shared Combined plan, same as a single day
+                      already did. Always visible (not just once something's
+                      selected) so a chef can widen the range before picking
+                      Combined at all. */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,paddingTop:12,borderTop:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta}}>{T2("From")}</span>
+                    <span style={{fontFamily:K.fontBody,fontSize:12.5,fontWeight:700,color:K.hdrTitle}}>{planSelDate}</span>
+                    <span style={{fontFamily:K.fontBody,fontSize:12,fontWeight:600,color:K.hdrMeta,marginLeft:4}}>{T2("To")}</span>
+                    <input type="date" value={effRangeEnd} min={planSelDate}
+                      onChange={e=>onRangeEndChange(e.target.value)}
+                      style={{padding:"5px 8px",borderRadius:8,border:`1px solid ${K.cardWarmLine}`,
+                        fontFamily:K.fontBody,fontSize:12.5,color:K.hdrTitle,background:"#FFFFFF"}}/>
+                    {isRange && (
+                      <button onClick={()=>onRangeEndChange(null)}
+                        style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${K.cardWarmLine}`,background:"transparent",
+                          color:K.hdrMeta,fontFamily:K.fontBody,fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+                        {T2("Reset to 1 day")}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -6359,7 +6412,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               );
               const combinedPax = dateEvs.reduce((s,e)=>s+(+e.pax||0),0);
               const combinedDishCount = new Set(dateEvs.flatMap(e=>menuArr(e))).size;
-              const isCombinedSel = planEvId===makeCombinedId(planSelDate);
+              const isCombinedSel = planEvId===makeCombinedId(planSelDate, effRangeEnd);
               return(
                 <div className="kh-an-rail" style={{minWidth:0,display:"flex",flexDirection:"column",gap:14}}>
                   {dateCard}
@@ -6368,7 +6421,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         solid brand card at the top of the list rather than
                         another option among the functions under it. */}
                     {dateEvs.length>1 && (
-                      <button onClick={()=>setPlanEvId(isCombinedSel?null:makeCombinedId(planSelDate))}
+                      <button onClick={()=>setPlanEvId(isCombinedSel?null:makeCombinedId(planSelDate, effRangeEnd))}
                         className="kh-rip" onPointerDown={ripple}
                         style={{display:"block",width:"100%",padding:"16px 20px",borderRadius:16,cursor:"pointer",textAlign:"left",
                           background:K.brand,color:"#FFFFFF",boxShadow:K.shadowCard,
