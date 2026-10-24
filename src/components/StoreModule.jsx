@@ -11,7 +11,8 @@ import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { getCatForDish, isFruitSelectionDish, RECIPE_DB, getIngrForDish, getIngrForYield, getBgDemandForDish, resolveDishStore } from '../data/recipeData.js';
 import { hasPerm } from '../data/permissions.js';
-import { K, type } from '../utils/theme.js';
+import { K, type, tone } from '../utils/theme.js';
+import { catMeta } from '../data/ingredientIcons.js';
 
 const OPS_CACHE_KEY = "ambria_ops_catering_v1";
 
@@ -145,20 +146,6 @@ async function fetchOpsEquipmentItems() {
 // so "Edit unit" here can never write a unit the recipe editor wouldn't.
 const ING_UNIT_CHOICES = ["kg","gm","L","ml","tsp","tbsp","pcs","slice","Bot","tin","bunch","dozen","Packets"];
 
-// Order Lists / Requirements grouping — mirrors the Ops inventory system's own
-// categories (Bakery, Dairy, Fruits, Grocery, ...) instead of a fixed 3-list
-// guess, so a store buyer sees the same breakdown here as in the Inventory
-// tab. Icons are cosmetic only; any category not in this map still works,
-// it just falls back to a generic tag icon.
-const CATEGORY_ICONS = {
-  "Bakery": "🍞", "Dairy": "🥛", "Fruits": "🍓", "Grocery": "🛒",
-  "Ice Creams": "🍨", "Non Food Items": "📦", "Non-Veg Items": "🍗",
-  "Vegetables": "🥕", "Water & Beverages": "🥤", "Uncategorized": "🏷",
-};
-// store_order_lists.list_key predates per-Ops-category grouping and already
-// has rows saved as "vegetable" (singular) — fold that into the new
-// "vegetables" bucket instead of orphaning old data.
-const ORDER_LIST_KEY_ALIASES = { vegetable: "vegetables" };
 function slugifyCat(name) {
   var s = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return s || "uncategorized";
@@ -1380,32 +1367,42 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const itemCategories = useMemo(() => [...new Set(items.map(i => i.cat))].filter(Boolean).sort(), [items]);
   const itemVenues = useMemo(() => [...new Set(items.flatMap(i => (i.venues||[]).map(v => v.venueName)))].filter(Boolean).sort(), [items]);
 
-  // Requirements/Order Lists grouping — one bucket per live Ops category, plus
-  // a catch-all for ingredients that aren't linked to a store item yet.
+  // Requirements/Order Lists grouping — same 4 fixed buckets (Vegetable &
+  // Fruit / Dairy / Butchery / Grocery) the Planning tab's Ordering Sheet
+  // already groups by, not the live Ops inventory item's own category and
+  // not a per-venue-varying guess. categorizeIngredientWithOverride always
+  // resolves to one of these 4 (Grocery is the catch-all), so there's no
+  // "Uncategorized" bucket left to fall into.
   const orderListCats = useMemo(() => {
-    const list = itemCategories.map(name => {
-      const code = (items.find(i => i.cat === name) || {}).catCode || "";
-      const dot = catDotColor(code);
-      return { key: slugifyCat(name), label: name, icon: CATEGORY_ICONS[name] || "🏷", color: dot, bg: dot + "15", border: dot + "55" };
+    return INGR_CATEGORY_ORDER.map(name => {
+      const meta = catMeta(name);
+      const tn = tone(meta.toneName);
+      return { key: slugifyCat(name), label: name, icon: meta.emoji, color: tn.fg, bg: tn.bg, border: tn.border };
     });
-    list.push({ key: "uncategorized", label: T2("Uncategorized"), icon: "🏷", color: C.muted, bg: C.bg, border: C.border });
-    return list;
-  }, [itemCategories, items]);
+  }, []);
+  // Single source of truth for "which of the 4 buckets does this ingredient
+  // belong in" — reused by the Requirements table's grouping, the station
+  // modal, and the order-list badge, so none of them can drift from another.
+  function categoryMetaForName(name) {
+    const cat = categorizeIngredientWithOverride(name, ingrCatOverrides);
+    return orderListCatByKey[slugifyCat(cat)] || orderListCatByKey[slugifyCat(INGR_CATEGORY_ORDER[INGR_CATEGORY_ORDER.length - 1])];
+  }
   const orderListCatByKey = useMemo(() => {
     const m = {};
     orderListCats.forEach(c => { m[c.key] = c; });
     return m;
   }, [orderListCats]);
-  function resolveOrderListCat(key) {
-    const k = ORDER_LIST_KEY_ALIASES[key] || key;
-    return orderListCatByKey[k] || orderListCatByKey.uncategorized;
-  }
   // Shared by the Order Lists tab's cards and the print view, so what you
   // print always matches what's on screen.
   function buildOrderListGroups() {
     const grouped = {};
     orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
-      const key = ORDER_LIST_KEY_ALIASES[r.list_key] || r.list_key;
+      // Derived fresh from the name every time, not the list_key stored when
+      // the row was added — that stamped-in value predates the 4-bucket
+      // scheme (and even an old-scheme row would just drift from whatever
+      // this classifier says today). One live source of truth beats a cached
+      // snapshot going stale exactly the way it just did.
+      const key = categoryMetaForName(r.ingredient_name).key;
       (grouped[key] = grouped[key] || []).push(r);
     });
     return orderListCats.map(c=>({meta:c, list:grouped[c.key]||[]})).filter(g=>g.list.length>0);
@@ -1817,16 +1814,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
           if(orderListFor(row.name)) orderedRowCount++;
         });
 
-        // Group into one bucket per live Ops category — same breakdown a
-        // buyer sees in the Order Lists tab, instead of one raw alphabetical
-        // list. An ingredient not yet linked to a store item (see "link to
-        // store" below) falls into Uncategorized until it is.
+        // Group into the same 4 fixed buckets the Order Lists tab shows —
+        // by the ingredient's own name, not whichever Ops inventory item (if
+        // any) it happens to be linked to, so a dish's ingredients group the
+        // same way whether or not "link to store" has been done for it yet.
         const rowGroups = (function(){
           const buckets = {};
           rows.forEach(row=>{
-            const {stock} = resolveStock(row);
-            const catName = stock && stock.item && stock.item.cat;
-            const meta = catName ? resolveOrderListCat(slugifyCat(catName)) : orderListCatByKey.uncategorized;
+            const meta = categoryMetaForName(row.name);
             (buckets[meta.key] = buckets[meta.key] || {meta, rows:[]}).rows.push(row);
           });
           return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
@@ -2039,7 +2034,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
                               const done = rowIssued(row);
                               const list = orderListFor(row.name);
-                              const listMeta = list ? resolveOrderListCat(list.list_key) : null;
+                              const listMeta = list ? categoryMetaForName(row.name) : null;
                               const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
                               return (
                                 <tr key={row.name} className="req-row" style={{background:ri%2?"rgba(0,0,0,.018)":"transparent"}}>

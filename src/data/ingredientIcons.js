@@ -6,14 +6,11 @@
 
 // Tint + emoji per ingredient category. `toneName` maps to tone() in theme.js.
 const INGR_CAT_META = {
-  'Vegetables & herbs':    { emoji: '🥬', toneName: 'ok' },
-  'Dairy & eggs':          { emoji: '🥛', toneName: 'info' },
-  'Meat & seafood':        { emoji: '🍗', toneName: 'danger' },
-  'Grains & flour':        { emoji: '🌾', toneName: 'warn' },
-  'Spices & seasonings':   { emoji: '🧂', toneName: 'danger' },
-  'Oils, sauces & sweets': { emoji: '🍯', toneName: 'warn' },
-  'Liquids & stocks':      { emoji: '💧', toneName: 'info' },
-  'Other':                 { emoji: '📦', toneName: 'accent' },
+  'Vegetable & Fruit': { emoji: '🥬', toneName: 'ok' },
+  'Dairy':             { emoji: '🥛', toneName: 'info' },
+  'Butchery':          { emoji: '🍗', toneName: 'danger' },
+  'Grocery':           { emoji: '🛒', toneName: 'warn' },
+  'Other':             { emoji: '📦', toneName: 'accent' },
 };
 
 function catMeta(cat) {
