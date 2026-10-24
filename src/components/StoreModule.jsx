@@ -75,7 +75,14 @@ async function fetchOpsCateringItems() {
       .eq("status", "approved")
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error) { console.error("Ops fetch error:", error); break; }
+    // Throw, don't just log-and-break: a real query failure here (RLS
+    // denial, a renamed/removed column or relationship, Ops project
+    // unreachable...) used to silently resolve to whatever partial/empty
+    // list had been gathered so far, which loadOps() then treated as a
+    // CLEAN, successful sync — "0 items · Synced [time]" looked identical
+    // whether Ops genuinely had 0 approved items or the query was failing
+    // outright. Throwing lets loadOps()'s existing catch surface it.
+    if (error) { console.error("Ops fetch error:", error); throw error; }
     if (!data || data.length === 0) break;
     all = all.concat(data);
     if (data.length < PAGE) break;
@@ -128,7 +135,8 @@ async function fetchOpsEquipmentItems() {
       .eq("status", "approved")
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error) { console.error("Ops equipment fetch error:", error); break; }
+    // See fetchOpsCateringItems' identical comment above — same fix.
+    if (error) { console.error("Ops equipment fetch error:", error); throw error; }
     if (!data || data.length === 0) break;
     all = all.concat(data);
     if (data.length < PAGE) break;
