@@ -6677,6 +6677,44 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
                         </>)}
                       </div>
                     )}
+                    {/* Per-dish override bulk actions — used to be their own
+                        full-width card/row below this one. Folded in here
+                        since both cards are "adjust the planned yield," just
+                        at different granularity (whole-event % vs. per-dish). */}
+                    {dishes.length>0 && canEditPlanning && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${K.cardWarmLine}`,
+                        display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                        <button onClick={async()=>{
+                          const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !isRealOverride(d);});
+                          if(targets.length===0){ alert(T2("Nothing to accept — all mapped dishes are already pinned.")); return; }
+                          if(!confirm(T2("Lock in auto values as explicit overrides for ")+targets.length+T2(" dish(es)?"))) return;
+                          for(const d of targets){
+                            const st = dishStatus(d);
+                            const bp = st.recipe?.ingredients?.base_pax || 300;
+                            const suggested = Math.round(daySuggested(d, selEv.pax/bp * st.baseYield) * 10)/10;
+                            await saveYield(d, suggested, {...ctx, recipe:st.recipe});
+                          }
+                        }} className="kh-rip" onPointerDown={ripple}
+                        style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 13px",borderRadius:999,
+                          fontFamily:K.fontBody,fontSize:12,fontWeight:600,cursor:"pointer",
+                          background:K.brand,color:"#FFFFFF",border:"none"}}>
+                        <Icon name="check" size={13} strokeWidth={2.2}/>{T2("Accept all suggestions")}</button>
+                        <button onClick={async()=>{
+                          const targets = dishes.filter(d=>isRealOverride(d));
+                          if(targets.length===0){ alert(T2("No overrides to clear.")); return; }
+                          if(!confirm(T2("Clear all ")+targets.length+T2(" pinned override(s)? Dishes revert to auto values."))) return;
+                          for(const d of targets){
+                            const st = dishStatus(d);
+                            await saveYield(d, "", {...ctx, recipe:st.recipe});
+                          }
+                        }} className="kh-calnav"
+                        style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 13px",borderRadius:999,
+                          fontFamily:K.fontBody,fontSize:12,fontWeight:600,cursor:"pointer",
+                          background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
+                        <Icon name="undo" size={13} strokeWidth={1.9}/>{T2("Clear overrides")}</button>
+                        <span style={{marginLeft:"auto",fontFamily:K.fontBody,fontSize:11,color:K.textFaint}}>{T2("Auto-saves on blur")}</span>
+                      </div>
+                    )}
                     <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
                       <div style={{fontFamily:K.fontBody,fontSize:11.5,color:isDirty?K.brandText:K.textFaint,
                         fontWeight:isDirty?600:400,flex:"1 1 220px"}}>
@@ -6938,43 +6976,6 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
                 {dishes.length===0 && (
                   <div style={{padding:"24px",textAlign:"center",fontSize:12,color:C.faint,borderRadius:10,border:`1px dashed ${C.border}`}}>{T2("No menu confirmed for this event")}</div>
-                )}
-
-                {/* Bulk action bar */}
-                {dishes.length>0 && canEditPlanning && (
-                  <div style={{display:"flex",gap:10,alignItems:"center",padding:"12px 16px",backgroundColor:K.cardWarm,
-                    border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard,borderRadius:16,marginBottom:14,flexWrap:"wrap"}}>
-                    <button onClick={async()=>{
-                      const targets = dishes.filter(d=>{const st=dishStatus(d);return st.baseYield && !isRealOverride(d);});
-                      if(targets.length===0){ alert(T2("Nothing to accept — all mapped dishes are already pinned.")); return; }
-                      if(!confirm(T2("Lock in auto values as explicit overrides for ")+targets.length+T2(" dish(es)?"))) return;
-                      for(const d of targets){
-                        const st = dishStatus(d);
-                        const bp = st.recipe?.ingredients?.base_pax || 300;
-                        const suggested = Math.round(daySuggested(d, selEv.pax/bp * st.baseYield) * 10)/10;
-                        await saveYield(d, suggested, {...ctx, recipe:st.recipe});
-                      }
-                    }} className="kh-rip" onPointerDown={ripple}
-                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
-                      fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",
-                      background:K.brand,color:"#FFFFFF",border:"none"}}>
-                    <Icon name="check" size={15} strokeWidth={2.2}/>{T2("Accept all suggestions")}</button>
-                    <button onClick={async()=>{
-                      const targets = dishes.filter(d=>isRealOverride(d));
-                      if(targets.length===0){ alert(T2("No overrides to clear.")); return; }
-                      if(!confirm(T2("Clear all ")+targets.length+T2(" pinned override(s)? Dishes revert to auto values."))) return;
-                      for(const d of targets){
-                        const st = dishStatus(d);
-                        await saveYield(d, "", {...ctx, recipe:st.recipe});
-                      }
-                    }} className="kh-calnav"
-                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 18px",borderRadius:999,
-                      fontFamily:K.fontBody,fontSize:12.5,fontWeight:600,cursor:"pointer",
-                      background:"#FFFFFF",color:K.textBody,border:`1px solid ${K.cardWarmLine}`}}>
-                    <Icon name="undo" size={15} strokeWidth={1.9}/>{T2("Clear overrides")}</button>
-                    <div style={{flex:1}}></div>
-                    <span style={{fontFamily:K.fontBody,fontSize:11.5,color:K.textFaint}}>{T2("Auto-saves on blur")}</span>
-                  </div>
                 )}
 
                 {/* Unmapped bucket — surfaced ABOVE the category grid, not below it.
