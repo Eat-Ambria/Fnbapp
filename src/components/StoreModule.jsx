@@ -72,9 +72,7 @@ async function fetchOpsCateringItems() {
     const { data, error } = await opsSupabase
       .from("catering_store_items")
       .select(SELECT)
-      // Diagnostic: status filter dropped to confirm whether "0 items" was
-      // a connectivity/RLS problem or just that nothing is currently
-      // status='approved' on the Ops side.
+      .eq("status", "approved")
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
     // Throw, don't just log-and-break: a real query failure here (RLS
