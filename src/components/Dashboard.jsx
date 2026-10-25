@@ -13,6 +13,7 @@ import { MenuEditor } from './MenuEditor.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { guessSectionForDish, findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
+import { EVENT_VENUES } from '../data/staffData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
 
@@ -139,7 +140,11 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   const safeEvs = Array.isArray(events)?events.filter(e=>e&&typeof e.date==="string"&&e.date.length===10):[];
   const today = new Date(); today.setHours(0,0,0,0);
   const todayStr = TODAY;
-  const VENUES = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Outdoor Catering (ODC)"];
+  // Venue master, not a hardcoded list — see Access Manager's "Manage
+  // Sections & Venues". This is how "Ambria Restro" was able to quietly go
+  // missing from this exact dropdown before: a copy here had drifted from
+  // every other screen's own copy of "the venue list".
+  const VENUES = EVENT_VENUES;
   const pad = n => String(n).padStart(2,"0");
 
   const VP = {

@@ -4,7 +4,7 @@ import { C, ALL_DEPARTMENTS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr } from '../utils/helpers.js';
 import { SCREEN_PERMISSIONS, SCREEN_PERMISSIONS_DEFAULT, setScreenDefinitions, PRESET_ROLES, PRESET_ROLES_DEFAULT, setRoleDefinition, deleteRoleDefinition, getEffectivePerms, hasPermission, canAccessScreen, getScreensForRole, permsFromScreens } from '../data/permissions.js';
-import { VENUE_OPTIONS, HOME_VENUES } from '../data/staffData.js';
+import { VENUE_OPTIONS, EVENT_VENUES, HOME_VENUES } from '../data/staffData.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { Avatar, Card, Btn, Chip } from './SharedUI.jsx';
 import { logActivity } from './ActivityLog.jsx';
@@ -65,6 +65,8 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [newDeptIcon, setNewDeptIcon] = useState("");
   const [newSectionBuf, setNewSectionBuf] = useState({}); // { [deptId]: string }
   const [newVenueName, setNewVenueName] = useState("");
+  const [newVenueFull, setNewVenueFull] = useState("");
+  const [newVenueCode, setNewVenueCode] = useState("");
 
   // ── Role Manager (V93) ──
   const [showRoleManager, setShowRoleManager] = useState(false);
@@ -334,35 +336,85 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       bump();
     });
   }
-  function addVenue(name){
+  function addVenue(name, fullName, code){
     var trimmed = (name||'').trim();
     if(!trimmed) return;
     if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); return; }
     var slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'venue';
     var existing = {}; HOME_VENUES.forEach(v=>{existing[v.id]=true;});
     var id = slug; if(existing[id]) id = slug+'_'+Date.now().toString(36);
-    var row = {id:id, name:trimmed, sort_order:HOME_VENUES.length*10+10, is_active:true};
+    var full = (fullName||'').trim() || trimmed;
+    var row = {id:id, name:trimmed, full_name:full, code:(code||'').trim().toUpperCase()||null, sort_order:HOME_VENUES.length*10+10, is_active:true, is_event_venue:true, is_staff_home:true};
     supabase.from('home_venues').insert(row).then(r=>{if(r.error){console.error('Venue add err:',r.error);window.alert('Failed to add venue: '+r.error.message);}});
-    HOME_VENUES.push({id:id, name:trimmed, sort_order:row.sort_order});
+    HOME_VENUES.push({id:id, name:trimmed, fullName:full, code:row.code||"", sort_order:row.sort_order, isEventVenue:true, isStaffHome:true});
     VENUE_OPTIONS.push(trimmed);
-    logActivity('access','Home venue added: '+trimmed,'venue_add',{venueId:id,name:trimmed},currentUser?.id);
-    setNewVenueName("");
+    EVENT_VENUES.push(full);
+    logActivity('access','Venue added: '+trimmed,'venue_add',{venueId:id,name:trimmed},currentUser?.id);
+    setNewVenueName(""); setNewVenueFull(""); setNewVenueCode("");
     bump();
   }
-  function renameVenue(venueId, newName){
-    var trimmed = (newName||'').trim();
+  // One updater for every editable field on a venue row — short name (feeds
+  // VENUE_OPTIONS/staff Home Venue), full name (feeds EVENT_VENUES/the event
+  // dropdowns), code, and which of those two lists it belongs in.
+  function updateVenue(venueId, field, value){
     var v = HOME_VENUES.find(x=>x.id===venueId);
-    if(!v || !trimmed || trimmed===v.name) return;
-    if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); bump(); return; }
-    var oldName = v.name;
-    supabase.from('home_venues').update({name:trimmed}).eq('id',venueId).then(r=>{
-      if(r.error){ window.alert('Could not rename venue: '+r.error.message); return; }
-      var gi = VENUE_OPTIONS.indexOf(oldName);
-      v.name = trimmed;
-      if(gi>=0) VENUE_OPTIONS[gi] = trimmed;
-      logActivity('access','Home venue renamed: '+oldName+' → '+trimmed,'venue_rename',{venueId:venueId,from:oldName,to:trimmed},currentUser?.id);
-      bump();
-    });
+    if(!v) return;
+    if(field==='name'){
+      var trimmed = (value||'').trim();
+      if(!trimmed || trimmed===v.name) return;
+      if(VENUE_OPTIONS.includes(trimmed)){ window.alert('A venue named "'+trimmed+'" already exists.'); bump(); return; }
+      var oldName = v.name;
+      supabase.from('home_venues').update({name:trimmed}).eq('id',venueId).then(r=>{
+        if(r.error){ window.alert('Could not rename venue: '+r.error.message); return; }
+        var gi = VENUE_OPTIONS.indexOf(oldName);
+        v.name = trimmed;
+        if(v.isStaffHome && gi>=0) VENUE_OPTIONS[gi] = trimmed;
+        logActivity('access','Venue short name renamed: '+oldName+' → '+trimmed,'venue_rename',{venueId:venueId,from:oldName,to:trimmed},currentUser?.id);
+        bump();
+      });
+      return;
+    }
+    if(field==='fullName'){
+      var trimmedFull = (value||'').trim();
+      if(!trimmedFull || trimmedFull===v.fullName) return;
+      var oldFull = v.fullName;
+      supabase.from('home_venues').update({full_name:trimmedFull}).eq('id',venueId).then(r=>{
+        if(r.error){ window.alert('Could not update venue: '+r.error.message); return; }
+        var gi = EVENT_VENUES.indexOf(oldFull);
+        v.fullName = trimmedFull;
+        if(v.isEventVenue && gi>=0) EVENT_VENUES[gi] = trimmedFull;
+        logActivity('access','Venue full name updated: '+oldFull+' → '+trimmedFull,'venue_rename',{venueId:venueId,from:oldFull,to:trimmedFull},currentUser?.id);
+        bump();
+      });
+      return;
+    }
+    if(field==='code'){
+      var trimmedCode = (value||'').trim().toUpperCase();
+      supabase.from('home_venues').update({code:trimmedCode||null}).eq('id',venueId).then(r=>{
+        if(r.error){ window.alert('Could not update venue: '+r.error.message); return; }
+        v.code = trimmedCode;
+        bump();
+      });
+      return;
+    }
+    if(field==='isEventVenue' || field==='isStaffHome'){
+      var col = field==='isEventVenue' ? 'is_event_venue' : 'is_staff_home';
+      var next = !v[field];
+      supabase.from('home_venues').update({[col]:next}).eq('id',venueId).then(r=>{
+        if(r.error){ window.alert('Could not update venue: '+r.error.message); return; }
+        v[field] = next;
+        if(field==='isEventVenue'){
+          var ei = EVENT_VENUES.indexOf(v.fullName);
+          if(next && ei<0) EVENT_VENUES.push(v.fullName);
+          if(!next && ei>=0) EVENT_VENUES.splice(ei,1);
+        } else {
+          var si = VENUE_OPTIONS.indexOf(v.name);
+          if(next && si<0) VENUE_OPTIONS.push(v.name);
+          if(!next && si>=0) VENUE_OPTIONS.splice(si,1);
+        }
+        bump();
+      });
+    }
   }
   function deleteVenue(venueId){
     var v = HOME_VENUES.find(x=>x.id===venueId);
@@ -376,7 +428,9 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       if(idx>=0) HOME_VENUES.splice(idx,1);
       var gi = VENUE_OPTIONS.indexOf(v.name);
       if(gi>=0) VENUE_OPTIONS.splice(gi,1);
-      logActivity('access','Home venue deleted: '+v.name,'venue_delete',{venueId:venueId},currentUser?.id);
+      var ei = EVENT_VENUES.indexOf(v.fullName);
+      if(ei>=0) EVENT_VENUES.splice(ei,1);
+      logActivity('access','Venue deleted: '+v.name,'venue_delete',{venueId:venueId},currentUser?.id);
       bump();
     });
   }
@@ -972,7 +1026,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       <Modal open={showMasterData} onClose={()=>setShowMasterData(false)} wide>
         <div style={{padding:"20px 24px",borderBottom:`1px solid ${C.border}`}}>
           <div style={{fontSize:17,fontWeight:600,color:C.text,fontFamily:"var(--font-display)"}}>🗂 {T2("Manage Sections & Venues")}</div>
-          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Controls the Section and Home Venue dropdowns above — add, rename or remove without touching code.")}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2}}>{T2("Controls the Section dropdowns and the venue master (Home Venue picker + every event-venue dropdown) — add, rename or remove without touching code.")}</div>
         </div>
         <div style={{padding:"20px 24px",maxHeight:"70vh",overflowY:"auto"}}>
 
@@ -1010,22 +1064,45 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
             <button onClick={()=>addDept(newDeptLabel,newDeptIcon)} style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("Add Department")}</button>
           </div>
 
-          {/* ── Home Venues ── */}
-          <div style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:10}}>{T2("Home Venues")}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {/* ── Venues — one master behind both the staff Home Venue picker
+              (short name) and the event-venue dropdowns (full name). ── */}
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{T2("Venues")}</div>
+          <div style={{fontSize:11,color:C.faint,marginBottom:10}}>{T2("Short name feeds staff Home Venue; full name feeds the event-venue dropdowns (Edit Function, vendor booking…).")}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
             {HOME_VENUES.map(v=>(
-              <div key={v.id+'_'+masterTick} style={{display:"flex",alignItems:"center",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,paddingLeft:10}}>
-                <input defaultValue={v.name} onBlur={e=>renameVenue(v.id,e.target.value)} size={Math.max(6,v.name.length)} style={{border:"none",background:"transparent",fontSize:12,color:C.text,padding:"7px 2px"}}/>
-                <button onClick={()=>deleteVenue(v.id)} title={T2("Delete venue")} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:"7px 8px"}}>✕</button>
+              <div key={v.id+'_'+masterTick} style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:10,background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                  <span style={{fontSize:9,color:C.faint,textTransform:"uppercase",letterSpacing:.3}}>{T2("Short")}</span>
+                  <input defaultValue={v.name} onBlur={e=>updateVenue(v.id,'name',e.target.value)} size={Math.max(6,v.name.length)} style={{border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,fontSize:12,color:C.text,padding:"5px 6px"}}/>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:1,flex:1,minWidth:140}}>
+                  <span style={{fontSize:9,color:C.faint,textTransform:"uppercase",letterSpacing:.3}}>{T2("Full name")}</span>
+                  <input defaultValue={v.fullName} onBlur={e=>updateVenue(v.id,'fullName',e.target.value)} style={{border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,fontSize:12,color:C.text,padding:"5px 6px",width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                  <span style={{fontSize:9,color:C.faint,textTransform:"uppercase",letterSpacing:.3}}>{T2("Code")}</span>
+                  <input defaultValue={v.code} onBlur={e=>updateVenue(v.id,'code',e.target.value)} size={4} style={{border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,fontSize:12,color:C.text,padding:"5px 6px",textAlign:"center",textTransform:"uppercase"}}/>
+                </div>
+                <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted,cursor:"pointer"}}>
+                  <input type="checkbox" checked={v.isStaffHome} onChange={()=>updateVenue(v.id,'isStaffHome')}/>{T2("Home Venue")}
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted,cursor:"pointer"}}>
+                  <input type="checkbox" checked={v.isEventVenue} onChange={()=>updateVenue(v.id,'isEventVenue')}/>{T2("Event venue")}
+                </label>
+                <button onClick={()=>deleteVenue(v.id)} title={T2("Delete venue")} style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:13,padding:"6px 8px"}}>✕</button>
               </div>
             ))}
             {HOME_VENUES.length===0&&<span style={{fontSize:11,color:C.faint,fontStyle:"italic"}}>{T2("No venues yet")}</span>}
           </div>
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <input value={newVenueName} onChange={e=>setNewVenueName(e.target.value)}
-              onKeyDown={e=>{if(e.key==='Enter') addVenue(newVenueName);}}
-              placeholder={T2("New venue name")+"…"} style={{flex:1,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
-            <button onClick={()=>addVenue(newVenueName)} style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("Add Venue")}</button>
+              placeholder={T2("Short name")+"…"} style={{width:120,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
+            <input value={newVenueFull} onChange={e=>setNewVenueFull(e.target.value)}
+              placeholder={T2("Full name (e.g. Ambria X)")+"…"} style={{flex:1,minWidth:160,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface}}/>
+            <input value={newVenueCode} onChange={e=>setNewVenueCode(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter') addVenue(newVenueName,newVenueFull,newVenueCode);}}
+              placeholder={T2("Code")+"…"} style={{width:70,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,textTransform:"uppercase"}}/>
+            <button onClick={()=>addVenue(newVenueName,newVenueFull,newVenueCode)} style={{padding:"9px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>+ {T2("Add Venue")}</button>
           </div>
         </div>
         <div style={{padding:"14px 24px",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end"}}>

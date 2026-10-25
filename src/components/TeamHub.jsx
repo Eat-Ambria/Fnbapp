@@ -5,7 +5,7 @@ import { fetchAllRows } from '../lib/db.js';
 import { C, ALL_DEPARTMENTS, SECTION_META, OUTSIDE_VENDORS, TEAM_DEPTS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, CUR_YEAR, safeArr, safePct, uploadStaffPhoto, transliterateName } from '../utils/helpers.js';
-import { yrsOfService } from '../data/staffData.js';
+import { yrsOfService, EVENT_VENUES } from '../data/staffData.js';
 import { Avatar, Card, Btn, Chip, STag, DonutChart } from './SharedUI.jsx';
 import { K, type } from '../utils/theme.js';
 import { Icon, KTabs } from './KitchenUI.jsx';
@@ -301,7 +301,7 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
                       <div style={{fontSize:10,fontWeight:600,color:C.muted,marginBottom:4,textTransform:"uppercase"}}>Venue</div>
                       <select value={bookingForm.venue} onChange={e=>setBookingForm(p=>({...p,venue:e.target.value}))} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
                         <option value="">Select…</option>
-                        {["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Ambria Restro","Outdoor Catering (ODC)"].map(o=><option key={o}>{o}</option>)}
+                        {EVENT_VENUES.map(o=><option key={o}>{o}</option>)}
                       </select>
                     </div>
                     <div>

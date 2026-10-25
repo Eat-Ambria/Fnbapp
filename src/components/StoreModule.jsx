@@ -3215,7 +3215,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const newRemaining = Math.max(0, agg.required-newIssued);
         const newSurplus = Math.max(0, newIssued-agg.required);
         return (
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:9200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
           onClick={()=>setIssueQtyModal(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
             <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
@@ -3263,7 +3263,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const val = parseFloat(transferModal.value);
         const valid = !isNaN(val) && val>0;
         return (
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:9200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
           onClick={()=>setTransferModal(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
             <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
@@ -3301,7 +3301,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {/* ── Transfer-requests list — open requests any venue's store can see
           and mark fulfilled once the item has actually been carried over. ── */}
       {transferListOpen&&(
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:9200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
           onClick={()=>setTransferListOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
             <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>

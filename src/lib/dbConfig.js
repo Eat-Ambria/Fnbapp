@@ -238,11 +238,17 @@ export async function loadAllConfig() {
     loadTable('app_settings',          [], null),
   ]);
 
-  // Home venues (staff "home venue" for transport routing) — master data, editable in Access Manager
+  // Venue master — one list behind both the staff "Home Venue" picker (short
+  // names, is_staff_home) and the event-venue dropdowns (full names,
+  // is_event_venue) — editable in Access Manager instead of hardcoded per screen.
   const homeVenues = (homeVenuesRaw || [])
     .filter(v => v.is_active !== false)
     .sort((a,b) => (a.sort_order||0) - (b.sort_order||0))
-    .map(v => ({ id: v.id, name: v.name, sort_order: v.sort_order||0 }));
+    .map(v => ({
+      id: v.id, name: v.name, sort_order: v.sort_order||0,
+      fullName: v.full_name || v.name, code: v.code || "",
+      isEventVenue: v.is_event_venue !== false, isStaffHome: v.is_staff_home !== false,
+    }));
 
   // Join team_departments + team_sections into [{id,label,icon,sections:[names]}]
   const teamDepts = (teamDeptsRaw || [])

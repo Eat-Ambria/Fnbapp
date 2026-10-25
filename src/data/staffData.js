@@ -31,12 +31,18 @@ function yrsOfService(joining) {
 // Hydrated from Supabase `checklists` table on boot
 let GROOMING_CHECKS = [];
 
-// ─── HOME VENUES (staff "home venue" for transport routing) ─────
-// Hydrated from Supabase `home_venues` table on boot; HOME_VENUES keeps ids
-// (for Access Manager CRUD), VENUE_OPTIONS stays the flat display list every
-// other screen already consumes.
+// ─── VENUE MASTER (Access Manager's "Manage Sections & Venues") ─────────
+// Hydrated from Supabase `home_venues` table on boot. One list behind both
+// VENUE_OPTIONS (staff "Home Venue" picker — short names, transport routing's
+// fuzzy match) and EVENT_VENUES (the Edit Function/booking event-venue
+// dropdowns — full names, e.g. "Ambria Pushpanjali"). These used to be
+// separate hardcoded arrays per screen, which is exactly how "Ambria Restro"
+// quietly went missing from the event-venue dropdown while every other list
+// had it. HOME_VENUES keeps the full rows (id, name, fullName, code,
+// isEventVenue, isStaffHome) for Access Manager's CRUD UI.
 let HOME_VENUES = [];
 const VENUE_OPTIONS = ["Pushpanjali","Exotica","Manaktala","Restro"];
+const EVENT_VENUES = ["Ambria Pushpanjali","Ambria Exotica","Manaktala Farm","Ambria Restro","Outdoor Catering (ODC)"];
 
 function hydrateStaffData(config) {
   if (config.groomingChecks && config.groomingChecks.length) {
@@ -54,8 +60,10 @@ function hydrateStaffData(config) {
     HOME_VENUES.length = 0;
     config.homeVenues.forEach(v => HOME_VENUES.push(v));
     VENUE_OPTIONS.length = 0;
-    config.homeVenues.forEach(v => VENUE_OPTIONS.push(v.name));
+    config.homeVenues.filter(v => v.isStaffHome).forEach(v => VENUE_OPTIONS.push(v.name));
+    EVENT_VENUES.length = 0;
+    config.homeVenues.filter(v => v.isEventVenue).forEach(v => EVENT_VENUES.push(v.fullName));
   }
 }
 
-export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, VENUE_OPTIONS, HOME_VENUES, getEmpByStaffId, yrsOfService, hydrateStaffData };
+export { STAFF_LIST, EMPLOYEE_DB_INIT, GROOMING_CHECKS, VENUE_OPTIONS, EVENT_VENUES, HOME_VENUES, getEmpByStaffId, yrsOfService, hydrateStaffData };
