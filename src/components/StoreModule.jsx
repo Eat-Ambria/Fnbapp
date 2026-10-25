@@ -428,9 +428,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [editStock,setEditStock]=useState(null);
   const [editVal,  setEditVal]  =useState("");
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
+  const [orderBrowseOpen, setOrderBrowseOpen] = useState(false); // Order Lists tab: "All ingredients" browse-and-add modal
+  const [orderBrowseDay, setOrderBrowseDay] = useState(TODAY); // its own day picker — independent of Requirements' reqDay
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
-  const [reqShowAll, setReqShowAll] = useState(false); // Day Sheet: the full ingredient table is folded under the station cards
   const [reqListAllAsk, setReqListAllAsk] = useState(false); // in-app confirm for "+ All" (order list)
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
   const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
@@ -967,53 +968,57 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
   function openIssueQty(row) {
     const { agg, stock, isDiscrete, suggested } = suggestedIssueQty(row);
-    setIssueQtyModal({ row, agg, stock, isDiscrete, value: agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "" });
+    const shortfall = stock ? myShortfall(row, stock) : null;
+    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value: agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "" });
   }
 
   /* ── Cross-venue transfer requests ─────────────────────────────────────
      Ambria runs ONE pooled ops item per ingredient but a SEPARATE physical
-     store per venue (cs_venue_allocations). The Day Sheet's "Stock" column
-     already shows the pooled total, which can look fine even when the one
-     venue a function is actually AT is short — the other venues' allocation
-     is sitting at a different building. Break each row's requirement down
-     by the event's own venue and flag that specific shortfall, with a quick
-     way to log "please send some from venue X" for the other venue's store
-     to see and action (this never moves stock itself — a person does). */
+     store per venue (cs_venue_allocations), and each store user is mapped to
+     one specific venue (currentUser.venue, Access Manager's Home Venue). What
+     THAT venue's own allocation is — not the pooled total across every venue
+     — is what they can actually walk over and hand someone, so Requirements
+     shows and checks shortage against their own venue's stock only. When it's
+     short, the issue dialog offers a quick way to log "please send some from
+     venue X" for that other venue's store to see and action (this never moves
+     stock itself — a person still carries the item over). */
   // Venue names are spelled inconsistently app-wide ("Manaktala Farm" on the
-  // event, "Ambria Manaktala" or just a code elsewhere) — the same fuzzy,
-  // both-directions substring match EventDayTab.jsx's venueMatches() already
-  // uses for Home Venue, applied here against Ops's own venue names.
+  // event, "Ambria Manaktala" or just a code elsewhere, "Pushpanjali" as a
+  // staff's short Home Venue) — the same fuzzy, both-directions substring
+  // match EventDayTab.jsx's venueMatches() already uses, applied here against
+  // Ops's own venue names.
   function venueFuzzyMatch(a, b) {
     const x = (a || "").toLowerCase().trim(), y = (b || "").toLowerCase().trim();
     return !!(x && y && (x.includes(y) || y.includes(x)));
   }
-  // For a row, how much of it each actual event-venue needs, matched against
-  // THIS item's own per-venue allocations — then which of those venues don't
-  // have enough, and which other venue(s) of the same item have spare to ask.
-  function rowVenueShortfalls(row, stock) {
-    if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return [];
-    const byVenueId = {};
-    (row.evBreak || []).forEach(b => {
-      if (!b.venue) return;
-      const match = stock.item.venues.find(v => venueFuzzyMatch(b.venue, v.venueName));
-      if (!match) return;
-      const q = convQty(b.qty, b.unit, row.unit);
-      if (!byVenueId[match.venueId]) byVenueId[match.venueId] = { venue: match, required: 0 };
-      byVenueId[match.venueId].required += q;
-    });
-    const out = [];
-    Object.values(byVenueId).forEach(({ venue, required }) => {
-      const have = storeUnitsToQty(venue.qty, stock, row.unit);
-      if (required > have + 1e-9) {
-        const donors = stock.item.venues
-          .filter(v => v.venueId !== venue.venueId)
-          .map(v => ({ venue: v, spare: storeUnitsToQty(v.qty, stock, row.unit) }))
-          .filter(d => d.spare > 1e-9)
-          .sort((a, b) => b.spare - a.spare);
-        out.push({ venue, required, have, shortfall: required - have, donors });
-      }
-    });
-    return out;
+  // The logged-in store user's own venue's allocation of this item, in store
+  // units — null when the item carries no per-venue breakdown at all or the
+  // user has no Home Venue set (both mean "can't say, fall back to pooled"),
+  // 0 when the item has venue data but none of it is at this user's venue.
+  function myVenueQty(stock) {
+    if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return null;
+    const myVenueName = (currentUser?.venue || "").trim();
+    if (!myVenueName) return null;
+    const mine = stock.item.venues.find(v => venueFuzzyMatch(myVenueName, v.venueName));
+    return mine ? mine.qty : 0;
+  }
+  // Is this row short AT MY VENUE specifically (even if the pooled total
+  // looks fine), and if so, which other venue(s) of the same item have spare
+  // to request from.
+  function myShortfall(row, stock) {
+    if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return null;
+    const myVenueName = (currentUser?.venue || "").trim();
+    if (!myVenueName) return null;
+    const venues = stock.item.venues;
+    const mine = venues.find(v => venueFuzzyMatch(myVenueName, v.venueName));
+    const myQty = mine ? mine.qty : 0;
+    const requiredSU = qtyToStoreUnits(row.total, row.unit, stock);
+    if (requiredSU <= myQty + 1e-9) return null;
+    const donors = venues.filter(v => v !== mine && v.qty > 1e-9)
+      .map(v => ({ venue: v, spare: v.qty }))
+      .sort((a, b) => b.spare - a.spare);
+    const venueObj = mine || { venueId: 'me', venueCode: '', venueName: myVenueName, qty: myQty };
+    return { venue: venueObj, shortfallSU: requiredSU - myQty, shortfall: storeUnitsToQty(requiredSU - myQty, stock, row.unit), donors };
   }
   function openTransferRequest(row, stock, sf) {
     setTransferModal({
@@ -1046,11 +1051,62 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (error) console.error("Mark fulfilled failed:", error);
   }
 
+  /* ── Stock resolution — same 3-tier unit-conversion chain the old
+     Shortages table used (grams, then ml, then a configured conversion
+     factor for anything else). Shared by Requirements (issuing, venue-scoped)
+     and Order Lists (procurement planning, pooled across every venue) so
+     neither drifts from the other's idea of "how much do we have". ── */
+  function resolveStock(row){
+    const stock = stockForRow(row);
+    const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
+    const isMapped = isDirectInv || !!ingredientMap[row.name];
+    if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null, myQty:null};
+    return {isMapped:true, stock, requiredSU: qtyToStoreUnits(row.total, row.unit, stock), myQty: myVenueQty(stock)};
+  }
+  function rowIssued(row){ return rowIssueAgg(row).remaining<=1e-9; }
+
+  /* ── Day Sheet row-building — one event's menu -> per-ingredient totals,
+     broken down by kitchen section/station. Shared by Requirements (issuing,
+     grouped into station cards) and Order Lists' ingredient browser
+     (procurement planning) so both read the exact same demand for a day. */
+  function buildRowsForDay(day){
+    const dayEvs = safeArr(safeEvs).filter(e=>e.date===day).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+    const evBags = buildEventBags(dayEvs);
+    const catSeen = new Set();
+    const rowMap = {};
+    Object.values(evBags).forEach(({ev, sections})=>{
+      Object.entries(sections).forEach(([sec, secObj])=>{
+        catSeen.add(sec);
+        Object.values(secObj.items).forEach(ing=>{
+          if(!rowMap[ing.name]) rowMap[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,total:0,byCat:{},evBreak:[],_type:null,ops_inventory_id:null};
+          const row=rowMap[ing.name];
+          const cellPrev = row.byCat[sec] || {totalQty:0,unit:ing.unit};
+          row.byCat[sec] = addQtyWithUnitNorm(cellPrev, ing.totalQty, ing.unit);
+          const totMerged = addQtyWithUnitNorm({totalQty:row.total,unit:row.unit}, ing.totalQty, ing.unit);
+          row.total = totMerged.totalQty; row.unit = totMerged.unit;
+          row.evBreak.push({evId:ev.id, evName:ev.guest, venue:ev.venue||"", sec, qty:ing.totalQty, unit:ing.unit});
+          if(!row._type && ing._type==='inv'){ row._type='inv'; row.ops_inventory_id = ing.ops_inventory_id||null; }
+        });
+      });
+    });
+    const stations = RECIPE_DB.cats.filter(c=>catSeen.has(c.name));
+    const rows = Object.values(rowMap).sort((a,b)=>a.name.localeCompare(b.name));
+    const rowGroups = (function(){
+      const buckets = {};
+      rows.forEach(row=>{
+        const meta = categoryMetaForName(row.name);
+        (buckets[meta.key] = buckets[meta.key] || {meta, rows:[]}).rows.push(row);
+      });
+      return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
+    })();
+    return { dayEvs, rows, rowGroups, stations };
+  }
+
   /* ── Order Lists (Requirements tab "Add to Order list") ── */
-  async function addToOrderList(row, listKey) {
+  async function addToOrderList(row, listKey, day = reqDay) {
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const rec = {
-      order_date: reqDay,
+      order_date: day,
       ingredient_name: row.name,
       ingredient_hindi: row.hindi || null,
       unit: row.unit,
@@ -1062,7 +1118,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       added_at: new Date().toISOString(),
     };
     setOrderListItems(prev => {
-      const idx = prev.findIndex(r => r.order_date === reqDay && r.ingredient_name === row.name);
+      const idx = prev.findIndex(r => r.order_date === day && r.ingredient_name === row.name);
       if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...rec }; return n; }
       return [...prev, rec];
     });
@@ -1072,11 +1128,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
   // Many at once (station modal "+ All"): one state update and one bulk upsert,
   // not a network round-trip per ingredient. Reports a failed save in the UI.
-  async function addManyToOrderList(list) {
+  async function addManyToOrderList(list, day = reqDay) {
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const now = new Date().toISOString();
     const recs = list.map(({row, listKey}) => ({
-      order_date: reqDay,
+      order_date: day,
       ingredient_name: row.name,
       ingredient_hindi: row.hindi || null,
       unit: row.unit,
@@ -1090,7 +1146,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (recs.length === 0) return;
     setOrderListItems(prev => {
       const names = new Set(recs.map(r => r.ingredient_name));
-      return [...prev.filter(r => !(r.order_date === reqDay && names.has(r.ingredient_name))), ...recs];
+      return [...prev.filter(r => !(r.order_date === day && names.has(r.ingredient_name))), ...recs];
     });
     const { error } = await supabase.from('store_order_lists').upsert(recs, { onConflict: 'order_date,ingredient_name' });
     if (error) {
@@ -1101,9 +1157,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
     }
     setTimeout(() => setReqNote(null), 5000);
   }
-  async function removeFromOrderList(row) {
-    setOrderListItems(prev => prev.filter(r => !(r.order_date === reqDay && r.ingredient_name === row.name)));
-    const { error } = await supabase.from('store_order_lists').delete().eq('order_date', reqDay).eq('ingredient_name', row.name);
+  async function removeFromOrderList(row, day = reqDay) {
+    setOrderListItems(prev => prev.filter(r => !(r.order_date === day && r.ingredient_name === row.name)));
+    const { error } = await supabase.from('store_order_lists').delete().eq('order_date', day).eq('ingredient_name', row.name);
     if (error) console.error("Remove from order list failed:", error);
   }
   async function toggleOrdered(item) {
@@ -1986,47 +2042,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* ── REQUIREMENTS — event-first with collective toggle ── */}
       {tab==="requirements"&&(()=>{
-        const dayEvs = safeEvs.filter(e=>e.date===reqDay).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
-        const evBags = buildEventBags(dayEvs);
-
-        /* Reshape evBags (per-event, per-section) into ingredient rows with one
-           column per category/station, mirroring Kitchen Hub's Ingredient
-           Ordering Sheet — minus the yield-adjust slider, which is a Kitchen
-           planning concept the Store team has no use for. */
-        const catSeen = new Set();
-        const rowMap = {};
-        Object.values(evBags).forEach(({ev, sections})=>{
-          Object.entries(sections).forEach(([sec, secObj])=>{
-            catSeen.add(sec);
-            Object.values(secObj.items).forEach(ing=>{
-              if(!rowMap[ing.name]) rowMap[ing.name]={name:ing.name,hindi:ing.hindi,unit:ing.unit,total:0,byCat:{},evBreak:[],_type:null,ops_inventory_id:null};
-              const row=rowMap[ing.name];
-              const cellPrev = row.byCat[sec] || {totalQty:0,unit:ing.unit};
-              row.byCat[sec] = addQtyWithUnitNorm(cellPrev, ing.totalQty, ing.unit);
-              const totMerged = addQtyWithUnitNorm({totalQty:row.total,unit:row.unit}, ing.totalQty, ing.unit);
-              row.total = totMerged.totalQty; row.unit = totMerged.unit;
-              row.evBreak.push({evId:ev.id, evName:ev.guest, venue:ev.venue||"", sec, qty:ing.totalQty, unit:ing.unit});
-              if(!row._type && ing._type==='inv'){ row._type='inv'; row.ops_inventory_id = ing.ops_inventory_id||null; }
-            });
-          });
-        });
-        const stations = RECIPE_DB.cats.filter(c=>catSeen.has(c.name));
-        const rows = Object.values(rowMap).sort((a,b)=>a.name.localeCompare(b.name));
-
-        /* Stock resolution — same 3-tier unit-conversion chain the old
-           Shortages table used (grams, then ml, then a configured conversion
-           factor for anything else), so "short" here means the same thing it
-           always has. Shared with the issue-quantity helpers above (qtyToStoreUnits)
-           so "short of stock" and "how much a pack issues" never drift apart. */
-        function resolveStock(row){
-          const stock = stockForRow(row);
-          const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
-          const isMapped = isDirectInv || !!ingredientMap[row.name];
-          if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null};
-          return {isMapped:true, stock, requiredSU: qtyToStoreUnits(row.total, row.unit, stock)};
-        }
-
-        function rowIssued(row){ return rowIssueAgg(row).remaining<=1e-9; }
+        const { dayEvs, rows, rowGroups, stations } = buildRowsForDay(reqDay);
 
         const orderListsForDay = orderListItems.filter(r=>r.order_date===reqDay);
         function orderListFor(name){ return orderListsForDay.find(r=>r.ingredient_name===name); }
@@ -2034,29 +2050,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const todayFnCount = safeEvs.filter(e=>e.date===TODAY).length;
         const tmrwFnCount = safeEvs.filter(e=>e.date===TOMORROW).length;
 
+        // Short/issued/ordered counts here are scoped to the logged-in store
+        // user's OWN venue (resolveStock's myQty) — a venue can be out of an
+        // item the pooled total across every venue still looks fine on.
         let shortCount=0, issuedCount=0, orderedRowCount=0;
         rows.forEach(row=>{
-          const {isMapped, stock, requiredSU} = resolveStock(row);
-          if(isMapped && stock && requiredSU!=null && requiredSU>stock.available) shortCount++;
+          const {isMapped, stock, requiredSU, myQty} = resolveStock(row);
+          const available = myQty!=null ? myQty : (stock?stock.available:null);
+          if(isMapped && stock && requiredSU!=null && requiredSU>available) shortCount++;
           if(rowIssued(row)) issuedCount++;
           if(orderListFor(row.name)) orderedRowCount++;
         });
 
-        // Group into the same 4 fixed buckets the Order Lists tab shows —
-        // by the ingredient's own name, not whichever Ops inventory item (if
-        // any) it happens to be linked to, so a dish's ingredients group the
-        // same way whether or not "link to store" has been done for it yet.
-        const rowGroups = (function(){
-          const buckets = {};
-          rows.forEach(row=>{
-            const meta = categoryMetaForName(row.name);
-            (buckets[meta.key] = buckets[meta.key] || {meta, rows:[]}).rows.push(row);
-          });
-          return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
-        })();
         // Stations are cards above the table now (click → modal), not columns.
-        // +1 for the Balance column (issued-vs-required / surplus).
-        const tableColSpan = 2 + 3 + 1;
         const openStation = stations.find(st=>st.id===reqStation) || null;
         const openStationRows = openStation ? rows.filter(r=>r.byCat[openStation.name]) : [];
         // Station modal actions: the same ✓ issue / + order-list buttons as the
@@ -2074,7 +2080,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           });
           return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
         })();
-        const stationTableColSpan = 3 + 1;
+        const stationTableColSpan = 3 + 1 + 1; // Ingredient/Needed/Stock + Balance + Actions
         const canIssueStock = hasPerm(currentUser,"store.smart_issue");
         const stPending = openStationRows.filter(r=>!rowIssued(r));
         const stUnlisted = openStationRows.filter(r=>!orderListFor(r.name));
@@ -2204,158 +2210,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       </button>
                     );
                   })}
-                  {/* The full combined ingredient table (Total / Stock / issue /
-                      order list / merge) as one more card in the same grid —
-                      closed by default, opens the table below. */}
-                  <button onClick={()=>setReqShowAll(v=>!v)} aria-expanded={reqShowAll} className="kh-hovercard"
-                    style={{display:"flex",alignItems:"center",gap:12,padding:"13px 15px",borderRadius:16,cursor:"pointer",textAlign:"left",
-                      background:reqShowAll?K.brandSoft:K.cardWarm,border:`1px solid ${reqShowAll?K.brand:K.cardWarmLine}`,boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
-                    <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,
-                      fontSize:18,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>📋</span>
-                    <span style={{flex:1,minWidth:0}}>
-                      <span style={{display:"block",fontSize:13.5,fontWeight:700,color:K.hdrTitle,lineHeight:1.25}}>{T2("All ingredients")}</span>
-                      <span style={{display:"block",fontSize:12,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{rows.length} {T2("ingredients")} · {reqShowAll?T2("tap to hide"):T2("tap to view")}</span>
-                    </span>
-                    <span style={{color:K.textFaint,fontSize:16,flexShrink:0,display:"inline-block",transition:"transform .15s",transform:reqShowAll?"rotate(90deg)":"none"}}>›</span>
-                  </button>
                 </div>
-
-                {/* All ingredients — the full combined table, opened from its card
-                    in a modal like the station lists. z-index sits under the
-                    store's own pop-ups (link to store, merge: 999/1000) so those
-                    still open on top of it. */}
-                {reqShowAll && (
-                <div onClick={()=>setReqShowAll(false)} role="presentation"
-                  style={{position:"fixed",inset:0,zIndex:900,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-                <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
-                  style={{position:"relative",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,boxShadow:K.shadowLift,
-                    width:"100%",maxWidth:1200,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:K.fontBody}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12,padding:"16px 22px",borderBottom:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
-                    <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:19,
-                      display:"flex",alignItems:"center",justifyContent:"center"}}>📋</span>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{T2("All ingredients")}</div>
-                      <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{rows.length} {T2("ingredients")} · {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} · {reqDay}</div>
-                    </div>
-                    {Object.keys(ingSelected).length>0&&(
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:12.5,fontWeight:600,color:K.hdrMeta}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
-                        <button onClick={()=>setIngSelected({})} style={{padding:"7px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Clear")}</button>
-                        <button disabled={Object.keys(ingSelected).length<2}
-                          onClick={()=>{const names=Object.keys(ingSelected);const first=allRecipeIngredients.find(i=>i.name===names[0]);setIngMergeModal({sources:names,target:names[0],unit:first?.unit||""});}}
-                          style={{padding:"7px 16px",borderRadius:999,border:"none",fontSize:12.5,fontWeight:700,
-                            background:Object.keys(ingSelected).length<2?K.cardWarmLine:K.brand,color:Object.keys(ingSelected).length<2?K.textFaint:"#FFFFFF",
-                            cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer"}}>🔗 {T2("Merge into one")}</button>
-                      </div>
-                    )}
-                    <button onClick={()=>setReqShowAll(false)} aria-label={T2("Close")}
-                      style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
-                  </div>
-                <div style={{flex:1,minHeight:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-                  {/* Scrolls inside the card so the column heads stay in view
-                      over a few hundred ingredient rows. */}
-                  <div style={{overflow:"auto",flex:1,minHeight:0}}>
-                    <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,width:"100%",fontFamily:K.fontBody}}>
-                      <thead>
-                        <tr>
-                          <th style={{position:"sticky",top:0,left:0,background:"#F4F2EC",zIndex:7,textAlign:"left",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:190,maxWidth:190}}>{T2("Item")}</th>
-                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 6px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("UM")}</th>
-                          <th style={{position:"sticky",top:0,zIndex:5,background:K.brandSoft,textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Total")}</th>
-                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Stock")}</th>
-                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Balance")}</th>
-                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:110}}>{T2("Actions")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rowGroups.map(group=>{
-                          const closed = !!reqCatClosed[group.meta.key];
-                          return (
-                          <React.Fragment key={group.meta.key}>
-                            <tr onClick={()=>setReqCatClosed(p=>({...p,[group.meta.key]:!closed}))} style={{cursor:"pointer"}}>
-                              <td colSpan={tableColSpan} style={{padding:"10px 14px",fontWeight:700,fontSize:11.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.6,borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.meta.color}`,userSelect:"none"}}>
-                                <span style={{display:"inline-block",width:12,transition:"transform .15s",transform:closed?"rotate(-90deg)":"rotate(0deg)"}}>▾</span>{" "}
-                                {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
-                              </td>
-                            </tr>
-                            {!closed && group.rows.map((row,ri)=>{
-                              const {isMapped, stock, requiredSU} = resolveStock(row);
-                              const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
-                              const venueSf = isMapped && stock ? rowVenueShortfalls(row, stock) : [];
-                              const agg = rowIssueAgg(row);
-                              const done = agg.remaining<=1e-9;
-                              const list = orderListFor(row.name);
-                              const listMeta = list ? categoryMetaForName(row.name) : null;
-                              const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
-                              return (
-                                <tr key={row.name} className="req-row" style={{background:ri%2?"rgba(0,0,0,.018)":"transparent"}}>
-                                  <td style={{position:"sticky",left:0,background:ri%2?"#F9F8F3":K.cardWarm,padding:"9px 14px",fontWeight:600,fontSize:13,color:K.hdrTitle,verticalAlign:"middle",maxWidth:190,borderBottom:`1px solid ${K.lineSoft}`,zIndex:2}} title={fullTitle}>
-                                    <div style={{display:"flex",alignItems:"center",gap:9}}>
-                                      <input type="checkbox" checked={!!ingSelected[row.name]}
-                                        onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
-                                        title={T2("Select to merge with other ingredients")}
-                                        style={{width:15,height:15,flexShrink:0,cursor:"pointer",accentColor:K.brand}}/>
-                                      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
-                                    </div>
-                                  </td>
-                                  <td style={{textAlign:"center",padding:"9px 6px",color:K.textFaint,fontSize:11.5,verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>{row.unit}</td>
-                                  <td style={{textAlign:"right",padding:"9px 14px",fontWeight:700,fontSize:13,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",verticalAlign:"middle",background:K.brandSoft,borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(row.total,row.unit)}</td>
-                                  <td style={{textAlign:"right",padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
-                                    {!isMapped
-                                      ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:11,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
-                                      : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
-                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,
-                                          border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock ? fmtIssueQty(stock.available,stock.unit) : "—"}</span>}
-                                    {venueSf.map(sf=>(
-                                      <div key={sf.venue.venueId} style={{marginTop:3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
-                                        <span title={T2("Short at")+" "+sf.venue.venueName} style={{fontSize:10,fontWeight:700,color:K.warn,whiteSpace:"nowrap"}}>⚠ {sf.venue.venueCode||sf.venue.venueName} {T2("short")} {fmtIssueQty(sf.shortfall,row.unit)}</span>
-                                        {sf.donors.length>0 && hasPerm(currentUser,"store.smart_issue") && (
-                                          <button onClick={()=>openTransferRequest(row,stock,sf)} title={T2("Request from another venue")} style={{fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:7,background:"#FFFFFF",color:K.warn,border:`1px solid ${K.warnBorder}`,cursor:"pointer",whiteSpace:"nowrap"}}>{T2("Request")}</button>
-                                        )}
-                                      </div>
-                                    ))}
-                                  </td>
-                                  <td style={{textAlign:"right",padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
-                                    {agg.issuedQty<=1e-9
-                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : agg.remaining>1e-9
-                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>
-                                      : agg.surplus>1e-9
-                                      ? <span title={T2("Issued more than needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)}</span>
-                                      : <span style={{fontSize:11.5,color:K.textFaint}}>—</span>}
-                                  </td>
-                                  <td style={{padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
-                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
-                                      {done ? (
-                                        <button onClick={()=>openIssueQty(row)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</button>
-                                      ) : (
-                                        hasPerm(currentUser,"store.smart_issue") && <>
-                                          <button onClick={()=>quickIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
-                                          <button onClick={()=>openIssueQty(row)} title={T2("Issue a custom or partial quantity")} style={{width:24,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:11,lineHeight:1}}>±</button>
-                                        </>
-                                      )}
-                                      {list ? (
-                                        <span title={listMeta.label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:listMeta.bg,color:listMeta.color,whiteSpace:"nowrap",flexShrink:0}}>
-                                          {listMeta.icon}
-                                          <button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
-                                        </span>
-                                      ) : (
-                                        <button onClick={()=>addToOrderList(row,group.meta.key)} title={T2("Add to")+" "+group.meta.label+" "+T2("order list")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                </div>
-                </div>
-                )}
 
                 {/* Station details modal */}
                 {openStation && (
@@ -2414,9 +2269,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                 </tr>
                                 {!closed && group.rows.map(row=>{
                               const cell = row.byCat[openStation.name];
-                              const {isMapped, stock, requiredSU} = resolveStock(row);
-                              const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
-                              const venueSf = isMapped && stock ? rowVenueShortfalls(row, stock) : [];
+                              const {isMapped, stock, requiredSU, myQty} = resolveStock(row);
+                              // Scoped to the logged-in store user's own venue when known — a venue
+                              // can be out of something the pooled total across every venue still
+                              // covers. Falls back to the pooled total when we can't tell (no venue
+                              // data on this item, or this user has no Home Venue set).
+                              const available = myQty!=null ? myQty : (stock?stock.available:null);
+                              const short = isMapped && stock && requiredSU!=null && requiredSU>available;
                               const agg = rowIssueAgg(row);
                               const done = agg.remaining<=1e-9;
                               return(
@@ -2427,15 +2286,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                     {!isMapped
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
                                       : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
-                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock?fmtIssueQty(stock.available,stock.unit):"—"}</span>}
-                                    {venueSf.map(sf=>(
-                                      <div key={sf.venue.venueId} style={{marginTop:3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
-                                        <span title={T2("Short at")+" "+sf.venue.venueName} style={{fontSize:10,fontWeight:700,color:K.warn,whiteSpace:"nowrap"}}>⚠ {sf.venue.venueCode||sf.venue.venueName} {T2("short")} {fmtIssueQty(sf.shortfall,row.unit)}</span>
-                                        {sf.donors.length>0 && hasPerm(currentUser,"store.smart_issue") && (
-                                          <button onClick={()=>openTransferRequest(row,stock,sf)} title={T2("Request from another venue")} style={{fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:7,background:"#FFFFFF",color:K.warn,border:`1px solid ${K.warnBorder}`,cursor:"pointer",whiteSpace:"nowrap"}}>{T2("Request")}</button>
-                                        )}
-                                      </div>
-                                    ))}
+                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock?fmtIssueQty(available,stock.unit):"—"}</span>}
                                   </td>
                                   <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     {agg.issuedQty<=1e-9
@@ -2519,8 +2370,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {(()=>{
               const totalItems = visibleGroups.reduce((n,g)=>n+g.list.length,0);
               const orderedItems = visibleGroups.reduce((n,g)=>n+g.list.filter(i=>i.ordered).length,0);
-              // Nothing on order: the empty-state card below already says what this tab is.
-              if(visibleGroups.length===0) return null;
               return(
               <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:"10px 16px",marginBottom:12,borderRadius:16,
                 background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
@@ -2541,6 +2390,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
                     ))}
                   </div>
                 )}
+                <button onClick={()=>setOrderBrowseOpen(true)} className="kh-hovercard"
+                  style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 18px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:K.shadowCard}}>
+                  📋 {T2("Browse ingredients to order")}
+                </button>
                 {visibleGroups.length>0&&(
                   <button onClick={()=>setPrintReq({mode:"all"})} className="kh-hovercard"
                     style={{display:"inline-flex",alignItems:"center",gap:7,padding:"10px 18px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:K.shadowCard}}>
@@ -2557,11 +2410,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <div style={{width:56,height:56,borderRadius:18,margin:"0 auto 12px",background:K.sageBg,border:`1px solid ${K.sageBorder}`,fontSize:26,display:"flex",alignItems:"center",justifyContent:"center"}}>🧺</div>
                 <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle}}>{T2("No order lists yet")}</div>
                 <div style={{fontSize:13,color:K.hdrMeta,marginTop:4,maxWidth:420,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>
-                  {T2("Use + on an ingredient in the Requirements Day Sheet to send it here. Items are grouped by inventory category, ready to print for each vendor.")}
+                  {T2("Browse a day's ingredients and tap + to send one here. Items are grouped by inventory category, ready to print for each vendor.")}
                 </div>
-                <button onClick={()=>setTab("requirements")} className="kh-hovercard"
+                <button onClick={()=>setOrderBrowseOpen(true)} className="kh-hovercard"
                   style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard}}>
-                  🧮 {T2("Go to Requirements")} →
+                  📋 {T2("Browse ingredients to order")} →
                 </button>
               </div>
             )}
@@ -2605,6 +2458,139 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 </div>);
               })}
             </div>
+
+            {/* ── Browse ingredients to order — moved here from Requirements:
+                deciding what to order (procurement, pooled across every venue)
+                is this tab's job now; Requirements stays issuing-only, scoped
+                to the logged-in store user's own venue. ── */}
+            {orderBrowseOpen && (()=>{
+              const { dayEvs: obEvs, rows: obRows, rowGroups: obGroups } = buildRowsForDay(orderBrowseDay);
+              const obListsForDay = orderListItems.filter(r=>r.order_date===orderBrowseDay);
+              function obListFor(name){ return obListsForDay.find(r=>r.ingredient_name===name); }
+              const obTodayFnCount = safeEvs.filter(e=>e.date===TODAY).length;
+              const obTmrwFnCount = safeEvs.filter(e=>e.date===TOMORROW).length;
+              const obColSpan = 2 + 2 + 1;
+              return(
+              <div onClick={()=>setOrderBrowseOpen(false)} role="presentation"
+                style={{position:"fixed",inset:0,zIndex:900,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
+                style={{position:"relative",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,boxShadow:K.shadowLift,
+                  width:"100%",maxWidth:1200,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:K.fontBody}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"16px 22px",borderBottom:`1px solid ${K.cardWarmLine}`,flexWrap:"wrap"}}>
+                  <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:19,
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>📋</span>
+                  <div style={{flex:"1 1 200px",minWidth:0}}>
+                    <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{T2("Browse ingredients to order")}</div>
+                    <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{obRows.length} {T2("ingredients")} · {obEvs.length} {T2("function")}{obEvs.length===1?"":"s"} · {orderBrowseDay}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <div style={{display:"flex",padding:3,borderRadius:999,background:"#F0EEE7",border:`1px solid ${K.cardWarmLine}`}}>
+                      {[{d:TODAY,l:T2("Today"),n:obTodayFnCount},{d:TOMORROW,l:T2("Tomorrow"),n:obTmrwFnCount}].map(o=>{const on=orderBrowseDay===o.d;return(
+                        <button key={o.l} onClick={()=>setOrderBrowseDay(o.d)}
+                          style={{padding:"7px 14px",borderRadius:999,fontSize:12.5,fontWeight:700,cursor:"pointer",border:"none",
+                            background:on?K.brand:"transparent",color:on?"#FFFFFF":K.textBody}}>
+                          {o.l} <span style={{opacity:.75,fontVariantNumeric:"tabular-nums"}}>({o.n})</span>
+                        </button>);})}
+                    </div>
+                    <DayPicker value={orderBrowseDay} onChange={setOrderBrowseDay} markDates={new Set(safeEvs.map(e=>e.date))} T2={T2}/>
+                  </div>
+                  {Object.keys(ingSelected).length>0&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:12.5,fontWeight:600,color:K.hdrMeta}}>{Object.keys(ingSelected).length} {T2("selected")}</span>
+                      <button onClick={()=>setIngSelected({})} style={{padding:"7px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Clear")}</button>
+                      <button disabled={Object.keys(ingSelected).length<2}
+                        onClick={()=>{const names=Object.keys(ingSelected);const first=allRecipeIngredients.find(i=>i.name===names[0]);setIngMergeModal({sources:names,target:names[0],unit:first?.unit||""});}}
+                        style={{padding:"7px 16px",borderRadius:999,border:"none",fontSize:12.5,fontWeight:700,
+                          background:Object.keys(ingSelected).length<2?K.cardWarmLine:K.brand,color:Object.keys(ingSelected).length<2?K.textFaint:"#FFFFFF",
+                          cursor:Object.keys(ingSelected).length<2?"not-allowed":"pointer"}}>🔗 {T2("Merge into one")}</button>
+                    </div>
+                  )}
+                  <button onClick={()=>setOrderBrowseOpen(false)} aria-label={T2("Close")}
+                    style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
+                </div>
+                {obEvs.length===0 ? (
+                  <div style={{padding:"40px 22px",textAlign:"center",color:K.hdrMeta,fontSize:13}}>{T2("No functions scheduled — nothing to order yet.")}</div>
+                ) : obRows.length===0 ? (
+                  <div style={{padding:"40px 22px",textAlign:"center",color:K.hdrMeta,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
+                ) : (
+                <div style={{flex:1,minHeight:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+                  <div style={{overflow:"auto",flex:1,minHeight:0}}>
+                    <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,width:"100%",fontFamily:K.fontBody}}>
+                      <thead>
+                        <tr>
+                          <th style={{position:"sticky",top:0,left:0,background:"#F4F2EC",zIndex:7,textAlign:"left",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:190,maxWidth:190}}>{T2("Item")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 6px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("UM")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:K.brandSoft,textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Total")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Stock")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:90}}>{T2("Actions")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {obGroups.map(group=>{
+                          const closed = !!reqCatClosed[group.meta.key];
+                          return (
+                          <React.Fragment key={group.meta.key}>
+                            <tr onClick={()=>setReqCatClosed(p=>({...p,[group.meta.key]:!closed}))} style={{cursor:"pointer"}}>
+                              <td colSpan={obColSpan} style={{padding:"10px 14px",fontWeight:700,fontSize:11.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.6,borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.meta.color}`,userSelect:"none"}}>
+                                <span style={{display:"inline-block",width:12,transition:"transform .15s",transform:closed?"rotate(-90deg)":"rotate(0deg)"}}>▾</span>{" "}
+                                {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
+                              </td>
+                            </tr>
+                            {!closed && group.rows.map((row,ri)=>{
+                              // Pooled across every venue, deliberately — deciding what to
+                              // order is a company-wide call, not any one venue's own stock.
+                              const {isMapped, stock, requiredSU} = resolveStock(row);
+                              const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                              const list = obListFor(row.name);
+                              const listMeta = list ? categoryMetaForName(row.name) : null;
+                              const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
+                              return (
+                                <tr key={row.name} className="req-row" style={{background:ri%2?"rgba(0,0,0,.018)":"transparent"}}>
+                                  <td style={{position:"sticky",left:0,background:ri%2?"#F9F8F3":K.cardWarm,padding:"9px 14px",fontWeight:600,fontSize:13,color:K.hdrTitle,verticalAlign:"middle",maxWidth:190,borderBottom:`1px solid ${K.lineSoft}`,zIndex:2}} title={fullTitle}>
+                                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                                      <input type="checkbox" checked={!!ingSelected[row.name]}
+                                        onChange={()=>setIngSelected(p=>{const n={...p};if(n[row.name])delete n[row.name];else n[row.name]=true;return n;})}
+                                        title={T2("Select to merge with other ingredients")}
+                                        style={{width:15,height:15,flexShrink:0,cursor:"pointer",accentColor:K.brand}}/>
+                                      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.name}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{textAlign:"center",padding:"9px 6px",color:K.textFaint,fontSize:11.5,verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>{row.unit}</td>
+                                  <td style={{textAlign:"right",padding:"9px 14px",fontWeight:700,fontSize:13,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",verticalAlign:"middle",background:K.brandSoft,borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(row.total,row.unit)}</td>
+                                  <td style={{textAlign:"right",padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {!isMapped
+                                      ? <span onClick={()=>setMapModalIng({name:row.name,hindi:row.hindi||"",unit:row.unit})} style={{cursor:"pointer",fontSize:11,color:C.amber,textDecoration:"underline"}}>{T2("link to store")}</span>
+                                      : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
+                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,
+                                          border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock ? fmtIssueQty(stock.available,stock.unit) : "—"}</span>}
+                                  </td>
+                                  <td style={{padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                      {list ? (
+                                        <span title={listMeta.label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:listMeta.bg,color:listMeta.color,whiteSpace:"nowrap",flexShrink:0}}>
+                                          {listMeta.icon}
+                                          <button onClick={()=>removeFromOrderList(row,orderBrowseDay)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>×</button>
+                                        </span>
+                                      ) : (
+                                        <button onClick={()=>addToOrderList(row,group.meta.key,orderBrowseDay)} title={T2("Add to")+" "+group.meta.label+" "+T2("order list")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>+</button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                )}
+              </div>
+              </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -3208,7 +3194,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {/* ── Custom / partial issue-quantity modal — opened by the ± button
           next to Issue, or by tapping an already-issued ✓ to issue more. ── */}
       {issueQtyModal&&(()=>{
-        const { row, agg, stock } = issueQtyModal;
+        const { row, agg, stock, shortfall } = issueQtyModal;
         const val = parseFloat(issueQtyModal.value);
         const valid = !isNaN(val) && val>0;
         const newIssued = agg.issuedQty + (valid?val:0);
@@ -3242,6 +3228,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
               {valid && newRemaining>1e-9 && (
                 <div style={{fontSize:11.5,fontWeight:600,color:C.amber,marginTop:8,padding:"6px 10px",borderRadius:8,background:C.amberBg||"#FBF2DD"}}>
                   {T2("Remaining after this issue")}: {fmtIssueQty(newRemaining,row.unit)}
+                </div>
+              )}
+              {/* Only surfaced when the LOGGED-IN STORE USER'S OWN VENUE is short —
+                  the pooled total across every venue can look fine while this one
+                  specific venue (the only one this user can actually hand something
+                  out of) has nowhere near enough. */}
+                {shortfall && (
+                <div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:C.redBg||"#FBEAEA",border:`1px solid ${C.red}33`}}>
+                  <div style={{fontSize:11.5,fontWeight:700,color:C.red,marginBottom:shortfall.donors.length?8:0}}>
+                    ⚠ {T2("Short at your venue by")} {fmtIssueQty(shortfall.shortfall,row.unit)}
+                  </div>
+                  {shortfall.donors.length>0 ? (
+                    <button onClick={()=>{ openTransferRequest(row, stock, shortfall); setIssueQtyModal(null); }}
+                      style={{width:"100%",padding:"8px",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                      🚚 {T2("Request from another venue")}
+                    </button>
+                  ) : (
+                    <div style={{fontSize:11,color:C.faint}}>{T2("No other venue has spare stock of this item.")}</div>
+                  )}
                 </div>
               )}
             </div>
