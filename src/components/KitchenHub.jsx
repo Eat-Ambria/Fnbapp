@@ -181,12 +181,12 @@ function OrderingSheetTable({ rows, osGroups, yieldAdjustPct, T2, ingrCatOverrid
                   document.body
                 )}
               </span>
-              {cat==='Other' && onSaveCategory && (
+              {onSaveCategory && (
                 <select onClick={e=>e.stopPropagation()} value="" onChange={e=>{if(e.target.value) onSaveCategory(r.n, e.target.value);}}
                   title={T2("Move to a category")}
                   style={{marginLeft:8,fontSize:9.5,border:`1px solid ${C.border}`,borderRadius:6,padding:"1px 3px",color:C.muted,background:"#fff",cursor:"pointer"}}>
                   <option value="">{T2("Move…")}</option>
-                  {INGR_CATEGORY_ORDER.filter(c=>c!=='Other').map(c=><option key={c} value={c}>{T2(c)}</option>)}
+                  {INGR_CATEGORY_ORDER.filter(c=>c!==cat).map(c=><option key={c} value={c}>{T2(c)}</option>)}
                 </select>
               )}
             </td>

@@ -434,6 +434,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [reqListAllAsk, setReqListAllAsk] = useState(false); // in-app confirm for "+ All" (order list)
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
   const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
+  const [issueQtyModal, setIssueQtyModal] = useState(null); // {row,agg,stock,isDiscrete,value} — custom/partial issue-quantity dialog
+  const [transferRequests, setTransferRequests] = useState([]); // rows from store_transfer_requests
+  const [transferModal, setTransferModal] = useState(null); // {row,stock,toVenue,donors,value,fromVenueId}
+  const [transferListOpen, setTransferListOpen] = useState(false); // list/manage modal for open requests
   const [printReq, setPrintReq] = useState(null); // null | {mode:"all"} | {mode:"one", key} — Order Lists print preview
   const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
   const [orderListLoading, setOrderListLoading] = useState(false);
@@ -752,6 +756,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return () => { supabase.removeChannel(ch); };
   }, []);
 
+  /* ── Load cross-venue transfer requests + subscribe ── */
+  useEffect(() => {
+    if (!supabase) return;
+    async function loadTransferRequests() {
+      try {
+        const rows = await fetchAllRows(() => supabase.from('store_transfer_requests').select('*').order('requested_at', { ascending: false }));
+        setTransferRequests(rows || []);
+      } catch (e) { console.error("Transfer requests load failed:", e); }
+    }
+    loadTransferRequests();
+    const ch = supabase.channel('str-rt').on('postgres_changes', { event: '*', schema: 'public', table: 'store_transfer_requests' }, (p) => {
+      if (p.eventType === 'DELETE') {
+        setTransferRequests(prev => prev.filter(r => r.id !== p.old.id));
+      } else {
+        const r = p.new;
+        setTransferRequests(prev => {
+          const idx = prev.findIndex(x => x.id === r.id);
+          if (idx >= 0) { const n = [...prev]; n[idx] = r; return n; }
+          return [r, ...prev];
+        });
+      }
+    }).subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
   /* ── Smart Issue helpers ── */
   const VENUE_CODES = ["AP", "AE", "AM", "AR"];
 
@@ -815,6 +844,206 @@ function StoreModule({events, lang="en", currentUser=null}) {
       { onConflict: 'event_id,section_name' }
     );
     if (error) console.error("Assignment save failed:", error);
+  }
+
+  /* ── Partial/pack-aware issuing ──────────────────────────────────────────
+     A Day Sheet row can be short of its OWN unit without being short of
+     stock: Ajinomoto needed in grams but only stockable in whole 500g
+     packets can't be issued down to the gram, and Beans needed in one go
+     may genuinely be handed out across two separate visits (2kg on Prep
+     Day, the remaining 3kg on Event Day). Both are the same underlying
+     need — issuing a chosen quantity now, short of or over the full
+     requirement, and remembering what's left — so one mechanism covers
+     both instead of the old all-or-nothing toggle. store_issues' existing
+     qty_required/qty_issued columns already support this; only how this
+     file WRITES qty_issued changes (additive, not always-the-full-amount). */
+  function stockForRow(row) {
+    const isDirectInv = row._type === 'inv' && !!row.ops_inventory_id;
+    return isDirectInv ? getStockByInventoryId(row.ops_inventory_id) : getStockForIngredient(row.name);
+  }
+  // Recipe qty (in `unit`) -> store units of `stock`. Mirrors the Day
+  // Sheet's own 3-tier chain (grams, then ml, then a configured conversion
+  // factor) so "required" and "how much to issue" never drift apart.
+  function qtyToStoreUnits(qty, unit, stock) {
+    const recG = toGrams(qty, unit), stoG = toGrams(1, stock.unit);
+    if (recG != null && stoG != null) return recG / stoG;
+    const recM = toMl(qty, unit), stoM = toMl(1, stock.unit);
+    if (recM != null && stoM != null) return recM / stoM;
+    const oF = getUnitFamily(unit), aF = getUnitFamily(stock.unit);
+    const adj = (oF && aF && oF.family === aF.family) ? (aF.toBase / oF.toBase) : 1;
+    return qty * adj * (stock.conversion || 1);
+  }
+  // Inverse of qtyToStoreUnits — store units back to `unit`.
+  function storeUnitsToQty(suQty, stock, unit) {
+    const stoG = toGrams(1, stock.unit), recGPerUnit = toGrams(1, unit);
+    if (stoG != null && recGPerUnit != null) return (suQty * stoG) / recGPerUnit;
+    const stoM = toMl(1, stock.unit), recMPerUnit = toMl(1, unit);
+    if (stoM != null && recMPerUnit != null) return (suQty * stoM) / recMPerUnit;
+    const oF = getUnitFamily(unit), aF = getUnitFamily(stock.unit);
+    const adj = (oF && aF && oF.family === aF.family) ? (aF.toBase / oF.toBase) : 1;
+    return suQty / ((adj || 1) * (stock.conversion || 1));
+  }
+  // A store unit is "discrete" (whole packets/bottles/tins — can't be
+  // issued down to a fraction) whenever it isn't the same weight/volume
+  // family as the recipe's own unit. kg stock for a kg requirement is
+  // freely divisible; "Packets" stock for a gram requirement is not.
+  function isDiscreteStockUnit(row, stock) {
+    const rf = getUnitFamily(row.unit), sf = getUnitFamily(stock.unit);
+    return !(rf && sf && rf.family === sf.family);
+  }
+  function convQty(qty, fromU, toU) {
+    if (String(fromU || "").toLowerCase() === String(toU || "").toLowerCase()) return qty;
+    const fg = toGrams(qty, fromU), tgu = toGrams(1, toU);
+    if (fg != null && tgu != null) return fg / tgu;
+    const fm = toMl(qty, fromU), tmu = toMl(1, toU);
+    if (fm != null && tmu != null) return fm / tmu;
+    return qty;
+  }
+  // Cumulative issued-vs-required for a row, summed across every event/
+  // section that contributes to it (converted to the row's own unit —
+  // each store_issues record keeps the unit it was issued in).
+  function rowIssueAgg(row) {
+    let issuedQty = 0;
+    (row.evBreak || []).forEach(b => {
+      const r = issueRecords[b.evId + "::" + b.sec + "::" + row.name];
+      if (r && r.qty_issued) issuedQty += convQty(+r.qty_issued, r.unit || b.unit, row.unit);
+    });
+    const required = row.total;
+    return { required, issuedQty, remaining: Math.max(0, required - issuedQty), surplus: Math.max(0, issuedQty - required) };
+  }
+  function roundSmart(n) { return Math.round((+n || 0) * 100) / 100; }
+  // The one-click default: the exact remaining amount for a freely-divisible
+  // unit, or the nearest whole pack (rounded UP, never short-changing the
+  // kitchen) for a discrete one.
+  function suggestedIssueQty(row) {
+    const agg = rowIssueAgg(row);
+    const stock = stockForRow(row);
+    let suggested = agg.remaining, isDiscrete = false;
+    if (stock) {
+      isDiscrete = isDiscreteStockUnit(row, stock);
+      if (isDiscrete && agg.remaining > 1e-9) {
+        const remSU = qtyToStoreUnits(agg.remaining, row.unit, stock);
+        const wholeSU = Math.max(1, Math.ceil(remSU - 1e-9));
+        suggested = storeUnitsToQty(wholeSU, stock, row.unit);
+      }
+    }
+    return { agg, stock, isDiscrete, suggested };
+  }
+  // Writes an issued amount (in row.unit) against a row, spread across its
+  // contributing event/section records in proportion to each one's own
+  // share of the requirement (the common case — one event — gets the
+  // whole amount). Additive: repeatable for partial issuing over time.
+  async function commitIssueQty(row, amountInRowUnit) {
+    if (!(amountInRowUnit > 0) || !row.evBreak || row.evBreak.length === 0) return;
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const now = new Date().toISOString();
+    const updates = row.evBreak.map(b => {
+      const share = row.total > 0 ? (convQty(b.qty, b.unit, row.unit) / row.total) : (1 / row.evBreak.length);
+      const addQty = amountInRowUnit * share;
+      const addInBUnit = convQty(addQty, row.unit, b.unit);
+      const existing = issueRecords[b.evId + "::" + b.sec + "::" + row.name];
+      const prevIssued = existing ? (+existing.qty_issued || 0) : 0;
+      const newIssued = prevIssued + addInBUnit;
+      return {
+        event_id: b.evId, section_name: b.sec, ingredient_name: row.name,
+        ingredient_hindi: row.hindi || null, unit: b.unit,
+        qty_required: b.qty, qty_issued: newIssued,
+        issued: newIssued >= b.qty - 1e-6,
+        issued_by: staffId, issued_at: now,
+      };
+    });
+    setIssueRecords(prev => {
+      const n = { ...prev };
+      updates.forEach(u => { n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name] = { ...n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name], ...u }; });
+      return n;
+    });
+    const { error } = await supabase.from('store_issues').upsert(updates, { onConflict: 'event_id,section_name,ingredient_name' });
+    if (error) console.error("Partial issue failed:", error);
+  }
+  async function quickIssue(row) {
+    const { agg, suggested } = suggestedIssueQty(row);
+    if (agg.remaining <= 1e-9 || !(suggested > 0)) return;
+    await commitIssueQty(row, suggested);
+  }
+  function openIssueQty(row) {
+    const { agg, stock, isDiscrete, suggested } = suggestedIssueQty(row);
+    setIssueQtyModal({ row, agg, stock, isDiscrete, value: agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "" });
+  }
+
+  /* ── Cross-venue transfer requests ─────────────────────────────────────
+     Ambria runs ONE pooled ops item per ingredient but a SEPARATE physical
+     store per venue (cs_venue_allocations). The Day Sheet's "Stock" column
+     already shows the pooled total, which can look fine even when the one
+     venue a function is actually AT is short — the other venues' allocation
+     is sitting at a different building. Break each row's requirement down
+     by the event's own venue and flag that specific shortfall, with a quick
+     way to log "please send some from venue X" for the other venue's store
+     to see and action (this never moves stock itself — a person does). */
+  // Venue names are spelled inconsistently app-wide ("Manaktala Farm" on the
+  // event, "Ambria Manaktala" or just a code elsewhere) — the same fuzzy,
+  // both-directions substring match EventDayTab.jsx's venueMatches() already
+  // uses for Home Venue, applied here against Ops's own venue names.
+  function venueFuzzyMatch(a, b) {
+    const x = (a || "").toLowerCase().trim(), y = (b || "").toLowerCase().trim();
+    return !!(x && y && (x.includes(y) || y.includes(x)));
+  }
+  // For a row, how much of it each actual event-venue needs, matched against
+  // THIS item's own per-venue allocations — then which of those venues don't
+  // have enough, and which other venue(s) of the same item have spare to ask.
+  function rowVenueShortfalls(row, stock) {
+    if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return [];
+    const byVenueId = {};
+    (row.evBreak || []).forEach(b => {
+      if (!b.venue) return;
+      const match = stock.item.venues.find(v => venueFuzzyMatch(b.venue, v.venueName));
+      if (!match) return;
+      const q = convQty(b.qty, b.unit, row.unit);
+      if (!byVenueId[match.venueId]) byVenueId[match.venueId] = { venue: match, required: 0 };
+      byVenueId[match.venueId].required += q;
+    });
+    const out = [];
+    Object.values(byVenueId).forEach(({ venue, required }) => {
+      const have = storeUnitsToQty(venue.qty, stock, row.unit);
+      if (required > have + 1e-9) {
+        const donors = stock.item.venues
+          .filter(v => v.venueId !== venue.venueId)
+          .map(v => ({ venue: v, spare: storeUnitsToQty(v.qty, stock, row.unit) }))
+          .filter(d => d.spare > 1e-9)
+          .sort((a, b) => b.spare - a.spare);
+        out.push({ venue, required, have, shortfall: required - have, donors });
+      }
+    });
+    return out;
+  }
+  function openTransferRequest(row, stock, sf) {
+    setTransferModal({
+      row, stock, toVenue: sf.venue, donors: sf.donors,
+      fromVenueId: sf.donors[0] ? sf.donors[0].venue.venueId : "",
+      value: String(roundSmart(sf.shortfall)),
+    });
+  }
+  async function createTransferRequest() {
+    const { row, stock, toVenue, donors, fromVenueId, value } = transferModal;
+    const val = parseFloat(value);
+    if (!(val > 0)) return;
+    const from = donors.find(d => d.venue.venueId === fromVenueId) || donors[0];
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const rec = {
+      ingredient_name: row.name, ingredient_hindi: row.hindi || null, unit: row.unit, qty: val,
+      from_venue_code: from ? from.venue.venueCode : null, from_venue_name: from ? from.venue.venueName : null,
+      to_venue_code: toVenue.venueCode, to_venue_name: toVenue.venueName,
+      status: 'open', requested_by: staffId,
+    };
+    setTransferModal(null);
+    const { error } = await supabase.from('store_transfer_requests').insert(rec);
+    if (error) console.error("Transfer request failed:", error);
+  }
+  async function markTransferFulfilled(id) {
+    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+    const now = new Date().toISOString();
+    setTransferRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'fulfilled', fulfilled_by: staffId, fulfilled_at: now } : r));
+    const { error } = await supabase.from('store_transfer_requests').update({ status: 'fulfilled', fulfilled_by: staffId, fulfilled_at: now }).eq('id', id);
+    if (error) console.error("Mark fulfilled failed:", error);
   }
 
   /* ── Order Lists (Requirements tab "Add to Order list") ── */
@@ -1760,8 +1989,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const dayEvs = safeEvs.filter(e=>e.date===reqDay).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
         const evBags = buildEventBags(dayEvs);
 
-        function isIssued(evId, sec, ingName) { const r=issueRecords[evId+"::"+sec+"::"+ingName]; return r&&r.issued; }
-
         /* Reshape evBags (per-event, per-section) into ingredient rows with one
            column per category/station, mirroring Kitchen Hub's Ingredient
            Ordering Sheet — minus the yield-adjust slider, which is a Kitchen
@@ -1778,7 +2005,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
               row.byCat[sec] = addQtyWithUnitNorm(cellPrev, ing.totalQty, ing.unit);
               const totMerged = addQtyWithUnitNorm({totalQty:row.total,unit:row.unit}, ing.totalQty, ing.unit);
               row.total = totMerged.totalQty; row.unit = totMerged.unit;
-              row.evBreak.push({evId:ev.id, evName:ev.guest, sec, qty:ing.totalQty, unit:ing.unit});
+              row.evBreak.push({evId:ev.id, evName:ev.guest, venue:ev.venue||"", sec, qty:ing.totalQty, unit:ing.unit});
               if(!row._type && ing._type==='inv'){ row._type='inv'; row.ops_inventory_id = ing.ops_inventory_id||null; }
             });
           });
@@ -1789,34 +2016,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
         /* Stock resolution — same 3-tier unit-conversion chain the old
            Shortages table used (grams, then ml, then a configured conversion
            factor for anything else), so "short" here means the same thing it
-           always has. */
+           always has. Shared with the issue-quantity helpers above (qtyToStoreUnits)
+           so "short of stock" and "how much a pack issues" never drift apart. */
         function resolveStock(row){
+          const stock = stockForRow(row);
           const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
-          const stock = isDirectInv ? getStockByInventoryId(row.ops_inventory_id) : getStockForIngredient(row.name);
           const isMapped = isDirectInv || !!ingredientMap[row.name];
           if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null};
-          let requiredSU;
-          const recG=toGrams(row.total,row.unit), stoG=toGrams(1,stock.unit);
-          if(recG!=null && stoG!=null){ requiredSU = recG/stoG; }
-          else{
-            const recM=toMl(row.total,row.unit), stoM=toMl(1,stock.unit);
-            if(recM!=null && stoM!=null){ requiredSU = recM/stoM; }
-            else{
-              const oF=getUnitFamily(row.unit), aF=getUnitFamily(stock.unit);
-              const adj=(oF&&aF&&oF.family===aF.family)?(aF.toBase/oF.toBase):1;
-              requiredSU = row.total*adj*(stock.conversion||1);
-            }
-          }
-          return {isMapped:true, stock, requiredSU};
+          return {isMapped:true, stock, requiredSU: qtyToStoreUnits(row.total, row.unit, stock)};
         }
 
-        function rowIssued(row){ return row.evBreak.every(b=>isIssued(b.evId,b.sec,row.name)); }
-        async function toggleRowIssue(row){
-          const done = rowIssued(row);
-          for(const b of row.evBreak){
-            await toggleIssueItem(b.evId, b.sec, {name:row.name, hindi:row.hindi, unit:b.unit, totalQty:b.qty}, done);
-          }
-        }
+        function rowIssued(row){ return rowIssueAgg(row).remaining<=1e-9; }
 
         const orderListsForDay = orderListItems.filter(r=>r.order_date===reqDay);
         function orderListFor(name){ return orderListsForDay.find(r=>r.ingredient_name===name); }
@@ -1845,19 +2055,32 @@ function StoreModule({events, lang="en", currentUser=null}) {
           return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
         })();
         // Stations are cards above the table now (click → modal), not columns.
-        const tableColSpan = 2 + 3;
+        // +1 for the Balance column (issued-vs-required / surplus).
+        const tableColSpan = 2 + 3 + 1;
         const openStation = stations.find(st=>st.id===reqStation) || null;
         const openStationRows = openStation ? rows.filter(r=>r.byCat[openStation.name]) : [];
         // Station modal actions: the same ✓ issue / + order-list buttons as the
         // table, per row, plus an "all" version of each for the whole station.
         const groupKeyByRow = {};
         rowGroups.forEach(g=>g.rows.forEach(r=>{ groupKeyByRow[r.name] = g.meta.key; }));
+        // Same 4-bucket grouping as the "All ingredients" table, scoped to
+        // just this station's rows — a station used to list its ingredients
+        // flat, with no way to jump to (say) just its Dairy items.
+        const stationRowGroups = (function(){
+          const buckets = {};
+          openStationRows.forEach(row=>{
+            const meta = categoryMetaForName(row.name);
+            (buckets[meta.key] = buckets[meta.key] || {meta, rows:[]}).rows.push(row);
+          });
+          return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
+        })();
+        const stationTableColSpan = 3 + 1;
         const canIssueStock = hasPerm(currentUser,"store.smart_issue");
         const stPending = openStationRows.filter(r=>!rowIssued(r));
         const stUnlisted = openStationRows.filter(r=>!orderListFor(r.name));
         async function issueAllStation(){
           setReqIssueAllAsk(false);
-          for(const r of stPending) await toggleRowIssue(r);
+          for(const r of stPending) await quickIssue(r);
         }
         async function listAllStation(){
           setReqListAllAsk(false);
@@ -1931,6 +2154,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                       <span style={{fontSize:12.5,fontWeight:600,color:t.n>0?t.fg:K.textMuted}}>{t.l}</span>
                     </span>))}
                   <div style={{flex:1}}/>
+                  {transferRequests.filter(r=>r.status==='open').length>0 && (
+                    <button onClick={()=>setTransferListOpen(true)} title={T2("Open cross-venue stock requests")}
+                      style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13,fontWeight:600,color:K.warn,background:K.warnBg,border:`1px solid ${K.warnBorder}`,borderRadius:999,padding:"10px 18px",cursor:"pointer",fontFamily:K.fontBody}}>
+                      🚚 {transferRequests.filter(r=>r.status==='open').length} {T2("transfer requests")}
+                    </button>
+                  )}
                   <button onClick={openIngDedup} title={T2("Scan for similar/duplicate ingredient names to merge")}
                     style={{display:"inline-flex",alignItems:"center",gap:7,fontSize:13,fontWeight:600,color:K.textBody,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,borderRadius:999,padding:"10px 18px",cursor:"pointer",boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
                     🔍 {T2("Find duplicates")}
@@ -2033,6 +2262,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 6px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("UM")}</th>
                           <th style={{position:"sticky",top:0,zIndex:5,background:K.brandSoft,textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrTitle,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Total")}</th>
                           <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Stock")}</th>
+                          <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"right",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2("Balance")}</th>
                           <th style={{position:"sticky",top:0,zIndex:5,background:"#F4F2EC",textAlign:"center",padding:"11px 14px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`,minWidth:110}}>{T2("Actions")}</th>
                         </tr>
                       </thead>
@@ -2050,7 +2280,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                             {!closed && group.rows.map((row,ri)=>{
                               const {isMapped, stock, requiredSU} = resolveStock(row);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
-                              const done = rowIssued(row);
+                              const venueSf = isMapped && stock ? rowVenueShortfalls(row, stock) : [];
+                              const agg = rowIssueAgg(row);
+                              const done = agg.remaining<=1e-9;
                               const list = orderListFor(row.name);
                               const listMeta = list ? categoryMetaForName(row.name) : null;
                               const fullTitle = row.name+(row.hindi?" ("+row.hindi+")":"");
@@ -2073,13 +2305,33 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                       : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
                                           background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,
                                           border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock ? fmtIssueQty(stock.available,stock.unit) : "—"}</span>}
+                                    {venueSf.map(sf=>(
+                                      <div key={sf.venue.venueId} style={{marginTop:3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
+                                        <span title={T2("Short at")+" "+sf.venue.venueName} style={{fontSize:10,fontWeight:700,color:K.warn,whiteSpace:"nowrap"}}>⚠ {sf.venue.venueCode||sf.venue.venueName} {T2("short")} {fmtIssueQty(sf.shortfall,row.unit)}</span>
+                                        {sf.donors.length>0 && hasPerm(currentUser,"store.smart_issue") && (
+                                          <button onClick={()=>openTransferRequest(row,stock,sf)} title={T2("Request from another venue")} style={{fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:7,background:"#FFFFFF",color:K.warn,border:`1px solid ${K.warnBorder}`,cursor:"pointer",whiteSpace:"nowrap"}}>{T2("Request")}</button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </td>
+                                  <td style={{textAlign:"right",padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {agg.issuedQty<=1e-9
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : agg.remaining>1e-9
+                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>
+                                      : agg.surplus>1e-9
+                                      ? <span title={T2("Issued more than needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)}</span>
+                                      : <span style={{fontSize:11.5,color:K.textFaint}}>—</span>}
                                   </td>
                                   <td style={{padding:"9px 14px",verticalAlign:"middle",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,flexWrap:"nowrap"}}>
                                       {done ? (
-                                        <div title={T2("Issued from store")} style={{width:30,height:30,borderRadius:9,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</div>
+                                        <button onClick={()=>openIssueQty(row)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>✓</button>
                                       ) : (
-                                        hasPerm(currentUser,"store.smart_issue") && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
+                                        hasPerm(currentUser,"store.smart_issue") && <>
+                                          <button onClick={()=>quickIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>✓</button>
+                                          <button onClick={()=>openIssueQty(row)} title={T2("Issue a custom or partial quantity")} style={{width:24,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:11,lineHeight:1}}>±</button>
+                                        </>
                                       )}
                                       {list ? (
                                         <span title={listMeta.label} style={{display:"flex",alignItems:"center",gap:2,fontSize:12,fontWeight:700,padding:"3px 5px",borderRadius:7,background:listMeta.bg,color:listMeta.color,whiteSpace:"nowrap",flexShrink:0}}>
@@ -2131,7 +2383,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                           <thead>
                             <tr>
-                              {[{l:"Ingredient",a:"left"},{l:"Needed",a:"right"},{l:"Stock",a:"right"}].map(h=>(
+                              {[{l:"Ingredient",a:"left"},{l:"Needed",a:"right"},{l:"Stock",a:"right"},{l:"Balance",a:"right"}].map(h=>(
                                 <th key={h.l} style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:h.a,padding:"10px 22px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2(h.l)}</th>
                               ))}
                               <th style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:"center",padding:"8px 16px",borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`1px solid ${K.lineSoft}`,whiteSpace:"nowrap"}}>
@@ -2150,10 +2402,23 @@ function StoreModule({events, lang="en", currentUser=null}) {
                             </tr>
                           </thead>
                           <tbody>
-                            {openStationRows.map(row=>{
+                            {stationRowGroups.map(group=>{
+                              const closed = !!reqCatClosed[group.meta.key];
+                              return (
+                              <React.Fragment key={group.meta.key}>
+                                <tr onClick={()=>setReqCatClosed(p=>({...p,[group.meta.key]:!closed}))} style={{cursor:"pointer"}}>
+                                  <td colSpan={stationTableColSpan} style={{padding:"9px 22px",fontWeight:700,fontSize:11.5,color:group.meta.color,background:group.meta.bg,textTransform:"uppercase",letterSpacing:.6,borderTop:`1px solid ${K.cardWarmLine}`,borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${group.meta.color}`,userSelect:"none"}}>
+                                    <span style={{display:"inline-block",width:12,transition:"transform .15s",transform:closed?"rotate(-90deg)":"rotate(0deg)"}}>▾</span>{" "}
+                                    {group.meta.icon} {group.meta.label} <span style={{opacity:.75,fontWeight:600}}>({group.rows.length})</span>
+                                  </td>
+                                </tr>
+                                {!closed && group.rows.map(row=>{
                               const cell = row.byCat[openStation.name];
                               const {isMapped, stock, requiredSU} = resolveStock(row);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>stock.available;
+                              const venueSf = isMapped && stock ? rowVenueShortfalls(row, stock) : [];
+                              const agg = rowIssueAgg(row);
+                              const done = agg.remaining<=1e-9;
                               return(
                                 <tr key={row.name}>
                                   <td style={{padding:"10px 22px",fontWeight:600,color:K.hdrTitle,borderBottom:`1px solid ${K.lineSoft}`}}>{row.name}{row.hindi&&<span style={{display:"block",fontSize:11.5,fontWeight:400,color:K.hdrMeta}}>{row.hindi}</span>}</td>
@@ -2163,13 +2428,33 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
                                       : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
                                           background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock?fmtIssueQty(stock.available,stock.unit):"—"}</span>}
+                                    {venueSf.map(sf=>(
+                                      <div key={sf.venue.venueId} style={{marginTop:3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
+                                        <span title={T2("Short at")+" "+sf.venue.venueName} style={{fontSize:10,fontWeight:700,color:K.warn,whiteSpace:"nowrap"}}>⚠ {sf.venue.venueCode||sf.venue.venueName} {T2("short")} {fmtIssueQty(sf.shortfall,row.unit)}</span>
+                                        {sf.donors.length>0 && hasPerm(currentUser,"store.smart_issue") && (
+                                          <button onClick={()=>openTransferRequest(row,stock,sf)} title={T2("Request from another venue")} style={{fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:7,background:"#FFFFFF",color:K.warn,border:`1px solid ${K.warnBorder}`,cursor:"pointer",whiteSpace:"nowrap"}}>{T2("Request")}</button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </td>
+                                  <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {agg.issuedQty<=1e-9
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : agg.remaining>1e-9
+                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>
+                                      : agg.surplus>1e-9
+                                      ? <span title={T2("Issued more than needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)}</span>
+                                      : <span style={{fontSize:11.5,color:K.textFaint}}>—</span>}
                                   </td>
                                   <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                                      {rowIssued(row) ? (
-                                        <div title={T2("Issued from store")} style={{width:30,height:30,borderRadius:9,background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</div>
+                                      {done ? (
+                                        <button onClick={()=>openIssueQty(row)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</button>
                                       ) : (
-                                        canIssueStock && <button onClick={()=>toggleRowIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
+                                        canIssueStock && <>
+                                          <button onClick={()=>quickIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
+                                          <button onClick={()=>openIssueQty(row)} title={T2("Issue a custom or partial quantity")} style={{width:24,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>±</button>
+                                        </>
                                       )}
                                       {orderListFor(row.name) ? (
                                         <span title={T2("On order list")} style={{display:"flex",alignItems:"center",gap:3,fontSize:12,fontWeight:700,padding:"4px 7px",borderRadius:9,background:C.goldBg,color:C.gold,flexShrink:0}}>
@@ -2181,6 +2466,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                     </div>
                                   </td>
                                 </tr>
+                              );
+                                })}
+                              </React.Fragment>
                               );
                             })}
                           </tbody>
@@ -2912,6 +3200,129 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 }
               }} disabled={!convModal.convValue||parseFloat(convModal.convValue)<=0}
                 style={{flex:1,padding:"10px",borderRadius:10,background:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.borderLight:C.gold,border:"none",color:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?C.muted:C.goldBg,fontSize:12,fontWeight:700,cursor:(!convModal.convValue||parseFloat(convModal.convValue)<=0)?"not-allowed":"pointer"}}>✓ {T2("Save")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Custom / partial issue-quantity modal — opened by the ± button
+          next to Issue, or by tapping an already-issued ✓ to issue more. ── */}
+      {issueQtyModal&&(()=>{
+        const { row, agg, stock } = issueQtyModal;
+        const val = parseFloat(issueQtyModal.value);
+        const valid = !isNaN(val) && val>0;
+        const newIssued = agg.issuedQty + (valid?val:0);
+        const newRemaining = Math.max(0, agg.required-newIssued);
+        const newSurplus = Math.max(0, newIssued-agg.required);
+        return (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setIssueQtyModal(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Issue")} {row.name}</div>
+              <div style={{fontSize:11,color:C.faint,marginTop:2}}>
+                {T2("Required")} <b>{fmtIssueQty(agg.required,row.unit)}</b> · {T2("Issued so far")} <b>{fmtIssueQty(agg.issuedQty,row.unit)}</b>
+              </div>
+            </div>
+            <div style={{padding:"18px"}}>
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({row.unit})</div>
+              <input type="number" step="any" min="0" autoFocus value={issueQtyModal.value}
+                onChange={e=>setIssueQtyModal(p=>({...p,value:e.target.value}))}
+                style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
+              {stock && valid && (
+                <div style={{fontSize:11,color:C.faint,marginTop:8}}>
+                  ≈ {Math.round(qtyToStoreUnits(val,row.unit,stock)*100)/100} {stock.unit} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}
+                </div>
+              )}
+              {valid && newSurplus>1e-9 && (
+                <div style={{fontSize:11.5,fontWeight:600,color:C.green,marginTop:8,padding:"6px 10px",borderRadius:8,background:C.greenBg||"#EAF7F1"}}>
+                  {T2("This issues")} {fmtIssueQty(newSurplus,row.unit)} {T2("more than needed — recorded as surplus.")}
+                </div>
+              )}
+              {valid && newRemaining>1e-9 && (
+                <div style={{fontSize:11.5,fontWeight:600,color:C.amber,marginTop:8,padding:"6px 10px",borderRadius:8,background:C.amberBg||"#FBF2DD"}}>
+                  {T2("Remaining after this issue")}: {fmtIssueQty(newRemaining,row.unit)}
+                </div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
+              <button onClick={()=>setIssueQtyModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,val); setIssueQtyModal(null); }}
+                style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>✓ {T2("Confirm issue")}</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ── Cross-venue transfer-request modal — opened from a row's "Request"
+          button when that specific venue is short even though the item's
+          total across all venues looks fine. ── */}
+      {transferModal&&(()=>{
+        const { row, toVenue, donors, fromVenueId } = transferModal;
+        const val = parseFloat(transferModal.value);
+        const valid = !isNaN(val) && val>0;
+        return (
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setTransferModal(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Request")} {row.name}</div>
+              <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("For")} <b>{toVenue.venueName}</b></div>
+            </div>
+            <div style={{padding:"18px"}}>
+              {donors.length>1 && (
+                <>
+                  <div style={{fontSize:12,color:C.text,marginBottom:8,fontWeight:600}}>{T2("From")}</div>
+                  <select value={fromVenueId} onChange={e=>setTransferModal(p=>({...p,fromVenueId:e.target.value}))}
+                    style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}>
+                    {donors.map(d=><option key={d.venue.venueId} value={d.venue.venueId}>{d.venue.venueName} ({fmtIssueQty(d.spare,row.unit)} {T2("available")})</option>)}
+                  </select>
+                </>
+              )}
+              {donors.length===1 && (
+                <div style={{fontSize:12,color:C.text,marginBottom:14}}>{T2("From")} <b>{donors[0].venue.venueName}</b> ({fmtIssueQty(donors[0].spare,row.unit)} {T2("available")})</div>
+              )}
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Quantity")} ({row.unit})</div>
+              <input type="number" step="any" min="0" autoFocus value={transferModal.value}
+                onChange={e=>setTransferModal(p=>({...p,value:e.target.value}))}
+                style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
+              <button onClick={()=>setTransferModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
+              <button disabled={!valid} onClick={createTransferRequest}
+                style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>🚚 {T2("Send request")}</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ── Transfer-requests list — open requests any venue's store can see
+          and mark fulfilled once the item has actually been carried over. ── */}
+      {transferListOpen&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={()=>setTransferListOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text}}>🚚 {T2("Cross-venue stock requests")}</div>
+              <button onClick={()=>setTransferListOpen(false)} style={{border:"none",background:"transparent",color:C.muted,cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+            </div>
+            <div style={{overflowY:"auto",padding:"10px 14px"}}>
+              {transferRequests.filter(r=>r.status==='open').length===0 && (
+                <div style={{textAlign:"center",padding:24,color:C.muted,fontSize:12.5}}>{T2("No open requests.")}</div>
+              )}
+              {transferRequests.filter(r=>r.status==='open').map(r=>(
+                <div key={r.id} style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.text}}>{r.ingredient_name}{r.ingredient_hindi?" ("+r.ingredient_hindi+")":""}</div>
+                    <div style={{fontSize:11.5,color:C.muted,marginTop:2}}>{fmtIssueQty(+r.qty,r.unit)} — <b>{r.from_venue_name||"?"}</b> → <b>{r.to_venue_name||"?"}</b></div>
+                  </div>
+                  {hasPerm(currentUser,"store.smart_issue") && (
+                    <button onClick={()=>markTransferFulfilled(r.id)} style={{fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:8,background:C.green,color:"#fff",border:"none",cursor:"pointer",whiteSpace:"nowrap"}}>✓ {T2("Fulfilled")}</button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
