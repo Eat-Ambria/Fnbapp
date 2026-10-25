@@ -263,6 +263,22 @@ export default function App() {
         const prevEv = prevMap.get(id);
         const full = buildEventRecord(ev);
         if(!prevEv) {
+          // Same failure mode the comment below already documents for the
+          // existing-event patch path (events.guest/venue/date are NOT NULL,
+          // and PostgREST's upsert validates the full proposed INSERT row
+          // before ON CONFLICT even applies) — but here on the INSERT side:
+          // if whatever called setEvents() built `ev` from a narrower local
+          // snapshot than the real event (e.g. a menu-package auto-resolve
+          // racing ahead of this tab's own events state actually having the
+          // row yet), this looked "new" to prevMap even though it already
+          // exists server-side, and the resulting insert attempt — missing
+          // required columns — failed and retried identically forever on
+          // every re-render, with no data ever actually at risk (the real
+          // row was untouched throughout). Refuse to even attempt it instead.
+          if(!full.guest || !full.venue || !full.date) {
+            console.warn("[App] setEvents: refusing to create event with missing required fields (likely a stale/partial local copy racing a real one in):", full);
+            return;
+          }
           dbUpsert("events", full, "id").catch(e=>{
             // A genuinely failed insert (not offline) means this event was
             // never actually created server-side -- leaving it sitting in
