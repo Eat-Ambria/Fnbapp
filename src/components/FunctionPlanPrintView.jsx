@@ -4,8 +4,9 @@
 // (Customized Menu | F&B and Banquet Informations), and bottom sign-off boxes
 // (Board to Read / Attn Chef / Prospectus checked-approved-circulated).
 // Fields this app doesn't capture digitally (Contact No., Mode of Payment,
-// Rate, Advance, Direct/Repeat Guest, Board to Read, sign-off) print as blank
-// ruled boxes, same as the paper form — meant to be filled by hand.
+// Rate, Advance, Board to Read, sign-off) print as blank ruled boxes, same
+// as the paper form — meant to be filled by hand. Direct/Repeat Guest was
+// dropped (2026-10-26) — never filled in, just two empty ruled boxes.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
 import React, { useEffect } from "react";
@@ -14,6 +15,19 @@ import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
+import { resolveDishVeg } from '../data/recipeData.js';
+
+// Veg first, then unclassified, then non-veg — within a section's existing
+// order (a stable sort), not re-alphabetized. resolveDishVeg returns
+// true/false/null (never guesses from the name), so an unclassified dish
+// sits in its own middle bucket rather than being silently called veg or non-veg.
+function dietRank(name) {
+  var v = resolveDishVeg(name);
+  return v === true ? 0 : v === false ? 2 : 1;
+}
+function sortedByVeg(names) {
+  return (names || []).slice().sort(function(a, b){ return dietRank(a) - dietRank(b); });
+}
 
 var SPICE_LABELS = {
   mild:        'Mild',
@@ -311,14 +325,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
             {subVenue && <FCell value={subVenue} label="SUB-VENUE" />}
             <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
-          <FRow>
+          <FRow thick>
             <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
             <FCell value={(fp && fp.ops_manager_name) || ''} label="OPERATION MANAGER" />
             <FCell value={(fp && fp.ops_manager_contact) || ''} label="MANAGER CONTACT" last />
-          </FRow>
-          <FRow thick>
-            <FCell value="" label="DIRECT" />
-            <FCell value="" label="REPEAT GUEST" last />
           </FRow>
         </div>
 
@@ -353,8 +363,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                         {meta && (
                           <>
                             <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                            {diff.added.map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
-                            {diff.removed.map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
+                            {sortedByVeg(diff.added).map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                            {sortedByVeg(diff.removed).map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
                           </>
                         )}
                         {/* A whole catalogue section added just for this event — never
@@ -365,7 +375,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                           return (
                             <div key={sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New section")}: {sec.name})</span></SubHead>
-                              {sec.dishes.map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                              {sortedByVeg(sec.dishes).map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
                           );
                         })}
@@ -382,7 +392,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                   return (
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
-                      {names.map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
+                      {sortedByVeg(names).map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
                     </div>
                   );
                 })}
