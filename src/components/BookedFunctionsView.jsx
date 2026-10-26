@@ -37,6 +37,12 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var [loading, setLoading]     = useState(true);
   var [loadError, setLoadError] = useState(null);
   var [searchQ, setSearchQ]     = useState('');
+  var [fFrom, setFFrom]         = useState(''); // date filter — inclusive, "" = no bound
+  var [fTo, setFTo]             = useState('');
+  var [fVenue, setFVenue]       = useState('');
+  var [fMadeBy, setFMadeBy]     = useState('');
+  var [fFpStatus, setFFpStatus] = useState(''); // '' | 'none' | 'made' | 'locked'
+  var [fPackage, setFPackage]   = useState('');
   // null = the default upcoming-first date order; clicking a header switches
   // to sorting by that column, clicking it again flips asc/desc.
   var [sortKey, setSortKey]     = useState(null);
@@ -153,16 +159,53 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
     setMenuBuilderTab('items');
   }
 
+  // Dropdown option lists, derived from whatever's actually in the data —
+  // never a hardcoded list that can quietly drift from it (see the Edit
+  // Function venue dropdown bug from earlier: a hand-typed list missing a
+  // venue someone had already added elsewhere).
+  var venueOptions = useMemo(function(){
+    var set = new Set();
+    events.forEach(function(e){ if (e.venue) set.add(e.venue); });
+    return Array.from(set).sort();
+  }, [events]);
+  var packageOptions = useMemo(function(){
+    var set = new Set();
+    events.forEach(function(e){ var p = e.menu_package || e.menuPackage; if (p) set.add(p); });
+    return Array.from(set).sort();
+  }, [events]);
+  var madeByOptions = useMemo(function(){
+    var set = new Set();
+    events.forEach(function(e){ var mb = madeByFor(e); if (mb) set.add(mb); });
+    return Array.from(set).sort();
+  }, [events, fpMap]);
+  var hasActiveFilters = !!(fFrom || fTo || fVenue || fMadeBy || fFpStatus || fPackage);
+  function clearFilters() { setFFrom(''); setFTo(''); setFVenue(''); setFMadeBy(''); setFFpStatus(''); setFPackage(''); }
+
   var filteredList = useMemo(function(){
     var q = searchQ.trim().toLowerCase();
     var qDigits = searchQ.replace(/\D/g, '');
-    var base = !q ? events : events.filter(function(e){
-      if ((e.guest || '').toLowerCase().includes(q) || (e.venue || '').toLowerCase().includes(q)) return true;
-      if (qDigits.length >= 3) {
-        var phone = ((e.lms_raw && e.lms_raw.fisc_client_mobile) || '').replace(/\D/g, '');
-        if (phone && phone.includes(qDigits)) return true;
+    var fromTs = fFrom ? parseEventDate(fFrom) : null;
+    var toTs = fTo ? parseEventDate(fTo) : null;
+    var base = events.filter(function(e){
+      if (q) {
+        var matches = (e.guest || '').toLowerCase().includes(q) || (e.venue || '').toLowerCase().includes(q);
+        if (!matches && qDigits.length >= 3) {
+          var phone = ((e.lms_raw && e.lms_raw.fisc_client_mobile) || '').replace(/\D/g, '');
+          matches = !!(phone && phone.includes(qDigits));
+        }
+        if (!matches) return false;
       }
-      return false;
+      if (fVenue && e.venue !== fVenue) return false;
+      if (fPackage && (e.menu_package || e.menuPackage) !== fPackage) return false;
+      if (fMadeBy && madeByFor(e) !== fMadeBy) return false;
+      if (fFpStatus && fpStatusFor(e).key !== fFpStatus) return false;
+      if (fromTs != null || toTs != null) {
+        var ts = parseEventDate(e.date);
+        if (ts == null) return false; // undated row can't satisfy an explicit date range
+        if (fromTs != null && ts < fromTs) return false;
+        if (toTs != null && ts > toTs) return false;
+      }
+      return true;
     });
     if (sortKey) {
       var dir = sortDir;
@@ -199,7 +242,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       if (tb == null) return -1;
       return aUp ? (ta - tb) : (tb - ta); // upcoming: soonest first · past: most recent first
     });
-  }, [events, searchQ, sortKey, sortDir]);
+  }, [events, searchQ, sortKey, sortDir, fFrom, fTo, fVenue, fMadeBy, fFpStatus, fPackage, fpMap]);
 
   if (menuBuilderEvent) {
     return (
@@ -232,13 +275,53 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
       )}
 
       {/* Filter bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input value={searchQ} onChange={function(e){ setSearchQ(e.target.value); }}
           placeholder={T2("Search guest name, venue or contact number…")}
           style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 13, color: C.text }} />
         <span style={{ fontSize: 12, color: C.muted, marginLeft: 4 }}>
           {filteredList.length} {filteredList.length === 1 ? T2("function") : T2("functions")}
         </span>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.muted }}>
+          {T2("From")}
+          <input type="date" value={fFrom} onChange={function(e){ setFFrom(e.target.value); }}
+            style={{ padding: "6px 8px", borderRadius: 7, border: "1px solid " + (fFrom ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text }} />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.muted }}>
+          {T2("To")}
+          <input type="date" value={fTo} onChange={function(e){ setFTo(e.target.value); }}
+            style={{ padding: "6px 8px", borderRadius: 7, border: "1px solid " + (fTo ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text }} />
+        </label>
+        <select value={fVenue} onChange={function(e){ setFVenue(e.target.value); }}
+          style={{ padding: "7px 9px", borderRadius: 7, border: "1px solid " + (fVenue ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text }}>
+          <option value="">{T2("All venues")}</option>
+          {venueOptions.map(function(v){ return <option key={v} value={v}>{v}</option>; })}
+        </select>
+        <select value={fMadeBy} onChange={function(e){ setFMadeBy(e.target.value); }}
+          style={{ padding: "7px 9px", borderRadius: 7, border: "1px solid " + (fMadeBy ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text }}>
+          <option value="">{T2("All sales")}</option>
+          {madeByOptions.map(function(v){ return <option key={v} value={v}>{v}</option>; })}
+        </select>
+        <select value={fFpStatus} onChange={function(e){ setFFpStatus(e.target.value); }}
+          style={{ padding: "7px 9px", borderRadius: 7, border: "1px solid " + (fFpStatus ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text }}>
+          <option value="">{T2("All FP status")}</option>
+          <option value="none">{T2("Not made")}</option>
+          <option value="made">{T2("Made")}</option>
+          <option value="locked">{T2("Locked")}</option>
+        </select>
+        <select value={fPackage} onChange={function(e){ setFPackage(e.target.value); }}
+          style={{ padding: "7px 9px", borderRadius: 7, border: "1px solid " + (fPackage ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text, maxWidth: 200 }}>
+          <option value="">{T2("All packages")}</option>
+          {packageOptions.map(function(v){ return <option key={v} value={v}>{v}</option>; })}
+        </select>
+        {hasActiveFilters && (
+          <button onClick={clearFilters}
+            style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid " + C.border, background: C.bg, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            ↺ {T2("Reset")}
+          </button>
+        )}
       </div>
 
       {loading && (
