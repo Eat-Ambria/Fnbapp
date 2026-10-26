@@ -1590,9 +1590,31 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         if(sopModal.mode==="edit"&&sopModal.origId!=null){
           ({error}=await sb.from('recipes').update({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).eq('id',sopModal.origId));
         }else{
-          ({error}=await sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}));
+          // A brand-new recipe's optimistic recObj has no id yet — asking
+          // Postgres to hand the inserted row's id straight back and setting
+          // it here (same object already sitting in RECIPE_DB.recipes[f.catId],
+          // mutated in place) lets the realtime INSERT echo's id-based dedup
+          // (recipeData.js/StoreModule.jsx both do `findIndex(x=>x.id===r.id)`)
+          // actually match it and overwrite in place. Without this, the echo's
+          // real id never matches the optimistic entry's undefined id, so it
+          // got pushed as a second, differently-keyed card — the "2 cards
+          // until refresh" bug, since a reload rebuilds RECIPE_DB from one row
+          // per real id and the id-less ghost never survives that rebuild.
+          let data;
+          ({data,error}=await sb.from('recipes').insert({dish_name:recObj.n,category_id:f.catId,sub:recObj.sub,steps:recObj.steps,bg:!!recObj.bg}).select('id').single());
+          if(!error&&data){
+            // Covers the race the other way too: a realtime echo that landed
+            // and pushed its own copy before this REST response did — drop
+            // that one and keep recObj (already referenced by sopRecipe)
+            // as the single surviving entry.
+            const arr=RECIPE_DB.recipes[f.catId]||[];
+            const dupIdx=arr.findIndex(r=>r!==recObj&&r.id===data.id);
+            if(dupIdx>=0) arr.splice(dupIdx,1);
+            recObj.id=data.id;
+          }
         }
         if(error) throw error;
+        bumpSopDb(x=>x+1);
         console.log('✅ SOP '+(sopModal.mode==='edit'?'updated (in-place)':'saved'));
       }catch(e){
         console.error('SOP save err:',e);

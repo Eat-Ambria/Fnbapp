@@ -432,7 +432,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [orderBrowseDay, setOrderBrowseDay] = useState(TODAY); // its own day picker — independent of Requirements' reqDay
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
-  const [reqListAllAsk, setReqListAllAsk] = useState(false); // in-app confirm for "+ All" (order list)
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
   const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
   const [issueQtyModal, setIssueQtyModal] = useState(null); // {row,agg,stock,isDiscrete,value} — custom/partial issue-quantity dialog
@@ -1125,37 +1124,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
     setReqPicker(null);
     const { error } = await supabase.from('store_order_lists').upsert(rec, { onConflict: 'order_date,ingredient_name' });
     if (error) console.error("Add to order list failed:", error);
-  }
-  // Many at once (station modal "+ All"): one state update and one bulk upsert,
-  // not a network round-trip per ingredient. Reports a failed save in the UI.
-  async function addManyToOrderList(list, day = reqDay) {
-    const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
-    const now = new Date().toISOString();
-    const recs = list.map(({row, listKey}) => ({
-      order_date: day,
-      ingredient_name: row.name,
-      ingredient_hindi: row.hindi || null,
-      unit: row.unit,
-      qty: row.total,
-      list_key: listKey,
-      source: [...new Set(row.evBreak.map(b => b.evName))].join(', '),
-      ordered: false,
-      added_by: staffId,
-      added_at: now,
-    }));
-    if (recs.length === 0) return;
-    setOrderListItems(prev => {
-      const names = new Set(recs.map(r => r.ingredient_name));
-      return [...prev.filter(r => !(r.order_date === day && names.has(r.ingredient_name))), ...recs];
-    });
-    const { error } = await supabase.from('store_order_lists').upsert(recs, { onConflict: 'order_date,ingredient_name' });
-    if (error) {
-      console.error("Add all to order list failed:", error);
-      setReqNote({ tone: "err", text: T2("Could not save the order list") + ": " + (error.message || error.code || "") });
-    } else {
-      setReqNote({ tone: "ok", text: recs.length + " " + T2("ingredients added to the order list") });
-    }
-    setTimeout(() => setReqNote(null), 5000);
   }
   async function removeFromOrderList(row, day = reqDay) {
     setOrderListItems(prev => prev.filter(r => !(r.order_date === day && r.ingredient_name === row.name)));
@@ -2042,7 +2010,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
       {/* ── REQUIREMENTS — event-first with collective toggle ── */}
       {tab==="requirements"&&(()=>{
-        const { dayEvs, rows, rowGroups, stations } = buildRowsForDay(reqDay);
+        const { dayEvs, rows, stations } = buildRowsForDay(reqDay);
 
         const orderListsForDay = orderListItems.filter(r=>r.order_date===reqDay);
         function orderListFor(name){ return orderListsForDay.find(r=>r.ingredient_name===name); }
@@ -2065,11 +2033,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         // Stations are cards above the table now (click → modal), not columns.
         const openStation = stations.find(st=>st.id===reqStation) || null;
         const openStationRows = openStation ? rows.filter(r=>r.byCat[openStation.name]) : [];
-        // Station modal actions: the same ✓ issue / + order-list buttons as the
-        // table, per row, plus an "all" version of each for the whole station.
-        const groupKeyByRow = {};
-        rowGroups.forEach(g=>g.rows.forEach(r=>{ groupKeyByRow[r.name] = g.meta.key; }));
-        // Same 4-bucket grouping as the "All ingredients" table, scoped to
+        // Same 4-bucket grouping as the old combined table, scoped to
         // just this station's rows — a station used to list its ingredients
         // flat, with no way to jump to (say) just its Dairy items.
         const stationRowGroups = (function(){
@@ -2083,14 +2047,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const stationTableColSpan = 3 + 1 + 1; // Ingredient/Needed/Stock + Balance + Actions
         const canIssueStock = hasPerm(currentUser,"store.smart_issue");
         const stPending = openStationRows.filter(r=>!rowIssued(r));
-        const stUnlisted = openStationRows.filter(r=>!orderListFor(r.name));
         async function issueAllStation(){
           setReqIssueAllAsk(false);
           for(const r of stPending) await quickIssue(r);
-        }
-        async function listAllStation(){
-          setReqListAllAsk(false);
-          await addManyToOrderList(stUnlisted.map(r=>({row:r, listKey:groupKeyByRow[r.name]})));
         }
 
         return(
@@ -2214,7 +2173,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
                 {/* Station details modal */}
                 {openStation && (
-                  <div onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);setReqListAllAsk(false);}} role="presentation"
+                  <div onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);}} role="presentation"
                     style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
                     <div role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}
                       style={{position:"relative",background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:22,boxShadow:K.shadowLift,
@@ -2226,7 +2185,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                           <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{openStation.name}</div>
                           <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2}}>{openStationRows.length} {T2("ingredients")} · {dayEvs.length} {T2("function")}{dayEvs.length===1?"":"s"} · {reqDay}</div>
                         </div>
-                        <button onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);setReqListAllAsk(false);}} aria-label={T2("Close")}
+                        <button onClick={()=>{setReqStation(null);setReqIssueAllAsk(false);}} aria-label={T2("Close")}
                           style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
                       </div>
                       {reqNote && (
@@ -2248,10 +2207,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                     title={T2("Issue all from store")}
                                     style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stPending.length?"pointer":"not-allowed",
                                       background:"#FFFFFF",color:stPending.length?C.green:K.textFaint,border:`1.5px solid ${stPending.length?C.greenBorder:K.cardWarmLine}`}}>✓ {T2("All")}</button>}
-                                  <button onClick={()=>setReqListAllAsk(true)} disabled={stUnlisted.length===0}
-                                    title={T2("Add all to order list")}
-                                    style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stUnlisted.length?"pointer":"not-allowed",
-                                      background:"#FFFFFF",color:stUnlisted.length?C.gold:K.textFaint,border:`1.5px solid ${stUnlisted.length?C.goldBorder:K.cardWarmLine}`}}>+ {T2("All")}</button>
                                 </div>
                               </th>
                             </tr>
@@ -2307,13 +2262,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                           <button onClick={()=>openIssueQty(row)} title={T2("Issue a custom or partial quantity")} style={{width:24,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>±</button>
                                         </>
                                       )}
-                                      {orderListFor(row.name) ? (
-                                        <span title={T2("On order list")} style={{display:"flex",alignItems:"center",gap:3,fontSize:12,fontWeight:700,padding:"4px 7px",borderRadius:9,background:C.goldBg,color:C.gold,flexShrink:0}}>
-                                          ✓<button onClick={()=>removeFromOrderList(row)} aria-label={T2("Remove from order list")} style={{border:"none",background:"transparent",color:"inherit",cursor:"pointer",fontSize:12,padding:0,lineHeight:1}}>×</button>
-                                        </span>
-                                      ) : (
-                                        <button onClick={()=>addToOrderList(row,groupKeyByRow[row.name])} title={T2("Add to order list")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:14,lineHeight:1}}>+</button>
-                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -2326,26 +2274,24 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         </table>
                       </div>
                     </div>
-                    {(reqIssueAllAsk||reqListAllAsk) && (
-                      <div onClick={e=>{e.stopPropagation();setReqIssueAllAsk(false);setReqListAllAsk(false);}} role="presentation"
+                    {reqIssueAllAsk && (
+                      <div onClick={e=>{e.stopPropagation();setReqIssueAllAsk(false);}} role="presentation"
                         style={{position:"fixed",inset:0,zIndex:9100,background:"rgba(20,28,24,.35)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
                         <div role="alertdialog" aria-modal="true" onClick={e=>e.stopPropagation()}
                           style={{background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:20,boxShadow:K.shadowLift,width:"100%",maxWidth:400,padding:"22px 24px",fontFamily:K.fontBody}}>
                           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
                             <span style={{width:40,height:40,borderRadius:12,flexShrink:0,background:K.warnBg,border:`1px solid ${K.warnBorder}`,color:K.warn,fontSize:18,
-                              display:"flex",alignItems:"center",justifyContent:"center"}}>{reqListAllAsk?"+":"✓"}</span>
-                            <div style={{fontSize:17,fontWeight:700,color:K.hdrTitle}}>{reqListAllAsk?T2("Add all to order list?"):T2("Issue all from store?")}</div>
+                              display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>
+                            <div style={{fontSize:17,fontWeight:700,color:K.hdrTitle}}>{T2("Issue all from store?")}</div>
                           </div>
                           <div style={{fontSize:13.5,color:K.textBody,lineHeight:1.5,marginBottom:18}}>
-                            {reqListAllAsk
-                              ? <>{T2("This adds")} <b>{stUnlisted.length}</b> {T2("ingredients from")} <b>{openStation.name}</b> {T2("to the order list for")} <b>{reqDay}</b>.</>
-                              : <>{T2("This marks")} <b>{stPending.length}</b> {T2("ingredients as issued for")} <b>{openStation.name}</b>.</>}
+                            {T2("This marks")} <b>{stPending.length}</b> {T2("ingredients as issued for")} <b>{openStation.name}</b>.
                           </div>
                           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-                            <button onClick={()=>{setReqIssueAllAsk(false);setReqListAllAsk(false);}}
+                            <button onClick={()=>setReqIssueAllAsk(false)}
                               style={{padding:"9px 18px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textBody,fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>
-                            <button onClick={reqListAllAsk?listAllStation:issueAllStation}
-                              style={{padding:"9px 20px",borderRadius:999,border:"none",background:K.brand,color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{reqListAllAsk?T2("Add all"):T2("Issue all")}</button>
+                            <button onClick={issueAllStation}
+                              style={{padding:"9px 20px",borderRadius:999,border:"none",background:K.brand,color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:"pointer"}}>{T2("Issue all")}</button>
                           </div>
                         </div>
                       </div>
