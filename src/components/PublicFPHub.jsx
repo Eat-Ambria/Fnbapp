@@ -75,18 +75,23 @@ export function PublicFPHub({ events, lang = "en" }) {
     } catch (e) {}
   }
 
+  // "upcoming" still means strictly today-or-later — only used for the
+  // header's "N upcoming functions" badge.
   var upcoming = useMemo(function(){
     return safeArr(events).filter(function(e){ return e.date && e.date >= TODAY; });
   }, [events]);
 
+  // The calendar itself shows every function, past or future, so picking an
+  // older date still lists (and links to) its Function Plan — the badge
+  // above stays "upcoming"-only, this just feeds the day cells/dots/list.
   var eventsByDate = useMemo(function(){
     var m = {};
-    upcoming.forEach(function(e){ (m[e.date] = m[e.date] || []).push(e); });
+    safeArr(events).forEach(function(e){ if (e.date) (m[e.date] = m[e.date] || []).push(e); });
     Object.keys(m).forEach(function(date){
       m[date].sort(function(a, b){ return (a.time || '').localeCompare(b.time || ''); });
     });
     return m;
-  }, [upcoming]);
+  }, [events]);
 
   var cells = useMemo(function(){
     var first = new Date(calYr, calMo, 1);
@@ -177,7 +182,10 @@ export function PublicFPHub({ events, lang = "en" }) {
               var isToday = dt === TODAY;
               var isSel = dt === selDate;
               var isPast = dt && dt < TODAY;
-              var clickable = dt && !isPast;
+              // Past dates stay visually dimmed (still useful to tell "this
+              // already happened" at a glance) but are pickable too, so an
+              // older function's FP can still be pulled up from this link.
+              var clickable = !!dt;
               return (
                 <div key={i} onClick={function(){ if (clickable) setSelDate(dt); }}
                   className={clickable ? "kh-calcell" : undefined}
