@@ -667,9 +667,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       return parent ? (parent.sort_order || 0) * 1000 + (s.sort_order || 0) : (s.sort_order || 0) * 1000;
     }
     var out = {};
+    // allDishes here is grouping.allDishes (useMenuItemGrouping's own shape),
+    // which renames dishes_master's dish_name to .name — NOT the raw
+    // getAllDishes() rows (those do use .dish_name). Reading d.dish_name here
+    // was always undefined, so every real dish silently fell back to
+    // Infinity and only the dietRank tie-break ever had any effect.
     (allDishes || []).forEach(function(d){
       var key = orderKeyFor(d.section_id);
-      out[d.dish_name] = key == null ? Infinity : key;
+      out[d.name] = key == null ? Infinity : key;
     });
     return out;
   }, [allDishes, sections]);
