@@ -644,6 +644,36 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // eslint-disable-next-line
   }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
 
+  // dish_name -> a sortable number for the printable FP's catalogue order.
+  // dish_catalogue_sections' sort_order is only meaningful among SIBLINGS —
+  // e.g. "Tandoori Snacks"=10 and "Awadhi Cuisine"=10 are both "10" but live
+  // under different top-level parents ("Pass Around Snacks"=20 vs "Indian
+  // Main Course"=80), so sorting on the leaf's own sort_order alone ties
+  // snack and main-course dishes together and leaves them in arbitrary
+  // selection order (the bug: Lababdar printing before Shashlik). Combining
+  // the top-level ancestor's sort_order (the dominant term) with the leaf's
+  // own sort_order (the tie-break among siblings under the same parent)
+  // reproduces the real menu flow: Snacks, then Live stations, Soups,
+  // Salads, Achar/Papad, Main Course, Rice, Breads, Desserts, ...
+  // *1000 assumes no more than ~2 levels of nesting and child sort_orders
+  // well under 1000 — true of every row in dish_catalogue_sections today.
+  var dishSectionOrder = useMemo(function(){
+    var byId = {};
+    (sections || []).forEach(function(s){ byId[s.id] = s; });
+    function orderKeyFor(sectionId) {
+      var s = sectionId && byId[sectionId];
+      if (!s) return null;
+      var parent = s.parent_section_id && byId[s.parent_section_id];
+      return parent ? (parent.sort_order || 0) * 1000 + (s.sort_order || 0) : (s.sort_order || 0) * 1000;
+    }
+    var out = {};
+    (allDishes || []).forEach(function(d){
+      var key = orderKeyFor(d.section_id);
+      out[d.dish_name] = key == null ? Infinity : key;
+    });
+    return out;
+  }, [allDishes, sections]);
+
   // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10)
   // are never part of the package's EFFECTIVE default, even though they're
   // listed in templateInfo.dishes — so menuDiffByDept below must not count
@@ -904,6 +934,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         event={event}
         fp={fp}
         itemsByDept={itemsByDept}
+        dishSectionOrder={dishSectionOrder}
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}

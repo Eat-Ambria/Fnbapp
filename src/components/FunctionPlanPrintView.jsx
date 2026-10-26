@@ -17,16 +17,25 @@ import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
 import { resolveDishVeg } from '../data/recipeData.js';
 
-// Veg first, then unclassified, then non-veg — within a section's existing
-// order (a stable sort), not re-alphabetized. resolveDishVeg returns
+// Veg first, then unclassified, then non-veg. resolveDishVeg returns
 // true/false/null (never guesses from the name), so an unclassified dish
 // sits in its own middle bucket rather than being silently called veg or non-veg.
 function dietRank(name) {
   var v = resolveDishVeg(name);
   return v === true ? 0 : v === false ? 2 : 1;
 }
-function sortedByVeg(names) {
-  return (names || []).slice().sort(function(a, b){ return dietRank(a) - dietRank(b); });
+// Primary order is the dish's catalogue section (Snacks before Main Course,
+// etc. — dishSectionOrder maps dish name -> that section's sort_order, built
+// by EventMenuBuilderView from dish_catalogue_sections); veg/non-veg only
+// breaks ties within the same section. A dish with no known section (map
+// missing, or no section_id) sorts after everything that has one.
+function sortedByVeg(names, dishSectionOrder) {
+  return (names || []).slice().sort(function(a, b){
+    var sa = (dishSectionOrder && dishSectionOrder[a] != null) ? dishSectionOrder[a] : Infinity;
+    var sb = (dishSectionOrder && dishSectionOrder[b] != null) ? dishSectionOrder[b] : Infinity;
+    if (sa !== sb) return sa - sb;
+    return dietRank(a) - dietRank(b);
+  });
 }
 
 var SPICE_LABELS = {
@@ -181,7 +190,7 @@ function Bullet({ children, dot }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
   // Browsers suggest document.title as the filename for "Print → Save as PDF",
   // so this is the one lever that controls what the chef/sales actually sees
   // in that Save dialog — set it for as long as this view is on screen, then
@@ -363,8 +372,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                         {meta && (
                           <>
                             <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                            {sortedByVeg(diff.added).map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
-                            {sortedByVeg(diff.removed).map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
+                            {sortedByVeg(diff.added, dishSectionOrder).map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                            {sortedByVeg(diff.removed, dishSectionOrder).map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
                           </>
                         )}
                         {/* A whole catalogue section added just for this event — never
@@ -375,7 +384,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                           return (
                             <div key={sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New section")}: {sec.name})</span></SubHead>
-                              {sortedByVeg(sec.dishes).map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                              {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
                           );
                         })}
@@ -392,7 +401,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, packageName, men
                   return (
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
-                      {sortedByVeg(names).map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
+                      {sortedByVeg(names, dishSectionOrder).map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
                     </div>
                   );
                 })}
