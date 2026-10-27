@@ -1344,8 +1344,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
     });
     setIngDedupClusters(clusters);
     // Skipped/resolved decisions are deliberately NOT reset here — see the
-    // comment by their useState declarations. resetIngDedupSkipped() is the
-    // one explicit way to bring skipped groups back.
+    // comment by their useState declarations. A skip is permanent by design,
+    // so there's no path back to a dismissed cluster.
     setIngDedupOpen(true);
   }
   function closeIngDedup() {
@@ -1358,11 +1358,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const found = cluster && cluster.items.find(x => x.name === name);
     if (found) setIngDedupUnits(prev => ({ ...prev, [key]: found.unit || '' }));
   }
+  // Permanent dismissal — persisted (ING_DEDUP_LS_KEY), never resurfaces.
+  // No "undo"/"review skipped" path on purpose: a skip here means "these
+  // aren't duplicates," not "ask me again later."
   function skipIngDedupCluster(key) {
     setIngDedupSkipped(prev => ({ ...prev, [key]: true }));
-  }
-  function resetIngDedupSkipped() {
-    setIngDedupSkipped({});
   }
   async function mergeIngDedupCluster(idx) {
     const cluster = ingDedupClusters[idx];
@@ -2967,7 +2967,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
         // ingDedupSkipped persist across reopens by design, so a stale entry
         // for a cluster that no longer exists must not inflate these counts.
         const resolvedCount = ingDedupClusters.filter(c=>!!ingDedupResolved[ingClusterKey(c)]).length;
-        const skippedCount = ingDedupClusters.filter(c=>!!ingDedupSkipped[ingClusterKey(c)]).length;
         const remainingIdx = ingDedupClusters.map((_,i)=>i).filter(i=>{ const k=ingClusterKey(ingDedupClusters[i]); return !ingDedupResolved[k]&&!ingDedupSkipped[k]; });
         const highIdx = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='high');
         const medIdx  = remainingIdx.filter(i=>ingDedupClusters[i].confidence==='medium');
@@ -3041,8 +3040,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <UnitPicker value={unit} disabled={disabled||saving} onChange={u=>setIngDedupUnits(prev=>({...prev,[key]:u}))} suggested={clusterUnits} options={unitOptions} T2={T2}/>
                 <div style={{flex:1}}/>
                 {!asking&&<span style={{fontSize:11.5,color:K.hdrMeta}}>{rewritten} {T2("recipes will change")}</span>}
-                <button onClick={()=>{setIngDedupConfirm(null);skipIngDedupCluster(key);}} disabled={saving||disabled}
-                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Not now")}</button>
+                <button onClick={()=>{setIngDedupConfirm(null);skipIngDedupCluster(key);}} disabled={saving||disabled} title={T2("Dismiss — won't be shown again")}
+                  style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:(saving||disabled)?"not-allowed":"pointer"}}>{T2("Not a duplicate")}</button>
                 {asking&&!saving&&<button onClick={()=>setIngDedupConfirm(null)}
                   style={{padding:"8px 16px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>}
                 <button onClick={()=>{ if(!asking){ setIngDedupConfirm(idx); return; } setIngDedupConfirm(null); mergeIngDedupCluster(idx); }} disabled={cantMerge}
@@ -3059,8 +3058,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
           );
         }
 
-        const doneCount = resolvedCount+skippedCount;
-        const donePct = totalGroups>0 ? Math.round(doneCount/totalGroups*100) : 0;
+        // "Not now" is a permanent dismissal (persisted, never resurfaces) —
+        // skipped clusters are excluded from every count below, not just
+        // hidden from the list, per explicit feedback that a skip shouldn't
+        // read as pending work or need a "review skipped" recovery path.
+        const activeTotal = resolvedCount+remainingIdx.length;
+        const donePct = activeTotal>0 ? Math.round(resolvedCount/activeTotal*100) : 0;
         const secHead = (label, n, color) => (
           <div style={{display:"flex",alignItems:"center",gap:8,margin:"4px 0 10px"}}>
             <span style={{width:8,height:8,borderRadius:"50%",background:color}}/>
@@ -3076,8 +3079,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 <span style={{width:42,height:42,borderRadius:13,flexShrink:0,background:K.brand,color:K.hdrBadgeIcon,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>🔍</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:18,fontWeight:700,color:K.hdrTitle}}>{T2("Find duplicates")}</div>
-                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{totalGroups} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {skippedCount} {T2("skipped")} · {remainingIdx.length} {T2("remaining")}</div>
-                  {totalGroups>0&&(
+                  <div style={{fontSize:12.5,color:K.hdrMeta,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{activeTotal} {T2("groups found")} · {resolvedCount} {T2("resolved")} · {remainingIdx.length} {T2("remaining")}</div>
+                  {activeTotal>0&&(
                     <div style={{height:5,borderRadius:99,background:K.cardWarmLine,marginTop:8,overflow:"hidden"}}>
                       <div style={{width:donePct+"%",height:"100%",borderRadius:99,background:K.brand,transition:"width .3s ease"}}/>
                     </div>
@@ -3092,8 +3095,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <div style={{textAlign:"center",padding:"30px 20px"}}>
                     <div style={{width:54,height:54,borderRadius:"50%",margin:"0 auto 10px",background:K.okBg,border:`1px solid ${K.okBorder}`,color:K.ok,fontSize:24,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>
                     <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle,marginBottom:4}}>{T2("All done")}</div>
-                    <div style={{fontSize:12.5,color:K.hdrMeta}}>{resolvedCount} {T2("merged")} · {skippedCount} {T2("skipped")}</div>
-                    {skippedCount>0&&<button onClick={resetIngDedupSkipped} style={{marginTop:14,padding:"8px 18px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{T2("Review skipped")}</button>}
+                    <div style={{fontSize:12.5,color:K.hdrMeta}}>{resolvedCount} {T2("merged")}</div>
                   </div>
                 )}
                 {!allDone&&(()=>{
@@ -3117,9 +3119,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 })()}
               </div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"14px 22px",borderTop:`1px solid ${K.cardWarmLine}`}}>
-                <div>
-                  {skippedCount>0&&!allDone&&<button onClick={resetIngDedupSkipped} style={{padding:"7px 14px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:12,fontWeight:600,cursor:"pointer"}}>{T2("Reset skipped")} ({skippedCount})</button>}
-                </div>
+                <div/>
                 <button onClick={closeIngDedup} disabled={ingDedupSavingIdx!=null} style={{padding:"9px 22px",borderRadius:999,background:K.brand,border:"none",color:"#FFFFFF",fontSize:13,fontWeight:700,cursor:ingDedupSavingIdx!=null?"not-allowed":"pointer"}}>{T2("Close")}</button>
               </div>
             </div>
