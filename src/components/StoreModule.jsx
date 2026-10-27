@@ -2773,6 +2773,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   const isMapped = !!mapping;
                   const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
                   const conv = isMapped ? (mapping.unit_conversion||1) : 1;
+                  // Same weight/volume family as the recipe unit (e.g. kg<->Kg,
+                  // kg<->g) — qtyToStoreUnits/storeUnitsToQty convert these via
+                  // toGrams/toMl directly and never even read stock.conversion,
+                  // so any non-1 value stored here (stale from before the units
+                  // matched, or a leftover from an earlier store-item swap) is
+                  // inert. Showing it as "1 Kg = 1000 kg" anyway reads as a live
+                  // bug when it's actually dead data — only surface the custom-
+                  // conversion line for genuinely discrete mappings (Pieces,
+                  // Packets, ...) where that number is the one actually used.
+                  const sameUnitFamily = isMapped && calcAutoConversion(ing.unit, mapping.ops_item_unit) !== null;
                   // Compare units case-insensitively: "Packets" vs "packets" is the
                   // same unit and was being flagged as a mismatch.
                   const unitsDiffer = isMapped && conv===1 && String(ing.unit||"").trim().toLowerCase()!==String(mapping.ops_item_unit||"").trim().toLowerCase();
@@ -2823,7 +2833,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                             <span style={{fontSize:13,fontWeight:700,color:K.ok}}>✓ {mapping.ops_item_name}</span>
                             <span style={{padding:"1px 8px",borderRadius:999,background:K.okBg,color:K.ok,fontSize:11.5,fontWeight:600}}>{mapping.ops_item_unit}</span>
                           </div>
-                          {conv!==1&&(
+                          {conv!==1&&!sameUnitFamily&&(
                             <div style={{fontSize:11.5,color:K.hdrMeta,marginTop:2,display:"flex",alignItems:"center",gap:6}}>
                               1 {mapping.ops_item_unit} = {Math.round(1/conv*10000)/10000} {ing.unit}
                               <button onClick={()=>openConv(String(Math.round(1/conv*10000)/10000))} title={T2("Edit conversion")} style={smallBtn}>✎</button>
