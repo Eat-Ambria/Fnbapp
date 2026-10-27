@@ -1020,6 +1020,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const x = (a || "").toLowerCase().trim(), y = (b || "").toLowerCase().trim();
     return !!(x && y && (x.includes(y) || y.includes(x)));
   }
+  // Some Ops venue rows carry a generic/placeholder name ("Venue") with the
+  // actual distinguishing info only in its short code — always show both so
+  // a transfer request never reads as an unidentifiable "From VENUE".
+  function venueLabel(venue) {
+    if (!venue) return "";
+    const name = venue.venueName || "";
+    const code = venue.venueCode || "";
+    if (!code || code.toLowerCase() === name.toLowerCase()) return name;
+    return name ? `${name} (${code})` : code;
+  }
   // The logged-in store user's own venue's allocation of this item, in store
   // units — null when the item carries no per-venue breakdown at all or the
   // user has no Home Venue set (both mean "can't say, fall back to pooled"),
@@ -3329,7 +3339,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:14,width:"100%",maxWidth:380,overflow:"hidden"}}>
             <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}`}}>
               <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{T2("Request")} {row.name}</div>
-              <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("For")} <b>{toVenue.venueName}</b></div>
+              <div style={{fontSize:11,color:C.faint,marginTop:2}}>{T2("For")} <b>{venueLabel(toVenue)}</b></div>
             </div>
             <div style={{padding:"18px"}}>
               {donors.length>1 && (
@@ -3337,12 +3347,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <div style={{fontSize:12,color:C.text,marginBottom:8,fontWeight:600}}>{T2("From")}</div>
                   <select value={fromVenueId} onChange={e=>setTransferModal(p=>({...p,fromVenueId:e.target.value}))}
                     style={{width:"100%",padding:"9px 10px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:C.bg,marginBottom:14,boxSizing:"border-box"}}>
-                    {donors.map(d=><option key={d.venue.venueId} value={d.venue.venueId}>{d.venue.venueName} ({fmtIssueQty(d.spare,row.unit)} {T2("available")})</option>)}
+                    {donors.map(d=><option key={d.venue.venueId} value={d.venue.venueId}>{venueLabel(d.venue)} ({fmtIssueQty(d.spare,row.unit)} {T2("available")})</option>)}
                   </select>
                 </>
               )}
               {donors.length===1 && (
-                <div style={{fontSize:12,color:C.text,marginBottom:14}}>{T2("From")} <b>{donors[0].venue.venueName}</b> ({fmtIssueQty(donors[0].spare,row.unit)} {T2("available")})</div>
+                <div style={{fontSize:12,color:C.text,marginBottom:14}}>{T2("From")} <b>{venueLabel(donors[0].venue)}</b> ({fmtIssueQty(donors[0].spare,row.unit)} {T2("available")})</div>
               )}
               <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Quantity")} ({row.unit})</div>
               <input type="number" step="any" min="0" autoFocus value={transferModal.value}
