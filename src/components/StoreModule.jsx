@@ -34,6 +34,19 @@ function catDotColor(catCode) { return CAT_DOT_COLORS[catCode] || "#61708C"; }
 
 /* Transform raw Ops row into the shape our UI needs */
 function transformOpsItem(it) {
+  const venues = (it.cs_venue_allocations || []).map(va => ({
+    qty: +(va.qty || 0),
+    venueId: va.venue_id,
+    venueCode: va.venues?.code || "",
+    venueName: va.venues?.name || "",
+  })).filter(v => v.qty > 0);
+  // Ops's own central `qty` column is tracked independently of the venue
+  // allocation rows and can legitimately drift from them — e.g. a venue
+  // physically holding 5 pieces while `qty` still says 1. What this app
+  // actually needs ("how much is really out there, combined across every
+  // store") is the SUM of venue allocations whenever that breakdown exists;
+  // `qty` is only a fallback for an item with no venue data at all.
+  const venueSum = venues.reduce((s, v) => s + v.qty, 0);
   return {
     _opsId: it.id,
     _categoryId: it.category_id || null,
@@ -48,16 +61,11 @@ function transformOpsItem(it) {
     packSize: it.pack_size_qty ? (it.pack_size_qty + " " + (it.pack_size_unit || "")) : "",
     qty: +(it.qty || 0),
     blocked: 0,
-    available: +(it.qty || 0),
+    available: venues.length > 0 ? venueSum : +(it.qty || 0),
     reorderQty: +(it.season_reorder_qty || it.off_season_reorder_qty || 0),
     imgPath: it.image_path || "",
     desc: it.description || "",
-    venues: (it.cs_venue_allocations || []).map(va => ({
-      qty: +(va.qty || 0),
-      venueId: va.venue_id,
-      venueCode: va.venues?.code || "",
-      venueName: va.venues?.name || "",
-    })).filter(v => v.qty > 0),
+    venues: venues,
     rate: it.rate_paise != null ? +(it.rate_paise) / 100 : null,
     source: "store",
   };
@@ -870,9 +878,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (recG != null && stoG != null) return recG / stoG;
     const recM = toMl(qty, unit), stoM = toMl(1, stock.unit);
     if (recM != null && stoM != null) return recM / stoM;
-    const oF = getUnitFamily(unit), aF = getUnitFamily(stock.unit);
-    const adj = (oF && aF && oF.family === aF.family) ? (aF.toBase / oF.toBase) : 1;
-    return qty * adj * (stock.conversion || 1);
+    // Custom conversion factor (discrete store unit — Pieces/Packets/...):
+    // stock.conversion is always calibrated against GRAMS or ML (normalized
+    // when the mapping was saved — see convModal below), never whatever
+    // unit happens to be on screen. A Requirements day-sheet row's unit can
+    // silently flip g->kg once that day's total crosses 1000g
+    // (addQtyWithUnitNorm) purely for display — that must never leak into
+    // this math, or a gram-calibrated factor gets applied 1000x off.
+    const baseQty = toGrams(qty, unit) != null ? toGrams(qty, unit) : (toMl(qty, unit) != null ? toMl(qty, unit) : qty);
+    return baseQty * (stock.conversion || 1);
   }
   // Inverse of qtyToStoreUnits — store units back to `unit`.
   function storeUnitsToQty(suQty, stock, unit) {
@@ -880,9 +894,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (stoG != null && recGPerUnit != null) return (suQty * stoG) / recGPerUnit;
     const stoM = toMl(1, stock.unit), recMPerUnit = toMl(1, unit);
     if (stoM != null && recMPerUnit != null) return (suQty * stoM) / recMPerUnit;
-    const oF = getUnitFamily(unit), aF = getUnitFamily(stock.unit);
-    const adj = (oF && aF && oF.family === aF.family) ? (aF.toBase / oF.toBase) : 1;
-    return suQty / ((adj || 1) * (stock.conversion || 1));
+    // Same custom-factor path as above, inverted: suQty/conversion is a
+    // quantity in GRAMS or ML (whichever family `unit` belongs to — the
+    // factor's basis), then scaled into whatever specific unit (g or kg,
+    // ml or L) the caller actually asked for.
+    const baseQty = suQty / (stock.conversion || 1);
+    const gPerUnit = toGrams(1, unit);
+    if (gPerUnit != null) return baseQty / gPerUnit;
+    const mPerUnit = toMl(1, unit);
+    if (mPerUnit != null) return baseQty / mPerUnit;
+    return baseQty;
   }
   // A store unit is "discrete" (whole packets/bottles/tins — can't be
   // issued down to a fraction) whenever it isn't the same weight/volume
@@ -919,16 +940,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
   function suggestedIssueQty(row) {
     const agg = rowIssueAgg(row);
     const stock = stockForRow(row);
-    let suggested = agg.remaining, isDiscrete = false;
+    let suggested = agg.remaining, isDiscrete = false, suggestedSU = null;
     if (stock) {
       isDiscrete = isDiscreteStockUnit(row, stock);
       if (isDiscrete && agg.remaining > 1e-9) {
         const remSU = qtyToStoreUnits(agg.remaining, row.unit, stock);
         const wholeSU = Math.max(1, Math.ceil(remSU - 1e-9));
         suggested = storeUnitsToQty(wholeSU, stock, row.unit);
+        suggestedSU = wholeSU; // the whole-pack count itself, for the modal's store-unit input
       }
     }
-    return { agg, stock, isDiscrete, suggested };
+    return { agg, stock, isDiscrete, suggested, suggestedSU };
   }
   // Writes an issued amount (in row.unit) against a row, spread across its
   // contributing event/section records in proportion to each one's own
@@ -967,9 +989,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
     await commitIssueQty(row, suggested);
   }
   function openIssueQty(row) {
-    const { agg, stock, isDiscrete, suggested } = suggestedIssueQty(row);
+    const { agg, stock, isDiscrete, suggested, suggestedSU } = suggestedIssueQty(row);
     const shortfall = stock ? myShortfall(row, stock) : null;
-    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value: agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "" });
+    // Discrete stock (Pieces/Packets/...) is counted and handed over in whole
+    // units, not weighed out in the recipe's own gram/kg terms — so the modal
+    // asks for a pack count directly, prefilled with the suggested whole-pack
+    // amount instead of a recipe-unit quantity nobody would actually measure.
+    const value = isDiscrete
+      ? (suggestedSU != null ? String(suggestedSU) : (agg.remaining > 1e-9 ? "1" : ""))
+      : (agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "");
+    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value });
   }
 
   /* ── Cross-venue transfer requests ─────────────────────────────────────
@@ -3157,7 +3186,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
               <button onClick={()=>{
                 var val=parseFloat(convModal.convValue);
                 if(!val||val<=0){alert(T2("Enter a valid conversion value"));return;}
-                var conv=1/val;
+                // Normalize into grams/ml before inverting, so the stored factor is
+                // always "storeUnits per 1 gram/ml" regardless of which specific unit
+                // (g vs kg, ml vs L) convModal.recipeUnit happened to show — that's
+                // what qtyToStoreUnits/storeUnitsToQty now assume everywhere.
+                var normVal = toGrams(val, convModal.recipeUnit);
+                if(normVal==null) normVal = toMl(val, convModal.recipeUnit);
+                if(normVal==null) normVal = val; // recipe unit isn't weight/volume — nothing to normalize
+                var conv=1/normVal;
                 if(convModal.editMode){
                   var upd=Object.assign({},ingredientMap[convModal.ingName],{unit_conversion:conv});
                   setIngredientMap(function(prev){var n=Object.assign({},prev);n[convModal.ingName]=upd;return n;});
@@ -3176,10 +3212,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {/* ── Custom / partial issue-quantity modal — opened by the ± button
           next to Issue, or by tapping an already-issued ✓ to issue more. ── */}
       {issueQtyModal&&(()=>{
-        const { row, agg, stock, shortfall } = issueQtyModal;
+        const { row, agg, stock, shortfall, isDiscrete } = issueQtyModal;
         const val = parseFloat(issueQtyModal.value);
         const valid = !isNaN(val) && val>0;
-        const newIssued = agg.issuedQty + (valid?val:0);
+        // Discrete stock (Pieces/Packets/...) is entered as a pack COUNT, in
+        // stock.unit — convert to row.unit before touching any required/
+        // remaining/surplus math or commitIssueQty, which all speak row.unit.
+        const valInRowUnit = (valid && isDiscrete && stock) ? storeUnitsToQty(val, stock, row.unit) : val;
+        const newIssued = agg.issuedQty + (valid?valInRowUnit:0);
         const newRemaining = Math.max(0, agg.required-newIssued);
         const newSurplus = Math.max(0, newIssued-agg.required);
         return (
@@ -3193,13 +3233,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
             </div>
             <div style={{padding:"18px"}}>
-              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({row.unit})</div>
-              <input type="number" step="any" min="0" autoFocus value={issueQtyModal.value}
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({isDiscrete&&stock?stock.unit:row.unit})</div>
+              <input type="number" step={isDiscrete?"1":"any"} min="0" autoFocus value={issueQtyModal.value}
                 onChange={e=>setIssueQtyModal(p=>({...p,value:e.target.value}))}
                 style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
               {stock && valid && (
                 <div style={{fontSize:11,color:C.faint,marginTop:8}}>
-                  ≈ {Math.round(qtyToStoreUnits(val,row.unit,stock)*100)/100} {stock.unit} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}
+                  {isDiscrete
+                    ? <>≈ {fmtIssueQty(valInRowUnit,row.unit)} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}</>
+                    : <>≈ {Math.round(qtyToStoreUnits(val,row.unit,stock)*100)/100} {stock.unit} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}</>}
                 </div>
               )}
               {valid && newSurplus>1e-9 && (
@@ -3234,7 +3276,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
               <button onClick={()=>setIssueQtyModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,val); setIssueQtyModal(null); }}
+              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,valInRowUnit); setIssueQtyModal(null); }}
                 style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>✓ {T2("Confirm issue")}</button>
             </div>
           </div>
