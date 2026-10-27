@@ -2235,6 +2235,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               const short = isMapped && stock && requiredSU!=null && requiredSU>available;
                               const agg = rowIssueAgg(row);
                               const done = agg.remaining<=1e-9;
+                              // Once fully issued, Balance switches from "how much of the
+                              // requirement is covered" to "how much is left in stock after
+                              // pulling this" — issuedQty is in row.unit (recipe units), stock's
+                              // own figures are in store units, so convert before subtracting.
+                              const issuedSU = (isMapped && stock) ? qtyToStoreUnits(agg.issuedQty, row.unit, stock) : null;
+                              const stockLeftover = (done && issuedSU!=null && available!=null) ? available - issuedSU : null;
                               return(
                                 <tr key={row.name}>
                                   <td style={{padding:"10px 22px",fontWeight:600,color:K.hdrTitle,borderBottom:`1px solid ${K.lineSoft}`}}>{row.name}{row.hindi&&<span style={{display:"block",fontSize:11.5,fontWeight:400,color:K.hdrMeta}}>{row.hindi}</span>}</td>
@@ -2248,21 +2254,23 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                   <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     {agg.issuedQty<=1e-9
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : agg.remaining>1e-9
+                                      : !done
                                       ? <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>
-                                      : agg.surplus>1e-9
-                                      ? <span title={T2("Issued more than needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)}</span>
-                                      : <span style={{fontSize:11.5,color:K.textFaint}}>—</span>}
+                                      : stockLeftover==null
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : stockLeftover<-1e-9
+                                      ? <span title={T2("Issued more than the stock on hand")} style={{fontSize:11.5,fontWeight:700,color:K.danger}}>−{fmtIssueQty(Math.abs(stockLeftover),stock.unit)} {T2("short")}</span>
+                                      : <span title={T2("Left in stock after this issue")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>{fmtIssueQty(stockLeftover,stock.unit)}</span>}
                                   </td>
                                   <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                                       {done ? (
                                         <button onClick={()=>openIssueQty(row)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</button>
                                       ) : (
-                                        canIssueStock && <>
-                                          <button onClick={()=>quickIssue(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
-                                          <button onClick={()=>openIssueQty(row)} title={T2("Issue a custom or partial quantity")} style={{width:24,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:12,lineHeight:1}}>±</button>
-                                        </>
+                                        // A single action, always through the quantity modal — no more
+                                        // instant one-tap issue with no confirmation. quickIssue() itself
+                                        // stays (issueAllStation's bulk "Issue All" still uses it directly).
+                                        canIssueStock && <button onClick={()=>openIssueQty(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
                                       )}
                                     </div>
                                   </td>
