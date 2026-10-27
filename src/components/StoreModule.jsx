@@ -1056,6 +1056,27 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const venueObj = mine || { venueId: 'me', venueCode: '', venueName: myVenueName, qty: myQty };
     return { venue: venueObj, shortfallSU: requiredSU - myQty, shortfall: storeUnitsToQty(requiredSU - myQty, stock, row.unit), donors };
   }
+  // Every other venue currently holding spare stock of this item — the
+  // general-purpose version of myShortfall's donor list, available whether
+  // or not THIS venue is actually short. Feeds the always-visible "Request
+  // from other store" action, as opposed to the shortfall-only prompt
+  // surfaced inside the issue-quantity modal.
+  function otherVenueDonors(stock) {
+    if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return [];
+    const myVenueName = (currentUser?.venue || "").trim();
+    const mine = myVenueName ? stock.item.venues.find(v => venueFuzzyMatch(myVenueName, v.venueName)) : null;
+    return stock.item.venues.filter(v => v !== mine && v.qty > 1e-9)
+      .map(v => ({ venue: v, spare: v.qty }))
+      .sort((a, b) => b.spare - a.spare);
+  }
+  function openStoreRequest(row, stock) {
+    const donors = otherVenueDonors(stock);
+    if (donors.length === 0) return;
+    const myVenueName = (currentUser?.venue || "").trim();
+    const mine = stock.item.venues.find(v => venueFuzzyMatch(myVenueName, v.venueName));
+    const toVenue = mine || { venueId: 'me', venueCode: '', venueName: myVenueName || T2('My venue'), qty: mine ? mine.qty : 0 };
+    setTransferModal({ row, stock, toVenue, donors, fromVenueId: donors[0].venue.venueId, value: "" });
+  }
   function openTransferRequest(row, stock, sf) {
     setTransferModal({
       row, stock, toVenue: sf.venue, donors: sf.donors,
@@ -2269,6 +2290,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               // data on this item, or this user has no Home Venue set).
                               const available = myQty!=null ? myQty : (stock?stock.available:null);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>available;
+                              const transferDonors = isMapped && stock ? otherVenueDonors(stock) : [];
                               const agg = rowIssueAgg(row);
                               const done = agg.remaining<=1e-9;
                               // Once fully issued, Balance switches from "how much of the
@@ -2307,6 +2329,9 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                         // instant one-tap issue with no confirmation. quickIssue() itself
                                         // stays (issueAllStation's bulk "Issue All" still uses it directly).
                                         canIssueStock && <button onClick={()=>openIssueQty(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
+                                      )}
+                                      {canIssueStock && transferDonors.length>0 && (
+                                        <button onClick={()=>openStoreRequest(row,stock)} title={T2("Request from another venue")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>🚚</button>
                                       )}
                                     </div>
                                   </td>
