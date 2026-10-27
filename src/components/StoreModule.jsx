@@ -1026,6 +1026,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
   // 0 when the item has venue data but none of it is at this user's venue.
   function myVenueQty(stock) {
     if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return null;
+    // Admins aren't tied to one physical store the way a venue's store
+    // staff is — they manage every venue, so they should see the pooled
+    // total (stock.available, now the sum of all venue allocations), not
+    // whatever their own Home Venue setting happens to have on hand.
+    if (currentUser?.role === 'admin') return null;
     const myVenueName = (currentUser?.venue || "").trim();
     if (!myVenueName) return null;
     const mine = stock.item.venues.find(v => venueFuzzyMatch(myVenueName, v.venueName));
@@ -1033,9 +1038,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
   // Is this row short AT MY VENUE specifically (even if the pooled total
   // looks fine), and if so, which other venue(s) of the same item have spare
-  // to request from.
+  // to request from. Admins have no single "my venue" — their shortage view
+  // is the pooled one (same as everyone sees via the Stock/Balance columns).
   function myShortfall(row, stock) {
     if (!stock || !stock.item || !stock.item.venues || !stock.item.venues.length) return null;
+    if (currentUser?.role === 'admin') return null;
     const myVenueName = (currentUser?.venue || "").trim();
     if (!myVenueName) return null;
     const venues = stock.item.venues;
