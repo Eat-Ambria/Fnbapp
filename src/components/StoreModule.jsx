@@ -430,6 +430,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
   const [orderBrowseOpen, setOrderBrowseOpen] = useState(false); // Order Lists tab: "All ingredients" browse-and-add modal
   const [orderBrowseDay, setOrderBrowseDay] = useState(TODAY); // its own day picker — independent of Requirements' reqDay
+  const [orderListDayFilter, setOrderListDayFilter] = useState("all"); // Order Lists tab's own cards: "all" | a YYYY-MM-DD — which order_date to show (the list spans many days by nature, so default is unfiltered, unlike reqDay/orderBrowseDay which always pick one day)
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
@@ -1667,7 +1668,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   // print always matches what's on screen.
   function buildOrderListGroups() {
     const grouped = {};
-    orderListItems.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
+    const source = orderListDayFilter==="all" ? orderListItems : orderListItems.filter(r=>r.order_date===orderListDayFilter);
+    source.slice().sort((a,b)=>(a.order_date+a.ingredient_name).localeCompare(b.order_date+b.ingredient_name)).forEach(r=>{
       // Derived fresh from the name every time, not the list_key stored when
       // the row was added — that stamped-in value predates the 4-bucket
       // scheme (and even an old-scheme row would just drift from whatever
@@ -2324,6 +2326,21 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <div style={{...type.cardTitle,fontSize:15.5,color:K.hdrTitle}}>{T2("Order Lists")}</div>
                   <div style={{fontSize:12,color:K.hdrMeta,marginTop:1}}>{T2("Grouped by inventory category")}</div>
                 </div>
+                {/* The list naturally spans many days (items get added for whatever
+                    day they're needed), so unlike reqDay/orderBrowseDay this defaults
+                    to "All" rather than forcing one day — Today/Tomorrow/the date
+                    picker just narrow it down, same controls as the Requirements tab. */}
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",padding:3,borderRadius:999,background:"#F0EEE7",border:`1px solid ${K.cardWarmLine}`}}>
+                    {[{d:"all",l:T2("All"),n:orderListItems.length},{d:TODAY,l:T2("Today"),n:orderListItems.filter(r=>r.order_date===TODAY).length},{d:TOMORROW,l:T2("Tomorrow"),n:orderListItems.filter(r=>r.order_date===TOMORROW).length}].map(o=>{const on=orderListDayFilter===o.d;return(
+                      <button key={o.l} onClick={()=>setOrderListDayFilter(o.d)}
+                        style={{padding:"7px 14px",borderRadius:999,fontSize:12.5,fontWeight:700,cursor:"pointer",border:"none",
+                          background:on?K.brand:"transparent",color:on?"#FFFFFF":K.textBody,boxShadow:on?K.shadowCard:"none"}}>
+                        {o.l} <span style={{opacity:.75,fontVariantNumeric:"tabular-nums"}}>({o.n})</span>
+                      </button>);})}
+                  </div>
+                  <DayPicker value={orderListDayFilter==="all"?null:orderListDayFilter} onChange={setOrderListDayFilter} markDates={new Set(orderListItems.map(r=>r.order_date))} T2={T2}/>
+                </div>
                 {visibleGroups.length>0&&(
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {[{n:visibleGroups.length,l:T2("lists"),fg:K.brandText,bg:K.brandBg},
@@ -2354,14 +2371,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
             {!orderListLoading&&visibleGroups.length===0&&(
               <div style={{textAlign:"center",padding:"36px 20px",borderRadius:20,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,boxShadow:K.shadowCard}}>
                 <div style={{width:56,height:56,borderRadius:18,margin:"0 auto 12px",background:K.sageBg,border:`1px solid ${K.sageBorder}`,fontSize:26,display:"flex",alignItems:"center",justifyContent:"center"}}>🧺</div>
-                <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle}}>{T2("No order lists yet")}</div>
-                <div style={{fontSize:13,color:K.hdrMeta,marginTop:4,maxWidth:420,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>
-                  {T2("Browse a day's ingredients and tap + to send one here. Items are grouped by inventory category, ready to print for each vendor.")}
-                </div>
-                <button onClick={()=>setOrderBrowseOpen(true)} className="kh-hovercard"
-                  style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard}}>
-                  📋 {T2("Browse ingredients to order")} →
-                </button>
+                {orderListDayFilter!=="all"&&orderListItems.length>0 ? (<>
+                  <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle}}>{T2("Nothing on order for this day")}</div>
+                  <div style={{fontSize:13,color:K.hdrMeta,marginTop:4,maxWidth:420,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>
+                    {orderListItems.length} {orderListItems.length===1?T2("item is"):T2("items are")} {T2("on order for other days.")}
+                  </div>
+                  <button onClick={()=>setOrderListDayFilter("all")} className="kh-hovercard"
+                    style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:999,background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard}}>
+                    {T2("Show all days")}
+                  </button>
+                </>) : (<>
+                  <div style={{fontSize:16,fontWeight:700,color:K.hdrTitle}}>{T2("No order lists yet")}</div>
+                  <div style={{fontSize:13,color:K.hdrMeta,marginTop:4,maxWidth:420,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>
+                    {T2("Browse a day's ingredients and tap + to send one here. Items are grouped by inventory category, ready to print for each vendor.")}
+                  </div>
+                  <button onClick={()=>setOrderBrowseOpen(true)} className="kh-hovercard"
+                    style={{marginTop:16,display:"inline-flex",alignItems:"center",gap:7,padding:"10px 20px",borderRadius:999,background:K.brand,color:"#FFFFFF",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard}}>
+                    📋 {T2("Browse ingredients to order")} →
+                  </button>
+                </>)}
               </div>
             )}
 
