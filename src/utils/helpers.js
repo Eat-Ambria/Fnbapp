@@ -149,6 +149,29 @@ async function uploadMenuPhoto(supabase, kind, key, file) {
   }
 }
 
+// Function Plan layout-information photo (floor plan / mandap sketch / decor
+// reference attached to an event's FP). One photo per event, same
+// compress-and-upsert shape as uploadMenuPhoto above, including the rethrow —
+// the FP form shows the real reason (e.g. a missing bucket) rather than a
+// generic "upload failed".
+async function uploadFPLayoutPhoto(supabase, eventId, file) {
+  if (!supabase || !file || !eventId) return null;
+  try {
+    var blob = await compressImage(file, 1400, 0.85);
+    if (!blob) return null;
+    var path = String(eventId) + ".jpg";
+    var { error: upErr } = await supabase.storage
+      .from("fp-layout-photos")
+      .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    if (upErr) { console.error("FP layout photo upload:", upErr); throw upErr; }
+    var { data } = supabase.storage.from("fp-layout-photos").getPublicUrl(path);
+    return data && data.publicUrl ? data.publicUrl + "?v=" + Date.now() : null;
+  } catch (e) {
+    console.error("FP layout photo upload:", e);
+    throw e;
+  }
+}
+
 // A dish name is not a safe storage path: it can carry spaces, slashes and
 // Devanagari. Lower-cased alphanumerics joined by dashes keeps the path stable
 // for the same dish so a re-upload overwrites rather than piling up files.
@@ -351,4 +374,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto };

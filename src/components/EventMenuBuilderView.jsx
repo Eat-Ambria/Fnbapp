@@ -55,8 +55,8 @@ var FP_FIELD_LABELS = (function(){
     after_party_enabled: 'After party', after_party_pax: 'After party pax',
     after_party_start_time: 'After party start', after_party_windup_time: 'After party wind-up',
     ops_manager_name: 'Operation Manager name', ops_manager_contact: 'Operation Manager contact',
-    allergies: 'Allergies / dietary restrictions', service_notes: 'Service style notes',
-    general_notes: 'General notes', layout_info: 'Layout information',
+    service_notes: 'Service style notes',
+    general_notes: 'General notes', layout_info: 'Layout information', layout_image_url: 'Layout photo',
     guest_signature_name: 'Signed by', guest_signature: 'Guest signature',
   };
   TIME_FIELDS.forEach(function(f){ out[f.id] = f.label; });
@@ -482,7 +482,6 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (fpRow.guest_preference) parts.push('Guest pref: ' + fpRow.guest_preference);
     if (fpRow.guest_community) parts.push('Community: ' + fpRow.guest_community);
     if (fpRow.spice_tolerance) parts.push('Spice: ' + fpRow.spice_tolerance);
-    if (fpRow.allergies) parts.push('Allergies: ' + fpRow.allergies);
     if (fpRow.service_notes) parts.push('Service: ' + fpRow.service_notes);
     if (fpRow.general_notes) parts.push('Notes: ' + fpRow.general_notes);
     var payload = { special: parts.length ? parts.join(' | ') : null };

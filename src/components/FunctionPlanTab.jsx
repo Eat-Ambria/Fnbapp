@@ -11,6 +11,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { K } from '../utils/theme.js';
 import { Icon, KButton, KBanner } from './KitchenUI.jsx';
+import { supabase } from '../lib/supabase.js';
+import { uploadFPLayoutPhoto } from '../utils/helpers.js';
 
 var SPICE_LEVELS = [
   { id: 'mild',   label: 'Mild',   icon: '🌶️' },
@@ -325,6 +327,28 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
     onSaveField(field, (n == null || isNaN(n)) ? null : n);
   }
 
+  // ── Layout information photo — one reference image (floor plan, mandap
+  // sketch, decor mood board) attached straight to the FP. Same
+  // compress-and-upload-to-storage shape as every other photo in this app
+  // (see uploadFPLayoutPhoto), so a re-upload overwrites the old one.
+  var [layoutPhotoBusy, setLayoutPhotoBusy] = useState(false);
+  async function uploadLayoutPhoto(file) {
+    if (!file || !event || !event.id) return;
+    setLayoutPhotoBusy(true);
+    try {
+      var url = await uploadFPLayoutPhoto(supabase, event.id, file);
+      if (!url) { alert(T2('Could not upload the photo. Check that a public bucket named fp-layout-photos exists, then try again.')); return; }
+      onSaveField('layout_image_url', url);
+    } catch (e) {
+      alert(T2('Image upload failed:') + ' ' + (e.message || e));
+    } finally {
+      setLayoutPhotoBusy(false);
+    }
+  }
+  function removeLayoutPhoto() {
+    onSaveField('layout_image_url', null);
+  }
+
   var roomOn = !!(fp && fp.room_info_enabled);
   var driversOn = !!(fp && fp.drivers_food_required);
   var afterPartyOn = !!(fp && fp.after_party_enabled);
@@ -472,35 +496,6 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
               );
             })}
           </div>
-        </Panel>
-
-        {/* ── After Party ── */}
-        <Panel icon="drink" badgeBg={K.sageBg} badgeColor={K.sage} title={T2("After Party")}
-          right={<>
-            <span style={{ fontSize: 12, color: K.textFaint, fontWeight: 600 }}>{afterPartyOn ? T2("On") : T2("Off")}</span>
-            <Switch on={afterPartyOn} onChange={function(v){ onSaveField('after_party_enabled', v); }} title={T2("After party for this function?")} />
-          </>}>
-          {afterPartyOn ? (
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Pax")}</span>
-                <input type="number" min="0" inputMode="numeric" value={val('after_party_pax')}
-                  onChange={function(e){ onChangeField('after_party_pax', e.target.value); }}
-                  onBlur={function(){ commitNumber('after_party_pax'); }}
-                  style={{ ...inputStyle, width: 90 }} />
-              </label>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Start")}</div>
-                <TimeInput12 value={val('after_party_start_time')} onCommit={function(v){ onSaveField('after_party_start_time', v); }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Wind-up")}</div>
-                <TimeInput12 value={val('after_party_windup_time')} onCommit={function(v){ onSaveField('after_party_windup_time', v); }} />
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("No after party for this function.")}</div>
-          )}
         </Panel>
 
       </div>
@@ -664,16 +659,42 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
           </Panel>
         )}
 
+        {/* ── After Party ── */}
+        <Panel icon="drink" badgeBg={K.sageBg} badgeColor={K.sage} title={T2("After Party")}
+          right={<>
+            <span style={{ fontSize: 12, color: K.textFaint, fontWeight: 600 }}>{afterPartyOn ? T2("On") : T2("Off")}</span>
+            <Switch on={afterPartyOn} onChange={function(v){ onSaveField('after_party_enabled', v); }} title={T2("After party for this function?")} />
+          </>}>
+          {afterPartyOn ? (
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Pax")}</span>
+                <input type="number" min="0" inputMode="numeric" value={val('after_party_pax')}
+                  onChange={function(e){ onChangeField('after_party_pax', e.target.value); }}
+                  onBlur={function(){ commitNumber('after_party_pax'); }}
+                  style={{ ...inputStyle, width: 90 }} />
+              </label>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Start")}</div>
+                <TimeInput12 value={val('after_party_start_time')} onCommit={function(v){ onSaveField('after_party_start_time', v); }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Wind-up")}</div>
+                <TimeInput12 value={val('after_party_windup_time')} onCommit={function(v){ onSaveField('after_party_windup_time', v); }} />
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("No after party for this function.")}</div>
+          )}
+        </Panel>
+
       </div>
       </div>
 
       {/* ── Notes — full width ── */}
       <div style={{ marginTop: 16 }}>
         <Panel icon="fileText" badgeBg={K.surfaceAlt} badgeColor={K.textMuted} title={T2("Notes")}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
-            <FPTextArea label={T2("Allergies / dietary restrictions")}
-              placeholder={T2("e.g. nut allergy for 2 guests, no onion-garlic for the bride's family, gluten-free option needed…")}
-              value={val('allergies')} onChange={function(v){ onChangeField('allergies', v); }} onBlur={function(){ commitText('allergies'); }} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 16 }}>
             <FPTextArea label={T2("Service style notes")}
               placeholder={T2("e.g. plated starters, live chaat counter, cake cutting at 9pm…")}
               value={val('service_notes')} onChange={function(v){ onChangeField('service_notes', v); }} onBlur={function(){ commitText('service_notes'); }} />
@@ -682,9 +703,34 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
               value={val('general_notes')} onChange={function(v){ onChangeField('general_notes', v); }} onBlur={function(){ commitText('general_notes'); }} />
           </div>
           <div style={{ marginTop: 16 }}>
-            <FPTextArea label={T2("Layout information")} rows={6}
-              placeholder={T2("e.g. stage/mandap placement, entry & exit points, seating plan, decor zones, parking instructions…")}
-              value={val('layout_info')} onChange={function(v){ onChangeField('layout_info', v); }} onBlur={function(){ commitText('layout_info'); }} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7, gap: 10 }}>
+              <FieldLabel>{T2("Layout information")}</FieldLabel>
+              <label title={T2("Upload a layout photo")}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: K.rSm,
+                  background: K.surfaceAlt, border: "1px solid " + K.line, color: K.textBody, fontSize: 11.5, fontWeight: 600,
+                  cursor: layoutPhotoBusy ? "progress" : "pointer", flexShrink: 0 }}>
+                <Icon name="tag" size={13} strokeWidth={1.9} />
+                {layoutPhotoBusy ? T2("Uploading…") : T2("Upload image")}
+                <input type="file" accept="image/*" disabled={layoutPhotoBusy} style={{ display: "none" }}
+                  onChange={function(e){ var f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadLayoutPhoto(f); }} />
+              </label>
+            </div>
+            <textarea value={val('layout_info')} placeholder={T2("e.g. stage/mandap placement, entry & exit points, seating plan, decor zones, parking instructions…")}
+              onChange={function(e){ onChangeField('layout_info', e.target.value); }}
+              onBlur={function(){ commitText('layout_info'); }}
+              rows={6}
+              style={{ ...inputStyle, width: "100%", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", minHeight: 144, lineHeight: 1.5 }} />
+            {fp && fp.layout_image_url && (
+              <div style={{ marginTop: 10, display: "inline-block", position: "relative" }}>
+                <img src={fp.layout_image_url} alt={T2("Layout reference")}
+                  style={{ display: "block", maxWidth: 260, maxHeight: 180, borderRadius: K.rSm, border: "1px solid " + K.line, objectFit: "contain", background: K.surfaceAlt }} />
+                <button type="button" onClick={removeLayoutPhoto} title={T2("Remove photo")}
+                  style={{ position: "absolute", top: -8, right: -8, width: 24, height: 24, borderRadius: "50%", background: K.dangerBg,
+                    border: "1px solid " + K.dangerBorder, color: K.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="close" size={13} strokeWidth={2.2} />
+                </button>
+              </div>
+            )}
           </div>
         </Panel>
       </div>

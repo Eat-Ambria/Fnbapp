@@ -289,7 +289,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     });
   });
 
-  var attnChefLines = [fp && fp.allergies, fp && fp.service_notes, fp && fp.general_notes]
+  var attnChefLines = [fp && fp.service_notes, fp && fp.general_notes]
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
 
   return createPortal(
@@ -468,10 +468,14 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             plan, decor zones, parking. Free text, can run long (the Notes tab
             gives it a 6-row box), so it gets its own full-width section rather
             than being squeezed into a one-line bullet. ── */}
-        {fp && fp.layout_info && fp.layout_info.trim() && (
+        {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
           <div style={{ border: "2px solid #000", borderTop: "none", padding: "12px 16px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 6 }}>{T2("LAYOUT INFORMATION")}</div>
-            <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>
+            {fp.layout_info && fp.layout_info.trim() && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>}
+            {fp.layout_image_url && (
+              <img src={fp.layout_image_url} alt={T2("Layout reference")}
+                style={{ display: "block", marginTop: fp.layout_info ? 8 : 0, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />
+            )}
           </div>
         )}
 
