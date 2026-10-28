@@ -13,10 +13,28 @@ import { K } from '../utils/theme.js';
 import { Icon, KButton, KBanner } from './KitchenUI.jsx';
 
 var SPICE_LEVELS = [
-  { id: 'mild',        label: 'Mild',        icon: '🌶️' },
-  { id: 'medium',       label: 'Medium',      icon: '🌶️🌶️' },
-  { id: 'spicy',        label: 'Spicy',       icon: '🌶️🌶️🌶️' },
-  { id: 'extra_spicy',  label: 'Extra Spicy', icon: '🔥' },
+  { id: 'mild',   label: 'Mild',   icon: '🌶️' },
+  { id: 'normal', label: 'Normal', icon: '🌶️🌶️' },
+  { id: 'spicy',  label: 'Spicy',  icon: '🌶️🌶️🌶️' },
+];
+
+var SWEETNESS_LEVELS = [
+  { id: 'less_sweet', label: 'Less Sweet' },
+  { id: 'normal',      label: 'Normal' },
+];
+
+var OIL_LEVELS = [
+  { id: 'less_oil',   label: 'Less Oil' },
+  { id: 'normal',      label: 'Normal' },
+  { id: 'extra_ghee', label: 'Extra Ghee' },
+];
+
+// Free-text in practice, but kept as a fixed dropdown so Kitchen gets a
+// consistent value to scan for rather than whatever spelling/language sales
+// happens to type ("Marwari" vs "Marwadi" etc.).
+var COMMUNITY_OPTIONS = [
+  'Punjabi', 'Marwadi', 'Baniya', 'Jain', 'Sindhi', 'Bengali', 'Gujarati',
+  'South Indian', 'Rajasthani', 'UP / Bihari', 'Himachali', 'Other',
 ];
 
 // The flat list of every timing field — order here doesn't drive the
@@ -177,6 +195,28 @@ function Panel({ icon, badgeBg, badgeColor, title, right, children }) {
 
 function FieldLabel({ children }) {
   return <div style={{ fontSize: 12.5, fontWeight: 700, color: K.text, marginBottom: 7, display: "flex", alignItems: "center", gap: 7 }}>{children}</div>;
+}
+
+// Shared single-select pill row — Spice tolerance, Sweetness tolerance and
+// Oil preference all pick one of a short fixed list the same way.
+function PillGroup({ options, value, onSelect, style, t }) {
+  var tr = t || function(s){ return s; };
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", ...style }}>
+      {options.map(function(o){
+        var isActive = value === o.id;
+        return (
+          <button key={o.id} type="button" onClick={function(){ onSelect(isActive ? null : o.id); }}
+            style={{ padding: "8px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: isActive ? 700 : 600,
+              background: isActive ? K.brand : K.surface, color: isActive ? "#fff" : K.textBody,
+              border: "1px solid " + (isActive ? K.brand : K.line), cursor: "pointer",
+              boxShadow: isActive ? "0 3px 10px rgba(28,61,43,.22)" : "none" }}>
+            {o.icon ? o.icon + ' ' : ''}{tr(o.label)}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 var inputStyle = { fontFamily: "inherit", fontSize: 13.5, color: K.text, border: "1px solid " + K.line, borderRadius: K.rSm, background: K.surfaceAlt, padding: "9px 11px", outline: "none" };
@@ -360,27 +400,33 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
           </div>
 
           <FieldLabel>{T2("Spice tolerance")}</FieldLabel>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-            {SPICE_LEVELS.map(function(s){
-              var isActive = fp && fp.spice_tolerance === s.id;
-              return (
-                <button key={s.id} onClick={function(){ onSaveField('spice_tolerance', isActive ? null : s.id); }}
-                  style={{ padding: "8px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: isActive ? 700 : 600,
-                    background: isActive ? K.brand : K.surface, color: isActive ? "#fff" : K.textBody,
-                    border: "1px solid " + (isActive ? K.brand : K.line), cursor: "pointer",
-                    boxShadow: isActive ? "0 3px 10px rgba(28,61,43,.22)" : "none" }}>
-                  {s.icon} {T2(s.label)}
-                </button>
-              );
-            })}
-          </div>
+          <PillGroup t={T2} options={SPICE_LEVELS} value={fp && fp.spice_tolerance}
+            onSelect={function(id){ onSaveField('spice_tolerance', id); }} style={{ marginBottom: 18 }} />
+
+          <FieldLabel>{T2("Sweetness tolerance")}</FieldLabel>
+          <PillGroup t={T2} options={SWEETNESS_LEVELS} value={fp && fp.sweetness_tolerance}
+            onSelect={function(id){ onSaveField('sweetness_tolerance', id); }} style={{ marginBottom: 18 }} />
+
+          <FieldLabel>{T2("Oil preference")}</FieldLabel>
+          <PillGroup t={T2} options={OIL_LEVELS} value={fp && fp.oil_preference}
+            onSelect={function(id){ onSaveField('oil_preference', id); }} style={{ marginBottom: 18 }} />
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxWidth: 260 }}>
+            <FieldLabel>{T2("Community")}</FieldLabel>
+            <select value={val('guest_community') || ''}
+              onChange={function(e){ onSaveField('guest_community', e.target.value || null); }}
+              style={{ ...inputStyle, width: "100%" }}>
+              <option value="">{T2("— Select —")}</option>
+              {COMMUNITY_OPTIONS.map(function(c){ return <option key={c} value={c}>{T2(c)}</option>; })}
+            </select>
+          </label>
 
           <div style={{ paddingTop: 16, borderTop: "1px solid " + K.lineSoft }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ color: K.brand, display: "flex" }}><Icon name="cup" size={15} strokeWidth={1.9} /></span>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: K.text }}>{T2("Corkage")}</span>
             </div>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Cost agreed")}</span>
                 <input type="number" min="0" step="0.01" inputMode="decimal" value={val('corkage_price')}
@@ -395,6 +441,12 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
                   onChange={function(e){ onChangeField('corkage_details', e.target.value); }}
                   onBlur={function(){ commitText('corkage_details'); }}
                   style={{ ...inputStyle, width: "100%" }} />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, paddingBottom: 9, cursor: "pointer" }}>
+                <input type="checkbox" checked={!!(fp && fp.corkage_liquor)}
+                  onChange={function(e){ onSaveField('corkage_liquor', e.target.checked); }}
+                  style={{ width: 16, height: 16, cursor: "pointer" }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: K.textBody }}>{T2("Liquor being served")}</span>
               </label>
             </div>
           </div>
@@ -685,5 +737,5 @@ function FPTextArea({ label, placeholder, value, onChange, onBlur, rows }) {
   );
 }
 
-export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo };
+export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, SPICE_LEVELS, SWEETNESS_LEVELS, OIL_LEVELS, COMMUNITY_OPTIONS };
 export default FunctionPlanTab;

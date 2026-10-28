@@ -39,10 +39,20 @@ function sortedByVeg(names, dishSectionOrder) {
 }
 
 var SPICE_LABELS = {
-  mild:        'Mild',
-  medium:      'Medium',
-  spicy:       'Spicy',
-  extra_spicy: 'Extra Spicy',
+  mild:   'Mild',
+  normal: 'Normal',
+  spicy:  'Spicy',
+};
+
+var SWEETNESS_LABELS = {
+  less_sweet: 'Less Sweet',
+  normal:     'Normal',
+};
+
+var OIL_LABELS = {
+  less_oil:   'Less Oil',
+  normal:     'Normal',
+  extra_ghee: 'Extra Ghee',
 };
 
 var DIFF_KIND_META = {
@@ -225,7 +235,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     // the printed page regardless of that checkbox, not just in the on-screen preview.
     if (fp.guest_preference) bullets.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
     if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
-    if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : ''));
+    if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) bullets.push('Sweetness tolerance: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]);
+    if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) bullets.push('Oil preference: ' + OIL_LABELS[fp.oil_preference]);
+    if (fp.guest_community) bullets.push('Community: ' + fp.guest_community);
+    if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : ''));
+    else if (fp.corkage_liquor) bullets.push('Liquor being served');
     TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' start time @ ' + fp[f.id]); });
     if (fp.room_info_enabled) {
       var roomParts = [];

@@ -45,7 +45,9 @@ function normalizePkgName(s) {
 var FP_FIELD_LABELS = (function(){
   var out = {
     guest_preference: 'Guest Preference', spice_tolerance: 'Spice tolerance',
-    corkage_price: 'Corkage cost', corkage_details: 'Corkage details',
+    sweetness_tolerance: 'Sweetness tolerance', oil_preference: 'Oil preference',
+    guest_community: 'Community',
+    corkage_price: 'Corkage cost', corkage_details: 'Corkage details', corkage_liquor: 'Liquor being served',
     room_info_enabled: 'Room info', room_check_in: 'Room check-in',
     room_check_out: 'Room check-out', room_count: 'Room count',
     drivers_food_required: 'Drivers food', drivers_food_count: 'Drivers food count',
@@ -476,6 +478,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   async function mirrorFPToEvent(fpRow) {
     var parts = [];
     if (fpRow.guest_preference) parts.push('Guest pref: ' + fpRow.guest_preference);
+    if (fpRow.guest_community) parts.push('Community: ' + fpRow.guest_community);
     if (fpRow.spice_tolerance) parts.push('Spice: ' + fpRow.spice_tolerance);
     if (fpRow.allergies) parts.push('Allergies: ' + fpRow.allergies);
     if (fpRow.service_notes) parts.push('Service: ' + fpRow.service_notes);
