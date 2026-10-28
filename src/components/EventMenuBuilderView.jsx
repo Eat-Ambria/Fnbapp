@@ -686,15 +686,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // dish_name -> its catalogue section's display name (Dish Library >
   // Sections tab), for the no-package print branch to group dishes under a
   // visible sub-heading in the same order dishSectionOrder already sorts
-  // them by — null when the dish has no section_id (prints with no heading,
-  // under whatever heading came before it).
+  // them by — 'Extras' (translated at render) when the dish has no
+  // section_id, so it gets its own heading instead of silently printing
+  // under whatever real section happened to come before it.
   var dishSectionName = useMemo(function(){
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
     var out = {};
     (allDishes || []).forEach(function(d){
       var s = d.section_id && byId[d.section_id];
-      out[d.name] = s ? s.name : null;
+      out[d.name] = s ? s.name : 'Extras';
     });
     return out;
   }, [allDishes, sections]);
@@ -765,6 +766,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // absent, not a "Deduction" — see noAutoSelectDishNames above.
   var menuDiffByDept = useMemo(function(){
     if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
+    var pkgSecsAll = MENU_PACKAGE_SECTIONS[templateInfo.name] || [];
     var pkgSet = new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
     var selSet = selectedDishNames;
     // Already reported via newSectionsByDept below — don't also list these as
@@ -795,12 +797,31 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       var added = addedByDept[d.id] || [];
       var removed = removedByDept[d.id] || [];
       var newSections = newSectionsByDept[d.id] ? Object.values(newSectionsByDept[d.id]) : [];
-      if (added.length === 0 && removed.length === 0 && newSections.length === 0) return;
-      // null when a dept has ONLY a new section and nothing else differs —
-      // there's no +/- diff list to label in that case, just the section block.
+      // A package-default section whose ENTIRE baseline is gone (whether via
+      // "remove whole section" or one-by-one toggles that happen to zero it
+      // out) reads as one "section removed" line in the FP instead of a pile
+      // of individual "− dish" bullets — the mirror-image of newSections
+      // above, which already gets this one-line treatment for an added section.
+      var removedSet = {};
+      removed.forEach(function(n){ removedSet[n] = true; });
+      var removedSections = [];
+      var coveredByRemovedSection = {};
+      pkgSecsAll.forEach(function(sec){
+        if ((sec.sales_dept || 'kit') !== d.id) return;
+        var names = (sec.dishes || []).filter(function(n){ return !noAutoSelectDishNames.has(n); });
+        if (names.length === 0) return;
+        if (!names.every(function(n){ return removedSet[n]; })) return;
+        removedSections.push({ name: sec.name, dishes: names });
+        names.forEach(function(n){ coveredByRemovedSection[n] = true; });
+      });
+      if (removedSections.length > 0) removed = removed.filter(function(n){ return !coveredByRemovedSection[n]; });
+      if (added.length === 0 && removed.length === 0 && newSections.length === 0 && removedSections.length === 0) return;
+      // null when a dept has ONLY a new/removed section and nothing else
+      // differs — there's no +/- diff list to label in that case, just the
+      // section block(s).
       var kind = (added.length > 0 && removed.length > 0) ? 'swap'
         : (added.length > 0 ? 'addon' : (removed.length > 0 ? 'deduction' : null));
-      out[d.id] = { added: added, removed: removed, kind: kind, newSections: newSections };
+      out[d.id] = { added: added, removed: removed, kind: kind, newSections: newSections, removedSections: removedSections };
     });
     return out;
   // eslint-disable-next-line
@@ -909,6 +930,29 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   function removeAdHocSection(grp) {
     if (blockIfMenuLocked()) return;
     return menuItemOps.removeAdHocSection(itemsOpsConfig, sectionOverrides, grp, setSectionOverrides);
+  }
+
+  // Remove every dish actually selected in a PACKAGE-DEFAULT section (not an
+  // ad-hoc one — that's removeAdHocSection above): a real bulk delete of
+  // event_items rows, since these are the package's own pre-selected dishes,
+  // not just a tag to clear. Logged to the FP's history as one line so the
+  // Function Plan shows the whole section was dropped, instead of leaving the
+  // reader to infer it from a pile of individual "− dish" diff lines.
+  async function removeWholeSection(grp) {
+    if (blockIfMenuLocked()) return;
+    var names = (grp.dishes || []).filter(function(d){ return selectedSet[d.name]; }).map(function(d){ return d.name; });
+    if (names.length === 0) return;
+    if (!window.confirm(T2('Remove the whole') + ' "' + grp.name + '" ' + T2('section') + ' (' + names.length + ' ' + T2('dishes') + ') ' + T2('from this menu?'))) return;
+    try {
+      var result = await menuItemOps.removeSectionItems(itemsOpsConfig, dishItems, names, setDishItems);
+      var hasKitDish = names.some(function(n){ return effectiveDeptForDish(n) === 'kit'; });
+      if (hasKitDish) await mirrorKitchenMenu(result.nextItems);
+      logFpHistory(T2('Removed section') + ': ' + grp.name + ' (' + names.length + ' ' + T2('dishes') + ')');
+    } catch (e) {
+      console.error('[EventMenuBuilder] removeWholeSection failed:', e);
+      await loadItems().then(setDishItems);
+      alert(T2('Failed to remove section:') + ' ' + (e.message || e));
+    }
   }
 
   // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
@@ -1186,6 +1230,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   onAddSectionFromLibrary={addSectionFromLibrary}
                   onCreateCustomSection={createCustomSection}
                   onRemoveSection={removeAdHocSection}
+                  onRemoveWholeSection={removeWholeSection}
                 />
               )}
 

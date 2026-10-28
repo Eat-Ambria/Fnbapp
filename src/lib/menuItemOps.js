@@ -191,6 +191,24 @@ export async function addSectionFromLibrary(config, sectionOverrides, catSection
   if (updRes.error) console.error('[menuItemOps] saveSectionOverride (bulk) failed:', updRes.error);
 }
 
+// OPTIMISTIC bulk delete of every item row matching one of `dishNames` in a
+// single DB round trip — used to drop every selected dish in a whole
+// PACKAGE-DEFAULT section at once (real event_items/proposal_items rows,
+// unlike removeAdHocSection below which only ever clears tags). Throws on
+// error; caller catches, refetches via its own loadItems(), and shows its
+// own message — same contract as toggleDishItem's delete branch.
+export async function removeSectionItems(config, dishItems, dishNames, onOptimistic) {
+  var names = {};
+  (dishNames || []).forEach(function(n){ names[n] = true; });
+  var nextItems = dishItems.filter(function(x){ return !names[x.dish_name]; });
+  if (nextItems.length === dishItems.length) return { nextItems: dishItems };
+  onOptimistic(nextItems);
+  var del = await supabase.from(config.itemsTable).delete()
+    .eq(config.itemsFk, config.itemsFkValue).in('dish_name', dishNames);
+  if (del.error) throw del.error;
+  return { nextItems: nextItems };
+}
+
 // Swallowed write error, matches both files — removing an ad-hoc pill only
 // clears tags (metadata), nothing is deselected/deleted.
 export async function removeAdHocSection(config, sectionOverrides, grp, onOptimistic) {

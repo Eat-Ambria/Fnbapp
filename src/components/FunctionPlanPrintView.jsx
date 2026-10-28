@@ -419,6 +419,16 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                             </div>
                           );
                         })}
+                        {/* A whole package-default section with every one of its
+                            dishes gone — one line, not a pile of individual
+                            "− dish" bullets. */}
+                        {(diff.removedSections || []).map(function(sec){
+                          return (
+                            <div key={'rs-' + sec.name}>
+                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic", color: "#B3281F" }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })
@@ -435,12 +445,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
                       {sorted.map(function(n){
-                        var sec = (dishSectionName && dishSectionName[n]) || null;
+                        var sec = (dishSectionName && dishSectionName[n]) || 'Extras';
                         var isNewSection = sec !== lastSection;
                         lastSection = sec;
                         return (
                           <React.Fragment key={n}>
-                            {isNewSection && sec && <SectionSubHead>{sec}</SectionSubHead>}
+                            {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
                             <Bullet>{n}</Bullet>
                           </React.Fragment>
                         );

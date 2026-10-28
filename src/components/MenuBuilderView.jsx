@@ -834,7 +834,7 @@ function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
   var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
@@ -1234,25 +1234,46 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             var selCount = p.children.reduce(function(n, g){
               return n + g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
             }, 0);
+            // A pill with a single child IS that package-default section — it
+            // never gets a second row to remove it from (second row only
+            // renders when children.length > 1), so the removal affordance has
+            // to live here instead for this, the common, case.
+            var soleGroup = p.children.length === 1 ? p.children[0] : null;
+            var canRemoveWhole = !!(soleGroup && !soleGroup.isAdHoc && soleGroup.id !== '__extras__' && onRemoveWholeSection && selCount > 0);
             return (
-              <button key={p.key} onClick={function(){ setActiveSectionId(p.children[0].id); }}
-                className={"kh-secpill" + (isActive ? " is-on" : "")}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
-                  padding: "11px 18px", borderRadius: 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
-                  background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
-                  border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), cursor: "pointer",
-                }}>
-                <span style={{ fontSize: 15, lineHeight: 1 }}>{p.icon}</span>{p.name}
-                <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>
-                  {selCount > 0 ? selCount + "/" : ""}{dishCount}
-                </span>
-                {/* Says the pill opens into more without spelling out how many
-                    — the second row answers that the moment it is clicked. */}
-                {p.children.length > 1 && (
-                  <span style={{ fontSize: 11, opacity: .75 }}>▾</span>
+              <span key={p.key} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                <button onClick={function(){ setActiveSectionId(p.children[0].id); }}
+                  className={"kh-secpill" + (isActive ? " is-on" : "")}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
+                    padding: "11px 18px", borderRadius: canRemoveWhole ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                    background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
+                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: canRemoveWhole ? "none" : undefined, cursor: "pointer",
+                  }}>
+                  <span style={{ fontSize: 15, lineHeight: 1 }}>{p.icon}</span>{p.name}
+                  <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>
+                    {selCount > 0 ? selCount + "/" : ""}{dishCount}
+                  </span>
+                  {/* Says the pill opens into more without spelling out how many
+                      — the second row answers that the moment it is clicked. */}
+                  {p.children.length > 1 && (
+                    <span style={{ fontSize: 11, opacity: .75 }}>▾</span>
+                  )}
+                </button>
+                {canRemoveWhole && (
+                  <button onClick={function(){ onRemoveWholeSection(soleGroup); }}
+                    className="kh-secx"
+                    title={T2("Remove this whole section's dishes from the menu")}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? K.brand : "#FFFFFF", color: isActive ? "rgba(255,255,255,.8)" : K.textFaint,
+                      border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                    }}>
+                    ✕
+                  </button>
                 )}
-              </button>
+              </span>
             );
           })}
         </div>
@@ -1265,22 +1286,38 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
           {activeParent.children.map(function(g){
             var isActive = g.id === activeSectionId;
             var selInSec = g.dishes.filter(function(d){ return !!selectedSet[d.name]; }).length;
+            var isAdHocRemovable = g.isAdHoc && onRemoveSection;
+            var isWholeRemovable = !g.isAdHoc && onRemoveWholeSection && g.id !== '__extras__' && selInSec > 0;
+            var hasRemoveBtn = isAdHocRemovable || isWholeRemovable;
             return (
               <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                 <button onClick={function(){ setActiveSectionId(g.id); }}
                   className={"kh-secpill" + (isActive ? " is-on" : "")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
-                    padding: "11px 18px", borderRadius: g.isAdHoc && onRemoveSection ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                    padding: "11px 18px", borderRadius: hasRemoveBtn ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
                     background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
-                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: (g.isAdHoc && onRemoveSection) ? "none" : undefined, cursor: "pointer",
+                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: hasRemoveBtn ? "none" : undefined, cursor: "pointer",
                   }}>
                   <span style={{ fontSize: 15, lineHeight: 1 }}>{g.icon}</span>{g.name} <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>{selInSec > 0 ? selInSec + "/" : ""}{g.dishes.length}</span>
                 </button>
-                {g.isAdHoc && onRemoveSection && (
+                {isAdHocRemovable && (
                   <button onClick={function(){ onRemoveSection(g); if (activeSectionId === g.id) setActiveSectionId(null); }}
                     className="kh-secx"
                     title={T2("Remove this ad-hoc section from this menu")}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? K.brand : "#FFFFFF", color: isActive ? "rgba(255,255,255,.8)" : K.textFaint,
+                      border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                    }}>
+                    ✕
+                  </button>
+                )}
+                {isWholeRemovable && (
+                  <button onClick={function(){ onRemoveWholeSection(g); if (activeSectionId === g.id) setActiveSectionId(null); }}
+                    className="kh-secx"
+                    title={T2("Remove this whole section's dishes from the menu")}
                     style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                       padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
