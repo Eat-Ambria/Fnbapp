@@ -829,7 +829,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       var coveredByRemovedSection = {};
       pkgSecsAll.forEach(function(sec){
         if ((sec.sales_dept || 'kit') !== d.id) return;
-        var names = (sec.dishes || []).filter(function(n){ return !noAutoSelectDishNames.has(n); });
+        // A dish literally listed under this section can still resolve to a
+        // DIFFERENT dept once pinnedDeptForDish/dishNameToPkgDept are applied
+        // (the same resolution removedByDept itself was bucketed by, just
+        // above) — e.g. a tea/coffee/ice-cream dish pinned to Beverages
+        // regardless of which section's static list names it. Such a dish
+        // could never appear in THIS dept's removedSet even when it really
+        // is gone, so it must not be required for the section to count as
+        // fully removed.
+        var names = (sec.dishes || []).filter(function(n){
+          if (noAutoSelectDishNames.has(n)) return false;
+          var dept = pinnedDeptForDish(n) || dishNameToPkgDept[n] || DEFAULT_DEPT;
+          return dept === d.id;
+        });
         if (names.length === 0) return;
         if (!names.every(function(n){ return removedSet[n]; })) return;
         removedSections.push({ name: sec.name, dishes: names });
@@ -961,13 +973,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // reader to infer it from a pile of individual "− dish" diff lines.
   async function removeWholeSection(grp) {
     if (blockIfMenuLocked()) return;
-    var names = (grp.dishes || []).filter(function(d){ return selectedSet[d.name]; }).map(function(d){ return d.name; });
+    var selectedInGrp = (grp.dishes || []).filter(function(d){ return selectedSet[d.name]; }).map(function(d){ return d.name; });
+    // A catalogue-linked package section pools in every alternative from its
+    // shared catalogue section, including a dish whose own department
+    // (effectiveDeptForDish — the same resolution the rest of this file
+    // treats as that dish's one true home) is somewhere else entirely, e.g.
+    // a generic "Mineral Water" that's really Beverages' own dish but also
+    // browsable under a Kitchen section linked to the same catalogue entry.
+    // Only delete dishes this section's own dept actually owns — a shared
+    // dish just stays selected (and still shows) wherever it really lives.
+    var names = selectedInGrp.filter(function(n){ return effectiveDeptForDish(n) === activeDept; });
+    var keptElsewhere = selectedInGrp.length - names.length;
     if (names.length === 0) return;
-    if (!window.confirm(T2('Remove the whole') + ' "' + grp.name + '" ' + T2('section') + ' (' + names.length + ' ' + T2('dishes') + ') ' + T2('from this menu?'))) return;
+    var confirmMsg = T2('Remove the whole') + ' "' + grp.name + '" ' + T2('section') + ' (' + names.length + ' ' + T2('dishes') + ')'
+      + (keptElsewhere > 0 ? ' — ' + keptElsewhere + ' ' + T2('also used in another department will be kept') : '')
+      + ' ' + T2('from this menu?');
+    if (!window.confirm(confirmMsg)) return;
     try {
       var result = await menuItemOps.removeSectionItems(itemsOpsConfig, dishItems, names, setDishItems);
-      var hasKitDish = names.some(function(n){ return effectiveDeptForDish(n) === 'kit'; });
-      if (hasKitDish) await mirrorKitchenMenu(result.nextItems);
+      if (activeDept === 'kit') await mirrorKitchenMenu(result.nextItems);
       logFpHistory(T2('Removed section') + ': ' + grp.name + ' (' + names.length + ' ' + T2('dishes') + ')');
     } catch (e) {
       console.error('[EventMenuBuilder] removeWholeSection failed:', e);
