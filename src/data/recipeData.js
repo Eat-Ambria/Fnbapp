@@ -463,7 +463,9 @@ function subscribeDishMetaRealtime(supabase) {
         image_url:       r.image_url || '',
         section_id:      r.section_id || null,
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
-        is_veg:          r.is_veg == null ? null : !!r.is_veg
+        is_veg:          r.is_veg == null ? null : !!r.is_veg,
+        no_auto_select:  !!r.no_auto_select,
+        alt_group:       r.alt_group || null
       };
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_store_map' }, (p) => {
@@ -797,7 +799,9 @@ function getAllDishes(opts) {
       hindi:           DISH_HINDI_MAP[name] || '',
       section_id:      row.section_id || null,
       sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section),
-      is_veg:          row.is_veg == null ? null : !!row.is_veg
+      is_veg:          row.is_veg == null ? null : !!row.is_veg,
+      no_auto_select:  !!row.no_auto_select,
+      alt_group:       row.alt_group || null
     });
   });
   return out.sort((a, b) => a.dish_name.localeCompare(b.dish_name));

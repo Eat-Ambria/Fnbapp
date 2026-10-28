@@ -679,20 +679,23 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [allDishes, sections]);
 
-  // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10)
-  // are never part of the package's EFFECTIVE default, even though they're
-  // listed in templateInfo.dishes — so menuDiffByDept below must not count
-  // an unpicked one as a "removed" dish. Mirrors filterAutoSeedable's own
-  // logic (menuItemOps.js) but computed locally since this needs to be a
+  // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10),
+  // OR individually flagged no_auto_select on dishes_master itself (a 2-way
+  // choice sitting inside an otherwise normal auto-select section), are never
+  // part of the package's EFFECTIVE default even though they're listed in
+  // templateInfo.dishes — so menuDiffByDept below must not count an unpicked
+  // one as a "removed" dish. Mirrors filterAutoSeedable's own logic
+  // (menuItemOps.js) but computed locally since this needs to be a
   // synchronous useMemo, not an async DB round-trip, and `sections` is
   // already loaded here for other reasons.
   var noAutoSelectDishNames = useMemo(function(){
     var noAutoIds = new Set((sections || []).filter(function(s){ return s.no_auto_select; }).map(function(s){ return s.id; }));
-    if (noAutoIds.size === 0) return new Set();
     var out = new Set();
-    getAllDishes({ includeInactive: true }).forEach(function(d){ if (d.section_id && noAutoIds.has(d.section_id)) out.add(d.dish_name); });
+    getAllDishes({ includeInactive: true }).forEach(function(d){
+      if (d.no_auto_select || (d.section_id && noAutoIds.has(d.section_id))) out.add(d.dish_name);
+    });
     return out;
-  }, [sections]);
+  }, [sections, dishLibBump]);
 
   // A whole catalogue section added ad hoc for this event (via "Add section
   // from library", including a brand-new section created on the spot) isn't

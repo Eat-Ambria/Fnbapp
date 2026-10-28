@@ -262,6 +262,27 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
   var [sentJust, setSentJust]       = useState(false);
   var currentStatus = proposal.status || 'draft';
 
+  // Dishes sharing a non-empty alt_group tag are alternatives of each other
+  // (e.g. a Dish X / Dish Y choice inside Main Course) — this client-facing
+  // preview shows them joined even once the event's actual Function Plan has
+  // resolved to just one, since the point here is "what the package offers",
+  // not "what this specific client picked" (that's the FP's job). A lone tag
+  // (nobody else shares it) isn't a real choice group, so it's left alone.
+  var altGroupLabel = useMemo(function(){
+    var byGroup = {};
+    getAllDishes({ includeInactive: true }).forEach(function(d){
+      if (d.alt_group) { (byGroup[d.alt_group] = byGroup[d.alt_group] || []).push(d.dish_name); }
+    });
+    var out = {};
+    Object.keys(byGroup).forEach(function(g){
+      var names = byGroup[g];
+      if (names.length < 2) return;
+      var joined = names.slice().sort().join(' / ');
+      names.forEach(function(n){ out[n] = joined; });
+    });
+    return out;
+  }, []);
+
   // ── Group items by (dept, category) ──
   var byDeptByCat = useMemo(function(){
     var deptMap = {};
@@ -544,7 +565,7 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
         {pages.map(function(pg, i){
           return (
             <Sheet key={pg.key}>
-              <SectionPage page={pg} diet={dietLine} flip={i % 2 === 1} salesMeta={salesMeta} T2={T2} />
+              <SectionPage page={pg} diet={dietLine} flip={i % 2 === 1} salesMeta={salesMeta} altGroupLabel={altGroupLabel} T2={T2} />
             </Sheet>
           );
         })}
@@ -606,7 +627,7 @@ function BackCover() {
   );
 }
 
-function SectionPage({ page, diet, flip, salesMeta, T2 }) {
+function SectionPage({ page, diet, flip, salesMeta, altGroupLabel, T2 }) {
   // An uploaded photograph wins. The name matching below it is the fallback
   // for sections nobody has given one to yet.
   var photo = page.image || sectionPhoto(page.title);
@@ -617,16 +638,27 @@ function SectionPage({ page, diet, flip, salesMeta, T2 }) {
       {diet && <div className="amb-sub">{diet}</div>}
       <span className="amb-rule" aria-hidden="true" />
       <div className={"amb-list" + (sparse ? " is-sparse" : "")}>
-        {page.items.map(function(it){
-          var meta = salesMeta[it.dish_name];
-          var desc = (meta && meta.sales_description) || "";
-          return (
-            <div className="amb-dish" key={it.dish_name}>
-              <div className="amb-dish-name">{it.dish_name}</div>
-              {desc && <div className="amb-dish-desc">{desc}</div>}
-            </div>
-          );
-        })}
+        {(function(){
+          // If more than one dish from the same alt_group somehow ended up
+          // in this list (normally only one would, via no_auto_select), show
+          // the joined "X / Y" label once rather than repeating it per dish.
+          var seenGroupLabel = {};
+          return page.items.map(function(it){
+            var label = altGroupLabel[it.dish_name];
+            if (label) {
+              if (seenGroupLabel[label]) return null;
+              seenGroupLabel[label] = true;
+            }
+            var meta = salesMeta[it.dish_name];
+            var desc = (meta && meta.sales_description) || "";
+            return (
+              <div className="amb-dish" key={it.dish_name}>
+                <div className="amb-dish-name">{label || it.dish_name}</div>
+                {desc && <div className="amb-dish-desc">{desc}</div>}
+              </div>
+            );
+          });
+        })()}
       </div>
       <div className="amb-foot"><Art src={ART.logoDark} alt="Ambria Cuisines" /></div>
     </div>

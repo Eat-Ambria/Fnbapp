@@ -16,6 +16,7 @@ import { guessSectionForDish, findRecipeForDish, resolveDishStore, isDishNoSopMa
 import { EVENT_VENUES } from '../data/staffData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
+import { filterAutoSeedable } from '../lib/menuItemOps.js';
 
 const FIELD_LABEL = {...type.label,fontSize:10.5,letterSpacing:.7,color:K.hdrMeta,marginBottom:5};
 
@@ -332,7 +333,13 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
         if(delErr) throw delErr;
       }
       const remainingCount = existing.length-toRemove.length;
-      const toAdd = newDishes.filter(d=>!existingNames.has(d));
+      // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
+      // bulk-added as defaults when a package is first assigned/switched —
+      // same filterAutoSeedable policy EventMenuBuilderView's initial seed
+      // and "Load defaults" already follow; this was the one remaining path
+      // that bypassed it (new/changed package -> event_items written here
+      // directly, not through either of those).
+      const toAdd = (await filterAutoSeedable(newDishes)).filter(d=>!existingNames.has(d));
       if(toAdd.length){
         const insRows = toAdd.map((d,i)=>({event_id:eventId,dish_name:d,is_addon:false,ordering:remainingCount+i}));
         const {error:insErr} = await supabase.from('event_items').insert(insRows);

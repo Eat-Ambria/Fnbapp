@@ -27,23 +27,35 @@
 import { supabase } from './supabase.js';
 import { getAllDishes } from '../data/recipeData.js';
 
-// Dishes belonging to a dish_catalogue_sections row flagged no_auto_select
-// (e.g. Soup Station: the package lists 8-10 options but only 2-3 are ever
-// actually served) should never be bulk-added as "defaults" -- the whole
-// point of that flag is that picking from the section is a deliberate
-// choice, not a formality everyone has to manually undo every time. Used by
-// both the initial package-seed and the "Load defaults" button in both
-// MenuBuilderView.jsx and EventMenuBuilderView.jsx.
+// Dishes that should never be bulk-added as package "defaults" — the whole
+// point is that picking one is a deliberate choice, not a formality everyone
+// has to manually undo every time. Two independent ways a dish lands here:
+//   - its dish_catalogue_sections row is flagged no_auto_select (a WHOLE
+//     section of options, e.g. Soup Station: the package lists 8-10 but
+//     only 2-3 are ever actually served), or
+//   - the dish ITSELF is flagged no_auto_select (dishes_master.no_auto_select)
+//     — a couple of dishes inside an otherwise normal auto-select section,
+//     e.g. a 2-way choice between Dish X and Dish Y sitting in Main Course
+//     alongside 5 standard dishes that still auto-select as usual.
+// Used by both the initial package-seed and the "Load defaults" button in
+// both MenuBuilderView.jsx and EventMenuBuilderView.jsx, and by
+// syncEventItemsOnPackageChange (Dashboard.jsx) when a package is first
+// assigned/switched on a booking.
 export async function filterAutoSeedable(dishNames) {
   if (!dishNames || dishNames.length === 0) return dishNames || [];
   var secRes = await supabase.from('dish_catalogue_sections').select('id').eq('no_auto_select', true);
-  if (secRes.error || !secRes.data || secRes.data.length === 0) return dishNames;
-  var noAutoIds = new Set(secRes.data.map(function(s){ return s.id; }));
+  var noAutoSectionIds = (!secRes.error && secRes.data) ? new Set(secRes.data.map(function(s){ return s.id; })) : new Set();
+  var allDishes = getAllDishes({ includeInactive: true });
   var sectionByDish = {};
-  getAllDishes({ includeInactive: true }).forEach(function(d){ if (d.section_id) sectionByDish[d.dish_name] = d.section_id; });
+  var dishNoAutoSelect = {};
+  allDishes.forEach(function(d){
+    if (d.section_id) sectionByDish[d.dish_name] = d.section_id;
+    if (d.no_auto_select) dishNoAutoSelect[d.dish_name] = true;
+  });
   return dishNames.filter(function(name){
+    if (dishNoAutoSelect[name]) return false;
     var sid = sectionByDish[name];
-    return !(sid && noAutoIds.has(sid));
+    return !(sid && noAutoSectionIds.has(sid));
   });
 }
 

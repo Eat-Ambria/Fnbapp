@@ -21,6 +21,7 @@ import {
   resolveDishStore, upsertDishStoreMap,
   DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
   setPackageSections, getCatIdForDish, getExplicitCatIdForDish, deactivateDish, upsertDishCat,
+  DISH_MASTER, upsertDishMaster,
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
@@ -52,6 +53,9 @@ function DishMappingModal(props) {
   var [pkgAddOpen, setPkgAddOpen]       = useState(false);
   var [pkgSearch, setPkgSearch]         = useState('');
   var [pkgSaving, setPkgSaving]         = useState('');   // '' | pkgName being mutated
+
+  var [noAutoBuf, setNoAutoBuf]         = useState(false); // dishes_master.no_auto_select
+  var [altGroupBuf, setAltGroupBuf]     = useState('');    // dishes_master.alt_group
 
   var [bump, setBump]                   = useState(0); // internal re-render trigger
 
@@ -101,6 +105,9 @@ function DishMappingModal(props) {
     }
     setSopSearch(''); setStoreSearch('');
     setPkgAddOpen(false); setPkgSearch(''); setPkgSaving('');
+    var row = DISH_MASTER[dishName];
+    setNoAutoBuf(!!(row && row.no_auto_select));
+    setAltGroupBuf((row && row.alt_group) || '');
     // eslint-disable-next-line
   }, [dishName]);
 
@@ -216,6 +223,44 @@ function DishMappingModal(props) {
       upsertDishCat(dishName, catId);
       notify();
     } catch (e) { alert('Category save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  // "Don't auto-select by default" — a dish inside an otherwise normal
+  // auto-select section (e.g. a 2-way choice in Main Course) that shouldn't
+  // be bulk-added as a package default; see filterAutoSeedable (menuItemOps.js).
+  // Saves immediately on toggle, same as the SOP-section pills above.
+  async function saveNoAutoSelect(next) {
+    if (!dishName) return;
+    setNoAutoBuf(next);
+    setSaving('noauto');
+    try {
+      var res = await supabase.from('dishes_master').update({ no_auto_select: next }).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+      upsertDishMaster(dishName, { no_auto_select: next });
+      notify();
+    } catch (e) { setNoAutoBuf(!next); alert('Save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  // Alternative-group tag — dishes sharing the same tag are alternatives of
+  // each other (e.g. a Dish X / Dish Y choice). A client-facing menu preview
+  // joins same-tag dishes as "Dish X / Dish Y" even once an event's actual
+  // Function Plan has resolved to just one of them. Free text, explicit Save
+  // (like Hindi above), not a picker — it only needs to match across the
+  // handful of dishes in one choice, not be globally unique.
+  async function saveAltGroup() {
+    if (!dishName) return;
+    var next = (altGroupBuf || '').trim();
+    var current = (DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '';
+    if (next === current) return;
+    setSaving('altgroup');
+    try {
+      var res = await supabase.from('dishes_master').update({ alt_group: next || null }).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+      upsertDishMaster(dishName, { alt_group: next || null });
+      notify();
+    } catch (e) { alert('Save failed: ' + e.message); }
     finally { setSaving(''); }
   }
 
@@ -458,6 +503,40 @@ function DishMappingModal(props) {
               style={{ padding: '5px 14px', borderRadius: 4, background: type === 'store' ? '#0F6E56' : 'transparent', color: type === 'store' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{T2('Inventory')}</button>
           </div>
           <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2('Mutually exclusive — picking one clears the other.')}</div>
+        </div>
+
+        {/* Auto-select — a dish that's an either/or choice inside an
+            otherwise-normal section (e.g. Dish X / Dish Y in Main Course)
+            shouldn't be bulk-added as a package default, and an alt_group
+            tag lets a client-facing preview still show the choice joined
+            even after the event resolves to just one of them. */}
+        <div style={{ marginBottom: 14, padding: 10, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isAdmin ? 'pointer' : 'default' }}>
+            <input type="checkbox" checked={noAutoBuf} disabled={!isAdmin || !!saving}
+              onChange={function() { saveNoAutoSelect(!noAutoBuf); }}
+              style={{ width: 15, height: 15, cursor: isAdmin ? 'pointer' : 'default' }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{T2("Don't auto-select by default")}</span>
+          </label>
+          <div style={{ fontSize: 10, color: C.faint, marginTop: 3, marginLeft: 23 }}>
+            {T2('Shows as an option when building the menu, but is never bulk-added when the package is first assigned or "Load defaults" is used — for a choice between a couple of dishes inside this section.')}
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Alternative group')}</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input value={altGroupBuf} onChange={function(e) { setAltGroupBuf(e.target.value); }}
+                placeholder={T2('e.g. mc-paneer-choice — same tag as its alternative(s)')} disabled={!isAdmin}
+                style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
+              {isAdmin && (
+                <button onClick={saveAltGroup} disabled={!!saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')}
+                  style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'altgroup' ? 'wait' : 'pointer', opacity: (saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')) ? 0.5 : 1 }}>
+                  {saving === 'altgroup' ? T2('Saving…') : T2('Save')}
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>
+              {T2('Give Dish X and Dish Y the same tag and a client-facing menu preview shows them joined as "Dish X / Dish Y" — leave blank for a normal dish.')}
+            </div>
+          </div>
         </div>
 
         {/* SOP picker */}

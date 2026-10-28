@@ -877,21 +877,36 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
     setDirty(true);
   }
-  function startEditDish(secId, name) { setEditingDish({ secId: secId, name: name }); setEditDishValue(name); }
+  // subId is optional — present when renaming a dish inside a subsection
+  // rather than the section's own direct dish list.
+  function startEditDish(secId, name, subId) { setEditingDish({ secId: secId, subId: subId || null, name: name }); setEditDishValue(name); }
   function cancelEditDish() { setEditingDish(null); setEditDishValue(''); }
   function commitEditDish() {
     if (!editingDish) return;
-    var secId = editingDish.secId, oldName = editingDish.name;
+    var secId = editingDish.secId, subId = editingDish.subId, oldName = editingDish.name;
     var newName = (editDishValue || '').trim();
     if (!newName || newName === oldName) { cancelEditDish(); return; }
     var sec = editorSections.find(function(s) { return s.id === secId; });
-    if (sec && sec.dishes.indexOf(newName) !== -1) { alert('"' + newName + '" ' + T2('is already in this section.')); return; }
-    setEditorSections(function(prev) {
-      return prev.map(function(s) {
-        if (s.id !== secId) return s;
-        return { ...s, dishes: s.dishes.map(function(d) { return d === oldName ? newName : d; }) };
+    if (subId) {
+      var sub = sec && (sec.subsections || []).find(function(s) { return s.id === subId; });
+      if (sub && sub.dishes.indexOf(newName) !== -1) { alert('"' + newName + '" ' + T2('is already in this subsection.')); return; }
+      setEditorSections(function(prev) {
+        return prev.map(function(s) {
+          if (s.id !== secId) return s;
+          return { ...s, subsections: (s.subsections || []).map(function(sb) {
+            return sb.id !== subId ? sb : { ...sb, dishes: sb.dishes.map(function(d) { return d === oldName ? newName : d; }) };
+          }) };
+        });
       });
-    });
+    } else {
+      if (sec && sec.dishes.indexOf(newName) !== -1) { alert('"' + newName + '" ' + T2('is already in this section.')); return; }
+      setEditorSections(function(prev) {
+        return prev.map(function(s) {
+          if (s.id !== secId) return s;
+          return { ...s, dishes: s.dishes.map(function(d) { return d === oldName ? newName : d; }) };
+        });
+      });
+    }
     setDirty(true);
     cancelEditDish();
   }
@@ -1898,7 +1913,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
                               var veg = resolveDishVeg(d); // true=veg, false=non-veg, null=unclassified — dishCacheTick forces re-read
                               var isPicked = !!selectedDishes[d];
-                              var isEditingThis = !!editingDish && editingDish.secId === sec.id && editingDish.name === d;
+                              var isEditingThis = !!editingDish && !editingDish.subId && editingDish.secId === sec.id && editingDish.name === d;
                               return (
                                 <SortableDish key={d} id={d} disabled={!isAdmin}>
                                 {function(dnd2) { return (
@@ -2007,12 +2022,62 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                     <div style={{ padding: "8px 12px", fontSize: 11, color: C.faint, fontStyle: "italic" }}>{T2("No dishes in this subsection")}</div>
                                   )}
                                   {sub.dishes.map(function(d) {
+                                    if (pkgQ && d.toLowerCase().indexOf(pkgQ) === -1) return null;
                                     var type = getDishType(d);
+                                    var hi = resolveDishHindi(d);
+                                    var store = type === 'inventory' ? resolveDishStore(d) : null;
+                                    var sopRecipe = type === 'sop' ? findRecipeForDish(d) : null;
+                                    var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
+                                    var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
+                                    var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
+                                    var veg = resolveDishVeg(d);
+                                    var isPicked = !!selectedDishes[d];
+                                    var isEditingThis = !!editingDish && editingDish.subId === sub.id && editingDish.secId === sec.id && editingDish.name === d;
                                     return (
-                                      <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", borderTop: "1px solid " + C.borderLight, gap: 8 }}>
-                                        <span style={{ fontSize: 12, color: C.text }}>{d}</span>
+                                      <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", borderTop: "1px solid " + C.borderLight, gap: 8, cursor: 'pointer' }}
+                                        onClick={function(e) { if (e.target.closest('[data-nomap]')) return; setMappingDish(d); }}
+                                        title={T2('Click to edit Hindi / SOP / Inventory mapping')}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0, flex: 1 }}>
+                                          {isAdmin && (
+                                            <input data-nomap type="checkbox" checked={isPicked}
+                                              onChange={function() { toggleDishSelect(d); }}
+                                              onClick={function(e) { e.stopPropagation(); }}
+                                              style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
+                                          )}
+                                          {isAdmin ? (
+                                            <button data-nomap onClick={function(e) { e.stopPropagation(); cycleDishVeg(d, veg); }}
+                                              title={veg === true ? T2("Veg — click to mark non-veg") : veg === false ? T2("Non-veg — click to clear") : T2("Unclassified — click to mark veg")}
+                                              style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer",
+                                                background: veg === true ? C.green : veg === false ? C.red : "transparent",
+                                                border: veg == null ? "1.5px solid " + C.faint : "none" }} />
+                                          ) : (
+                                            veg != null && (
+                                              <span title={veg ? T2("Veg") : T2("Non-veg")}
+                                                style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: veg ? C.green : C.red }}></span>
+                                            )
+                                          )}
+                                          {isEditingThis ? (
+                                            <input data-nomap autoFocus value={editDishValue}
+                                              onChange={function(e) { setEditDishValue(e.target.value); }}
+                                              onClick={function(e) { e.stopPropagation(); }}
+                                              onBlur={commitEditDish}
+                                              onKeyDown={function(e) { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelEditDish(); } }}
+                                              style={{ fontSize: 12, color: C.text, padding: "2px 6px", borderRadius: 4, border: "1px solid " + C.blueBorder, background: C.surface, minWidth: 120 }} />
+                                          ) : (
+                                            <span style={{ fontSize: 12, color: C.text }}>{d}</span>
+                                          )}
+                                          {isAdmin && !isEditingThis && (
+                                            <button data-nomap onClick={function(e) { e.stopPropagation(); startEditDish(sec.id, d, sub.id); }}
+                                              title={T2("Rename in this package")}
+                                              style={{ padding: "1px 4px", background: "transparent", border: "none", color: C.faint, cursor: "pointer", fontSize: 11, lineHeight: 1, flexShrink: 0 }}>✎</button>
+                                          )}
+                                          {hi && <span style={{ fontSize: 11, color: C.muted }}>{hi}</span>}
+                                          {store && <span style={{ fontSize: 11, color: '#0F6E56' }}>→ {store.qty_per_cover} {store.ops_item_unit}/pax</span>}
+                                          {sopRecipe && <span title={T2('Mapped SOP recipe') + (sopRecipe.cat ? ' · ' + sopRecipe.cat.name : '')} style={{ fontSize: 11, color: C.muted, fontStyle: 'italic' }}>→ {sopRecipe.n}</span>}
+                                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: badgeBg, color: badgeC }}>{badgeLbl}</span>
+                                        </div>
                                         {isAdmin && (
-                                          <button onClick={function() { removeDishFromSubsection(sec.id, sub.id, d); }}
+                                          <button data-nomap onClick={function(e) { e.stopPropagation(); removeDishFromSubsection(sec.id, sub.id, d); }}
                                             title={T2("Remove")}
                                             style={{ padding: "1px 7px", background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, lineHeight: 1, flexShrink: 0 }}>×</button>
                                         )}

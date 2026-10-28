@@ -285,7 +285,9 @@ export async function loadAllConfig() {
         image_url:       r.image_url || '',
         section_id:      r.section_id || null,
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
-        is_veg:          r.is_veg == null ? null : !!r.is_veg
+        is_veg:          r.is_veg == null ? null : !!r.is_veg,
+        no_auto_select:  !!r.no_auto_select,
+        alt_group:       r.alt_group || null
       };
     }
   });
