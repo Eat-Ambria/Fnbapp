@@ -181,6 +181,15 @@ function SubHead({ children }) {
   return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4, breakAfter: "avoid" }}>{children}</div>;
 }
 
+// A catalogue section's name (Dish Library > Sections tab), printed as a
+// lighter sub-heading under the department heading — e.g. "Pass Around
+// Snacks" / "Indian Main Course" grouping the dishes under Kitchen. Only
+// used on the no-package (custom menu) branch, where there's no package
+// section name to group by instead.
+function SectionSubHead({ children }) {
+  return <div style={{ fontSize: 11, fontWeight: 700, fontStyle: "italic", color: "#555", marginTop: 8, marginBottom: 2, breakAfter: "avoid" }}>{children}</div>;
+}
+
 function Bullet({ children, dot }) {
   if (dot === false) {
     return <div style={{ fontSize: 12.5, padding: "2px 0" }}>{children}</div>;
@@ -190,7 +199,7 @@ function Bullet({ children, dot }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
   // Browsers suggest document.title as the filename for "Print → Save as PDF",
   // so this is the one lever that controls what the chef/sales actually sees
   // in that Save dialog — set it for as long as this view is on screen, then
@@ -398,10 +407,22 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 {SALES_DEPTS.map(function(d){
                   var names = (itemsByDept && itemsByDept[d.id]) || [];
                   if (names.length === 0) return null;
+                  var sorted = sortedByVeg(names, dishSectionOrder);
+                  var lastSection; // undefined sentinel — first item always re-evaluates
                   return (
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
-                      {sortedByVeg(names, dishSectionOrder).map(function(n){ return <Bullet key={n}>{n}</Bullet>; })}
+                      {sorted.map(function(n){
+                        var sec = (dishSectionName && dishSectionName[n]) || null;
+                        var isNewSection = sec !== lastSection;
+                        lastSection = sec;
+                        return (
+                          <React.Fragment key={n}>
+                            {isNewSection && sec && <SectionSubHead>{sec}</SectionSubHead>}
+                            <Bullet>{n}</Bullet>
+                          </React.Fragment>
+                        );
+                      })}
                     </div>
                   );
                 })}

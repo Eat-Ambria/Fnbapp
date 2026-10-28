@@ -679,6 +679,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [allDishes, sections]);
 
+  // dish_name -> its catalogue section's display name (Dish Library >
+  // Sections tab), for the no-package print branch to group dishes under a
+  // visible sub-heading in the same order dishSectionOrder already sorts
+  // them by — null when the dish has no section_id (prints with no heading,
+  // under whatever heading came before it).
+  var dishSectionName = useMemo(function(){
+    var byId = {};
+    (sections || []).forEach(function(s){ byId[s.id] = s; });
+    var out = {};
+    (allDishes || []).forEach(function(d){
+      var s = d.section_id && byId[d.section_id];
+      out[d.name] = s ? s.name : null;
+    });
+    return out;
+  }, [allDishes, sections]);
+
   // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10),
   // OR individually flagged no_auto_select on dishes_master itself (a 2-way
   // choice sitting inside an otherwise normal auto-select section), are never
@@ -943,6 +959,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         fp={fp}
         itemsByDept={itemsByDept}
         dishSectionOrder={dishSectionOrder}
+        dishSectionName={dishSectionName}
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}
