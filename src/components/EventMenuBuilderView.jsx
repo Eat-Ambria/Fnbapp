@@ -661,6 +661,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Salads, Achar/Papad, Main Course, Rice, Breads, Desserts, ...
   // *1000 assumes no more than ~2 levels of nesting and child sort_orders
   // well under 1000 — true of every row in dish_catalogue_sections today.
+  // dish_name -> the catalogue section id that actually governs its print
+  // grouping for a no-package event: a per-event sectionOverrides tag (the
+  // section picked in the "add dish" modal) when it resolves to a real
+  // section, else the dish's own catalogue section_id, else null (Extras).
+  // dishSectionOrder (sort key) and dishSectionName (heading) are BOTH
+  // derived from this single resolution so they can never disagree about
+  // which section a dish is in — they used to be resolved separately, which
+  // let the same heading print twice, split apart by the veg/non-veg
+  // tie-break, and let an override-tagged "extra" dish sit in its own
+  // disconnected Extras block instead of merging into the real section it
+  // was tagged to.
+  var effectiveSectionIdByDish = useMemo(function(){
+    var byId = {};
+    (sections || []).forEach(function(s){ byId[s.id] = s; });
+    var out = {};
+    // allDishes here is grouping.allDishes (useMenuItemGrouping's own shape),
+    // which renames dishes_master's dish_name to .name — NOT the raw
+    // getAllDishes() rows (those do use .dish_name).
+    (allDishes || []).forEach(function(d){
+      var ov = sectionOverrides && sectionOverrides[d.name];
+      if (ov && ov !== '__extras__' && byId[ov]) { out[d.name] = ov; return; }
+      if (ov) { out[d.name] = null; return; } // '__extras__', or an override that no longer resolves to a real section
+      out[d.name] = (d.section_id && byId[d.section_id]) ? d.section_id : null;
+    });
+    return out;
+  }, [allDishes, sections, sectionOverrides]);
+
   var dishSectionOrder = useMemo(function(){
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
@@ -671,43 +698,28 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       return parent ? (parent.sort_order || 0) * 1000 + (s.sort_order || 0) : (s.sort_order || 0) * 1000;
     }
     var out = {};
-    // allDishes here is grouping.allDishes (useMenuItemGrouping's own shape),
-    // which renames dishes_master's dish_name to .name — NOT the raw
-    // getAllDishes() rows (those do use .dish_name). Reading d.dish_name here
-    // was always undefined, so every real dish silently fell back to
-    // Infinity and only the dietRank tie-break ever had any effect.
-    (allDishes || []).forEach(function(d){
-      var key = orderKeyFor(d.section_id);
-      out[d.name] = key == null ? Infinity : key;
+    Object.keys(effectiveSectionIdByDish).forEach(function(name){
+      var key = orderKeyFor(effectiveSectionIdByDish[name]);
+      out[name] = key == null ? Infinity : key;
     });
     return out;
-  }, [allDishes, sections]);
+  }, [effectiveSectionIdByDish, sections]);
 
   // dish_name -> its display-section name (Dish Library > Sections tab), for
   // the no-package print branch to group dishes under a visible sub-heading
-  // in the same order dishSectionOrder already sorts them by. A per-event
-  // sectionOverrides tag (the section picked in the "add dish" modal) wins
-  // over the dish's own catalogue section_id — that tag is what the user
-  // actually chose for THIS event and is the only place that choice is
-  // recorded at all for a no-package event (groupedBySection/groupedByCat
-  // never read it for live grouping either, unlike groupedByPkgSection).
-  // 'Extras' (translated at render) when neither resolves to a real section.
+  // in the same order dishSectionOrder sorts them by. 'Extras' (translated
+  // at render) when effectiveSectionIdByDish resolved to no real section.
   var dishSectionName = useMemo(function(){
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
     var out = {};
-    (allDishes || []).forEach(function(d){
-      var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov) {
-        var ovSec = ov === '__extras__' ? null : byId[ov];
-        out[d.name] = ovSec ? ovSec.name : 'Extras';
-        return;
-      }
-      var s = d.section_id && byId[d.section_id];
-      out[d.name] = s ? s.name : 'Extras';
+    Object.keys(effectiveSectionIdByDish).forEach(function(name){
+      var sid = effectiveSectionIdByDish[name];
+      var s = sid && byId[sid];
+      out[name] = s ? s.name : 'Extras';
     });
     return out;
-  }, [allDishes, sections, sectionOverrides]);
+  }, [effectiveSectionIdByDish, sections]);
 
   // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10),
   // OR individually flagged no_auto_select on dishes_master itself (a 2-way
