@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
-import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo } from './FunctionPlanTab.jsx';
+import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
 import { resolveDishVeg } from '../data/recipeData.js';
 
 // Veg first, then unclassified, then non-veg. resolveDishVeg returns
@@ -254,8 +254,9 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     });
     if (fp.drivers_food_required) {
       var dfParts = [];
-      if (fp.drivers_food_count != null) dfParts.push(fp.drivers_food_count + ' people');
-      if (fp.drivers_food_rate != null) dfParts.push('@ ₹' + fp.drivers_food_rate + '/plate');
+      if (fp.drivers_food_count != null) dfParts.push(fp.drivers_food_count + ' pax');
+      var dfTotal = calcDriversFoodTotal(fp.drivers_food_count);
+      if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
       if (fp.drivers_food_coupon) dfParts.push('coupon issued');
       bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
     }

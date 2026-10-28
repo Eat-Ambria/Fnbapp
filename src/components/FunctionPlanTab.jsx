@@ -89,6 +89,16 @@ var TIME_FIELD_GROUPS = [
   { label: 'Valet',          start: 'valet_start_time', end: 'valet_end_time' },
 ];
 
+// Drivers food is billed at a flat, un-negotiated rate per pax with a floor —
+// never less than DRIVERS_FOOD_MIN regardless of how few drivers there are.
+// The rate itself isn't shown on the form or the print-out, only the total.
+var DRIVERS_FOOD_RATE = 500;
+var DRIVERS_FOOD_MIN = 30000;
+function calcDriversFoodTotal(pax) {
+  if (pax == null || pax === '' || isNaN(pax)) return null;
+  return Math.max(Number(pax) * DRIVERS_FOOD_RATE, DRIVERS_FOOD_MIN);
+}
+
 var EQUIP_FIELDS = [
   { id: 'fan',    label: 'Fan',    icon: '🌀', iconName: 'fan' },
   { id: 'cooler', label: 'Cooler', icon: '❄️', iconName: 'snowflake' },
@@ -592,28 +602,30 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
             <span style={{ fontSize: 12, color: K.textFaint, fontWeight: 600 }}>{driversOn ? T2("On") : T2("Off")}</span>
             <Switch on={driversOn} onChange={function(v){ onSaveField('drivers_food_required', v); }} title={T2("Drivers food required?")} />
           </>}>
-          {driversOn ? (
+          {driversOn ? (function(){
+            var dfTotal = calcDriversFoodTotal(fp && fp.drivers_food_count);
+            return (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Count of people")}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Pax")}</span>
                 <input type="number" min="0" inputMode="numeric" value={val('drivers_food_count')}
                   onChange={function(e){ onChangeField('drivers_food_count', e.target.value); }}
                   onBlur={function(){ commitNumber('drivers_food_count'); }}
-                  style={{ ...inputStyle, width: 90 }} />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Rate per plate")}</span>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={val('drivers_food_rate')}
-                  onChange={function(e){ onChangeField('drivers_food_rate', e.target.value); }}
-                  onBlur={function(){ commitDecimal('drivers_food_rate'); }}
                   style={{ ...inputStyle, width: 90 }} />
               </label>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Coupon")}</div>
                 <Switch on={!!(fp && fp.drivers_food_coupon)} onChange={function(v){ onSaveField('drivers_food_coupon', v); }} title={T2("Coupon issued?")} />
               </div>
+              <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: dfTotal != null ? K.text : K.textFaint, fontVariantNumeric: "tabular-nums" }}>
+                  {dfTotal != null ? "₹" + dfTotal.toLocaleString('en-IN') : "—"}
+                </div>
+                <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{T2("total")}</div>
+              </div>
             </div>
-          ) : (
+            );
+          })() : (
             <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("Not required for this function.")}</div>
           )}
         </Panel>
@@ -813,5 +825,5 @@ function FPTextArea({ label, placeholder, value, onChange, onBlur, rows }) {
   );
 }
 
-export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, SPICE_LEVELS, SWEETNESS_LEVELS, OIL_LEVELS, COMMUNITY_OPTIONS };
+export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, SPICE_LEVELS, SWEETNESS_LEVELS, OIL_LEVELS, COMMUNITY_OPTIONS, calcDriversFoodTotal };
 export default FunctionPlanTab;
