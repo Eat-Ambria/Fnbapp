@@ -327,6 +327,7 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
 
   var roomOn = !!(fp && fp.room_info_enabled);
   var driversOn = !!(fp && fp.drivers_food_required);
+  var afterPartyOn = !!(fp && fp.after_party_enabled);
   var lmsPlate = getLmsPlateInfo(event);
 
   return (
@@ -471,6 +472,35 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
               );
             })}
           </div>
+        </Panel>
+
+        {/* ── After Party ── */}
+        <Panel icon="drink" badgeBg={K.sageBg} badgeColor={K.sage} title={T2("After Party")}
+          right={<>
+            <span style={{ fontSize: 12, color: K.textFaint, fontWeight: 600 }}>{afterPartyOn ? T2("On") : T2("Off")}</span>
+            <Switch on={afterPartyOn} onChange={function(v){ onSaveField('after_party_enabled', v); }} title={T2("After party for this function?")} />
+          </>}>
+          {afterPartyOn ? (
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Pax")}</span>
+                <input type="number" min="0" inputMode="numeric" value={val('after_party_pax')}
+                  onChange={function(e){ onChangeField('after_party_pax', e.target.value); }}
+                  onBlur={function(){ commitNumber('after_party_pax'); }}
+                  style={{ ...inputStyle, width: 90 }} />
+              </label>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Start")}</div>
+                <TimeInput12 value={val('after_party_start_time')} onCommit={function(v){ onSaveField('after_party_start_time', v); }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Wind-up")}</div>
+                <TimeInput12 value={val('after_party_windup_time')} onCommit={function(v){ onSaveField('after_party_windup_time', v); }} />
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: K.textFaint, fontStyle: "italic" }}>{T2("No after party for this function.")}</div>
+          )}
         </Panel>
 
       </div>

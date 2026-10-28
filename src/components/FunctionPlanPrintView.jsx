@@ -259,6 +259,13 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       if (fp.drivers_food_coupon) dfParts.push('coupon issued');
       bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
     }
+    if (fp.after_party_enabled) {
+      var apParts = [];
+      if (fp.after_party_pax != null) apParts.push(fp.after_party_pax + ' pax');
+      if (fp.after_party_start_time) apParts.push('start ' + fp.after_party_start_time);
+      if (fp.after_party_windup_time) apParts.push('wind-up ' + fp.after_party_windup_time);
+      bullets.push('After party' + (apParts.length ? ' — ' + apParts.join(', ') : ''));
+    }
   }
   var lmsRaw = event.lms_raw || null;
   var functionTypeLabel = (lmsRaw && LMS_FUNCTION_TYPES[Number(lmsRaw.fiscd_function_type)]) || event.type || '';

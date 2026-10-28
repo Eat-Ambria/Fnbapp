@@ -52,6 +52,8 @@ var FP_FIELD_LABELS = (function(){
     room_check_out: 'Room check-out', room_count: 'Room count',
     drivers_food_required: 'Drivers food', drivers_food_count: 'Drivers food count',
     drivers_food_rate: 'Drivers food rate', drivers_food_coupon: 'Drivers food coupon',
+    after_party_enabled: 'After party', after_party_pax: 'After party pax',
+    after_party_start_time: 'After party start', after_party_windup_time: 'After party wind-up',
     ops_manager_name: 'Operation Manager name', ops_manager_contact: 'Operation Manager contact',
     allergies: 'Allergies / dietary restrictions', service_notes: 'Service style notes',
     general_notes: 'General notes', layout_info: 'Layout information',
