@@ -683,22 +683,31 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [allDishes, sections]);
 
-  // dish_name -> its catalogue section's display name (Dish Library >
-  // Sections tab), for the no-package print branch to group dishes under a
-  // visible sub-heading in the same order dishSectionOrder already sorts
-  // them by — 'Extras' (translated at render) when the dish has no
-  // section_id, so it gets its own heading instead of silently printing
-  // under whatever real section happened to come before it.
+  // dish_name -> its display-section name (Dish Library > Sections tab), for
+  // the no-package print branch to group dishes under a visible sub-heading
+  // in the same order dishSectionOrder already sorts them by. A per-event
+  // sectionOverrides tag (the section picked in the "add dish" modal) wins
+  // over the dish's own catalogue section_id — that tag is what the user
+  // actually chose for THIS event and is the only place that choice is
+  // recorded at all for a no-package event (groupedBySection/groupedByCat
+  // never read it for live grouping either, unlike groupedByPkgSection).
+  // 'Extras' (translated at render) when neither resolves to a real section.
   var dishSectionName = useMemo(function(){
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
     var out = {};
     (allDishes || []).forEach(function(d){
+      var ov = sectionOverrides && sectionOverrides[d.name];
+      if (ov) {
+        var ovSec = ov === '__extras__' ? null : byId[ov];
+        out[d.name] = ovSec ? ovSec.name : 'Extras';
+        return;
+      }
       var s = d.section_id && byId[d.section_id];
       out[d.name] = s ? s.name : 'Extras';
     });
     return out;
-  }, [allDishes, sections]);
+  }, [allDishes, sections, sectionOverrides]);
 
   // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10),
   // OR individually flagged no_auto_select on dishes_master itself (a 2-way
