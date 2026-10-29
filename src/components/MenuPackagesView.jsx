@@ -103,6 +103,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // the freshest sections for the package currently open — but only if there's nothing unsaved
   // here, so another admin's save never clobbers in-progress local edits.
   var [pkgListVer, setPkgListVer] = useState(0);
+  // Quick-search the package list in the left rail (Packages tab) — scanning
+  // a few dozen packages by eye gets slow once the list grows.
+  var [pkgSearchQ, setPkgSearchQ] = useState('');
   var [mappingDish, setMappingDish] = useState(''); // V66: opens shared DishMappingModal from Packages tab
   var [selectedDishes, setSelectedDishes] = useState({}); // V66: { [dishName]: true } — bulk-move selection
 
@@ -141,13 +144,25 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // this list doesn't need opening the FP just to find out it's locked.
   var [fpMap, setFpMap] = useState({});
   function loadFpStatuses() {
-    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked, locked_by'); })
+    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked, locked_by, created_by'); })
       .then(function(rows){
         var map = {};
-        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '' }; });
+        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', created_by: r.created_by || '' }; });
         setFpMap(map);
       })
       .catch(function(e){ console.error('[MenuPackages] loadFpStatuses failed:', e); });
+  }
+  // Who made it (created_by) vs. who locked it (locked_by) — usually the same
+  // person, but not always, so show both only when they actually differ.
+  function fpByFor(ev) {
+    var row = fpMap[ev.id];
+    if (!row) return '';
+    if (row.locked && row.locked_by && row.created_by && row.locked_by !== row.created_by) {
+      return T2('made by') + ' ' + row.created_by + ', ' + T2('locked by') + ' ' + row.locked_by;
+    }
+    var who = row.locked_by || row.created_by;
+    if (!who) return '';
+    return (row.locked ? T2('locked by') : T2('made by')) + ' ' + who;
   }
   useEffect(function(){ loadFpStatuses(); }, []);
   function fpStatusFor(ev) {
@@ -439,6 +454,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   }, [selPkg, dirty]);
 
   var pkgNames = Object.keys(MENU_PACKAGES).sort();
+  var filteredPkgNames = (function(){
+    var q = pkgSearchQ.trim().toLowerCase();
+    return q ? pkgNames.filter(function(p){ return p.toLowerCase().indexOf(q) !== -1; }) : pkgNames;
+  })();
 
   function pkgSummary(pkg) {
     var dishes = MENU_PACKAGES[pkg] || [];
@@ -1554,6 +1573,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             fontWeight: 700, background: fpSt.bg, color: fpSt.color, border: "1px solid " + fpSt.border, whiteSpace: "nowrap" }}>
                             {T2("FP")}: {fpSt.label}
                           </span>
+                          {fpByFor(ev) && (
+                            <span style={{ fontFamily: K.fontBody, fontSize: 11, color: K.hdrMeta, fontStyle: "italic" }}>
+                              {fpByFor(ev)}
+                            </span>
+                          )}
                         </span>
                         {/* Icons instead of middot separators — four facts run
                             together by dots read as one long string. */}
@@ -1719,12 +1743,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 10px 8px", flexShrink: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>{T2("Packages")} ({pkgNames.length})</div>
             </div>
+            <div style={{ padding: "0 10px 8px", flexShrink: 0 }}>
+              <input type="text" value={pkgSearchQ} onChange={function(e){ setPkgSearchQ(e.target.value); }}
+                placeholder={"🔍 " + T2("Search packages…")}
+                style={{ width: "100%", fontSize: 12, padding: "6px 9px", border: "1px solid " + C.border, borderRadius: 6, background: C.surface, color: C.text, boxSizing: "border-box" }} />
+            </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
               {pkgNames.length === 0 && (
                 <div style={{ padding: "12px 8px", fontSize: 12, color: C.muted, textAlign: "center" }}>{T2("No packages yet")}</div>
               )}
-              {pkgNames.map(function(pkg) {
+              {pkgNames.length > 0 && filteredPkgNames.length === 0 && (
+                <div style={{ padding: "12px 8px", fontSize: 12, color: C.muted, textAlign: "center" }}>{T2("No packages match")} "{pkgSearchQ.trim()}"</div>
+              )}
+              {filteredPkgNames.map(function(pkg) {
                 var s = pkgSummary(pkg);
                 var usage = pkgUsageCount(pkg);
                 var isSel = selPkg === pkg;

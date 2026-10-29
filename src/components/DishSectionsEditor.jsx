@@ -96,6 +96,9 @@ function DishSectionsEditor(props) {
   // set; dishes assign to it the same way as any section (dishes_master.section_id).
   const [addingSubFor, setAddingSubFor] = useState(null); // parent section id, or null
   const [newSubName, setNewSubName] = useState('');
+  // Quick-search within the Unassigned bucket — it routinely runs into the
+  // hundreds (every dish never filed into a section), too many to scan by eye.
+  const [unassignedSearch, setUnassignedSearch] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────
   async function loadData() {
@@ -991,14 +994,28 @@ function DishSectionsEditor(props) {
             <span style={{ fontSize: 13, fontWeight: 500, color: C.red, flex: 1, cursor: 'pointer' }} onClick={function(){ toggleExpand('__unassigned__'); }}>Unassigned</span>
             <span style={{ fontSize: 11, color: C.red, fontWeight: 500 }}>{unassignedList.length} dish{unassignedList.length === 1 ? '' : 'es'}</span>
           </div>
-          {expanded.has('__unassigned__') && (
+          {expanded.has('__unassigned__') && (function(){
+            var q = unassignedSearch.trim().toLowerCase();
+            var filtered = q ? unassignedList.filter(function(d){ return d.name.toLowerCase().indexOf(q) !== -1; }) : unassignedList;
+            return (
             <div style={{ borderTop: '0.5px solid ' + C.red }}>
               <div style={{ padding: '8px 12px 8px 40px', fontSize: 11, color: C.red, fontStyle: 'italic' }}>
                 These dishes exist in the master library but aren't in any section — they'll show under "Extras" in Menu Builder until assigned.
               </div>
-              {unassignedList.map(function(d, di){ return dishRow(d, '__unassigned__', di, unassignedList.length); })}
+              <div style={{ padding: '0 12px 8px 40px' }}>
+                <input type="text" value={unassignedSearch} onChange={function(e){ setUnassignedSearch(e.target.value); }}
+                  placeholder={'🔍 Search ' + unassignedList.length + ' unassigned dishes…'}
+                  style={{ width: '100%', maxWidth: 320, fontSize: 12, padding: '6px 10px', border: '1px solid ' + C.red, borderRadius: 7, background: C.surface, color: C.text, boxSizing: 'border-box' }} />
+                {q && <span style={{ fontSize: 11, color: C.red, marginLeft: 8 }}>{filtered.length} / {unassignedList.length}</span>}
+              </div>
+              {filtered.length === 0 ? (
+                <div style={{ padding: '8px 12px 10px 40px', fontSize: 12, color: C.muted, fontStyle: 'italic' }}>No dishes match "{unassignedSearch.trim()}"</div>
+              ) : (
+                filtered.map(function(d, di){ return dishRow(d, '__unassigned__', di, filtered.length); })
+              )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
