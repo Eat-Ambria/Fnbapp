@@ -2,11 +2,12 @@
 // V91: redesigned onto the classic Ambria prospectus sheet layout — a bordered
 // header grid (Date/Function/Guest/Address/Rate/...), two boxed columns
 // (Customized Menu | F&B and Banquet Informations), and bottom sign-off boxes
-// (Board to Read / Attn Chef / Prospectus checked-approved-circulated).
+// (Attn Chef / Prospectus checked-approved-circulated).
 // Fields this app doesn't capture digitally (Contact No., Mode of Payment,
-// Rate, Advance, Board to Read, sign-off) print as blank ruled boxes, same
-// as the paper form — meant to be filled by hand. Direct/Repeat Guest was
-// dropped (2026-10-26) — never filled in, just two empty ruled boxes.
+// Rate, Advance, sign-off) print as blank ruled boxes, same as the paper
+// form — meant to be filled by hand. Direct/Repeat Guest was dropped
+// (2026-10-26), Board to Read dropped (2026-10-29) — never filled in, just
+// empty ruled boxes nobody used.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
 import React, { useEffect } from "react";
@@ -255,9 +256,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     if (fp.drivers_food_required) {
       var dfParts = [];
       if (fp.drivers_food_count != null) dfParts.push(fp.drivers_food_count + ' pax');
-      var dfTotal = calcDriversFoodTotal(fp.drivers_food_count);
-      if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
-      if (fp.drivers_food_coupon) dfParts.push('coupon issued');
+      if (fp.drivers_food_foc) {
+        dfParts.push('FOC');
+      } else {
+        var dfTotal = calcDriversFoodTotal(fp.drivers_food_count);
+        if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
+      }
       bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
     }
     if (fp.after_party_enabled) {
@@ -490,11 +494,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           </div>
         )}
 
-        {/* ── Sign-off strip — Board to Read / Attn Chef / Checked-Approved-Circulated ── */}
+        {/* ── Sign-off strip — Attn Chef / Checked-Approved-Circulated ── */}
         <div style={{ border: "2px solid #000", borderTop: "none" }}>
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 4 }}>{T2("BOARD TO READ")}</div>
-          </div>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
             {attnChefLines.length > 1 ? (

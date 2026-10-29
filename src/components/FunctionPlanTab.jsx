@@ -252,7 +252,7 @@ function getLmsPlateInfo(event) {
   };
 }
 
-export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locked, onRequestLock, onRequestUnlock }) {
+export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locked, onRequestLock, onRequestMarkFinal, onRequestUnlock }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
   var [showHistory, setShowHistory] = useState(false);
@@ -362,6 +362,7 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
   var roomOn = !!(fp && fp.room_info_enabled);
   var driversOn = !!(fp && fp.drivers_food_required);
   var afterPartyOn = !!(fp && fp.after_party_enabled);
+  var sentToKitchen = !!(fp && fp.sent_to_kitchen);
   var lmsPlate = getLmsPlateInfo(event);
 
   return (
@@ -371,7 +372,12 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
         <div style={{ display: "flex", gap: 8 }}>
           <KButton variant="ghost" icon="clock" onClick={function(){ setShowHistory(true); }}>{T2("History")}{fpHistory.length > 0 ? " (" + fpHistory.length + ")" : ""}</KButton>
           <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
-          {!locked && <KButton variant="accent" icon="lock" onClick={onRequestLock}>{T2("Mark as Final")}</KButton>}
+          {/* Lock freezes editing while the team is still drafting, with no
+              Kitchen notification. Mark Final sends it (locking it first if
+              it isn't already) — the one action that actually pings Kitchen,
+              so drafting back and forth under Lock never spams them. */}
+          {!locked && <KButton variant="ghost" icon="lock" onClick={onRequestLock}>{T2("Lock")}</KButton>}
+          {!sentToKitchen && <KButton variant="accent" icon="lock" onClick={onRequestMarkFinal}>{T2("Mark Final")}</KButton>}
         </div>
       </div>
 
@@ -418,9 +424,14 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
 
       {locked && (
         <KBanner toneName="brand" icon="lock" style={{ marginBottom: 16 }}
-          title={T2("Locked — sent to Kitchen")}
-          sub={(fp && fp.locked_by ? (fp.locked_by + ' · ') : '') + (fp && fp.locked_at ? new Date(fp.locked_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '')}
-          right={<KButton variant="ghost" icon="lock" onClick={onRequestUnlock}>{T2("Unlock to edit")}</KButton>} />
+          title={sentToKitchen ? T2("Locked — sent to Kitchen") : T2("Locked — not yet sent to Kitchen")}
+          sub={sentToKitchen
+            ? ((fp && fp.sent_to_kitchen_by ? (fp.sent_to_kitchen_by + ' · ') : '') + (fp && fp.sent_to_kitchen_at ? new Date(fp.sent_to_kitchen_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''))
+            : ((fp && fp.locked_by ? (fp.locked_by + ' · ') : '') + (fp && fp.locked_at ? new Date(fp.locked_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''))}
+          right={<div style={{ display: "flex", gap: 8 }}>
+            {!sentToKitchen && <KButton variant="accent" icon="lock" onClick={onRequestMarkFinal}>{T2("Mark Final")}</KButton>}
+            <KButton variant="ghost" icon="lock" onClick={onRequestUnlock}>{T2("Unlock to edit")}</KButton>
+          </div>} />
       )}
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap", pointerEvents: locked ? "none" : "auto", opacity: locked ? 0.55 : 1 }}>
@@ -603,6 +614,7 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
             <Switch on={driversOn} onChange={function(v){ onSaveField('drivers_food_required', v); }} title={T2("Drivers food required?")} />
           </>}>
           {driversOn ? (function(){
+            var dfFoc = !!(fp && fp.drivers_food_foc);
             var dfTotal = calcDriversFoodTotal(fp && fp.drivers_food_count);
             return (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
@@ -614,14 +626,14 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
                   style={{ ...inputStyle, width: 90 }} />
               </label>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("Coupon")}</div>
-                <Switch on={!!(fp && fp.drivers_food_coupon)} onChange={function(v){ onSaveField('drivers_food_coupon', v); }} title={T2("Coupon issued?")} />
+                <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("FOC")}</div>
+                <Switch on={dfFoc} onChange={function(v){ onSaveField('drivers_food_foc', v); }} title={T2("Free of cost — not charged to the guest?")} />
               </div>
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: dfTotal != null ? K.text : K.textFaint, fontVariantNumeric: "tabular-nums" }}>
-                  {dfTotal != null ? "₹" + dfTotal.toLocaleString('en-IN') : "—"}
+                <div style={{ fontSize: 15, fontWeight: 700, color: dfFoc ? K.ok : (dfTotal != null ? K.text : K.textFaint), fontVariantNumeric: "tabular-nums" }}>
+                  {dfFoc ? T2("FOC") : (dfTotal != null ? "₹" + dfTotal.toLocaleString('en-IN') : "—")}
                 </div>
-                <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{T2("total")}</div>
+                <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{dfFoc ? T2("free of cost") : T2("total")}</div>
               </div>
             </div>
             );

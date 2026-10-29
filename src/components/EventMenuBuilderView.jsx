@@ -51,7 +51,7 @@ var FP_FIELD_LABELS = (function(){
     room_info_enabled: 'Room info', room_check_in: 'Room check-in',
     room_check_out: 'Room check-out', room_count: 'Room count',
     drivers_food_required: 'Drivers food', drivers_food_count: 'Drivers food pax',
-    drivers_food_coupon: 'Drivers food coupon',
+    drivers_food_foc: 'Drivers food FOC',
     after_party_enabled: 'After party', after_party_pax: 'After party pax',
     after_party_start_time: 'After party start', after_party_windup_time: 'After party wind-up',
     ops_manager_name: 'Operation Manager name', ops_manager_contact: 'Operation Manager contact',
@@ -539,14 +539,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
-  // ── Lock / unlock (V92) — "Mark as Final" freezes the FP once it's been
-  // reviewed and is ready for Kitchen; re-opening it for a late change always
-  // asks for a reason so there's a record of why a locked plan moved. Both
-  // transitions append to lock_history rather than overwrite it, and also
-  // fire a kitchen notification (in-app bell + web push — notifyKitchen
-  // below) so chefs actually see the release/late-change, not just an audit
-  // trail nobody opens.
-  var [fpLockModal, setFpLockModal] = useState(null); // null | 'lock' | 'unlock'
+  // ── Lock / Mark Final / unlock (V92, split V93) — "Lock" freezes the FP
+  // while the team is still drafting it, with no Kitchen notification.
+  // "Mark Final" locks it (if not already) AND notifies Kitchen — the only
+  // action that does, so drafting back and forth under a plain Lock never
+  // spams them with the same FP "changing" multiple times. Re-opening a
+  // locked FP always asks for a reason so there's a record of why it moved;
+  // every transition appends to lock_history rather than overwriting it, and
+  // notifyKitchen (in-app bell + web push, below) only fires for Mark Final
+  // and for an unlock that reopens an FP Kitchen had actually already seen.
+  var [fpLockModal, setFpLockModal] = useState(null); // null | 'lockOnly' | 'markFinal' | 'unlock'
   var [unlockReason, setUnlockReason] = useState('');
   // Admin-set in Access Manager (Security card) — a shared code staff must
   // enter to re-open a locked FP, so it takes more than just typing any
@@ -606,11 +608,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // Lock only freezes editing — a team still drafting the FP uses this so it
+  // can't be changed by accident, without pinging Kitchen about a plan that
+  // isn't ready yet.
+  async function confirmLockOnly() {
+    var who = (currentUser && currentUser.name) || null;
+    var now = new Date().toISOString();
+    await writeFpLockState(
+      { locked: true, locked_at: now, locked_by: who, sent_to_kitchen: false },
+      { action: 'locked', by: who, at: now },
+      T2('Locked (not yet sent to Kitchen)')
+    );
+    setFpLockModal(null);
+  }
+
+  // Mark Final is the one action that actually notifies Kitchen — locks the
+  // FP if it isn't already (preserving the original lock_at/by if it was
+  // locked first via Lock above, since sent_to_kitchen_at/by is this
+  // action's own record), and fires the notification exactly once per
+  // "final" moment, not on every Lock/Unlock cycle while drafting.
   async function confirmMarkFinal() {
     var who = (currentUser && currentUser.name) || null;
+    var now = new Date().toISOString();
+    var patch = { locked: true, sent_to_kitchen: true, sent_to_kitchen_at: now, sent_to_kitchen_by: who };
+    if (!(fp && fp.locked)) { patch.locked_at = now; patch.locked_by = who; }
     await writeFpLockState(
-      { locked: true, locked_at: new Date().toISOString(), locked_by: who },
-      { action: 'locked', by: who, at: new Date().toISOString() },
+      patch,
+      { action: 'marked_final', by: who, at: now },
       T2('Marked Final — sent to Kitchen')
     );
     setFpLockModal(null);
@@ -623,16 +647,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var reason = unlockReason.trim();
     if (!reason) return;
     if (requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode) return;
+    // Kitchen only hears about this unlock if they'd actually been sent the
+    // FP before — reopening a plan that was only ever locked-while-drafting
+    // (never marked final) is not news to them.
+    var wasSentToKitchen = !!(fp && fp.sent_to_kitchen);
     await writeFpLockState(
-      { locked: false },
+      { locked: false, sent_to_kitchen: false },
       { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason },
       T2('Unlocked for a late change') + ' — ' + reason
     );
     setFpLockModal(null);
     setUnlockReason('');
     setUnlockCode('');
-    notifyKitchen('fp_unlocked', T2('FP changed — last-minute update') + ': ' + (event.guest || T2('Function')),
-      reason + (who ? ' (' + who + ')' : ''));
+    if (wasSentToKitchen) {
+      notifyKitchen('fp_unlocked', T2('FP changed — last-minute update') + ': ' + (event.guest || T2('Function')),
+        reason + (who ? ' (' + who + ')' : ''));
+    }
   }
 
   // ── All selected dish names grouped by effective dept, for the printable FP ──
@@ -1119,7 +1149,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           ) : (
             <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint}
               locked={!!(fp && fp.locked)}
-              onRequestLock={function(){ setFpLockModal('lock'); }}
+              onRequestLock={function(){ setFpLockModal('lockOnly'); }}
+              onRequestMarkFinal={function(){ setFpLockModal('markFinal'); }}
               onRequestUnlock={function(){ setFpLockModal('unlock'); }} />
           )}
         </div>
@@ -1366,10 +1397,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         </div>
       )}
 
-      <KModal open={fpLockModal === 'lock'} toneName="brand" icon="lock"
+      <KModal open={fpLockModal === 'lockOnly'} toneName="brand" icon="lock"
+        title={T2("Lock this Function Plan?")}
+        body={T2("This freezes the FP so it can't be changed by mistake while it's still being prepared. Kitchen is NOT notified — use \"Mark Final\" when it's actually ready to send.")}
+        confirmLabel={T2("Lock")} confirmIcon="lock"
+        onConfirm={confirmLockOnly}
+        onClose={function(){ setFpLockModal(null); }} />
+
+      <KModal open={fpLockModal === 'markFinal'} toneName="brand" icon="lock"
         title={T2("Mark Function Plan as Final?")}
-        body={T2("This locks the FP so it can't be changed by mistake, and signals to Kitchen that it's ready. You'll need a reason to re-open it later if something changes last-minute.")}
-        confirmLabel={T2("Lock & send to Kitchen")} confirmIcon="lock"
+        body={T2("This locks the FP (if it isn't already) and signals to Kitchen that it's ready. You'll need a reason to re-open it later if something changes last-minute.")}
+        confirmLabel={T2("Mark Final & send to Kitchen")} confirmIcon="lock"
         onConfirm={confirmMarkFinal}
         onClose={function(){ setFpLockModal(null); }} />
 
