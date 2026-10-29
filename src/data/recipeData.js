@@ -843,11 +843,20 @@ function getSectionsForPackage(pkgName) {
       dishes: Array.isArray(s.dishes) ? s.dishes.slice() : [],
       catalogue_section_id: s.catalogue_section_id || null,
       // V85 — one level of subsections (e.g. Main Course > Hyderabadi Cuisine).
-      // Same shape as a section, minus fields that only make sense one level up.
+      // V94 — a subsection can now also carry its own sales_dept/
+      // catalogue_section_id, same as a top-level section — e.g. "Aerated
+      // Drinks" under "Beverages" routing to the bev tab and pooling a
+      // Dish Library catalogue section, independently of its parent.
+      // sales_dept defaults to null (not 'kit' like a section) so an
+      // unmapped subsection still falls back to its PARENT's sales_dept at
+      // read time (see effectiveDeptForDish's dishNameToPkgDept build) —
+      // 'kit' here would silently override an inherited non-kit parent dept.
       subsections: Array.isArray(s.subsections) ? s.subsections.map(sub => ({
         id: sub.id || ('sub_' + Math.random().toString(36).slice(2, 8)),
         name: sub.name || '',
         dishes: Array.isArray(sub.dishes) ? sub.dishes.slice() : [],
+        sales_dept: sub.sales_dept || null,
+        catalogue_section_id: sub.catalogue_section_id || null,
       })) : []
     }));
   }

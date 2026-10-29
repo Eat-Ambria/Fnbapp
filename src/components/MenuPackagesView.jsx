@@ -9,7 +9,7 @@ import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, 
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
-import { SALES_DEPTS } from '../data/salesConfig.js';
+import { SALES_DEPTS, SALES_DEPT_MAP } from '../data/salesConfig.js';
 import { K, type } from '../utils/theme.js';
 import { Icon } from './KitchenUI.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -497,6 +497,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // V75: section header row was getting crowded (link badge, resync, unlink, SOP
   // default, sales dept…) — those all moved into a per-section settings modal.
   var [secSettingsOpen, setSecSettingsOpen] = useState(null); // section id, or null
+  var [subSecSettingsOpen, setSubSecSettingsOpen] = useState(null); // V94: { secId, subId } | null
   // V73: catalogue section picker — bring dish_catalogue_sections into a package
   var [catalogueSections, setCatalogueSections] = useState([]); // { id, name, dept, sales_dept, sop_category_hint, dishes:[names] }
   var [catPickerOpen, setCatPickerOpen]         = useState(false);
@@ -877,6 +878,49 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
     setDirty(true);
   }
+  // V94 — a subsection can carry its own sales_dept/catalogue_section_id,
+  // same as a top-level section (setSectionDept/linkSectionToCatalogue/
+  // unlinkSection/resyncSection above) — e.g. "Aerated Drinks" under
+  // "Beverages" routed to the bev tab and pooling its own catalogue section,
+  // independently of its parent. A null sales_dept here (the "— inherit
+  // parent —" option) falls back to the parent's own dept at read time —
+  // see dishNameToPkgDept in useMenuItemGrouping.js / eventItems.js.
+  function updateSubsection(secId, subId, patch) {
+    setEditorSections(function(prev) {
+      return prev.map(function(s) {
+        if (s.id !== secId) return s;
+        return { ...s, subsections: (s.subsections || []).map(function(sub) {
+          return sub.id === subId ? { ...sub, ...patch } : sub;
+        }) };
+      });
+    });
+    setDirty(true);
+  }
+  function setSubsectionDept(secId, subId, deptId) { updateSubsection(secId, subId, { sales_dept: deptId || null }); }
+  function linkSubsectionToCatalogue(secId, subId, catSecId) { updateSubsection(secId, subId, { catalogue_section_id: catSecId || null }); }
+  function unlinkSubsection(secId, subId) { updateSubsection(secId, subId, { catalogue_section_id: null }); }
+  async function resyncSubsection(sec, sub) {
+    var resyncKey = sec.id + ':' + sub.id;
+    if (!sub.catalogue_section_id || resyncing[resyncKey]) return;
+    setResyncing(function(p) { return { ...p, [resyncKey]: true }; });
+    try {
+      var res = await supabase.from('dishes_master')
+        .select('dish_name, is_active, sort_in_section')
+        .eq('section_id', sub.catalogue_section_id)
+        .order('sort_in_section', { ascending: true });
+      if (res.error) throw res.error;
+      var liveNames = (res.data || []).filter(function(d) { return d.is_active !== false; }).map(function(d) { return d.dish_name; });
+      var have = {}; (sub.dishes || []).forEach(function(d) { have[d] = true; });
+      var toAdd = liveNames.filter(function(n) { return !have[n]; });
+      if (toAdd.length === 0) { alert(T2('Already in sync')); return; }
+      updateSubsection(sec.id, sub.id, { dishes: (sub.dishes || []).concat(toAdd) });
+      alert(T2('Added') + ' ' + toAdd.length + ' ' + T2('dish(es) from catalogue'));
+    } catch (e) {
+      alert(T2('Resync failed') + ': ' + (e.message || e));
+    } finally {
+      setResyncing(function(p) { var n = { ...p }; delete n[resyncKey]; return n; });
+    }
+  }
   // subId is optional — present when renaming a dish inside a subsection
   // rather than the section's own direct dish list.
   function startEditDish(secId, name, subId) { setEditingDish({ secId: secId, subId: subId || null, name: name }); setEditDishValue(name); }
@@ -954,11 +998,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         sales_dept: s.sales_dept || 'kit',
         dishes: (s.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean),
         subsections: (s.subsections || []).map(function(sub) {
-          return {
+          var subOut = {
             id: sub.id || genSubId(),
             name: (sub.name || '').trim() || 'Untitled',
             dishes: (sub.dishes || []).map(function(d) { return (d || '').trim(); }).filter(Boolean)
           };
+          if (sub.sales_dept) subOut.sales_dept = sub.sales_dept;
+          if (sub.catalogue_section_id) subOut.catalogue_section_id = sub.catalogue_section_id;
+          return subOut;
         }).filter(function(sub) { return sub.name && sub.name !== 'Untitled' || sub.dishes.length > 0; })
       };
       if (s.catalogue_section_id) out.catalogue_section_id = s.catalogue_section_id;
@@ -2011,6 +2058,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                       disabled={!isAdmin}
                                       style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid " + C.border, background: C.surface, fontSize: 12, fontWeight: 600, color: C.text, minWidth: 120, flex: "0 1 auto" }}
                                     />
+                                    {sub.catalogue_section_id && (
+                                      <span title={T2("Linked to catalogue section") + (catSecNames[sub.catalogue_section_id] ? ": " + catSecNames[sub.catalogue_section_id] : "")}
+                                        style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 8, background: C.blueBg, color: C.blue, border: "1px solid " + C.blueBorder, cursor: "default" }}>
+                                        🔗
+                                      </span>
+                                    )}
+                                    <button onClick={function() { setSubSecSettingsOpen({ secId: sec.id, subId: sub.id }); loadCatalogueForPicker(); }}
+                                      title={T2("Subsection settings")}
+                                      style={{ padding: "2px 6px", borderRadius: 7, background: C.surface, border: "1px solid " + C.border, color: C.muted, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>
+                                      ⚙
+                                    </button>
                                     <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{sub.dishes.length} {T2("dishes")}</span>
                                     {isAdmin && (
                                       <button onClick={function() { deleteSubsection(sec.id, sub.id); }}
@@ -2258,6 +2316,78 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                   </div>
                   <select value=""
                     onChange={function(e) { var v = e.target.value; if (v) linkSectionToCatalogue(sec.id, v); }}
+                    disabled={catPickerLoading}
+                    style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, fontWeight: 600, cursor: catPickerLoading ? "wait" : "pointer" }}>
+                    <option value="">{catPickerLoading ? T2('Loading…') : '— ' + T2('pick catalogue section') + ' —'}</option>
+                    {orderedCatalogueOptions().map(function(s) { return <option key={s.id} value={s.id}>{s.__isSub ? '— ' : ''}{s.name} ({s.dishes.length} {T2('dishes')})</option>; })}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* V94: Subsection settings modal — same sales-dept + catalogue-link
+          mapping as a top-level section (above), one level down. No SOP/
+          Inventory default here — a subsection doesn't carry its own
+          sop_category, it stays a pure dish grouping for that purpose. */}
+      {subSecSettingsOpen && (function() {
+        var sec = editorSections.find(function(s) { return s.id === subSecSettingsOpen.secId; });
+        var sub = sec && (sec.subsections || []).find(function(x) { return x.id === subSecSettingsOpen.subId; });
+        if (!sec || !sub) return null;
+        var resyncKey = sec.id + ':' + sub.id;
+        return (
+          <div onClick={function(){ setSubSecSettingsOpen(null); }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div onClick={function(e){ e.stopPropagation(); }}
+              style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>⚙ {sub.name || T2('Subsection settings')}</span>
+                <span style={{ flex: 1 }} />
+                <button onClick={function(){ setSubSecSettingsOpen(null); }}
+                  style={{ background: 'transparent', border: 0, cursor: 'pointer', fontSize: 20, color: C.muted, padding: '2px 8px', lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>{T2('Under')} "{sec.name}"</div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Proposal builder tab')}</div>
+                <select value={sub.sales_dept || ''}
+                  onChange={function(e) { setSubsectionDept(sec.id, sub.id, e.target.value); }}
+                  disabled={!isAdmin}
+                  style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.goldBorder, background: C.goldBg, fontSize: 12, color: C.gold, fontWeight: 600, cursor: isAdmin ? "pointer" : "default" }}>
+                  <option value="">{'— ' + T2('inherit from') + ' "' + sec.name + '" (' + (SALES_DEPT_MAP[sec.sales_dept || 'kit'] || {}).name + ') —'}</option>
+                  {SALES_DEPTS.map(function(d) { return <option key={d.id} value={d.id}>{d.icon} {d.name}</option>; })}
+                </select>
+                <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2("Which dept tab this subsection's dishes show up under — leave on inherit to just follow the parent section.")}</div>
+              </div>
+
+              {sub.catalogue_section_id ? (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, border: "1px solid " + C.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 6 }}>
+                    🔗 {T2('Linked to catalogue section')}{catSecNames[sub.catalogue_section_id] ? ': ' + catSecNames[sub.catalogue_section_id] : ''}
+                  </div>
+                  {isAdmin && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={function() { resyncSubsection(sec, sub); }} disabled={!!resyncing[resyncKey]}
+                        style={{ flex: 1, padding: "7px 10px", borderRadius: 7, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: resyncing[resyncKey] ? "wait" : "pointer" }}>
+                        {resyncing[resyncKey] ? T2('Syncing…') : '↻ ' + T2('Resync from catalogue')}
+                      </button>
+                      <button onClick={function() { if (window.confirm(T2("Unlink this subsection from the catalogue? Dishes stay, but future resyncs stop."))) { unlinkSubsection(sec.id, sub.id); setSubSecSettingsOpen(null); } }}
+                        style={{ padding: "7px 10px", borderRadius: 7, background: "transparent", border: "1px solid " + C.border, color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        {T2('Unlink')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : isAdmin && (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, border: "1px dashed " + C.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 2 }}>{T2('Not linked to a catalogue section')}</div>
+                  <div style={{ fontSize: 10, color: C.faint, marginBottom: 8 }}>
+                    {T2("Link this subsection so proposals can browse the full catalogue list here, with its current dishes pre-selected. Its current dishes stay as-is.")}
+                  </div>
+                  <select value=""
+                    onChange={function(e) { var v = e.target.value; if (v) linkSubsectionToCatalogue(sec.id, sub.id, v); }}
                     disabled={catPickerLoading}
                     style={{ width: '100%', padding: "7px 8px", borderRadius: 8, border: "1px solid " + C.border, background: C.surface, fontSize: 12, color: C.text, fontWeight: 600, cursor: catPickerLoading ? "wait" : "pointer" }}>
                     <option value="">{catPickerLoading ? T2('Loading…') : '— ' + T2('pick catalogue section') + ' —'}</option>

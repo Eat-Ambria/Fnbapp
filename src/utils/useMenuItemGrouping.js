@@ -186,6 +186,14 @@ export function useMenuItemGrouping(params) {
       pkgSecs.forEach(function(sec){
         var dept = sec.sales_dept || 'kit';
         (sec.dishes || []).forEach(function(name){ if (name) m[name] = dept; });
+        // A subsection can carry its own sales_dept (e.g. "Aerated Drinks"
+        // routed to bev under a kit-dept "Beverages" parent) — fall back to
+        // the parent's when it doesn't, so mapping only the subsection still
+        // routes its dishes correctly.
+        (sec.subsections || []).forEach(function(sub){
+          var subDept = sub.sales_dept || dept;
+          (sub.dishes || []).forEach(function(name){ if (name) m[name] = subDept; });
+        });
       });
     }
     return m;

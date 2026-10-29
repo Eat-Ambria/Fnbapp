@@ -56,6 +56,14 @@ function buildEventDeptContext(event, sectionsArr) {
     pkgSecs.forEach(sec => {
       const dept = sec.sales_dept || 'kit';
       (sec.dishes || []).forEach(name => { if (name) dishNameToPkgDept[name] = dept; });
+      // A subsection can carry its own sales_dept (e.g. "Aerated Drinks"
+      // routed to bev under a kit-dept "Beverages" parent) — fall back to
+      // the parent's dept when it doesn't, same precedence as the live
+      // builder's own dishNameToPkgDept (useMenuItemGrouping.js).
+      (sec.subsections || []).forEach(sub => {
+        const subDept = sub.sales_dept || dept;
+        (sub.dishes || []).forEach(name => { if (name) dishNameToPkgDept[name] = subDept; });
+      });
     });
   }
   const sectionOverrides = event.menu_section_overrides || {};
