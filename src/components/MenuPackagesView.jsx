@@ -1024,6 +1024,17 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [saving, setSaving] = useState(false);
 
   // Strip client-only cruft before persisting. Keeps id (stable ref).
+  // THIS is the authoritative list of fields a package section/subsection
+  // can have. It's a field whitelist, not a spread, so adding a new field
+  // to a section anywhere else in the app means adding it here too — miss
+  // that and every autosave from this editor silently strips the new field
+  // back off on the next save. The exact same whitelist shape in
+  // DishLibrary.jsx's applyRenameToPackages and DishMappingModal.jsx's
+  // handleAddToPackage/handleRemoveFromPackage already caused real data loss
+  // this way (2026-10-30) before those were switched to spread-based
+  // reconstruction — this one can't use that trick (it's the serializer
+  // deciding what's valid, not a cascade copying an existing row), so keep
+  // it in sync by hand instead.
   function serializeSections(secs) {
     return (secs || []).map(function(s) {
       var out = {

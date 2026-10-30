@@ -358,10 +358,24 @@ function DishMappingModal(props) {
       await mutatePackage(pkgName, function(cur) {
         var dishes = cur.dishes.slice();
         if (dishes.indexOf(dishName) === -1) dishes.push(dishName);
+        // Preserve every other field a section (or subsection) carries —
+        // sales_dept, catalogue_section_id, the subsections array itself —
+        // this used to rebuild each section as only {id, name, sop_category,
+        // dishes}, silently dropping everything else a package had configured
+        // (confirmed to have wiped dept/catalogue mappings and whole
+        // subsections off live packages on 2026-10-30, same bug as
+        // DishLibrary.jsx's rename/merge had).
         var sections = (cur.sections || []).map(function(s) {
-          return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).slice() };
+          return {
+            ...s,
+            dishes: (s.dishes || []).slice(),
+            subsections: (s.subsections || []).map(function(sub) { return { ...sub, dishes: (sub.dishes || []).slice() }; }),
+          };
         });
-        var alreadyIn = sections.some(function(s) { return (s.dishes || []).indexOf(dishName) !== -1; });
+        var alreadyIn = sections.some(function(s) {
+          if ((s.dishes || []).indexOf(dishName) !== -1) return true;
+          return (s.subsections || []).some(function(sub) { return (sub.dishes || []).indexOf(dishName) !== -1; });
+        });
         if (!alreadyIn) {
           var catId = getCatIdForDish(dishName);
           var catName = catId ? ((RECIPE_DB.cats || []).find(function(c) { return c.id === catId; }) || {}).name || '' : '';
@@ -390,8 +404,17 @@ function DishMappingModal(props) {
     try {
       await mutatePackage(pkgName, function(cur) {
         var dishes = (cur.dishes || []).filter(function(n) { return n !== dishName; });
+        // Same field-preserving spread as handleAddToPackage above, plus the
+        // removal now also reaches into subsections — a dish living only
+        // inside one used to silently survive a "Remove from package" click.
         var sections = (cur.sections || []).map(function(s) {
-          return { id: s.id, name: s.name, sop_category: s.sop_category, dishes: (s.dishes || []).filter(function(n) { return n !== dishName; }) };
+          return {
+            ...s,
+            dishes: (s.dishes || []).filter(function(n) { return n !== dishName; }),
+            subsections: (s.subsections || []).map(function(sub) {
+              return { ...sub, dishes: (sub.dishes || []).filter(function(n) { return n !== dishName; }) };
+            }),
+          };
         });
         return { dishes: dishes, sections: sections };
       });
