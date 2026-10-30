@@ -662,22 +662,14 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var enriched = (results[0].data || []).map(function(s) {
         return { ...s, dishes: (bySection[s.id] || []).map(function(d) { return d.name; }) };
       });
-      // The query above sorts by sort_order alone, but sort_order only
-      // ranks a section AMONG ITS OWN DEPT's sections (DishSectionsEditor's
-      // drag-reorder renumbers each dept's list independently, 10/20/30…) —
-      // dept isn't part of the query's ORDER BY, so sections from different
-      // depts that happen to share a sort_order value interleave instead of
-      // grouping the way the Dish Library's own dept tabs show them. Sort
-      // by dept first, in the same sidebar order every other dept list in
-      // the app uses, then by sort_order within that dept.
-      var deptRank = SALES_DEPTS.reduce(function(m, d, i) { m[d.id] = i; return m; }, {});
-      enriched.sort(function(a, b) {
-        var da = deptRank[a.dept], db = deptRank[b.dept];
-        if (da === undefined) da = 999;
-        if (db === undefined) db = 999;
-        if (da !== db) return da - db;
-        return (a.sort_order || 0) - (b.sort_order || 0);
-      });
+      // sort_order used to only rank a section among its own dept's rows
+      // (DishSectionsEditor split into 4 dept tabs, each renumbering
+      // independently), which was the actual cause of this picker showing
+      // sections interleaved out of order. Fixed at the source: that editor
+      // is now one combined list with a genuinely global sort_order (it
+      // self-heals any pre-existing per-dept duplicates into a clean global
+      // sequence the first time it loads), so this query's own ORDER BY is
+      // already correct — no client-side re-sort needed here.
       setCatalogueSections(enriched);
     } catch (e) {
       alert('Failed to load catalogue sections: ' + e.message);

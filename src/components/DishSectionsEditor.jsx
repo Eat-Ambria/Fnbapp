@@ -1,9 +1,19 @@
-// Ambria FnB — Dish Library → Sections tab (V73)
-// Master print-menu catalogue: define sections per department, assign dishes,
-// order both. Menu Builder loads this as the base grid for every proposal.
+// Ambria FnB — Dish Library → Sections tab (V73, unified V96)
+// Master print-menu catalogue: define sections, assign dishes, order both.
+// Menu Builder loads this as the base grid for every proposal.
+//
+// V96: used to split into 4 dept tabs (Kitchen/Beverage/Bakery/Fruits), each
+// with its own independently-numbered sort_order (so dragging within one
+// tab had no effect on, and no visibility into, the others). `dept` on a
+// section only ever drove THIS tab split — the field that actually routes a
+// section to a Menu Builder sidebar tab is the separate `sales_dept` (the
+// dropdown on each section row below) — so splitting the editor by `dept`
+// bought nothing except making it impossible to control the relative order
+// of, say, a welcome-drinks section against the snacks section right after
+// it. Now one combined, globally-orderable list; `dept` is still written on
+// insert (legacy NOT NULL column) but no longer drives anything in this UI.
 //
 // Features
-// - Dept picker (Kitchen active; Beverage/Bakery/Fruits reserved)
 // - Add / rename / delete sections
 // - Reorder sections (▲▼ buttons)
 // - Expand section → dish list with reorder + move-to-section dropdown
@@ -53,7 +63,6 @@ function DishSectionsEditor(props) {
   const T2 = function(s) { return T(s, lang); };
   const isAdmin = props.currentUser && (props.currentUser.role === 'admin' || props.currentUser.role === 'headchef');
 
-  const [dept, setDept] = useState('kitchen');
   const [sections, setSections] = useState([]);
   const [dishAssignments, setDishAssignments] = useState({});
   const [expanded, setExpanded] = useState(new Set());
@@ -101,14 +110,56 @@ function DishSectionsEditor(props) {
   const [unassignedSearch, setUnassignedSearch] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────
+  // V96: one combined fetch across every dept, no `.eq('dept', ...)` filter.
+  // sort_order used to only ever be compared within one dept's own rows
+  // (each tab independently renumbered 10/20/30…), so the FIRST time this
+  // runs, top-level sections from different depts can share a sort_order
+  // value and sort arbitrarily against each other. Detect that (any
+  // duplicate top-level sort_order) and do a one-time renumber into a clean
+  // global sequence — using DEPTS' declared order as a sane starting
+  // grouping — persisted immediately so it never needs to run again. This
+  // must NOT re-run on every load once sort_order is genuinely global, or
+  // it would silently undo any deliberate cross-dept interleaving someone
+  // drags into place later (exactly the flexibility this change is for).
   async function loadData() {
     setLoading(true);
     try {
       const results = await Promise.all([
-        fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').eq('dept', dept).order('sort_order', { ascending: true }); }),
+        fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').order('sort_order', { ascending: true }); }),
         fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active, is_veg, image_url').eq('is_active', true); })
       ]);
-      setSections(results[0] || []);
+      var fetched = results[0] || [];
+      var topFetched = fetched.filter(function(s){ return !s.parent_section_id; });
+      var seenOrders = {};
+      var hasCollision = topFetched.some(function(s){
+        var k = s.sort_order || 0;
+        if (seenOrders[k]) return true;
+        seenOrders[k] = true;
+        return false;
+      });
+      var loadedSections = fetched;
+      if (hasCollision && isAdmin) {
+        var deptRank = DEPTS.reduce(function(m, d, i){ m[d.id] = i; return m; }, {});
+        var sortedTop = topFetched.slice().sort(function(a, b){
+          var da = deptRank[a.dept], db = deptRank[b.dept];
+          if (da !== db) return (da === undefined ? 999 : da) - (db === undefined ? 999 : db);
+          return (a.sort_order || 0) - (b.sort_order || 0);
+        });
+        var renumberedById = {};
+        sortedTop.forEach(function(s, i){ renumberedById[s.id] = (i + 1) * 10; });
+        loadedSections = fetched.map(function(s){
+          return renumberedById[s.id] !== undefined ? { ...s, sort_order: renumberedById[s.id] } : s;
+        });
+        // Best-effort, fire-and-forget — the UI already has the correct order
+        // from the map above; this just makes it stick for next time (and
+        // for anyone else's load) instead of recomputing it on every mount.
+        Promise.all(sortedTop.map(function(s, i){
+          return supabase.from('dish_catalogue_sections').update({ sort_order: (i + 1) * 10 }).eq('id', s.id);
+        })).catch(function(e){ console.error('[Sections] one-time global renumber failed:', e); });
+      } else {
+        loadedSections = fetched.slice().sort(function(a, b){ return (a.sort_order || 0) - (b.sort_order || 0); });
+      }
+      setSections(loadedSections);
       const assignments = {};
       (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
       setDishAssignments(assignments);
@@ -122,7 +173,7 @@ function DishSectionsEditor(props) {
     }
   }
 
-  useEffect(function(){ loadData(); /* eslint-disable-next-line */ }, [dept]);
+  useEffect(function(){ loadData(); /* eslint-disable-next-line */ }, []);
 
   // Realtime — reload on any change to sections or dish assignments
   useEffect(function(){
@@ -133,7 +184,7 @@ function DishSectionsEditor(props) {
       .subscribe();
     return function(){ supabase.removeChannel(ch); };
     /* eslint-disable-next-line */
-  }, [dept]);
+  }, []);
 
   // Group dishes by section
   const dishesBySection = useMemo(function(){
@@ -201,7 +252,10 @@ function DishSectionsEditor(props) {
     try {
       const siblings = parentId ? (subsByParent[parentId] || []) : topSections;
       const maxSort = siblings.reduce(function(m, s){ return Math.max(m, s.sort_order || 0); }, 0);
-      const payload = { dept: dept, name: nameVal, sort_order: maxSort + 10 };
+      // `dept` no longer drives anything in this UI (see V96 note at top of
+      // file) — the column is legacy NOT NULL, so still populate it, but any
+      // value works equally well now; 'kitchen' is simplest.
+      const payload = { dept: 'kitchen', name: nameVal, sort_order: maxSort + 10 };
       if (parentId) payload.parent_section_id = parentId;
       const { data, error } = await supabase.from('dish_catalogue_sections').insert(payload).select('*').single();
       if (error) throw error;
@@ -878,31 +932,10 @@ function DishSectionsEditor(props) {
         </div>
       )}
 
-      {/* Dept picker */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {DEPTS.map(function(d){
-          const active = dept === d.id;
-          // Used to be hardcoded to Kitchen-only ("(soon)" on the rest) — but
-          // every query/mutation below is already keyed off `dept` generically
-          // (.eq('dept', dept) etc.), so Beverage/Bakery/Fruits sections were
-          // sitting in the DB the whole time (confirmed 2026-10-30 — they're
-          // what this package-level catalogue picker's "bev" entries come
-          // from), just unreachable from this tab. No reason left to gate it.
-          return (
-            <button key={d.id} onClick={function(){ setDept(d.id); }}
-              style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
-                background: active ? '#FAEEDA' : C.surface, border: '0.5px solid ' + (active ? '#EF9F27' : C.border),
-                color: active ? '#633806' : C.muted, fontWeight: active ? 500 : 400 }}>
-              {d.icon} {d.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C.darkCard, borderRadius: 8, marginBottom: 12, fontSize: 12, flexWrap: 'wrap' }}>
         <span style={{ color: C.muted }}>
-          <b style={{ color: C.text }}>{DEPTS.find(function(d){ return d.id === dept; }).label} catalogue</b>
+          <b style={{ color: C.text }}>Dish catalogue</b>
           {' · '}{topSections.length} sections{sections.length > topSections.length ? ' (' + (sections.length - topSections.length) + ' subsections)' : ''}
           {unassignedList.length > 0 && <> · <span style={{ color: C.red, fontWeight: 500 }}>{unassignedList.length} unassigned</span></>}
         </span>
@@ -942,7 +975,7 @@ function DishSectionsEditor(props) {
 
       {hasLoadedOnce && !loading && sections.length === 0 && (
         <div style={{ padding: 30, textAlign: 'center', color: C.muted, fontSize: 12, background: C.surface, border: '0.5px dashed ' + C.border, borderRadius: 10 }}>
-          No sections defined for {DEPTS.find(function(d){ return d.id === dept; }).label} yet. Click <b>+ Add section</b> to create the first one.
+          No sections defined yet. Click <b>+ Add section</b> to create the first one.
         </div>
       )}
 
