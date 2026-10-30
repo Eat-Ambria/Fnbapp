@@ -309,6 +309,99 @@ function transformCateringContract(row: any, masters: any): any[] {
   return events;
 }
 
+// ── Tables keyed by event id — kept in sync when an event is renamed ──
+// (see migrateEventId below). transport_dispatch_assignments is handled
+// separately: its own primary key embeds the event id
+// (`${event_id}::${vehicle_id}`), so a plain column update would leave a
+// stale/mismatched id.
+const EVENT_CHILD_TABLES: Array<[string, string]> = [
+  ["event_items", "event_id"],
+  ["event_function_plans", "event_id"],
+  ["event_configs", "event_id"],
+  ["event_fruit_selections", "event_id"],
+  ["production_plans", "event_id"],
+  ["production_closings", "event_id"],
+  ["kitchen_tracking", "ev_id"],
+  ["store_issues", "event_id"],
+  ["notifications", "event_id"],
+];
+
+// ── Rename an event id in place, carrying all of its work over ──
+// 2026-10-29: contract 00785's Exotica function had its LMS-reported date
+// corrupted by an LMS UI bug (2026-11-15 -> 0202-11-15) while the user was
+// editing an unrelated field (complimentary plate count). Since our event
+// id is built from that date (LMS-V-{contract}-{date}), the old id vanished
+// from the next sync's feed and the code below ("clean up cancelled")
+// couldn't tell that apart from "this function was actually removed" — it
+// hard-deleted the old row, taking its event_items and (to-be-built)
+// Function Plan with it, with zero way to recover them afterward.
+// This function is the fix: when the caller has already matched an old row
+// to a specific new id (see the 1:1-swap detection below), move every
+// table that references the old id onto the new one, carry over the old
+// row's own customization fields (the new row was just inserted fresh from
+// LMS — blank menu, no flags), and only then remove the old row.
+async function migrateEventId(sb: any, oldRow: any, newId: string): Promise<void> {
+  const { data: newRow } = await sb.from("events").select("id").eq("id", newId).maybeSingle();
+  if (!newRow) {
+    console.error(`migrateEventId: target ${newId} does not exist yet, skipping migration for ${oldRow.id}`);
+    return;
+  }
+
+  for (const [table, col] of EVENT_CHILD_TABLES) {
+    const { error } = await sb.from(table).update({ [col]: newId }).eq(col, oldRow.id);
+    if (error) console.error(`migrateEventId: ${table}.${col} ${oldRow.id} -> ${newId} failed:`, error);
+  }
+
+  const { data: tdRows } = await sb.from("transport_dispatch_assignments").select("*").eq("event_id", oldRow.id);
+  if (tdRows && tdRows.length > 0) {
+    const renamed = tdRows.map((r: any) => {
+      const sep = typeof r.id === "string" ? r.id.indexOf("::") : -1;
+      const vehiclePart = sep >= 0 ? r.id.slice(sep + 2) : r.id;
+      const { id, event_id, ...rest } = r;
+      return { ...rest, id: `${newId}::${vehiclePart}`, event_id: newId };
+    });
+    const { error: insErr } = await sb.from("transport_dispatch_assignments").upsert(renamed);
+    if (insErr) console.error(`migrateEventId: transport_dispatch_assignments insert ${oldRow.id} -> ${newId} failed:`, insErr);
+    else {
+      const { error: delErr } = await sb.from("transport_dispatch_assignments").delete().eq("event_id", oldRow.id);
+      if (delErr) console.error(`migrateEventId: transport_dispatch_assignments cleanup ${oldRow.id} failed:`, delErr);
+    }
+  }
+
+  // Carry the old row's own "work already done" fields onto the new row —
+  // event_items alone isn't the whole story (menu_package overrides, ODC
+  // details, outsourced dishes, section overrides all live on the events
+  // row itself).
+  const carryOver: Record<string, any> = {};
+  const CARRY_FIELDS = [
+    "menu", "custom_menu_confirmed", "event_items_initialized",
+    "menu_section_overrides", "outsourced_dishes",
+    "external_caterer", "external_caterer_name",
+    "odc_location", "odc_address", "odc_contact_phone", "odc_transport_cost",
+    "odc_lead", "site_recce", "odc_menu_confirmed",
+  ];
+  CARRY_FIELDS.forEach((f) => {
+    if (oldRow[f] !== undefined && oldRow[f] !== null) carryOver[f] = oldRow[f];
+  });
+  // Only carry the package name forward if it had actually been picked
+  // away from what LMS last told us for the OLD id — otherwise let the new
+  // row keep whatever the (possibly just-corrected) current sync gave it.
+  if (oldRow.menu_package && oldRow.lms_menu_package && oldRow.menu_package !== oldRow.lms_menu_package) {
+    carryOver.menu_package = oldRow.menu_package;
+  }
+  if (Object.keys(carryOver).length > 0) {
+    const { error } = await sb.from("events").update(carryOver).eq("id", newId);
+    if (error) console.error(`migrateEventId: carry-over update ${newId} failed:`, error);
+  }
+
+  // The old row is fully drained now — delete it immediately rather than
+  // leaving it for the "clean up cancelled" pass below, which would delete
+  // it anyway but without this context (and without having saved anything
+  // off it first).
+  const { error: delErr } = await sb.from("events").delete().eq("id", oldRow.id);
+  if (delErr) console.error(`migrateEventId: delete old row ${oldRow.id} failed:`, delErr);
+}
+
 // ══════════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ══════════════════════════════════════════════════════════════════
@@ -561,6 +654,72 @@ Deno.serve(async (req) => {
     }
     if (preservedCount > 0) console.log(`Preserved ${preservedCount} admin-customized menu(s)`);
 
+    // ── Detect same-contract id swaps (a function's LMS-reported date
+    // changed — a real edit, or an LMS bug like the one that caused this
+    // whole fix) and migrate instead of silently deleting ──
+    // Only acts on an unambiguous 1:1 swap for a given contract: exactly one
+    // id this contract had before is missing from this sync, exactly one id
+    // it didn't have before showed up, AND they plausibly describe the same
+    // real-world function (same venue, same pax) — otherwise this is left
+    // alone for the normal insert/delete logic below, rather than guessing
+    // at a pairing. finalEvents already excludes tombstoned ids (see V72
+    // note above), so the "old" and "new" sides below are its own already-
+    // filtered IDs.
+    const finalEventsById = new Map(finalEvents.map((e) => [e.id, e]));
+    const newIdsByContract = new Map<string, Set<string>>();
+    finalEvents.forEach((ev) => {
+      const key = `${ev.lms_source}|${ev.lms_contract}`;
+      if (!newIdsByContract.has(key)) newIdsByContract.set(key, new Set());
+      newIdsByContract.get(key)!.add(ev.id);
+    });
+    const contractNos = Array.from(new Set(finalEvents.map((e) => e.lms_contract).filter(Boolean)));
+    let renamedCount = 0;
+    if (contractNos.length > 0) {
+      const { data: existingForContracts, error: ecErr } = await sb
+        .from("events")
+        .select("id, lms_contract, lms_source, venue, pax, menu, menu_package, custom_menu_confirmed, event_items_initialized, menu_section_overrides, outsourced_dishes, external_caterer, external_caterer_name, odc_location, odc_address, odc_contact_phone, odc_transport_cost, odc_lead, site_recce, odc_menu_confirmed, lms_menu_package")
+        .in("lms_contract", contractNos)
+        .like("id", "LMS-%")
+        .or("is_deleted.is.null,is_deleted.eq.false");
+      if (ecErr) console.error("Fetch existing-for-contracts error:", ecErr);
+
+      const oldRowsByContract = new Map<string, any[]>();
+      (existingForContracts || []).forEach((row: any) => {
+        const key = `${row.lms_source}|${row.lms_contract}`;
+        if (!oldRowsByContract.has(key)) oldRowsByContract.set(key, []);
+        oldRowsByContract.get(key)!.push(row);
+      });
+
+      for (const [key, oldRows] of oldRowsByContract) {
+        const newIds = newIdsByContract.get(key) || new Set<string>();
+        const disappearing = oldRows.filter((r) => !newIds.has(r.id));
+        const appearing = Array.from(newIds).filter((id) => !oldRows.some((r) => r.id === id));
+        if (disappearing.length !== 1 || appearing.length !== 1) {
+          if (disappearing.length > 0 && appearing.length > 0) {
+            console.log(`Ambiguous id change for ${key}: [${disappearing.map((r: any) => r.id).join(", ")}] -> [${appearing.join(", ")}] — leaving to normal insert/delete`);
+          }
+          continue;
+        }
+        const oldRow = disappearing[0];
+        const newId = appearing[0];
+        const newEv = finalEventsById.get(newId);
+        const sameVenue = newEv && (newEv.venue || "") === (oldRow.venue || "");
+        const samePax = newEv && Number(newEv.pax) === Number(oldRow.pax);
+        if (!sameVenue || !samePax) {
+          console.log(`Id change for ${key} (${oldRow.id} -> ${newId}) doesn't match on venue/pax — leaving to normal insert/delete`);
+          continue;
+        }
+        try {
+          await migrateEventId(sb, oldRow, newId);
+          renamedCount++;
+          console.log(`Migrated ${oldRow.id} -> ${newId} (contract ${oldRow.lms_contract})`);
+        } catch (e) {
+          console.error(`Failed to migrate ${oldRow.id} -> ${newId}:`, e);
+        }
+      }
+    }
+    if (renamedCount > 0) console.log(`Renamed ${renamedCount} event id(s), carrying menu/FP/tracking data over`);
+
     // ── Clean up cancelled / removed LMS events ──
     // Any LMS-sourced event in the sync window that wasn't in this batch is gone from LMS.
     // MUST exclude already-tombstoned (is_deleted=true) rows: they're excluded from
@@ -608,6 +767,7 @@ Deno.serve(async (req) => {
       events_upserted: upserted,
       events_skipped: skipped,
       events_deleted: deleted,
+      events_renamed: renamedCount,
       sync_window: `${fromDate} → ${uptoDate}`,
     };
     console.log("LMS Sync complete:", result);

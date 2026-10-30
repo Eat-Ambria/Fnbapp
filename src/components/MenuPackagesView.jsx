@@ -662,6 +662,22 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       var enriched = (results[0].data || []).map(function(s) {
         return { ...s, dishes: (bySection[s.id] || []).map(function(d) { return d.name; }) };
       });
+      // The query above sorts by sort_order alone, but sort_order only
+      // ranks a section AMONG ITS OWN DEPT's sections (DishSectionsEditor's
+      // drag-reorder renumbers each dept's list independently, 10/20/30…) —
+      // dept isn't part of the query's ORDER BY, so sections from different
+      // depts that happen to share a sort_order value interleave instead of
+      // grouping the way the Dish Library's own dept tabs show them. Sort
+      // by dept first, in the same sidebar order every other dept list in
+      // the app uses, then by sort_order within that dept.
+      var deptRank = SALES_DEPTS.reduce(function(m, d, i) { m[d.id] = i; return m; }, {});
+      enriched.sort(function(a, b) {
+        var da = deptRank[a.dept], db = deptRank[b.dept];
+        if (da === undefined) da = 999;
+        if (db === undefined) db = 999;
+        if (da !== db) return da - db;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
       setCatalogueSections(enriched);
     } catch (e) {
       alert('Failed to load catalogue sections: ' + e.message);

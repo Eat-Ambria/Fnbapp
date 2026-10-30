@@ -398,8 +398,21 @@ function DishLibrary(props) {
     // menu could mean 8-10+ packages, each paying its own network latency in turn).
     await withStepTimeout(Promise.all(pkgRows.map(function(row) {
       var newDishes = rewriteList(row.dishes || []);
+      // Keep every other field a section (or subsection) carries — sales_dept,
+      // catalogue_section_id, subsections itself — this used to rebuild each
+      // section as only {id, name, sop_category, dishes}, silently dropping
+      // everything else a package had configured (confirmed to have wiped
+      // subsections and dept/catalogue links on 3 live packages on 2026-10-30).
+      // Subsections get the same dish-name rewrite as the top-level list so a
+      // renamed dish living only inside one doesn't get missed.
       var newSections = (row.sections || []).map(function(sec) {
-        return { id: sec.id, name: sec.name, sop_category: sec.sop_category, dishes: rewriteList(sec.dishes || []) };
+        return {
+          ...sec,
+          dishes: rewriteList(sec.dishes || []),
+          subsections: (sec.subsections || []).map(function(sub) {
+            return { ...sub, dishes: rewriteList(sub.dishes || []) };
+          }),
+        };
       });
       return supabase.from('menu_packages').update({ dishes: newDishes, sections: newSections }).eq('name', row.name)
         .then(function(uRes) {
@@ -434,6 +447,12 @@ function DishLibrary(props) {
     var target = renameMap[sources[0]]; // performMergeCore only ever maps every source to the one same target
     var renamed = 0, merged = 0;
 
+    // Matched by (fk, dish_name) rather than a surrogate id — proposal_items
+    // has no `id` column at all (its primary key is proposal_id+dish_name),
+    // which made every rename/merge throw here with "column proposal_items.id
+    // does not exist" AFTER applyRenameToPackages had already written (confirmed
+    // 2026-10-30: the thrown error aborted the merge, but the packages rewrite
+    // a few lines above had already committed — see its own fix note above).
     var tables = [
       { name: 'event_items', fk: 'event_id' },
       { name: 'proposal_items', fk: 'proposal_id' },
@@ -441,7 +460,7 @@ function DishLibrary(props) {
     for (var i = 0; i < tables.length; i++) {
       var table = tables[i].name, fk = tables[i].fk;
       var rowsRes = await withStepTimeout(
-        supabase.from(table).select('id, ' + fk + ', dish_name').in('dish_name', sources),
+        supabase.from(table).select(fk + ', dish_name').in('dish_name', sources),
         'find ' + table + ' rows naming ' + sources.join(', ')
       );
       if (rowsRes.error) throw rowsRes.error;
@@ -459,17 +478,31 @@ function DishLibrary(props) {
       if (existingRes.error) throw existingRes.error;
       var hasTarget = {};
       (existingRes.data || []).forEach(function(r) { hasTarget[r[fk]] = true; });
-      var toDelete = rows.filter(function(r) { return hasTarget[r[fk]]; }).map(function(r) { return r.id; });
-      var toRename = rows.filter(function(r) { return !hasTarget[r[fk]]; }).map(function(r) { return r.id; });
-      if (toDelete.length > 0) {
-        var delR = await withStepTimeout(supabase.from(table).delete().in('id', toDelete), 'drop ' + toDelete.length + ' duplicate ' + table + ' row(s)');
+      // Grouped by source dish_name so each delete/update can be one batched
+      // `.in(fk, [...])` call instead of a round trip per row.
+      var toDeleteByName = {}, toRenameByName = {};
+      rows.forEach(function(r) {
+        var bucket = hasTarget[r[fk]] ? toDeleteByName : toRenameByName;
+        (bucket[r.dish_name] = bucket[r.dish_name] || []).push(r[fk]);
+      });
+      var names;
+      names = Object.keys(toDeleteByName);
+      for (var j = 0; j < names.length; j++) {
+        var delR = await withStepTimeout(
+          supabase.from(table).delete().eq('dish_name', names[j]).in(fk, toDeleteByName[names[j]]),
+          'drop ' + toDeleteByName[names[j]].length + ' duplicate ' + table + ' row(s)'
+        );
         if (delR.error) throw delR.error;
-        merged += toDelete.length;
+        merged += toDeleteByName[names[j]].length;
       }
-      if (toRename.length > 0) {
-        var renR = await withStepTimeout(supabase.from(table).update({ dish_name: target }).in('id', toRename), 'rename ' + toRename.length + ' ' + table + ' row(s)');
+      names = Object.keys(toRenameByName);
+      for (var k = 0; k < names.length; k++) {
+        var renR = await withStepTimeout(
+          supabase.from(table).update({ dish_name: target }).eq('dish_name', names[k]).in(fk, toRenameByName[names[k]]),
+          'rename ' + toRenameByName[names[k]].length + ' ' + table + ' row(s)'
+        );
         if (renR.error) throw renR.error;
-        renamed += toRename.length;
+        renamed += toRenameByName[names[k]].length;
       }
     }
 
