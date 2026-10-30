@@ -882,13 +882,18 @@ function DishSectionsEditor(props) {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {DEPTS.map(function(d){
           const active = dept === d.id;
-          const disabled = d.id !== 'kitchen';
+          // Used to be hardcoded to Kitchen-only ("(soon)" on the rest) — but
+          // every query/mutation below is already keyed off `dept` generically
+          // (.eq('dept', dept) etc.), so Beverage/Bakery/Fruits sections were
+          // sitting in the DB the whole time (confirmed 2026-10-30 — they're
+          // what this package-level catalogue picker's "bev" entries come
+          // from), just unreachable from this tab. No reason left to gate it.
           return (
-            <button key={d.id} onClick={function(){ if (!disabled) setDept(d.id); }} disabled={disabled}
-              style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer',
+            <button key={d.id} onClick={function(){ setDept(d.id); }}
+              style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, cursor: 'pointer',
                 background: active ? '#FAEEDA' : C.surface, border: '0.5px solid ' + (active ? '#EF9F27' : C.border),
-                color: active ? '#633806' : disabled ? C.faint : C.muted, opacity: disabled ? 0.5 : 1, fontWeight: active ? 500 : 400 }}>
-              {d.icon} {d.label}{disabled ? ' (soon)' : ''}
+                color: active ? '#633806' : C.muted, fontWeight: active ? 500 : 400 }}>
+              {d.icon} {d.label}
             </button>
           );
         })}
