@@ -599,27 +599,60 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     });
   }
   function clearDishSelect() { setSelectedDishes({}); }
+  // Flat, indented option list for the bulk "Move to" picker — a subsection
+  // is a valid move target exactly like its parent, just addressed by its
+  // own id (same shape DishSectionsEditor's flatSectionOptions uses).
+  function flatPkgSectionOptions() {
+    var out = [];
+    (editorSections || []).forEach(function(s) {
+      out.push({ id: s.id, label: s.name || T2('(unnamed)') });
+      (s.subsections || []).forEach(function(sub) {
+        out.push({ id: sub.id, label: '— ' + (sub.name || T2('(unnamed)')) });
+      });
+    });
+    return out;
+  }
+
   function bulkMoveToSection(targetSecId) {
     if (!targetSecId) return;
     var names = Object.keys(selectedDishes);
     if (names.length === 0) return;
     var picked = {}; names.forEach(function(n) { picked[n] = true; });
     setEditorSections(function(prev) {
-      // Strip picked dishes from every section — spread the rest of each
-      // section through untouched. This used to rebuild every section as a
-      // bare {id, name, sop_category, dishes}, which silently dropped
-      // sales_dept, catalogue_section_id (the catalogue link) and
+      // Strip picked dishes from every section AND every subsection — spread
+      // the rest of each through untouched. This used to rebuild every
+      // section as a bare {id, name, sop_category, dishes}, which silently
+      // dropped sales_dept, catalogue_section_id (the catalogue link) and
       // subsections off EVERY section in the package on any bulk move, not
-      // just the ones actually touched.
+      // just the ones actually touched. It also never reached into
+      // subsections at all, so a picked dish already living in one could
+      // end up duplicated once appended to its new target.
       var stripped = prev.map(function(s) {
-        return { ...s, dishes: (s.dishes || []).filter(function(n) { return !picked[n]; }) };
+        return {
+          ...s,
+          dishes: (s.dishes || []).filter(function(n) { return !picked[n]; }),
+          subsections: (s.subsections || []).map(function(sub) {
+            return { ...sub, dishes: (sub.dishes || []).filter(function(n) { return !picked[n]; }) };
+          }),
+        };
       });
-      // Append picked (in original picked order) to target, skipping duplicates
+      // Append picked (in original picked order) to the target, skipping
+      // duplicates. Target is either a top-level section or one of its
+      // subsections — check both.
       return stripped.map(function(s) {
-        if (s.id !== targetSecId) return s;
-        var have = {}; (s.dishes || []).forEach(function(n) { have[n] = true; });
-        var toAdd = names.filter(function(n) { return !have[n]; });
-        return { ...s, dishes: (s.dishes || []).concat(toAdd) };
+        if (s.id === targetSecId) {
+          var have = {}; (s.dishes || []).forEach(function(n) { have[n] = true; });
+          var toAdd = names.filter(function(n) { return !have[n]; });
+          return { ...s, dishes: (s.dishes || []).concat(toAdd) };
+        }
+        var subIdx = (s.subsections || []).findIndex(function(sub) { return sub.id === targetSecId; });
+        if (subIdx === -1) return s;
+        var nextSubs = s.subsections.slice();
+        var sub = nextSubs[subIdx];
+        var have2 = {}; (sub.dishes || []).forEach(function(n) { have2[n] = true; });
+        var toAdd2 = names.filter(function(n) { return !have2[n]; });
+        nextSubs[subIdx] = { ...sub, dishes: (sub.dishes || []).concat(toAdd2) };
+        return { ...s, subsections: nextSubs };
       });
     });
     setSelectedDishes({});
@@ -1906,8 +1939,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           onChange={function(e) { var v = e.target.value; if (v) bulkMoveToSection(v); e.target.value = ''; }}
                           style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid ' + C.blueBorder, background: C.surface, fontSize: 12, color: C.text, cursor: 'pointer', fontWeight: 600 }}>
                           <option value="">— {T2('pick section')} —</option>
-                          {editorSections.map(function(s) {
-                            return <option key={s.id} value={s.id}>{s.name || T2('(unnamed)')}</option>;
+                          {flatPkgSectionOptions().map(function(o) {
+                            return <option key={o.id} value={o.id}>{o.label}</option>;
                           })}
                         </select>
                         <button onClick={clearDishSelect}
