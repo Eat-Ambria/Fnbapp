@@ -468,22 +468,32 @@ function DishSectionsEditor(props) {
         const orig = prevSections.find(function(p){ return p.id === s.id; });
         return !orig || orig.sort_order !== s.sort_order;
       });
-      let touched = 0;
-      for (let i = 0; i < changed.length; i++) {
-        const s = changed[i];
-        const { data, error } = await supabase.from('dish_catalogue_sections')
-          .update({ sort_order: s.sort_order })
-          .eq('id', s.id)
-          .select('id');
-        if (error) throw error;
-        if (data && data.length > 0) touched += 1;
-      }
+      // V96 — this used to be a sequential round trip per changed row, fine
+      // when a drag only ever reordered within one dept's short list. The
+      // unified list means dragging a section up past dozens of others (e.g.
+      // a Beverage section above all of Kitchen) can change 20-40+ rows in
+      // one move, so a long sequential await chain is both slow and, if a
+      // single request in the middle drops (a transient network blip —
+      // "TypeError: Failed to fetch" is the browser failing to even reach
+      // the server, not Supabase rejecting anything), leaves the DB
+      // partially renumbered while this function has already thrown and
+      // bailed. Fire every changed row together instead.
+      const results = await Promise.all(changed.map(function(s){
+        return supabase.from('dish_catalogue_sections').update({ sort_order: s.sort_order }).eq('id', s.id).select('id');
+      }));
+      const firstError = results.find(function(r){ return r.error; });
+      if (firstError) throw firstError.error;
+      const touched = results.filter(function(r){ return r.data && r.data.length > 0; }).length;
       if (touched === 0 && changed.length > 0) {
         console.warn('[Sections] 0 rows updated — check RLS on dish_catalogue_sections');
       }
     } catch (e) {
       fail('Could not reorder', e);
-      setSections(prevSections); // revert local
+      // A partial batch failure can leave SOME rows renumbered in the DB and
+      // others not — reverting to the pre-drag snapshot from memory would
+      // show an order that no longer matches what's actually persisted.
+      // Pull the real state back from the server instead of guessing.
+      loadData();
     } finally { setSaving(false); }
   }
 
