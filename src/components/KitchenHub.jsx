@@ -2421,18 +2421,16 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     {v:"fp",      l:T2("Function Plans"), icon:"fileText"},
     {v:"closing", l:T2("Closing"),    icon:"check"},
   ];
-  // Planning/Analytics aren't part of a section tablet's core floor-work set
-  // (today/d1/sops/fp/closing always on), but can be granted per-tablet via
-  // Access Manager's Kitchen Hub sub-tab toggles (kitchen.planning_view /
-  // kitchen.analytics_view) — see SCREEN_PERMISSIONS_DEFAULT.kitchen.subTabs.
-  // Function Plans is read-only (opens the same print view Booked Functions
-  // uses) and a station needs it just as much as Event Day/Prep Day do — a
-  // tablet in the kitchen has no other way to check what a function's FP
-  // actually says — so it's on by default, not gated like Planning/Analytics.
+  // Planning/Analytics/Function Plans aren't part of a section tablet's core
+  // floor-work set (today/d1/sops/closing always on), but can be granted
+  // per-tablet via Access Manager's Kitchen Hub sub-tab toggles
+  // (kitchen.planning_view / kitchen.analytics_view / kitchen.fp_view) —
+  // see SCREEN_PERMISSIONS_DEFAULT.kitchen.subTabs.
   const TABS_FILTERED = isSectionUser
-    ? TABS.filter(t => ['today','d1','sops','fp','closing'].includes(t.v)
+    ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v)
         || (t.v==='planning' && hasPermission(currentUser,'kitchen.planning_view'))
-        || (t.v==='analytics' && hasPermission(currentUser,'kitchen.analytics_view')))
+        || (t.v==='analytics' && hasPermission(currentUser,'kitchen.analytics_view'))
+        || (t.v==='fp' && hasPermission(currentUser,'kitchen.fp_view')))
     : TABS;
 
   // -- Inline dish card (shows live progress) --
