@@ -24,6 +24,7 @@ import { EventDayTab, StepRow, SEQUENTIAL_STEPS, startAlarm, stopAlarm } from '.
 import { hasPermission } from '../data/permissions.js';
 import { logActivity } from './ActivityLog.jsx';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
+import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 
 // Function Planning's auto yield-adjust default, before anyone has touched
 // the slider for that event (events.yield_multiplier_auto) — bigger
@@ -384,6 +385,22 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   const tomorrowEvs = evList.filter(e=>e.date===TOMORROW).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
 
   const [tab, setTab] = useState(()=>todayEvs.length>0?"today":"d1");
+  // -- Function Plans tab: a read-only lookup of any function's FP, opened
+  // via the same print view Booked Functions/Build Menu use (EventMenuBuilderView
+  // with autoOpenPrint). A kitchen tablet otherwise has no way to check what a
+  // function's FP actually says without an admin pulling it up elsewhere.
+  const [fpViewEvId, setFpViewEvId] = useState(null);
+  const [fpStatusMap, setFpStatusMap] = useState({});
+  function loadFpStatusMap() {
+    fetchAllRows(() => supabase.from('event_function_plans').select('event_id, locked, sent_to_kitchen, locked_by, created_by'))
+      .then(rows => {
+        const map = {};
+        (rows || []).forEach(r => { map[r.event_id] = { locked: !!r.locked, sentToKitchen: !!r.sent_to_kitchen, lockedBy: r.locked_by || '', createdBy: r.created_by || '' }; });
+        setFpStatusMap(map);
+      })
+      .catch(e => console.error('[KitchenHub] loadFpStatusMap failed:', e));
+  }
+  useEffect(() => { loadFpStatusMap(); }, []);
   const [expandedDishes, setExpandedDishes] = useState(()=>new Set());
   function toggleDish(key){setExpandedDishes(p=>{const n=new Set(p);n.has(key)?n.delete(key):n.add(key);return n;});}
   const [expandedSecs, setExpandedSecs] = useState({});
@@ -2401,14 +2418,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     {v:"sops",    l:T2("SOPs"),       icon:"book"},
     {v:"planning",l:T2("Planning"),   icon:"layers"},
     {v:"analytics",l:T2("Analytics"), icon:"chart"},
+    {v:"fp",      l:T2("Function Plans"), icon:"fileText"},
     {v:"closing", l:T2("Closing"),    icon:"check"},
   ];
   // Planning/Analytics aren't part of a section tablet's core floor-work set
-  // (today/d1/sops/closing always on), but can be granted per-tablet via
+  // (today/d1/sops/fp/closing always on), but can be granted per-tablet via
   // Access Manager's Kitchen Hub sub-tab toggles (kitchen.planning_view /
   // kitchen.analytics_view) — see SCREEN_PERMISSIONS_DEFAULT.kitchen.subTabs.
+  // Function Plans is read-only (opens the same print view Booked Functions
+  // uses) and a station needs it just as much as Event Day/Prep Day do — a
+  // tablet in the kitchen has no other way to check what a function's FP
+  // actually says — so it's on by default, not gated like Planning/Analytics.
   const TABS_FILTERED = isSectionUser
-    ? TABS.filter(t => ['today','d1','sops','closing'].includes(t.v)
+    ? TABS.filter(t => ['today','d1','sops','fp','closing'].includes(t.v)
         || (t.v==='planning' && hasPermission(currentUser,'kitchen.planning_view'))
         || (t.v==='analytics' && hasPermission(currentUser,'kitchen.analytics_view')))
     : TABS;
@@ -5936,6 +5958,68 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
         );
       })()}
 
+      {/* --- FUNCTION PLANS TAB — read-only lookup, opens the real FP print view --- */}
+      {tab==="fp"&&(()=>{
+        function fpStatusFor(ev){
+          const row = fpStatusMap[ev.id];
+          if (!row) return { label:T2("Not made"), bg:K.surfaceAlt, border:K.line, color:K.textFaint };
+          if (row.sentToKitchen) return { label:T2("Sent to Kitchen"), bg:K.okBg, border:K.okBorder, color:K.ok };
+          if (row.locked) return { label:T2("Locked"), bg:K.brandBg, border:K.brandBorder, color:K.brandText };
+          return { label:T2("Made"), bg:K.warnBg, border:K.warnBorder, color:K.warn };
+        }
+        // "T00:00" (no "Z") parses in local time, same convention this file's
+        // own Closing-tab fmtDate uses — avoids the UTC-string-parse shift
+        // CLAUDE.md flags elsewhere in this app.
+        const past30Cutoff = (() => { const d = new Date(TODAY+"T00:00"); d.setDate(d.getDate()-30); return localDateStr(d); })();
+        const pastEvs = evList.filter(e=>e.date<TODAY && e.date>=past30Cutoff).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||"").localeCompare(a.time||""));
+        const upcomingEvs = evList.filter(e=>e.date>TODAY).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||"").localeCompare(b.time||""));
+        const fmtDate = d => { try { return new Date(d+"T00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",weekday:"short"}); } catch(e){ return d; } };
+        function evCard(ev){
+          const st = fpStatusFor(ev);
+          const vc = anaGp(ev.venue);
+          return (
+            <button key={ev.id} onClick={()=>setFpViewEvId(ev.id)} className="kh-sopcard kh-cardart-sm kh-rip" onPointerDown={ripple}
+              style={{display:"block",width:"100%",textAlign:"left",padding:"14px 16px",borderRadius:16,cursor:"pointer",
+                backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderLeft:`4px solid ${vc.c}`,
+                boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+                <span style={{display:"block",fontSize:15,fontWeight:700,letterSpacing:"-0.2px",color:K.hdrTitle,
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.guest||T2("Function")}</span>
+                <span style={{flexShrink:0,padding:"3px 10px",borderRadius:K.rPill,fontSize:11,fontWeight:700,
+                  background:st.bg,border:`1px solid ${st.border}`,color:st.color}}>{st.label}</span>
+              </div>
+              <span style={{display:"flex",alignItems:"center",gap:7,marginTop:5,fontSize:12.5,color:K.hdrMeta,flexWrap:"wrap"}}>
+                <Icon name="calendar" size={13} strokeWidth={1.9}/>{fmtDate(ev.date)}
+                {ev.time && <><span style={{color:K.textFaint}}>·</span>{ev.time.slice(0,5)}</>}
+                <span style={{color:K.textFaint}}>·</span>
+                <Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} pax
+                {ev.venue&&<><span style={{color:K.textFaint}}>·</span><span style={{color:vc.c,fontWeight:600}}>{ev.venue}</span></>}
+              </span>
+            </button>
+          );
+        }
+        function evGroup(title, evs, emptyMsg){
+          return (
+            <div style={{marginBottom:22}}>
+              <div style={{...type.label,fontSize:11,color:K.textMuted,marginBottom:8,letterSpacing:.4}}>{title} · {evs.length}</div>
+              {evs.length===0 ? (
+                <div style={{padding:"16px 18px",textAlign:"center",backgroundColor:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,
+                  borderRadius:16,fontSize:12.5,color:K.hdrMeta}}>{emptyMsg}</div>
+              ) : (
+                <div className="kh-soprows">{evs.map(evCard)}</div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div style={{padding:"4px 2px 40px"}}>
+            {evGroup(T2("Today"), todayEvs, T2("No functions today"))}
+            {evGroup(T2("Upcoming"), upcomingEvs, T2("No upcoming functions"))}
+            {evGroup(T2("Past (last 30 days)"), pastEvs, T2("No functions in the last 30 days"))}
+          </div>
+        );
+      })()}
+
       {/* --- PLANNING TAB — production_plans (Phase 4) --- */}
       {tab==="planning"&&(()=>{
         // Planning's writes (yield pins, Apply, Accept/Clear overrides, the
@@ -8281,6 +8365,17 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           </div>
         </div>
       )}
+
+      {fpViewEvId && (() => {
+        const fpEv = evList.find(e => e.id === fpViewEvId);
+        if (!fpEv) { setFpViewEvId(null); return null; }
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: K.surface, overflow: "auto" }}>
+            <EventMenuBuilderView event={fpEv} onClose={() => { setFpViewEvId(null); loadFpStatusMap(); }}
+              lang={lang} currentUser={currentUser} autoOpenPrint={true} />
+          </div>
+        );
+      })()}
 
       </div>
     </div>
