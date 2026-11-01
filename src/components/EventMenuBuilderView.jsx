@@ -780,6 +780,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return new Set(pkgSecs.map(function(s){ return s.id; }));
   }, [templateInfo.name]);
 
+  // The package's genuine baseline dish set — same filtering menuDiffByDept's
+  // own pkgSet below uses, hoisted so newSectionsByDept can share it: a
+  // baseline dish the chef relocated into an ad hoc new section (via "Move
+  // to") was still being counted as a "+" addition under that new section,
+  // when it was never actually added to the menu, just redisplayed under a
+  // different heading.
+  var pkgBaselineDishNames = useMemo(function(){
+    if (!templateInfo.dishes || templateInfo.dishes.length === 0) return new Set();
+    return new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
+  }, [templateInfo.dishes, noAutoSelectDishNames]);
+
   // "Add section from library" tags EVERY dish in that catalogue section into
   // sectionOverrides up front (so whichever ones get toggled on land in the
   // right pill) — tagged is not the same as selected. Without the selSet
@@ -793,6 +804,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var out = {}; // deptId -> { sectionId: { name, dishes: [] } }
     Object.keys(sectionOverrides || {}).forEach(function(dishName){
       if (!selectedDishNames.has(dishName)) return; // tagged, never actually added
+      if (pkgBaselineDishNames.has(dishName)) return; // already in the package — relocated, not added
       var targetId = sectionOverrides[dishName];
       if (!targetId) return;
       var sec = (sections || []).find(function(s){ return s.id === targetId; });
@@ -804,7 +816,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       out[dept][targetId].dishes.push(dishName);
     });
     return out;
-  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap, selectedDishNames]);
+  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap, selectedDishNames, pkgBaselineDishNames]);
 
   // ── Package vs. actual-selection diff, per dept, for the printable FP ──
   // Replaces a full dish-by-dish listing with just the package name plus
@@ -818,7 +830,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var menuDiffByDept = useMemo(function(){
     if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
     var pkgSecsAll = MENU_PACKAGE_SECTIONS[templateInfo.name] || [];
-    var pkgSet = new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
+    var pkgSet = pkgBaselineDishNames;
     var selSet = selectedDishNames;
     // Already reported via newSectionsByDept below — don't also list these as
     // a plain "+" addition in the regular diff.
@@ -888,7 +900,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, newSectionsByDept]);
+  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, pkgBaselineDishNames, newSectionsByDept]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
