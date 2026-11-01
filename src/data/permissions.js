@@ -56,7 +56,17 @@ function buildNavItems() {
   Object.keys(SCREEN_PERMISSIONS).forEach(id => {
     const sp = SCREEN_PERMISSIONS[id];
     if (sp.hidden) return;
-    if (sp.group !== lastGroup) { if (sp.group) out.push({ id: "_div_" + sp.group, label: sp.group, divider: true }); lastGroup = sp.group; }
+    if (sp.group !== lastGroup) {
+      // A truthy group gets a real labelled divider (collapsible section).
+      // Dropping BACK to no group (e.g. an unseeded screen appended after a
+      // grouped block — see hydrateScreenDefinitions) needs its own
+      // no-label divider too, so the sidebar's group-folding step below
+      // starts a fresh standalone bucket instead of silently absorbing the
+      // item into whatever group happened to come right before it.
+      if (sp.group) out.push({ id: "_div_" + sp.group, label: sp.group, divider: true });
+      else if (lastGroup) out.push({ id: "_div_ungrouped_" + id, label: "", divider: true });
+      lastGroup = sp.group;
+    }
     out.push({ id, label: sp.label });
   });
   return out;
