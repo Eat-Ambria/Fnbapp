@@ -293,15 +293,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // / odc_address, set by lms-sync's transformCateringContract) since event.venue
   // is just the literal "Outdoor Catering (ODC)" label for these — not the
   // actual place the function is happening, which the kitchen/ops team needs.
-  if (event.odc_location || event.odc_address) {
-    bullets.push('Outdoor venue: ' + [event.odc_location, event.odc_address].filter(Boolean).join(' — '));
-  }
-  // The header grid's own ADDRESS cell otherwise prints the literal
-  // "Outdoor Catering (ODC)" label for one of these — not an address at
-  // all — since event.venue is always that fixed string for ODC functions.
-  // Prefer the real place name there too; the full street address still
-  // only fits as the "Outdoor venue" bullet above.
-  var addressValue = (event.odc_location && event.odc_location.trim()) || event.venue || '';
+  // Goes in the header's own ADDRESS cell (full location + street address),
+  // not a separate bullet — "where's the address" should be answered by the
+  // field literally labelled ADDRESS, not a line buried in the F&B column.
+  var addressValue = (event.odc_location || event.odc_address)
+    ? [event.odc_location, event.odc_address].filter(Boolean).join(' — ')
+    : (event.venue || '');
   SALES_DEPTS.forEach(function(d){
     var deptDefs = DEPT_CONFIGS[d.id] || [];
     var deptValues = (configsByDept && configsByDept[d.id]) || {};
