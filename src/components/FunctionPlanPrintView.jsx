@@ -296,6 +296,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   if (event.odc_location || event.odc_address) {
     bullets.push('Outdoor venue: ' + [event.odc_location, event.odc_address].filter(Boolean).join(' — '));
   }
+  // The header grid's own ADDRESS cell otherwise prints the literal
+  // "Outdoor Catering (ODC)" label for one of these — not an address at
+  // all — since event.venue is always that fixed string for ODC functions.
+  // Prefer the real place name there too; the full street address still
+  // only fits as the "Outdoor venue" bullet above.
+  var addressValue = (event.odc_location && event.odc_location.trim()) || event.venue || '';
   SALES_DEPTS.forEach(function(d){
     var deptDefs = DEPT_CONFIGS[d.id] || [];
     var deptValues = (configsByDept && configsByDept[d.id]) || {};
@@ -307,6 +313,29 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
 
   var attnChefLines = [fp && fp.service_notes, fp && fp.general_notes]
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+
+  // Dept block order on the printed menu used to be the fixed app-wide
+  // SALES_DEPTS sequence (Kitchen, Beverage, Bakery, Fruits, ...) — but the
+  // Dish Library's Sections tab is now one combined, freely-orderable list
+  // (no more per-dept split there either), so a dept with its sections
+  // dragged earlier in that list (e.g. Beverage before Kitchen) should print
+  // first too. Rank each dept by the lowest sort_order among its own items'
+  // sections — dishSectionOrder already carries that globally-meaningful
+  // value for every dish actually on this menu — and order SALES_DEPTS by
+  // that instead of its own declaration order. A dept with nothing on this
+  // menu sorts last (nothing to rank it by).
+  function minSectionOrderForDept(deptId) {
+    var names = (itemsByDept && itemsByDept[deptId]) || [];
+    var best = Infinity;
+    names.forEach(function(n){
+      var o = dishSectionOrder && dishSectionOrder[n];
+      if (o != null && o < best) best = o;
+    });
+    return best;
+  }
+  var orderedDepts = SALES_DEPTS.slice().sort(function(a, b){
+    return minSectionOrderForDept(a.id) - minSectionOrderForDept(b.id);
+  });
 
   return createPortal(
     <div className="fp-print-root" style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
@@ -377,7 +406,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
-            <FCell value={event.venue || ''} label="ADDRESS" />
+            <FCell value={addressValue} label="ADDRESS" />
             {subVenue && <FCell value={subVenue} label="SUB-VENUE" />}
             <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
@@ -410,19 +439,47 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 {Object.keys(menuDiffByDept || {}).length === 0 ? (
                   <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
                 ) : (
-                  SALES_DEPTS.map(function(d){
+                  orderedDepts.map(function(d){
                     var diff = menuDiffByDept && menuDiffByDept[d.id];
                     if (!diff) return null;
                     var meta = diff.kind ? DIFF_KIND_META[diff.kind] : null;
                     return (
                       <div key={d.id}>
-                        {meta && (
-                          <>
-                            <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                            {sortedByVeg(diff.added, dishSectionOrder).map(function(n){ return <Bullet key={'a' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
-                            {sortedByVeg(diff.removed, dishSectionOrder).map(function(n){ return <Bullet key={'r' + n} dot={false}><span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span></Bullet>; })}
-                          </>
-                        )}
+                        {meta && (function(){
+                          // Grouped by catalogue section, same as the no-package
+                          // branch below, instead of two flat +added/−removed
+                          // lists — a swap list of any real length used to read
+                          // as an unordered pile with no sense of where each
+                          // dish actually sits on the menu.
+                          var combined = []
+                            .concat((diff.added || []).map(function(n){ return { name: n, sign: '+' }; }))
+                            .concat((diff.removed || []).map(function(n){ return { name: n, sign: '-' }; }));
+                          var signByName = {};
+                          combined.forEach(function(x){ signByName[x.name] = x.sign; });
+                          var sortedNames = sortedByVeg(combined.map(function(x){ return x.name; }), dishSectionOrder);
+                          var lastSec;
+                          return (
+                            <>
+                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
+                              {sortedNames.map(function(n){
+                                var sec = (dishSectionName && dishSectionName[n]) || 'Extras';
+                                var isNewSection = sec !== lastSec;
+                                lastSec = sec;
+                                var sign = signByName[n];
+                                return (
+                                  <React.Fragment key={n}>
+                                    {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
+                                    <Bullet dot={false}>
+                                      {sign === '+'
+                                        ? <span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span>
+                                        : <span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span>}
+                                    </Bullet>
+                                  </React.Fragment>
+                                );
+                              })}
+                            </>
+                          );
+                        })()}
                         {/* A whole catalogue section added just for this event — never
                             part of the package, so it's its own block, not a "Swap"/
                             "Add-on" diff line: the kitchen needs to know a NEW SECTION
@@ -452,7 +509,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
               </div>
             ) : (
               <div>
-                {SALES_DEPTS.map(function(d){
+                {orderedDepts.map(function(d){
                   var names = (itemsByDept && itemsByDept[d.id]) || [];
                   if (names.length === 0) return null;
                   var sorted = sortedByVeg(names, dishSectionOrder);
