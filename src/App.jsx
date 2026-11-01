@@ -41,6 +41,7 @@ import { NotificationCenter, isKitchenRole } from './components/NotificationCent
 // Suspense fallbacks are wired at the two render call sites (tabletContent /
 // renderScreen) below.
 const KitchenHub          = React.lazy(() => import('./components/KitchenHub.jsx').then(m => ({ default: m.KitchenHub })));
+const FunctionPlansHub    = React.lazy(() => import('./components/FunctionPlansHub.jsx').then(m => ({ default: m.FunctionPlansHub })));
 const TeamHub             = React.lazy(() => import('./components/TeamHub.jsx').then(m => ({ default: m.TeamHub })));
 const TransportDispatch   = React.lazy(() => import('./components/TransportDispatch.jsx').then(m => ({ default: m.TransportDispatch })));
 const StoreModule         = React.lazy(() => import('./components/StoreModule.jsx').then(m => ({ default: m.StoreModule })));
@@ -76,6 +77,7 @@ function matchMenuPackage(rawName) {
 // can see them; this is just how one of them is drawn here.
 const NAV_ICON = {
   dashboard:"home",        kitchen:"chefHat",       store:"box",
+  function_plans:"fileText",
   team:"users",            menus:"fileText",        transport:"truck",
   dept_service:"plate",    dept_crockery:"cup",
   dept_beverages:"drink",  dept_fruits:"apple",     dept_odc:"tent",         proposals:"note",
@@ -1387,6 +1389,7 @@ export default function App() {
       case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
+      case "function_plans": return <FunctionPlansHub events={events} lang={lang} currentUser={currentUser}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}
                                        openFPEventId={pendingFpEventId} onOpenedFP={()=>setPendingFpEventId(null)}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
