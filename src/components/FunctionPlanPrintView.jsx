@@ -279,11 +279,22 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // (e.g. "EMERALD LAWN + GLASS HOUSE" at "Manaktala Farm") — not captured
   // anywhere else in this app, so it only ever shows up on the FP print.
   var subVenue = (lmsRaw && lmsRaw.address1 && lmsRaw.address1.trim()) || '';
+  // Session (Lunch/Dinner/Sundowner/...) — a venue contract's row names it
+  // fiscd_session, a catering contract's chcd_session; never both on the
+  // same row, so either lookup is safe.
+  var sessionLabel = (lmsRaw && (lmsRaw.fiscd_session || lmsRaw.chcd_session)) || '';
 
   var lmsPlate = getLmsPlateInfo(event);
   if (lmsPlate) {
     if (lmsPlate.comp != null) bullets.push('Complimentary plates: ' + lmsPlate.comp);
     if (lmsPlate.rateFull != null) bullets.push('Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate');
+  }
+  // Outdoor Catering functions carry their venue separately (events.odc_location
+  // / odc_address, set by lms-sync's transformCateringContract) since event.venue
+  // is just the literal "Outdoor Catering (ODC)" label for these — not the
+  // actual place the function is happening, which the kitchen/ops team needs.
+  if (event.odc_location || event.odc_address) {
+    bullets.push('Outdoor venue: ' + [event.odc_location, event.odc_address].filter(Boolean).join(' — '));
   }
   SALES_DEPTS.forEach(function(d){
     var deptDefs = DEPT_CONFIGS[d.id] || [];
@@ -361,7 +372,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           <FRow>
             <FCell value={prettyDate(event.date)} label="DATE" />
             <FCell value={dayNameFor(event.date)} label="DAY" />
-            <FCell value={functionTypeLabel} label="FUNCTION" last />
+            <FCell value={functionTypeLabel} label="FUNCTION" />
+            <FCell value={sessionLabel} label="SESSION" last />
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
