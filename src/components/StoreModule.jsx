@@ -474,6 +474,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
   const [reqIssueAllAsk, setReqIssueAllAsk] = useState(false); // in-app confirm for "issue all" in the station modal
+  const [opsSyncingStation, setOpsSyncingStation] = useState(null); // station name currently mid-sync to Ops, or null
   const [reqStation, setReqStation] = useState(null); // station id whose ingredient list is open in the Day Sheet modal
   const [issueQtyModal, setIssueQtyModal] = useState(null); // {row,agg,stock,isDiscrete,value} — custom/partial issue-quantity dialog
   const [transferRequests, setTransferRequests] = useState([]); // rows from store_transfer_requests
@@ -2173,6 +2174,71 @@ function StoreModule({events, lang="en", currentUser=null}) {
           for(const r of stPending) await quickIssue(r, openStation.name);
         }
 
+        // ── Sync to Ops: bundles whatever's been issued for THIS station/day
+        // and not yet sent, into one Store Requisition entry on the Ops side.
+        // Only the delta (unsynced store_issues rows) goes each time, so a
+        // second click after more issuing never re-sends — and never
+        // re-records — what a previous sync already covered.
+        const stSyncPlan = (function(){
+          const items = [], keys = [], skipped = [];
+          openStationRows.forEach(row=>{
+            const rowKeys = (row.evBreak||[]).filter(b=>b.sec===openStation.name).map(b=>b.evId+"::"+b.sec+"::"+row.name);
+            let unsyncedQty = 0; const usedKeys = [];
+            rowKeys.forEach(k=>{
+              const r = issueRecords[k];
+              if(r && +r.qty_issued>0 && !r.synced_to_ops){
+                unsyncedQty += convQty(+r.qty_issued, r.unit||row.unit, row.unit);
+                usedKeys.push(k);
+              }
+            });
+            if(unsyncedQty<=1e-9) return;
+            const {isMapped, stock} = resolveStock(row);
+            const invId = row._type==='inv' ? row.ops_inventory_id : (ingredientMap[row.name]?.ops_inventory_id);
+            if(!isMapped || !stock || !invId){ skipped.push(row.name); return; }
+            items.push({
+              ops_inventory_id: invId,
+              item_source: row._type==='inv' ? 'inventory' : 'catering_store',
+              item_name: row.name,
+              unit: stock.unit,
+              qty: Math.round(qtyToStoreUnits(unsyncedQty, row.unit, stock)*100)/100,
+            });
+            keys.push(...usedKeys);
+          });
+          return { items, keys, skipped };
+        })();
+        async function syncStationToOps(){
+          if(stSyncPlan.items.length===0) return;
+          setOpsSyncingStation(openStation.name);
+          setReqNote(null);
+          try {
+            const sync_ref = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
+            const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+            const { data, error } = await supabase.functions.invoke('store-requisition-sync', {
+              body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items: stSyncPlan.items },
+            });
+            if(error) throw error;
+            if(data && data.error) throw new Error(data.error+(data.missing?(': '+JSON.stringify(data.missing)):''));
+            const updates = stSyncPlan.keys.map(k=>{
+              const [evId, sec, ingName] = k.split("::");
+              return { event_id: evId, section_name: sec, ingredient_name: ingName, synced_to_ops: true, ops_sync_ref: sync_ref };
+            });
+            setIssueRecords(prev=>{
+              const n = {...prev};
+              updates.forEach(u=>{ const key=u.event_id+"::"+u.section_name+"::"+u.ingredient_name; n[key] = {...n[key], ...u}; });
+              return n;
+            });
+            const { error: upErr } = await supabase.from('store_issues').upsert(updates, {onConflict:'event_id,section_name,ingredient_name'});
+            if(upErr) console.error('[syncStationToOps] mark-synced failed:', upErr);
+            const skipNote = stSyncPlan.skipped.length ? (' ('+stSyncPlan.skipped.length+' '+T2('skipped — not linked to store')+': '+stSyncPlan.skipped.join(', ')+')') : '';
+            setReqNote({tone:'ok', text:T2('Synced')+' '+stSyncPlan.items.length+' '+T2('item(s) to Ops')+skipNote});
+          } catch(e){
+            console.error('[syncStationToOps]', e);
+            setReqNote({tone:'err', text:T2('Sync to Ops failed:')+' '+(e.message||e)});
+          } finally {
+            setOpsSyncingStation(null);
+          }
+        }
+
         return(
           <div>
             {/* Header — one warm card: title and the day picker on top, the
@@ -2328,6 +2394,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                     title={T2("Issue all from store")}
                                     style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stPending.length?"pointer":"not-allowed",
                                       background:"#FFFFFF",color:stPending.length?C.green:K.textFaint,border:`1.5px solid ${stPending.length?C.greenBorder:K.cardWarmLine}`}}>✓ {T2("All")}</button>}
+                                  {canIssueStock && <button onClick={syncStationToOps} disabled={stSyncPlan.items.length===0||opsSyncingStation===openStation.name}
+                                    title={T2("Send what's been issued here to Ops as a Store Requisition")}
+                                    style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,
+                                      cursor:(stSyncPlan.items.length&&opsSyncingStation!==openStation.name)?"pointer":"not-allowed",
+                                      background:"#FFFFFF",color:stSyncPlan.items.length?C.gold:K.textFaint,border:`1.5px solid ${stSyncPlan.items.length?C.goldBorder:K.cardWarmLine}`}}>
+                                    {opsSyncingStation===openStation.name?"⏳":"🔄"} {T2("Sync to Ops")}</button>}
                                 </div>
                               </th>
                             </tr>
@@ -2353,34 +2425,42 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               const available = myQty!=null ? myQty : (stock?stock.available:null);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>available;
                               const transferDonors = isMapped && stock ? otherVenueDonors(stock) : [];
+                              // STOCK is a physical-inventory concern, scoped to every station's
+                              // issuing against this ingredient today (sec omitted = whole row) —
+                              // it runs down live as issues are recorded, regardless of which
+                              // station's modal you're viewing. BALANCE is this ONE station's own
+                              // requirement bookkeeping (sec = openStation.name) and must never
+                              // switch to showing a stock figure — conflating the two was the bug:
+                              // once "done" it silently displayed stock-remaining in the column
+                              // labelled Balance instead of this station's own leftover requirement.
+                              const aggAll = rowIssueAgg(row);
                               const agg = rowIssueAgg(row, openStation.name);
                               const done = agg.remaining<=1e-9;
-                              // Once fully issued, Balance switches from "how much of the
-                              // requirement is covered" to "how much is left in stock after
-                              // pulling this" — issuedQty is in row.unit (recipe units), stock's
-                              // own figures are in store units, so convert before subtracting.
-                              const issuedSU = (isMapped && stock) ? qtyToStoreUnits(agg.issuedQty, row.unit, stock) : null;
-                              const stockLeftover = (done && issuedSU!=null && available!=null) ? available - issuedSU : null;
+                              const issuedAllSU = (isMapped && stock) ? qtyToStoreUnits(aggAll.issuedQty, row.unit, stock) : null;
+                              const liveStock = (issuedAllSU!=null && available!=null) ? available-issuedAllSU : null;
+                              const stockShown = liveStock!=null ? liveStock : available;
+                              const stockNegative = liveStock!=null && liveStock<-1e-9;
                               return(
                                 <tr key={row.name}>
                                   <td style={{padding:"10px 22px",fontWeight:600,color:K.hdrTitle,borderBottom:`1px solid ${K.lineSoft}`}}>{row.name}{row.hindi&&<span style={{display:"block",fontSize:11.5,fontWeight:400,color:K.hdrMeta}}>{row.hindi}</span>}</td>
                                   <td style={{padding:"10px 22px",textAlign:"right",fontWeight:700,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(cell.totalQty,cell.unit)}</td>
                                   <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
-                                    {!isMapped
+                                    {!isMapped || !stock
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : <span style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
-                                          background:short?K.dangerBg:"transparent",color:short?K.danger:K.textBody,border:`1px solid ${short?K.dangerBorder:"transparent"}`}}>{stock?fmtIssueQty(available,stock.unit):"—"}</span>}
+                                      : <span title={stockNegative?T2("Issued more than the stock on hand"):undefined}
+                                          style={{display:"inline-block",padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",
+                                          background:(short||stockNegative)?K.dangerBg:"transparent",color:(short||stockNegative)?K.danger:K.textBody,border:`1px solid ${(short||stockNegative)?K.dangerBorder:"transparent"}`}}>
+                                          {stockNegative?"−"+fmtIssueQty(Math.abs(stockShown),stock.unit):fmtIssueQty(stockShown,stock.unit)}
+                                        </span>}
                                   </td>
                                   <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     {agg.issuedQty<=1e-9
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : !done
-                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>
-                                      : stockLeftover==null
-                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : stockLeftover<-1e-9
-                                      ? <span title={T2("Issued more than the stock on hand")} style={{fontSize:11.5,fontWeight:700,color:K.danger}}>−{fmtIssueQty(Math.abs(stockLeftover),stock.unit)} {T2("short")}</span>
-                                      : <span title={T2("Left in stock after this issue")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>{fmtIssueQty(stockLeftover,stock.unit)}</span>}
+                                      : agg.surplus>1e-9
+                                      ? <span title={T2("Issued more than this station needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)} {T2("surplus")}</span>
+                                      : done
+                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.ok}}>✓ {T2("Fully issued")}</span>
+                                      : <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>}
                                   </td>
                                   <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
