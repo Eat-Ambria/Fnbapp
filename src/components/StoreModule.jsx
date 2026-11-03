@@ -1,5 +1,6 @@
 // Ambria FnB — Store & Inventory (reads live data from Ambria Ops Supabase)
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { C, OPS_IMG_BASE } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safeNum, TOMORROW, categorizeIngredientWithOverride, INGR_CATEGORY_ORDER, normIngName } from '../utils/helpers.js';
@@ -343,18 +344,47 @@ function DayPicker({ value, onChange, markDates, T2 }) {
   const pad = n => String(n).padStart(2, "0");
   const ymd = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
   const [open, setOpen] = useState(false);
+  // Portalled to document.body, positioned off the button's own rect — this
+  // calendar used to render as a plain position:absolute child of whichever
+  // wrapper happened to contain it, which broke inside any ancestor with
+  // overflow:hidden (every modal dialog in this file clips its content that
+  // way): the popup got silently clipped or, worse, ended up rendering
+  // against the WRONG ancestor's box once the surrounding layout changed
+  // (e.g. a modal opening on top of a page that already had a DayPicker
+  // open), making it look like it had "escaped" into the dimmed backdrop.
+  // A portal has no ancestor to clip it, so it always renders exactly
+  // where its own fixed coordinates say, regardless of what else is open.
+  const [pos, setPos] = useState(null);
   const base = value ? value.split("-").map(Number) : null;
   const [vy, setVy] = useState(base ? base[0] : new Date().getFullYear());
   const [vm, setVm] = useState(base ? base[1] - 1 : new Date().getMonth());
-  const wrapRef = React.useRef(null);
+  const btnRef = React.useRef(null);
+  const popRef = React.useRef(null);
   useEffect(() => {
     if (!open) return undefined;
     if (base) { setVy(base[0]); setVm(base[1] - 1); }
-    const onDoc = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const place = () => {
+      if (!btnRef.current) return;
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
+    };
+    place();
+    const onDoc = e => {
+      if (btnRef.current && btnRef.current.contains(e.target)) return;
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
     const onKey = e => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -369,13 +399,13 @@ function DayPicker({ value, onChange, markDates, T2 }) {
   const label = value ? (() => { const [y, m, d] = value.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); })() : T2("Pick a date");
   const navBtn = { width: 30, height: 30, borderRadius: 999, border: `1px solid ${K.cardWarmLine}`, background: "#FFFFFF", color: K.textBody, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1, padding: 0 };
   return (
-    <div ref={wrapRef} style={{ position: "relative", fontFamily: K.fontBody }}>
-      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="dialog" aria-expanded={open}
+    <div style={{ position: "relative", fontFamily: K.fontBody }}>
+      <button ref={btnRef} type="button" onClick={() => setOpen(o => !o)} aria-haspopup="dialog" aria-expanded={open}
         style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 14px", borderRadius: 999, border: `1px solid ${open ? K.brand : K.cardWarmLine}`, background: "#FFFFFF", color: K.hdrTitle, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
         <span style={{ fontSize: 14 }}>📅</span>{label}<span style={{ color: K.textFaint, fontSize: 10 }}>▾</span>
       </button>
-      {open && (
-        <div role="dialog" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 950, width: 296, padding: 14, borderRadius: 18,
+      {open && pos && createPortal(
+        <div ref={popRef} role="dialog" style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9500, width: 296, padding: 14, borderRadius: 18,
           background: K.cardWarm, border: `1px solid ${K.cardWarmLine}`, boxShadow: K.shadowLift }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <button type="button" onClick={() => step(-1)} aria-label={T2("Previous month")} style={navBtn}>‹</button>
@@ -412,7 +442,8 @@ function DayPicker({ value, onChange, markDates, T2 }) {
             <button type="button" onClick={() => { onChange(TODAY); setOpen(false); }}
               style={{ padding: "6px 14px", borderRadius: 999, border: "none", background: K.brand, color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{T2("Today")}</button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -438,6 +469,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [reqDay, setReqDay] = useState(TODAY); // Requirements tab's day picker — TODAY | TOMORROW
   const [orderBrowseOpen, setOrderBrowseOpen] = useState(false); // Order Lists tab: "All ingredients" browse-and-add modal
   const [orderBrowseDay, setOrderBrowseDay] = useState(TODAY); // its own day picker — independent of Requirements' reqDay
+  const [orderBrowseSearch, setOrderBrowseSearch] = useState(""); // quick filter for the Browse-ingredients-to-order modal's list
   const [orderListDayFilter, setOrderListDayFilter] = useState("all"); // Order Lists tab's own cards: "all" | a YYYY-MM-DD — which order_date to show (the list spans many days by nature, so default is unfiltered, unlike reqDay/orderBrowseDay which always pick one day)
   const [reqCatClosed, setReqCatClosed] = useState({}); // {[categoryKey]: true} — collapsed category groups in the Day Sheet table
   const [reqNote, setReqNote] = useState(null); // {tone:"ok"|"err", text} — result line in the station modal
@@ -923,22 +955,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
   }
   // Cumulative issued-vs-required for a row, summed across every event/
   // section that contributes to it (converted to the row's own unit —
-  // each store_issues record keeps the unit it was issued in).
-  function rowIssueAgg(row) {
+  // each store_issues record keeps the unit it was issued in). Pass `sec`
+  // (a station/kitchen-section name, e.g. "Chinese & Pan Asian") to scope
+  // both the requirement and the issued-so-far total to just that station's
+  // own contributing evBreak entries — store_issues already keys issuance
+  // per (event, section, ingredient), so this was always trackable per
+  // station; rowIssueAgg just never filtered down to it before, which made
+  // a station's own Issue modal/progress compare against the WHOLE day's
+  // requirement across every station instead of just this one's share.
+  function rowIssueAgg(row, sec) {
     let issuedQty = 0;
     (row.evBreak || []).forEach(b => {
+      if (sec != null && b.sec !== sec) return;
       const r = issueRecords[b.evId + "::" + b.sec + "::" + row.name];
       if (r && r.qty_issued) issuedQty += convQty(+r.qty_issued, r.unit || b.unit, row.unit);
     });
-    const required = row.total;
+    const cell = sec != null ? row.byCat[sec] : null;
+    const required = cell ? convQty(cell.totalQty, cell.unit, row.unit) : row.total;
     return { required, issuedQty, remaining: Math.max(0, required - issuedQty), surplus: Math.max(0, issuedQty - required) };
   }
   function roundSmart(n) { return Math.round((+n || 0) * 100) / 100; }
   // The one-click default: the exact remaining amount for a freely-divisible
   // unit, or the nearest whole pack (rounded UP, never short-changing the
   // kitchen) for a discrete one.
-  function suggestedIssueQty(row) {
-    const agg = rowIssueAgg(row);
+  function suggestedIssueQty(row, sec) {
+    const agg = rowIssueAgg(row, sec);
     const stock = stockForRow(row);
     let suggested = agg.remaining, isDiscrete = false, suggestedSU = null;
     if (stock) {
@@ -956,12 +997,20 @@ function StoreModule({events, lang="en", currentUser=null}) {
   // contributing event/section records in proportion to each one's own
   // share of the requirement (the common case — one event — gets the
   // whole amount). Additive: repeatable for partial issuing over time.
-  async function commitIssueQty(row, amountInRowUnit) {
+  // `sec` scopes both which evBreak entries receive the write and the share
+  // denominator to just that station — issuing against one station's need
+  // must never silently credit another station's outstanding requirement.
+  async function commitIssueQty(row, amountInRowUnit, sec) {
     if (!(amountInRowUnit > 0) || !row.evBreak || row.evBreak.length === 0) return;
+    const targets = sec != null ? row.evBreak.filter(b => b.sec === sec) : row.evBreak;
+    if (targets.length === 0) return;
+    const scopedTotal = sec != null
+      ? targets.reduce((sum, b) => sum + convQty(b.qty, b.unit, row.unit), 0)
+      : row.total;
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const now = new Date().toISOString();
-    const updates = row.evBreak.map(b => {
-      const share = row.total > 0 ? (convQty(b.qty, b.unit, row.unit) / row.total) : (1 / row.evBreak.length);
+    const updates = targets.map(b => {
+      const share = scopedTotal > 0 ? (convQty(b.qty, b.unit, row.unit) / scopedTotal) : (1 / targets.length);
       const addQty = amountInRowUnit * share;
       const addInBUnit = convQty(addQty, row.unit, b.unit);
       const existing = issueRecords[b.evId + "::" + b.sec + "::" + row.name];
@@ -983,22 +1032,25 @@ function StoreModule({events, lang="en", currentUser=null}) {
     const { error } = await supabase.from('store_issues').upsert(updates, { onConflict: 'event_id,section_name,ingredient_name' });
     if (error) console.error("Partial issue failed:", error);
   }
-  async function quickIssue(row) {
-    const { agg, suggested } = suggestedIssueQty(row);
+  async function quickIssue(row, sec) {
+    const { agg, suggested } = suggestedIssueQty(row, sec);
     if (agg.remaining <= 1e-9 || !(suggested > 0)) return;
-    await commitIssueQty(row, suggested);
+    await commitIssueQty(row, suggested, sec);
   }
-  function openIssueQty(row) {
-    const { agg, stock, isDiscrete, suggested, suggestedSU } = suggestedIssueQty(row);
+  function openIssueQty(row, sec) {
+    const { agg, stock, isDiscrete, suggested, suggestedSU } = suggestedIssueQty(row, sec);
     const shortfall = stock ? myShortfall(row, stock) : null;
-    // Discrete stock (Pieces/Packets/...) is counted and handed over in whole
-    // units, not weighed out in the recipe's own gram/kg terms — so the modal
-    // asks for a pack count directly, prefilled with the suggested whole-pack
-    // amount instead of a recipe-unit quantity nobody would actually measure.
-    const value = isDiscrete
-      ? (suggestedSU != null ? String(suggestedSU) : (agg.remaining > 1e-9 ? "1" : ""))
-      : (agg.remaining > 1e-9 ? String(roundSmart(suggested)) : "");
-    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value });
+    // The input always speaks the STOCK's own unit when the item is mapped
+    // (kg for a kg-tracked item, not the recipe's gram figure) — discrete
+    // stock (Pieces/Packets/...) prefilled with a whole-pack count, anything
+    // else prefilled with the stock-unit equivalent of the suggested amount.
+    var value = "";
+    if (agg.remaining > 1e-9) {
+      if (isDiscrete) value = suggestedSU != null ? String(suggestedSU) : "1";
+      else if (stock) value = String(roundSmart(qtyToStoreUnits(suggested, row.unit, stock)));
+      else value = String(roundSmart(suggested));
+    }
+    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value, sec });
   }
 
   /* ── Cross-venue transfer requests ─────────────────────────────────────
@@ -1130,7 +1182,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null, myQty:null};
     return {isMapped:true, stock, requiredSU: qtyToStoreUnits(row.total, row.unit, stock), myQty: myVenueQty(stock)};
   }
-  function rowIssued(row){ return rowIssueAgg(row).remaining<=1e-9; }
+  function rowIssued(row, sec){ return rowIssueAgg(row, sec).remaining<=1e-9; }
 
   /* ── Day Sheet row-building — one event's menu -> per-ingredient totals,
      broken down by kitchen section/station. Shared by Requirements (issuing,
@@ -2115,10 +2167,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
         })();
         const stationTableColSpan = 3 + 1 + 1; // Ingredient/Needed/Stock + Balance + Actions
         const canIssueStock = hasPerm(currentUser,"store.smart_issue");
-        const stPending = openStationRows.filter(r=>!rowIssued(r));
+        const stPending = openStationRows.filter(r=>!rowIssued(r, openStation.name));
         async function issueAllStation(){
           setReqIssueAllAsk(false);
-          for(const r of stPending) await quickIssue(r);
+          for(const r of stPending) await quickIssue(r, openStation.name);
         }
 
         return(
@@ -2301,7 +2353,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               const available = myQty!=null ? myQty : (stock?stock.available:null);
                               const short = isMapped && stock && requiredSU!=null && requiredSU>available;
                               const transferDonors = isMapped && stock ? otherVenueDonors(stock) : [];
-                              const agg = rowIssueAgg(row);
+                              const agg = rowIssueAgg(row, openStation.name);
                               const done = agg.remaining<=1e-9;
                               // Once fully issued, Balance switches from "how much of the
                               // requirement is covered" to "how much is left in stock after
@@ -2333,12 +2385,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                   <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                                       {done ? (
-                                        <button onClick={()=>openIssueQty(row)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</button>
+                                        <button onClick={()=>openIssueQty(row, openStation.name)} title={T2("Issued — tap to issue more")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.green,color:"#fff",border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>✓</button>
                                       ) : (
                                         // A single action, always through the quantity modal — no more
                                         // instant one-tap issue with no confirmation. quickIssue() itself
                                         // stays (issueAllStation's bulk "Issue All" still uses it directly).
-                                        canIssueStock && <button onClick={()=>openIssueQty(row)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
+                                        canIssueStock && <button onClick={()=>openIssueQty(row, openStation.name)} title={T2("Issue from store")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.green,border:`1.5px solid ${C.greenBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>✓</button>
                                       )}
                                       {canIssueStock && transferDonors.length>0 && (
                                         <button onClick={()=>openStoreRequest(row,stock)} title={T2("Request from another venue")} style={{width:30,height:30,borderRadius:9,cursor:"pointer",background:C.surface,color:C.gold,border:`1.5px solid ${C.goldBorder}`,flexShrink:0,fontSize:13,lineHeight:1}}>🚚</button>
@@ -2523,6 +2575,10 @@ function StoreModule({events, lang="en", currentUser=null}) {
               const obTodayFnCount = safeEvs.filter(e=>e.date===TODAY).length;
               const obTmrwFnCount = safeEvs.filter(e=>e.date===TOMORROW).length;
               const obColSpan = 2 + 2 + 1;
+              const obQuery = orderBrowseSearch.trim().toLowerCase();
+              const obGroupsFiltered = obQuery
+                ? obGroups.map(g=>({...g, rows:g.rows.filter(r=>r.name.toLowerCase().includes(obQuery) || (r.hindi||"").toLowerCase().includes(obQuery))})).filter(g=>g.rows.length>0)
+                : obGroups;
               return(
               <div onClick={()=>setOrderBrowseOpen(false)} role="presentation"
                 style={{position:"fixed",inset:0,zIndex:900,background:"rgba(20,28,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -2561,10 +2617,28 @@ function StoreModule({events, lang="en", currentUser=null}) {
                   <button onClick={()=>setOrderBrowseOpen(false)} aria-label={T2("Close")}
                     style={{width:34,height:34,borderRadius:999,border:`1px solid ${K.cardWarmLine}`,background:"#FFFFFF",color:K.textMuted,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>
                 </div>
+                {obEvs.length>0 && obRows.length>0 && (
+                  <div style={{padding:"12px 22px",borderBottom:`1px solid ${K.cardWarmLine}`}}>
+                    <div style={{position:"relative",maxWidth:320}}>
+                      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:13,color:K.textFaint,pointerEvents:"none"}}>🔎</span>
+                      <input type="text" value={orderBrowseSearch} onChange={e=>setOrderBrowseSearch(e.target.value)}
+                        placeholder={T2("Search ingredients…")}
+                        style={{width:"100%",padding:"8px 12px 8px 32px",borderRadius:999,border:`1px solid ${K.cardWarmLine}`,fontSize:12.5,
+                          color:K.textBody,background:"#FFFFFF",boxSizing:"border-box"}}/>
+                      {orderBrowseSearch&&(
+                        <button onClick={()=>setOrderBrowseSearch("")} aria-label={T2("Clear search")}
+                          style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",width:20,height:20,borderRadius:999,
+                            border:"none",background:K.cardWarmLine,color:K.textMuted,cursor:"pointer",fontSize:12,lineHeight:1,padding:0}}>×</button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {obEvs.length===0 ? (
                   <div style={{padding:"40px 22px",textAlign:"center",color:K.hdrMeta,fontSize:13}}>{T2("No functions scheduled — nothing to order yet.")}</div>
                 ) : obRows.length===0 ? (
                   <div style={{padding:"40px 22px",textAlign:"center",color:K.hdrMeta,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>
+                ) : obGroupsFiltered.length===0 ? (
+                  <div style={{padding:"40px 22px",textAlign:"center",color:K.hdrMeta,fontSize:13}}>{T2("No ingredients match")} "{orderBrowseSearch}"</div>
                 ) : (
                 <div style={{flex:1,minHeight:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   <div style={{overflow:"auto",flex:1,minHeight:0}}>
@@ -2579,7 +2653,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         </tr>
                       </thead>
                       <tbody>
-                        {obGroups.map(group=>{
+                        {obGroupsFiltered.map(group=>{
                           const closed = !!reqCatClosed[group.meta.key];
                           return (
                           <React.Fragment key={group.meta.key}>
@@ -3264,13 +3338,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {/* ── Custom / partial issue-quantity modal — opened by the ± button
           next to Issue, or by tapping an already-issued ✓ to issue more. ── */}
       {issueQtyModal&&(()=>{
-        const { row, agg, stock, shortfall, isDiscrete } = issueQtyModal;
+        const { row, agg, stock, shortfall, isDiscrete, sec } = issueQtyModal;
         const val = parseFloat(issueQtyModal.value);
         const valid = !isNaN(val) && val>0;
-        // Discrete stock (Pieces/Packets/...) is entered as a pack COUNT, in
-        // stock.unit — convert to row.unit before touching any required/
-        // remaining/surplus math or commitIssueQty, which all speak row.unit.
-        const valInRowUnit = (valid && isDiscrete && stock) ? storeUnitsToQty(val, stock, row.unit) : val;
+        // The input is always entered in the STOCK's own unit when the item
+        // is mapped (kg for a kg-tracked item, not whatever gram figure the
+        // recipe happens to use) — convert to row.unit before touching any
+        // required/remaining/surplus math or commitIssueQty, which all speak
+        // row.unit.
+        const valInRowUnit = (valid && stock) ? storeUnitsToQty(val, stock, row.unit) : val;
         const newIssued = agg.issuedQty + (valid?valInRowUnit:0);
         const newRemaining = Math.max(0, agg.required-newIssued);
         const newSurplus = Math.max(0, newIssued-agg.required);
@@ -3285,15 +3361,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
               </div>
             </div>
             <div style={{padding:"18px"}}>
-              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({isDiscrete&&stock?stock.unit:row.unit})</div>
+              <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({stock?stock.unit:row.unit})</div>
               <input type="number" step={isDiscrete?"1":"any"} min="0" autoFocus value={issueQtyModal.value}
                 onChange={e=>setIssueQtyModal(p=>({...p,value:e.target.value}))}
                 style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
               {stock && valid && (
                 <div style={{fontSize:11,color:C.faint,marginTop:8}}>
-                  {isDiscrete
-                    ? <>≈ {fmtIssueQty(valInRowUnit,row.unit)} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}</>
-                    : <>≈ {Math.round(qtyToStoreUnits(val,row.unit,stock)*100)/100} {stock.unit} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}</>}
+                  ≈ {fmtIssueQty(valInRowUnit,row.unit)} {T2("from store stock of")} {fmtIssueQty(stock.available,stock.unit)}
                 </div>
               )}
               {valid && newSurplus>1e-9 && (
@@ -3328,7 +3402,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
               <button onClick={()=>setIssueQtyModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,valInRowUnit); setIssueQtyModal(null); }}
+              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,valInRowUnit,sec); setIssueQtyModal(null); }}
                 style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>✓ {T2("Confirm issue")}</button>
             </div>
           </div>
