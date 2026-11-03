@@ -153,6 +153,27 @@ export async function toggleFocItem(config, dishItems, dishName, onOptimistic) {
   }
 }
 
+// Re-fetches the parent row's CURRENT menu_section_overrides immediately
+// before writing and applies `mutate` to THAT instead of the caller's
+// (possibly stale) local snapshot. These three ops each do a read-modify-
+// write of the WHOLE overrides blob from whatever `sectionOverrides` the
+// caller happened to be holding — two people tagging different dishes
+// within a few seconds of each other silently reverted one of them, since
+// the second write's base never saw the first tab's change. This doesn't
+// fully close the race (a true fix needs a DB-side transaction/RPC), but it
+// narrows the window from "however long this tab's been open" down to the
+// single round trip between this fetch and the write. If the fetch itself
+// fails, throw and let the caller's existing swallow-and-log policy handle
+// it — falling back to an empty object here would wipe every OTHER dish's
+// override on the next write, a strictly worse outcome than today's rare
+// overwrite-the-other-tab's-change race.
+async function mergeOverridesForWrite(config, mutate) {
+  var cur = await supabase.from(config.parentTable).select('menu_section_overrides').eq('id', config.parentIdValue).single();
+  if (cur.error) throw cur.error;
+  var base = (cur.data && cur.data.menu_section_overrides) ? cur.data.menu_section_overrides : {};
+  return mutate({ ...base });
+}
+
 // onOptimistic called immediately (sync); write failure swallowed +
 // console.error'd, never throws — matches existing fire-and-forget behavior
 // in both files (the chef/sales person sees the tag applied either way;
@@ -163,7 +184,11 @@ export async function saveSectionOverride(config, sectionOverrides, dishName, se
   if (sectionId) next[dishName] = sectionId; else delete next[dishName];
   onOptimistic(next);
   try {
-    var res = await supabase.from(config.parentTable).update({ menu_section_overrides: next }).eq('id', config.parentIdValue);
+    var toWrite = await mergeOverridesForWrite(config, function(fresh){
+      if (sectionId) fresh[dishName] = sectionId; else delete fresh[dishName];
+      return fresh;
+    });
+    var res = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);
     if (res.error) throw res.error;
   } catch (e) {
     console.error('[menuItemOps] saveSectionOverride failed:', e);
@@ -187,8 +212,16 @@ export async function addSectionFromLibrary(config, sectionOverrides, catSection
   var next = { ...sectionOverrides };
   names.forEach(function(n){ next[n] = targetId; });
   onOptimistic(next);
-  var updRes = await supabase.from(config.parentTable).update({ menu_section_overrides: next }).eq('id', config.parentIdValue);
-  if (updRes.error) console.error('[menuItemOps] saveSectionOverride (bulk) failed:', updRes.error);
+  try {
+    var toWrite = await mergeOverridesForWrite(config, function(fresh){
+      names.forEach(function(n){ fresh[n] = targetId; });
+      return fresh;
+    });
+    var updRes = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);
+    if (updRes.error) throw updRes.error;
+  } catch (e) {
+    console.error('[menuItemOps] saveSectionOverride (bulk) failed:', e);
+  }
 }
 
 // OPTIMISTIC bulk delete of every item row matching one of `dishNames` in a
@@ -218,6 +251,14 @@ export async function removeAdHocSection(config, sectionOverrides, grp, onOptimi
   Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
   if (!changed) return;
   onOptimistic(next);
-  var res = await supabase.from(config.parentTable).update({ menu_section_overrides: next }).eq('id', config.parentIdValue);
-  if (res.error) console.error('[menuItemOps] removeAdHocSection failed:', res.error);
+  try {
+    var toWrite = await mergeOverridesForWrite(config, function(fresh){
+      Object.keys(fresh).forEach(function(name){ if (ids.indexOf(fresh[name]) >= 0) delete fresh[name]; });
+      return fresh;
+    });
+    var res = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);
+    if (res.error) throw res.error;
+  } catch (e) {
+    console.error('[menuItemOps] removeAdHocSection failed:', e);
+  }
 }

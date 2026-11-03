@@ -204,7 +204,11 @@ export async function syncAllKitchenMenuMirrors(events) {
 
   try {
     const [itemRows, sectionsRes, metaRes] = await Promise.all([
-      fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids)),
+      // Same ordering requirement getEventItemsByDept's comment above explains
+      // in full: kitchen_tracking keys a dish by array INDEX into events.menu,
+      // so an unordered result here can silently reassign one dish's recorded
+      // progress to a different dish the next time this batch mirror-sync runs.
+      fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids).order('ordering', { ascending: true })),
       supabase.from('dish_catalogue_sections').select('id, sales_dept, parent_section_id'),
       supabase.from('sales_items_meta').select('dish_name, sales_dept'),
     ]);

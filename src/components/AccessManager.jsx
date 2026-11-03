@@ -458,15 +458,25 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const getSID = s => s.staffListId||s.staff_id||s.id;
 
   // ── Bulk actions ──
+  // Each syncToServer call here was fire-and-forget with no .catch of its
+  // own, so a failed write in the middle of a bulk action was completely
+  // silent — the local list still showed every row as changed, Access
+  // Manager closed out normally, and nothing ever told the admin that row
+  // never actually reached Supabase. Collecting failures and reporting a
+  // single summary alert (same pattern backfillHindiNames already uses)
+  // surfaces that without spamming one alert per failed row.
   function bulkRemoveAccess() {
     if (!window.confirm('Remove access for ' + selected.size + ' staff?')) return;
     setEmpDb(prev => prev.map(s =>
       selected.has(getSID(s)) ? {...s, role:'staff', custom_screens:null, permissions:null} : s
     ));
-    selected.forEach(id => {
+    const failed = [];
+    const ids = [...selected];
+    Promise.allSettled(ids.map(id => {
       const s = safeArr(empDb).find(x => getSID(x) === id);
-      if (s && syncToServer) syncToServer('upsert', {...s, role:'staff', custom_screens:null, permissions:null});
-    });
+      if (!s || !syncToServer) return Promise.resolve();
+      return syncToServer('upsert', {...s, role:'staff', custom_screens:null, permissions:null}).catch(e => { failed.push(id); console.error('[bulkRemoveAccess]', id, e); });
+    })).then(() => { if (failed.length) alert('Failed to save for ' + failed.length + ' of ' + ids.length + ' staff — try again for: ' + failed.join(', ')); });
     setSelected(new Set());
   }
   function bulkDeactivate() {
@@ -474,10 +484,13 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     setEmpDb(prev => prev.map(s =>
       selected.has(getSID(s)) ? {...s, is_active:false} : s
     ));
-    selected.forEach(id => {
+    const failed = [];
+    const ids = [...selected];
+    Promise.allSettled(ids.map(id => {
       const s = safeArr(empDb).find(x => getSID(x) === id);
-      if (s && syncToServer) syncToServer('upsert', {...s, is_active:false});
-    });
+      if (!s || !syncToServer) return Promise.resolve();
+      return syncToServer('upsert', {...s, is_active:false}).catch(e => { failed.push(id); console.error('[bulkDeactivate]', id, e); });
+    })).then(() => { if (failed.length) alert('Failed to save for ' + failed.length + ' of ' + ids.length + ' staff — try again for: ' + failed.join(', ')); });
     setSelected(new Set());
   }
   function exportCSV() {
@@ -509,7 +522,11 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
     if (!window.confirm('PERMANENTLY DELETE ' + selected.size + ' staff?')) return;
     const ids = [...selected];
     setEmpDb(prev => prev.filter(s => !selected.has(getSID(s))));
-    ids.forEach(id => { if (syncToServer) syncToServer('delete', {staff_id:id}); });
+    const failed = [];
+    Promise.allSettled(ids.map(id => {
+      if (!syncToServer) return Promise.resolve();
+      return syncToServer('delete', {staff_id:id}).catch(e => { failed.push(id); console.error('[bulkDelete]', id, e); });
+    })).then(() => { if (failed.length) alert('Failed to delete ' + failed.length + ' of ' + ids.length + ' staff — try again for: ' + failed.join(', ')); });
     setSelected(new Set());
   }
 
@@ -581,7 +598,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
       const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
-      if(syncToServer) syncToServer('upsert', entry);
+      if(syncToServer) syncToServer('upsert', entry).catch(e=>{console.error('[saveStaff]',e);alert('Failed to save staff change: '+(e.message||e));});
       logActivity('system', 'Staff updated: '+form.name+' ('+editId+')', 'staff_edit', {staff_id:editId, name:form.name, role:form.role}, currentUser?.id);
     } else {
       const sid = form.staff_id.toUpperCase();
@@ -589,7 +606,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
       const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
-      if(syncToServer) syncToServer('upsert', newStaff);
+      if(syncToServer) syncToServer('upsert', newStaff).catch(e=>{console.error('[addStaff]',e);alert('Failed to save new staff: '+(e.message||e));});
       logActivity('system', 'Staff added: '+form.name+' ('+sid+')', 'staff_add', {staff_id:sid, name:form.name, role:form.role, dept:form.dept}, currentUser?.id);
     }
     setShowAdd(false); setEditId(null);
@@ -597,14 +614,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   function deleteStaff(id){
     const target = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===id);
     setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==id));
-    if(syncToServer) syncToServer('delete', {staff_id:id, staffListId:id});
+    if(syncToServer) syncToServer('delete', {staff_id:id, staffListId:id}).catch(e=>{console.error('[deleteStaff]',e);alert('Failed to delete staff: '+(e.message||e));});
     logActivity('system', 'Staff deleted: '+(target?.name||id)+' ('+id+')', 'staff_delete', {staff_id:id, name:target?.name||''}, currentUser?.id);
     setDelId(null);
   }
   function toggleActive(id){
     const target = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===id);
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===id?{...s,is_active:!s.is_active}:s));
-    if(syncToServer && target) syncToServer('upsert', {...target, is_active:!target.is_active});
+    if(syncToServer && target) syncToServer('upsert', {...target, is_active:!target.is_active}).catch(e=>{console.error('[toggleActive]',e);alert('Failed to save: '+(e.message||e));});
   }
 
   // ── Permission functions ──
@@ -615,7 +632,7 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   function savePerms() {
     const sid = permStaff.staffListId||permStaff.staff_id||permStaff.id;
     setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===sid?{...s,permissions:editPerms}:s));
-    if(syncToServer) syncToServer('upsert', {...permStaff, permissions:editPerms});
+    if(syncToServer) syncToServer('upsert', {...permStaff, permissions:editPerms}).catch(e=>{console.error('[savePerms]',e);alert('Failed to save permissions: '+(e.message||e));});
     setPermStaff(null);
   }
   function handleCopyFrom(fromId) {

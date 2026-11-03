@@ -851,7 +851,18 @@ export default function App() {
       // already know about for this exact key (ours or another device's) is
       // dropped outright, so a stale value can never resurrect itself no
       // matter how delayed or reordered its delivery is.
-      if(payload.new){const {ev_id,dish_key,data,client_id,client_write_ts}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;const tsKey=ktTsKey(ev_id,dish_key);const knownTs=ktTsRef.current[tsKey]||0;const incomingTs=Number(client_write_ts)||0;if(incomingTs&&incomingTs<=knownTs)return;ktTsRef.current[tsKey]=Math.max(knownTs,incomingTs);setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      // Supabase always sets payload.new to {} (truthy) on a DELETE, not
+      // undefined — so this branch must explicitly exclude DELETE too, or it
+      // fires alongside the DELETE branch below and writes a stray
+      // kitchenTracking[undefined][undefined] entry every time a row is removed.
+      if(payload.eventType!=='DELETE'&&payload.new){const {ev_id,dish_key,data,client_id,client_write_ts}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;const tsKey=ktTsKey(ev_id,dish_key);const knownTs=ktTsRef.current[tsKey]||0;const incomingTs=Number(client_write_ts)||0;if(incomingTs&&incomingTs<=knownTs)return;ktTsRef.current[tsKey]=Math.max(knownTs,incomingTs);setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      // (ev_id, dish_key) is this table's actual primary key (no surrogate id
+      // column), so a DELETE's payload.old reliably carries both — without
+      // this, a row removed server-side (manual dashboard cleanup has
+      // happened before, see KT_RESERVED_KEYS above) left every already-open
+      // tablet showing that dish/step ticked forever, surviving even a reload
+      // since the boot-time merge only ever adds/overwrites keys, never drops one.
+      if(payload.eventType==='DELETE'&&payload.old){const {ev_id,dish_key}=payload.old;if(!ev_id||!dish_key)return;setKitchenTracking(p=>{if(!p[ev_id]||!(dish_key in p[ev_id]))return p;const evState={...p[ev_id]};delete evState[dish_key];return {...p,[ev_id]:evState};});}
     });
     const u7 = dbSubscribe('transport_queue', (payload) => {
       const nq=payload.new?{id:payload.new.id,dish:payload.new.dish_name,evId:payload.new.ev_id||null,sec:payload.new.sec||null,station:payload.new.station||null,qty:payload.new.qty??null,unit:payload.new.unit||null,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined,fromVenue:payload.new.from_venue||"",vehicleId:payload.new.vehicle_id||""}:null;
@@ -931,6 +942,14 @@ export default function App() {
       venue: data.venue||null,
       sop_categories: data.sop_categories||null,
     };
+    // dbUpsert/dbDelete already console.error + throw on a non-retryable
+    // failure (lib/db.js) — this function must keep passing that rejection
+    // straight through, unaltered: App.jsx's own savePinReset awaits this
+    // call inside its own try/catch to roll back an optimistic PIN update on
+    // failure, and swallowing the error here (as an earlier version of this
+    // fix did) silently broke that rollback. The real gap — AccessManager.jsx
+    // /TeamHub.jsx's 9 fire-and-forget call sites with no .catch of their
+    // own — is fixed at each of those call sites instead, not here.
     if(action==='upsert') await dbUpsert('staff', record, 'staff_id');
     if(action==='delete') await dbDelete('staff', 'staff_id', record.staff_id);
   }

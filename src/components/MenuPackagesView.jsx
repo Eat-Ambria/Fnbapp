@@ -1215,9 +1215,18 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSaving(true);
     try {
       var newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+      // A plain insert, not an upsert — the client-side MENU_PACKAGES[name]
+      // check above can be stale if another admin just created the same name;
+      // an upsert with onConflict:'name' would then silently reassign that
+      // EXISTING package's id to this freshly generated one, orphaning
+      // anything that referenced the old id. A genuine name collision should
+      // fail loudly here, not clobber the other package's identity.
       var res = await supabase.from('menu_packages')
-        .upsert({ id: newId, name: name, dishes: [], sections: [], is_active: true }, { onConflict: 'name' });
-      if (res.error) throw res.error;
+        .insert({ id: newId, name: name, dishes: [], sections: [], is_active: true });
+      if (res.error) {
+        if (res.error.code === '23505') { alert('A package named "' + name + '" already exists.'); return; }
+        throw res.error;
+      }
       setPackageSections(name, [], []);
       clearMenuPackageCaches();
       await refreshMenuPackages();
@@ -1245,9 +1254,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setSaving(true);
     try {
       var newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+      // Plain insert, same reasoning as createPackage above — a stale
+      // name-collision check must fail loudly on a genuine conflict, not
+      // silently reassign an existing package's id via upsert's onConflict.
       var res = await supabase.from('menu_packages')
-        .upsert({ id: newId, name: name, dishes: flatDishes, sections: serialized, is_active: true }, { onConflict: 'name' });
-      if (res.error) throw res.error;
+        .insert({ id: newId, name: name, dishes: flatDishes, sections: serialized, is_active: true });
+      if (res.error) {
+        if (res.error.code === '23505') { alert('A package named "' + name + '" already exists.'); return; }
+        throw res.error;
+      }
       setPackageSections(name, serialized, flatDishes);
       clearMenuPackageCaches();
       await refreshMenuPackages();

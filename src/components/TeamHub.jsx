@@ -108,7 +108,7 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
     const record = {...newEmpForm, dept:dept, id:newId, staff_id:newId, staffListId:newId, is_active:true, active:true};
     if (photo_url) record.photo_url = photo_url;
     setEmpDb(p=>[...p,record]);
-    if(syncToServer) syncToServer('upsert',record);
+    if(syncToServer) syncToServer('upsert',record).catch(e=>{console.error('[addEmployee]',e);alert('Failed to save new staff: '+(e.message||e));});
     setNewEmpForm({name:"",name_hi:"",section:"",section_hi:"",role:"staff",pin:"0000",joining:TODAY,active:true});
     setAddPhotoFile(null);
     setAddPhotoPreview(null);
@@ -143,9 +143,9 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
           var eid = e.staff_id || e.staffListId || e.id;
           return eid === sid ? {...e, ...patch} : e;
         }); });
-        if (syncToServer) syncToServer('upsert', {...s, ...patch});
+        if (syncToServer) await syncToServer('upsert', {...s, ...patch});
         ok++;
-      } catch(e) { fail++; }
+      } catch(e) { console.error('[backfillHindiNames]', sid, e); fail++; }
     }
     setHiBackfillState('idle');
     alert('✅ Backfilled Hindi names for ' + ok + ' staff.' + (fail>0 ? ' Failed: '+fail : ''));
@@ -166,14 +166,14 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
       var eid = e.id||e.staff_id||e.staffListId;
       return eid===sid?{...e,...patch}:e;
     }));
-    if(syncToServer) syncToServer('upsert',updated);
+    if(syncToServer) syncToServer('upsert',updated).catch(e=>{console.error('[saveEmpEdit]',e);alert('Failed to save staff change: '+(e.message||e));});
     setSelEmp(null);setEditEmpForm(null);setEditPhotoFile(null);setEditPhotoPreview(null);
   }
   function deleteEmployee(){
     if(!deleteConfirm) return;
     var did = deleteConfirm.id||deleteConfirm.staff_id||deleteConfirm.staffListId;
     setEmpDb(p=>p.filter(e=>(e.id||e.staff_id||e.staffListId)!==did));
-    if(syncToServer) syncToServer('delete',deleteConfirm);
+    if(syncToServer) syncToServer('delete',deleteConfirm).catch(e=>{console.error('[deleteEmployee]',e);alert('Failed to delete staff: '+(e.message||e));});
     setDeleteConfirm(null);
   }
 

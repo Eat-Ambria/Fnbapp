@@ -2210,33 +2210,49 @@ function StoreModule({events, lang="en", currentUser=null}) {
           if(stSyncPlan.items.length===0) return;
           setOpsSyncingStation(openStation.name);
           setReqNote(null);
+          const sync_ref = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
+          const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
+          // Step 1: send to Ops. Nothing local changes yet — if this fails,
+          // nothing was recorded on either side, so it's safe to just retry.
           try {
-            const sync_ref = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
-            const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
             const { data, error } = await supabase.functions.invoke('store-requisition-sync', {
               body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items: stSyncPlan.items },
             });
             if(error) throw error;
             if(data && data.error) throw new Error(data.error+(data.missing?(': '+JSON.stringify(data.missing)):''));
-            const updates = stSyncPlan.keys.map(k=>{
-              const [evId, sec, ingName] = k.split("::");
-              return { event_id: evId, section_name: sec, ingredient_name: ingName, synced_to_ops: true, ops_sync_ref: sync_ref };
-            });
-            setIssueRecords(prev=>{
-              const n = {...prev};
-              updates.forEach(u=>{ const key=u.event_id+"::"+u.section_name+"::"+u.ingredient_name; n[key] = {...n[key], ...u}; });
-              return n;
-            });
-            const { error: upErr } = await supabase.from('store_issues').upsert(updates, {onConflict:'event_id,section_name,ingredient_name'});
-            if(upErr) console.error('[syncStationToOps] mark-synced failed:', upErr);
-            const skipNote = stSyncPlan.skipped.length ? (' ('+stSyncPlan.skipped.length+' '+T2('skipped — not linked to store')+': '+stSyncPlan.skipped.join(', ')+')') : '';
-            setReqNote({tone:'ok', text:T2('Synced')+' '+stSyncPlan.items.length+' '+T2('item(s) to Ops')+skipNote});
           } catch(e){
-            console.error('[syncStationToOps]', e);
+            console.error('[syncStationToOps] ops call failed:', e);
             setReqNote({tone:'err', text:T2('Sync to Ops failed:')+' '+(e.message||e)});
-          } finally {
             setOpsSyncingStation(null);
+            return;
           }
+          // Step 2: Ops has confirmed receipt — now persist the synced flag.
+          // This must never be marked locally before this point: doing so
+          // optimistically (and unconditionally showing "Synced") meant a
+          // failure here was invisible, and the next click would re-send the
+          // exact same items as a second, duplicate Ops requisition. If THIS
+          // step fails, Ops already has the data but our own bookkeeping
+          // doesn't know it — surface that loudly instead of a plain success,
+          // since the usual "just retry" advice would create that duplicate.
+          const updates = stSyncPlan.keys.map(k=>{
+            const [evId, sec, ingName] = k.split("::");
+            return { event_id: evId, section_name: sec, ingredient_name: ingName, synced_to_ops: true, ops_sync_ref: sync_ref };
+          });
+          const { error: upErr } = await supabase.from('store_issues').upsert(updates, {onConflict:'event_id,section_name,ingredient_name'});
+          if(upErr){
+            console.error('[syncStationToOps] mark-synced failed:', upErr);
+            setReqNote({tone:'err', text:T2('Sent to Ops, but failed to record that locally — do NOT sync this station again, tell admin. Error:')+' '+upErr.message});
+            setOpsSyncingStation(null);
+            return;
+          }
+          setIssueRecords(prev=>{
+            const n = {...prev};
+            updates.forEach(u=>{ const key=u.event_id+"::"+u.section_name+"::"+u.ingredient_name; n[key] = {...n[key], ...u}; });
+            return n;
+          });
+          const skipNote = stSyncPlan.skipped.length ? (' ('+stSyncPlan.skipped.length+' '+T2('skipped — not linked to store')+': '+stSyncPlan.skipped.join(', ')+')') : '';
+          setReqNote({tone:'ok', text:T2('Synced')+' '+stSyncPlan.items.length+' '+T2('item(s) to Ops')+skipNote});
+          setOpsSyncingStation(null);
         }
 
         return(
