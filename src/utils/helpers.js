@@ -356,6 +356,62 @@ function mergeDishState(prev, upd) {
   return next;
 }
 
+// Builds the smallest patch that turns `prev` into `next`, for sending to
+// kt_set_paths (the server-side per-path kitchen_tracking writer, see
+// App.jsx's sync effect). This used to not exist at all: the sync effect
+// sent the WHOLE next value on every write, which meant a tap on step 3
+// re-asserted this tablet's entire local manual/starts maps — including a
+// stale `false` left over from an earlier undo of step 2 — with a brand-new
+// timestamp, silently reverting a genuine redo another tablet had made to
+// step 2 in between. Only sending what actually changed removes the
+// possibility of re-asserting a value this action never meant to touch.
+// A non-object `next` (the __dispatch_ready/__dispatch_time meta rows,
+// which hold a plain boolean/string, not a dish-state object) can't be
+// diffed key-by-key — it's wrapped as a __whole replacement instead, which
+// kt_set_paths recognizes and applies as a straight value swap.
+function diffDishState(prev, next) {
+  const isPlain = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (!isPlain(next)) return { __whole: next };
+  const base = isPlain(prev) ? prev : {};
+  const patch = {};
+  Object.keys(next).forEach(function (k) {
+    const nv = next[k];
+    if (DISH_STEP_MAPS.indexOf(k) >= 0 && isPlain(nv)) {
+      const bv = isPlain(base[k]) ? base[k] : {};
+      const subPatch = {};
+      let changed = false;
+      Object.keys(nv).forEach(function (sk) {
+        if (JSON.stringify(nv[sk]) !== JSON.stringify(bv[sk])) { subPatch[sk] = nv[sk]; changed = true; }
+      });
+      if (changed) patch[k] = subPatch;
+    } else if (JSON.stringify(nv) !== JSON.stringify(base[k])) {
+      patch[k] = nv;
+    }
+  });
+  return patch;
+}
+
+// Lists the exact dotted "key_ts path" string(s) a diffDishState patch
+// touches — e.g. {manual:{s1:true}} -> ["manual.s1"], {__whole:false} ->
+// ["__whole"]. Mirrors exactly how kt_set_paths (the matching server-side
+// RPC) iterates p_patch, so App.jsx's sync effect can reconcile ONLY the
+// paths a given RPC call actually sent, instead of overwriting a dish's
+// whole local state with the server's full current value and losing a
+// sibling path edited locally while that call was in flight.
+function ktPatchPaths(patch) {
+  if (patch.__whole !== undefined) return ['__whole'];
+  const paths = [];
+  Object.keys(patch).forEach(function (k) {
+    const v = patch[k];
+    if (DISH_STEP_MAPS.indexOf(k) >= 0 && v && typeof v === 'object' && !Array.isArray(v)) {
+      Object.keys(v).forEach(function (sk) { paths.push(k + '.' + sk); });
+    } else {
+      paths.push(k);
+    }
+  });
+  return paths;
+}
+
 // Identifies one row of a collect-from-store list inside `items_done`.
 // Keyed by (name, unit family) rather than by index or by the display unit, so a
 // kg<->gm flip caused by rescaling does not orphan an already-collected tick.
@@ -374,4 +430,4 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, isHiddenSmallRestroBooking, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto };

@@ -1263,35 +1263,64 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // Bails out on empty writes when no row exists to avoid creating noise rows on tab-through.
   async function saveClosing(dish, patch, ctx){
     if(!ctx) return;
-    const existing = closeRows[dish];
-    if(!existing){
+    const existingLocal = closeRows[dish];
+    if(!existingLocal){
       const val = patch[Object.keys(patch)[0]];
       if(val==='' || val==null || val===false) return;
     }
     setCloseSaving(p=>{const s=new Set(p);s.add(dish);return s;});
     try{
       const normNum = v => (v===''||v==null) ? null : (parseFloat(v)||0);
-      const merged = {
-        event_id: ctx.evId,
-        event_date: ctx.evDate,
-        venue: ctx.venue,
-        dish_name: dish,
-        planned_kg: evPlanRows[ctx.evId]?.[dish]?.target_yield_kg ?? existing?.planned_kg ?? null,
-        leftover_kg: 'leftover_kg' in patch ? (normNum(patch.leftover_kg) ?? 0) : (existing?.leftover_kg ?? 0),
-        leftover_pcs: 'leftover_pcs' in patch ? normNum(patch.leftover_pcs) : (existing?.leftover_pcs ?? null),
-        notes: 'notes' in patch ? (String(patch.notes||'').trim() || null) : (existing?.notes ?? null),
-        // exclude flag is event-level now — new rows inherit closeExcludeUI, existing rows keep their value
-        exclude_from_ordering: existing?.exclude_from_ordering ?? closeExcludeUI ?? false,
-        closed_by: currentUser?.name || currentUser?.id || 'Unknown'
+      // Fresh-fetch-then-merge: closeRows is loaded ONCE per event with no
+      // realtime, so two people editing different fields of the same dish
+      // around the same time each built their save from a snapshot that
+      // predates the other's write — the second save's stale "existing"
+      // overwrote the first person's change with whatever this tab had
+      // loaded before it happened. Re-fetching immediately before writing
+      // narrows that window to one round trip instead of however long this
+      // tab's been open, and writing only the touched columns (an UPDATE,
+      // not an upsert of the whole row) means a field this save never meant
+      // to touch can't be clobbered even within that window.
+      const fresh = await supabase.from('production_closings').select('*').eq('event_id', ctx.evId).eq('dish_name', dish).maybeSingle();
+      if(fresh.error) throw fresh.error;
+      const existing = fresh.data;
+      const plannedKg = evPlanRows[ctx.evId]?.[dish]?.target_yield_kg;
+      const patchCols = { closed_by: currentUser?.name || currentUser?.id || 'Unknown' };
+      if('leftover_kg' in patch) patchCols.leftover_kg = normNum(patch.leftover_kg) ?? 0;
+      if('leftover_pcs' in patch) patchCols.leftover_pcs = normNum(patch.leftover_pcs);
+      if('notes' in patch) patchCols.notes = String(patch.notes||'').trim() || null;
+      if(plannedKg !== undefined) patchCols.planned_kg = plannedKg;
+
+      if(existing){
+        const {data, error} = await supabase.from('production_closings').update(patchCols).eq('id', existing.id).select();
+        if(error) throw error;
+        if(data && data[0]) setCloseRows(p=>({...p,[dish]:data[0]}));
+        return;
+      }
+      const fullRow = {
+        event_id: ctx.evId, event_date: ctx.evDate, venue: ctx.venue, dish_name: dish,
+        planned_kg: plannedKg ?? null,
+        leftover_kg: 'leftover_kg' in patch ? (normNum(patch.leftover_kg) ?? 0) : 0,
+        leftover_pcs: 'leftover_pcs' in patch ? normNum(patch.leftover_pcs) : null,
+        notes: 'notes' in patch ? (String(patch.notes||'').trim() || null) : null,
+        // exclude flag is event-level now — a brand-new row inherits closeExcludeUI
+        exclude_from_ordering: closeExcludeUI ?? false,
+        closed_by: patchCols.closed_by,
       };
-      if(existing?.id) merged.id = existing.id;
-      if(merged.leftover_kg==null) merged.leftover_kg = 0;
-      const {data, error} = await supabase
-        .from('production_closings')
-        .upsert(merged, {onConflict:'event_id,dish_name'})
-        .select();
-      if(error) throw error;
-      if(data && data[0]) setCloseRows(p=>({...p,[dish]:data[0]}));
+      const ins = await supabase.from('production_closings').insert(fullRow).select();
+      if(ins.error){
+        if(ins.error.code !== '23505') throw ins.error;
+        // Another device created this dish's row in the gap between our
+        // fetch and this insert — fall through to a normal update instead
+        // of losing the write entirely.
+        const retry = await supabase.from('production_closings').select('*').eq('event_id', ctx.evId).eq('dish_name', dish).maybeSingle();
+        if(retry.error) throw retry.error;
+        if(retry.data){
+          const upd = await supabase.from('production_closings').update(patchCols).eq('id', retry.data.id).select();
+          if(upd.error) throw upd.error;
+          if(upd.data && upd.data[0]) setCloseRows(p=>({...p,[dish]:upd.data[0]}));
+        }
+      } else if(ins.data && ins.data[0]) setCloseRows(p=>({...p,[dish]:ins.data[0]}));
     } catch(e){
       console.error('[saveClosing]', dish, e);
       alert('Failed to save closing for '+dish+': '+(e.message||e));
@@ -1338,16 +1367,23 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     setPlanSaving(p=>{const s=new Set(p);s.add(savingKey);return s;});
     try{
       if(section){
-        // Section update: merge into existing section_yields; delete key if empty.
-        // A typed 0 is a real pin (chef is saying "skip this section"), not a
-        // blank — only an actual empty/invalid entry clears it.
-        const existing = planRows[dish] || {};
-        const existSY = existing.section_yields || {};
+        // Fresh-fetch-then-merge: two chefs pinning different sections of
+        // the same dish around the same time used to each merge onto
+        // whatever this tab loaded once at open (no realtime here) — the
+        // second save's stale section_yields snapshot predated the first
+        // chef's pin, silently erasing it when this save's full-row upsert
+        // went out. A typed 0 is a real pin (chef is saying "skip this
+        // section"), not a blank — only an actual empty/invalid entry
+        // clears it.
+        const freshRes = await supabase.from('production_plans').select('id, section_yields').eq('event_id',ctx.evId).eq('dish_name',dish).maybeSingle();
+        if(freshRes.error) throw freshRes.error;
+        const fresh = freshRes.data;
+        const existSY = (fresh && fresh.section_yields) || {};
         const nextSY = {...existSY};
         if(num===null || isNaN(num) || num<0) delete nextSY[section];
         else nextSY[section] = num;
         const anyLeft = Object.keys(nextSY).length>0;
-        if(!anyLeft && !existing.id){
+        if(!anyLeft && !fresh){
           setPlanDrafts(p=>{const c={...p};delete c[draftKey];return c;});
           return;
         }
@@ -1370,6 +1406,20 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           setPlanRows(p=>{const c={...p};delete c[dish];return c;});
         }
       } else {
+        // Setting a whole-dish yield deliberately replaces any section
+        // breakdown (section_yields: null below) — but that must only ever
+        // erase a breakdown THIS tab actually knew about. Checking fresh
+        // section_yields first catches another chef having just pinned a
+        // section this tab's stale local state never saw, surfacing it
+        // instead of silently wiping their pin.
+        const freshRes = await supabase.from('production_plans').select('section_yields').eq('event_id',ctx.evId).eq('dish_name',dish).maybeSingle();
+        if(freshRes.error) throw freshRes.error;
+        const freshSY = (freshRes.data && freshRes.data.section_yields) || {};
+        const localSY = (planRows[dish] && planRows[dish].section_yields) || {};
+        if(Object.keys(freshSY).length>0 && JSON.stringify(freshSY)!==JSON.stringify(localSY)){
+          alert(T2("This dish's section-level plan changed on another device since you loaded it — reload before setting a whole-dish yield, so it doesn't get erased by accident."));
+          return;
+        }
         const payload = {
           event_id: ctx.evId, event_date: ctx.evDate, venue: ctx.venue,
           dish_name: dish, recipe_id: ctx.recipe?.id || null,
@@ -1409,6 +1459,19 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
             return {...p,[evObj.id]:nextForEv};
           });
         }
+        return;
+      }
+      // Same guard as savePlanYield's whole-dish branch: this write
+      // deliberately replaces any section breakdown, but only one THIS
+      // caller's local evPlanRows actually knew about — a fresh check
+      // catches a concurrent section pin this fan-out never saw before
+      // silently erasing it.
+      const freshRes = await supabase.from('production_plans').select('section_yields').eq('event_id',evObj.id).eq('dish_name',dish).maybeSingle();
+      if(freshRes.error) throw freshRes.error;
+      const freshSY = (freshRes.data && freshRes.data.section_yields) || {};
+      const localSY = (evPlanRows?.[evObj.id]?.[dish]?.section_yields) || {};
+      if(Object.keys(freshSY).length>0 && JSON.stringify(freshSY)!==JSON.stringify(localSY)){
+        alert(T2("This dish's section-level plan changed on another device since you loaded it — reload before setting a whole-dish yield, so it doesn't get erased by accident."));
         return;
       }
       const payload = {

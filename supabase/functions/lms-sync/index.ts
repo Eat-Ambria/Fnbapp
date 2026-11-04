@@ -310,10 +310,17 @@ function transformCateringContract(row: any, masters: any): any[] {
 }
 
 // ── Tables keyed by event id — kept in sync when an event is renamed ──
-// (see migrateEventId below). transport_dispatch_assignments is handled
-// separately: its own primary key embeds the event id
-// (`${event_id}::${vehicle_id}`), so a plain column update would leave a
-// stale/mismatched id.
+// (see migrateEventId below). Two tables are handled separately, not through
+// this generic loop:
+//   - transport_dispatch_assignments: its own primary key embeds the event
+//     id (`${event_id}::${vehicle_id}`), so a plain column update would
+//     leave a stale/mismatched id.
+//   - kitchen_tracking: dish_key embeds the event id too (`${ev_id}|${dish}`,
+//     see dk() in EventDayTab.jsx/KitchenHub.jsx) — a plain update of just
+//     the ev_id column left every row's dish_key still pointing at the OLD
+//     id, so every lookup (which composes dk(newId, dish) to find a row)
+//     missed, making all of that function's kitchen tracking look reset
+//     even though the rows technically still existed under the stale key.
 const EVENT_CHILD_TABLES: Array<[string, string]> = [
   ["event_items", "event_id"],
   ["event_function_plans", "event_id"],
@@ -321,8 +328,11 @@ const EVENT_CHILD_TABLES: Array<[string, string]> = [
   ["event_fruit_selections", "event_id"],
   ["production_plans", "event_id"],
   ["production_closings", "event_id"],
-  ["kitchen_tracking", "ev_id"],
   ["store_issues", "event_id"],
+  ["store_issue_assignments", "event_id"],
+  ["ingredient_usage_log", "event_id"],
+  ["dept_checks", "event_id"],
+  ["transport_queue", "ev_id"],
   ["notifications", "event_id"],
 ];
 
@@ -350,6 +360,47 @@ async function migrateEventId(sb: any, oldRow: any, newId: string): Promise<void
   for (const [table, col] of EVENT_CHILD_TABLES) {
     const { error } = await sb.from(table).update({ [col]: newId }).eq(col, oldRow.id);
     if (error) console.error(`migrateEventId: ${table}.${col} ${oldRow.id} -> ${newId} failed:`, error);
+  }
+
+  // kitchen_tracking: rewrite dish_key's embedded event-id prefix alongside
+  // ev_id itself, for both the current dk() format (`${evId}|${dish}`) and
+  // the older dkLegacy format (`${evId}|${idx}`) — both share the exact same
+  // `${oldId}|` prefix, so one string-prefix swap covers either. Meta rows
+  // (`__sec_<catId>`, `__dispatch_ready`, ...) have no event id baked into
+  // dish_key at all and pass through unchanged. Paginated since a single
+  // function can accumulate thousands of tracking rows over a long shift.
+  {
+    const ktPrefix = `${oldRow.id}|`;
+    let ktFrom = 0;
+    const ktPage = 1000;
+    let ktOk = true;
+    while (true) {
+      const { data: ktRows, error: ktSelErr } = await sb
+        .from("kitchen_tracking").select("*").eq("ev_id", oldRow.id).range(ktFrom, ktFrom + ktPage - 1);
+      if (ktSelErr) { console.error(`migrateEventId: kitchen_tracking select ${oldRow.id} failed:`, ktSelErr); ktOk = false; break; }
+      if (!ktRows || ktRows.length === 0) break;
+      const renamed = ktRows.map((r: any) => ({
+        ...r,
+        ev_id: newId,
+        dish_key: typeof r.dish_key === "string" && r.dish_key.startsWith(ktPrefix)
+          ? newId + r.dish_key.slice(oldRow.id.length)
+          : r.dish_key,
+      }));
+      const { error: ktUpErr } = await sb.from("kitchen_tracking").upsert(renamed, { onConflict: "ev_id,dish_key" });
+      if (ktUpErr) { console.error(`migrateEventId: kitchen_tracking upsert ${oldRow.id} -> ${newId} failed:`, ktUpErr); ktOk = false; break; }
+      if (ktRows.length < ktPage) break;
+      ktFrom += ktPage;
+    }
+    // Only clean up the old rows once EVERY page copied across successfully —
+    // deleting unconditionally here would, on a mid-pagination failure, wipe
+    // old-id rows that were never actually migrated to newId, which is
+    // exactly the data loss this function exists to prevent.
+    if (ktOk) {
+      const { error: ktDelErr } = await sb.from("kitchen_tracking").delete().eq("ev_id", oldRow.id);
+      if (ktDelErr) console.error(`migrateEventId: kitchen_tracking cleanup ${oldRow.id} failed:`, ktDelErr);
+    } else {
+      console.error(`migrateEventId: kitchen_tracking migration incomplete for ${oldRow.id} -> ${newId}, leaving old rows in place for retry`);
+    }
   }
 
   const { data: tdRows } = await sb.from("transport_dispatch_assignments").select("*").eq("event_id", oldRow.id);

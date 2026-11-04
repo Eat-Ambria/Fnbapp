@@ -4,7 +4,7 @@
 import React, { useState, useRef, useEffect, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
-import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe } from './lib/db.js';
+import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc } from './lib/db.js';
 import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
 
 // Data
@@ -20,7 +20,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, isHiddenSmallRestroBooking } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, isHiddenSmallRestroBooking } from './utils/helpers.js';
 import { syncAllKitchenMenuMirrors } from './lib/eventItems.js';
 
 // Components
@@ -90,6 +90,23 @@ const NAV_ICON = {
 // own comment already referred to; it gates the bell AND the row that exists
 // only to hold it.
 const SHOW_BELL = false;
+
+// Applies ONE kt_set_paths-style path (e.g. "manual.s1", or the "__whole"
+// sentinel for a scalar meta row) onto a dish-state object, returning a new
+// object. Used by the kitchen_tracking realtime handler and the sync
+// effect's own-write reconciliation to update exactly the path(s) a given
+// server read/echo actually concerns, rather than overwriting a dish's
+// whole local (or last-known-synced) value — which would silently discard
+// a sibling path's change made locally in the same window.
+function ktApplyPathToDish(base, pathKey, data) {
+  if (pathKey === '__whole') return data;
+  const next = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
+  const dot = pathKey.indexOf('.');
+  if (dot < 0) { next[pathKey] = data ? data[pathKey] : undefined; return next; }
+  const top = pathKey.slice(0, dot), sub = pathKey.slice(dot + 1);
+  next[top] = { ...(next[top] || {}), [sub]: data ? (data[top] ? data[top][sub] : undefined) : undefined };
+  return next;
+}
 
 export default function App() {
   const [activeDept, setActiveDept]   = useState(null); // null = dept selector
@@ -385,7 +402,7 @@ export default function App() {
   // per-dish state, that key's value keeps drifting every read/write cycle,
   // which looks "changed" to the diff below and gets re-uploaded forever —
   // thousands of pointless requests a session. Never load or re-upload one.
-  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at", "client_id", "client_write_ts"]);
+  const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at", "client_id", "client_write_ts", "key_ts"]);
   const [kitchenTracking, setKitchenTracking] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}");
@@ -418,19 +435,20 @@ export default function App() {
   const ktClientIdRef = useRef(null);
   if (!ktClientIdRef.current) ktClientIdRef.current = Math.random().toString(36).slice(2) + Date.now().toString(36);
   // client_id above only protects a tab from ITS OWN past echoes. Two
-  // DIFFERENT devices tapping the same step around the same moment hit the
-  // real gap: each one's realtime echo of the OTHER's write can still arrive
-  // after a third, newer write (from either side), and merging an explicit
-  // older value (e.g. an Undo) back in reverts whatever happened since —
-  // repeatedly, as each side "corrects" the other forever (confirmed live:
-  // 1M+ writes in minutes, jumping between whichever dish staff were
-  // actually cooking). Every write is now timestamped (client_write_ts) and
-  // this ref remembers the newest timestamp applied per ev_id|dish_key,
-  // from EITHER our own local taps or accepted echoes — an incoming echo
-  // older than that is pure noise and is dropped outright, regardless of
-  // whose device sent it. Only a genuinely newer write ever applies.
-  const ktTsRef = useRef({});
-  function ktTsKey(evId, dishKey) { return evId + '|' + dishKey; }
+  // DIFFERENT devices tapping the same step around the same moment used to
+  // hit a real gap here, closed by a per-row client_write_ts comparison
+  // (confirmed live: 1M+ writes in minutes, jumping between whichever dish
+  // staff were actually cooking) — that comparison moved server-side, per
+  // JSON PATH rather than per row, once writes switched to kt_set_paths (see
+  // the sync effect and kt_set_paths' own migration comment for why a
+  // row-level timestamp stopped being safe once more than one path on the
+  // same row can be written independently). The server resolves WHICH write
+  // wins before ever broadcasting — but realtime delivery itself can still
+  // deliver an older echo after a newer one, so the kitchen_tracking
+  // subscription below keeps its own per-path "last applied" timestamp
+  // (ktPathTsRef) sourced from the server's key_ts, purely to reject
+  // out-of-order DELIVERY, not to resolve who wins (that's already decided).
+  const ktPathTsRef = useRef({}); // "evId|dishKey|path" -> last-applied key_ts seen from the server
   const ktSyncWarnedRef = useRef(false); // one alert per session, not one per failed tick
   // The account menu is anchored with position:fixed rather than absolute. The
   // sidebar panel sets overflow:hidden for its rounded corners and artwork, so
@@ -479,13 +497,85 @@ export default function App() {
           // nothing here that needs excluding.
           if (KT_RESERVED_KEYS.has(dishKey)) return; // poisoned row — see KT_RESERVED_KEYS
           if (val === undefined || JSON.stringify(val) === JSON.stringify(prevEv[dishKey])) return;
-          // Stamp our own local change as the newest known write for this key
-          // BEFORE it round-trips — so an echo (ours or another device's)
-          // that reflects an earlier moment than this tap can never win
-          // against it, no matter how it's delayed or reordered in transit.
+          // Only the keys that actually changed go out, not this tablet's
+          // whole local value for the dish — see diffDishState's own comment
+          // for why sending the whole thing was the root cause of a tap on
+          // one step reverting another tablet's genuine change to a
+          // different step made moments earlier. kt_set_paths (the matching
+          // server-side RPC) applies each changed path with jsonb_set, which
+          // is race-free by construction since it only ever touches the
+          // exact paths named here.
+          const patch = diffDishState(prevEv[dishKey], val);
+          if (patch.__whole === undefined && Object.keys(patch).length === 0) return;
+          // This moment-of-the-tap timestamp is what kt_set_paths compares
+          // against each path's own key_ts server-side — not used for
+          // anything client-side anymore (see the comment above this effect).
           const writeTs = Date.now();
-          ktTsRef.current[ktTsKey(evId, dishKey)] = writeTs;
-          dbUpsert("kitchen_tracking", { ev_id: evId, dish_key: dishKey, data: JSON.parse(JSON.stringify(val)), client_id: ktClientIdRef.current, client_write_ts: writeTs }, "ev_id,dish_key")
+          const patchPaths = ktPatchPaths(patch);
+          dbRpc("kt_set_paths", { p_ev_id: evId, p_dish_key: dishKey, p_patch: patch, p_client_id: ktClientIdRef.current, p_ts: writeTs })
+            .then(result => {
+              // kt_set_paths can REJECT one or more of the paths in this
+              // patch if a genuinely newer write already landed for that
+              // exact path while this call was in flight — and a rejected
+              // path now runs no UPDATE at all, so no realtime broadcast
+              // will ever tell this tab its own optimistic guess for that
+              // path is wrong. Reconcile straight from the RPC's own
+              // returned (server-authoritative) data instead of trusting
+              // the local value is already correct. dbRpc returns null
+              // (not {}) when the call was offline-queued rather than
+              // executed — nothing to reconcile yet in that case.
+              if (!result) return;
+              const serverData = result.data, serverKeyTs = result.key_ts || {};
+              // This response travels over plain HTTP, separately from the
+              // websocket realtime echoes — the two channels give no
+              // ordering guarantee between them. A FOREIGN tablet's broadcast
+              // for a write genuinely newer than this call's own can arrive
+              // and get correctly applied by the realtime handler below
+              // BEFORE this response does. Blindly applying this response's
+              // (now-stale) value afterwards would silently revert that
+              // newer value with nothing left to correct it. So the decision
+              // of which paths this response may still apply is made here,
+              // per path, against ktPathTsRef's CURRENT value — exactly the
+              // same guard the realtime handler uses — before touching any
+              // state. `>=` (not `>`): ts and knownTs are equal whenever
+              // nothing newer has landed since this call itself committed,
+              // and that case must still apply (this call's commit IS the
+              // write ktPathTsRef is comparing against for its own path).
+              const applyPaths = [];
+              patchPaths.forEach(pk => {
+                const tk = evId + '|' + dishKey + '|' + pk;
+                const ts = Number(serverKeyTs[pk]) || 0;
+                const knownTs = ktPathTsRef.current[tk] || 0;
+                if (ts < knownTs) return; // a foreign echo already applied something newer for this exact path — leave it
+                ktPathTsRef.current[tk] = ts; // never lowers knownTs, since ts >= knownTs here
+                applyPaths.push(pk);
+              });
+              if (!applyPaths.length) return;
+              setKitchenTracking(p => {
+                // Reconcile ONLY the paths THIS call sent (and that just
+                // passed the check above) — never the whole dish — so a
+                // sibling path tapped locally while this RPC was in flight
+                // (and already folded into p[evId][dishKey] by a
+                // later-queued update) is not clobbered by this call's own
+                // snapshot. Same reasoning for ktSyncedRef: build it from
+                // ktSyncedRef's OWN prior value for this dish, not from the
+                // live (possibly newer, not-yet-pushed) p — spreading p here
+                // would wrongly mark any not-yet-synced local edit (to this
+                // dish or, worse, to an unrelated dish in the same event) as
+                // already sent to the server.
+                const prevDish = p[evId]?.[dishKey];
+                const prevSyncedEv = ktSyncedRef.current[evId] || {};
+                const prevSyncedDish = prevSyncedEv[dishKey];
+                let liveDish = prevDish, syncedDish = prevSyncedDish;
+                applyPaths.forEach(pk => {
+                  liveDish = ktApplyPathToDish(liveDish, pk, serverData);
+                  syncedDish = ktApplyPathToDish(syncedDish, pk, serverData);
+                });
+                const nextForEv = { ...(p[evId] || {}), [dishKey]: liveDish };
+                ktSyncedRef.current = { ...ktSyncedRef.current, [evId]: { ...prevSyncedEv, [dishKey]: syncedDish } };
+                return { ...p, [evId]: nextForEv };
+              });
+            })
             .catch(e => {
               console.error("KT sync failed:", dishKey, e);
               // Ticks happen dozens of times per shift, so an alert per failure
@@ -715,12 +805,20 @@ export default function App() {
           if(KT_RESERVED_KEYS.has(row.dish_key))return;
           if(!ktObj[row.ev_id])ktObj[row.ev_id]={};
           ktObj[row.ev_id][row.dish_key]=row.data ?? {};
-          // Seeds the newest-wins comparison the realtime subscription and
-          // this tab's own future writes both rely on — without this, that
-          // comparison starts cold for every dish until something touches it
-          // locally, post-boot.
-          const incomingTs = Number(row.client_write_ts)||0;
-          if(incomingTs){ const tk = ktTsKey(row.ev_id, row.dish_key); ktTsRef.current[tk] = Math.max(ktTsRef.current[tk]||0, incomingTs); }
+          // Seed the per-path echo-ordering ref from what's already on the
+          // server at boot — without this, every path on an already-loaded
+          // dish starts at an implicit 0, so the realtime handler's "only a
+          // genuinely newer write may overwrite this path" guard (above)
+          // would treat literally any echo as newer and reapply it, even
+          // one carrying a now-stale value for a path this tab already has.
+          const rowKts=row.key_ts;
+          if(rowKts&&typeof rowKts==='object'){
+            Object.keys(rowKts).forEach(pathKey=>{
+              const tk=row.ev_id+'|'+row.dish_key+'|'+pathKey;
+              const ts=Number(rowKts[pathKey])||0;
+              if(ts>(ktPathTsRef.current[tk]||0)) ktPathTsRef.current[tk]=ts;
+            });
+          }
         });
         // MERGE over whatever the local seed already holds — do not replace.
         // A straight replace would wipe anything ticked off while the row had
@@ -891,23 +989,123 @@ export default function App() {
       // only loses, never gains, information, so it's just skipped.
       //
       // The same problem also happens ACROSS devices (two tablets tapping the
-      // same step around the same moment), where client_id above does not
-      // apply — client_write_ts does: an echo older than the newest write we
-      // already know about for this exact key (ours or another device's) is
-      // dropped outright, so a stale value can never resurrect itself no
-      // matter how delayed or reordered its delivery is.
+      // same step around the same moment) — this used to be guarded here via
+      // client_write_ts (a single per-ROW timestamp), dropping any echo
+      // older than the newest write already known for this row. That worked
+      // when every write replaced the whole row, but now that kt_set_paths
+      // (the write side, above) writes one JSON PATH at a time, a row-level
+      // timestamp is the wrong granularity: a fresh write to step_3 bumps
+      // the row's timestamp past an in-flight, perfectly valid write to
+      // step_2, making step_2's own echo look "stale" by comparison even
+      // though nothing actually raced it. kt_set_paths resolves THAT race —
+      // whether its OWN write applies — per path, server-side, before ever
+      // broadcasting. But realtime delivery itself is not guaranteed to
+      // arrive in commit order, so an OLDER echo can still be DELIVERED to
+      // this tab after a NEWER one for the very same path — unconditionally
+      // merging every echo as it arrives could let that stale, out-of-order
+      // echo overwrite something newer this tab already has. kt_set_paths now
+      // broadcasts its row's key_ts alongside data, so this handler compares
+      // each path's incoming key_ts against the newest it's already applied
+      // for that EXACT path (ktPathTsRef) and skips the ones that aren't
+      // strictly newer — never a blanket row-level check, since that was the
+      // original bug (an unrelated path's fresh write looking like it raced
+      // a path it never touched).
+      //
+      // STRICT greater-than, not >=: every broadcast carries the row's
+      // WHOLE key_ts object (Postgres/Supabase realtime has no concept of
+      // "only the columns this statement changed"), not just the one path
+      // that changed in that particular UPDATE — so a broadcast for path Y
+      // also re-presents every OTHER path's unchanged, already-known
+      // timestamp for X. With >=, that would re-apply X's (old, correct but
+      // already-superseded-locally) echoed value on top of an in-flight
+      // optimistic local tap on X whose own RPC hasn't resolved yet, purely
+      // because X's old timestamp still matched. Strict > means only a
+      // GENUINELY newer value for a path ever overwrites what's known.
+      // ktPathTsRef is seeded from each row's key_ts at boot (see the
+      // boot-merge below) precisely so a dish's PRE-existing paths aren't
+      // sitting at a default of 0 (which would make any first echo "newer"
+      // regardless of this reasoning).
+      //
+      // This also writes the merged result into ktSyncedRef (not just
+      // kitchenTracking) in the same update — without that, the sync effect
+      // above sees an externally-arrived echo as "new local state" on its
+      // next run and re-uploads it right back under THIS tab's own id,
+      // which is how two tabs end up ping-ponging a value back and forth
+      // forever. Built from ktSyncedRef's OWN prior per-dish value, not from
+      // the live kitchenTracking state `p` — spreading `p` here would wrongly
+      // mark any not-yet-synced local edit (to this dish, or to an unrelated
+      // dish in the same event already folded into `p` by an earlier-queued
+      // local update) as already sent to the server, and the sync effect
+      // would then never push it.
       // Supabase always sets payload.new to {} (truthy) on a DELETE, not
       // undefined — so this branch must explicitly exclude DELETE too, or it
       // fires alongside the DELETE branch below and writes a stray
       // kitchenTracking[undefined][undefined] entry every time a row is removed.
-      if(payload.eventType!=='DELETE'&&payload.new){const {ev_id,dish_key,data,client_id,client_write_ts}=payload.new;if(KT_RESERVED_KEYS.has(dish_key))return;if(client_id&&client_id===ktClientIdRef.current)return;const tsKey=ktTsKey(ev_id,dish_key);const knownTs=ktTsRef.current[tsKey]||0;const incomingTs=Number(client_write_ts)||0;if(incomingTs&&incomingTs<=knownTs)return;ktTsRef.current[tsKey]=Math.max(knownTs,incomingTs);setKitchenTracking(p=>({...p,[ev_id]:{...(p[ev_id]||{}),[dish_key]:mergeDishState(p[ev_id]?.[dish_key],data||{})}}));}
+      if(payload.eventType!=='DELETE'&&payload.new){
+        const {ev_id,dish_key,data,client_id,key_ts}=payload.new;
+        if(KT_RESERVED_KEYS.has(dish_key))return;
+        const kts=(key_ts&&typeof key_ts==='object')?key_ts:{};
+        if(client_id&&client_id===ktClientIdRef.current){
+          // Our own echo. Nothing to merge (we already have this value
+          // locally, confirmed via the sync effect's own RPC-return
+          // reconciliation), but still record its timestamps so a LATER,
+          // genuinely stale echo from another device doesn't look "newer
+          // than anything this tab has seen" against a still-zeroed ref.
+          Object.keys(kts).forEach(pathKey=>{
+            const tk=ev_id+'|'+dish_key+'|'+pathKey;
+            const ts=Number(kts[pathKey])||0;
+            if(ts>(ktPathTsRef.current[tk]||0)) ktPathTsRef.current[tk]=ts;
+          });
+          return;
+        }
+        const hasPathInfo=Object.keys(kts).length>0;
+        setKitchenTracking(p=>{
+          const prevDish=p[ev_id]?.[dish_key];
+          const prevSyncedEv=ktSyncedRef.current[ev_id]||{};
+          const prevSyncedDish=prevSyncedEv[dish_key];
+          let nextDish=prevDish, nextSyncedDish=prevSyncedDish;
+          if(!hasPathInfo){
+            // Row never touched by kt_set_paths (pre-migration data, or a
+            // stale client still on the old whole-row write path) — no
+            // per-path info to compare against, so fall back to the same
+            // plain merge used before this change.
+            nextDish=mergeDishState(prevDish,data||{});
+            nextSyncedDish=mergeDishState(prevSyncedDish,data||{});
+          } else {
+            Object.keys(kts).forEach(pathKey=>{
+              const tk=ev_id+'|'+dish_key+'|'+pathKey;
+              const incomingTs=Number(kts[pathKey])||0;
+              const knownTs=ktPathTsRef.current[tk]||0;
+              if(incomingTs<=knownTs)return; // not strictly newer — stale or already-applied, skip
+              ktPathTsRef.current[tk]=incomingTs;
+              nextDish=ktApplyPathToDish(nextDish,pathKey,data);
+              nextSyncedDish=ktApplyPathToDish(nextSyncedDish,pathKey,data);
+            });
+          }
+          if(nextDish===prevDish) return p; // nothing actually applied — avoid a pointless re-render/sync-effect run
+          const nextForEv={...(p[ev_id]||{}),[dish_key]:nextDish};
+          ktSyncedRef.current={...ktSyncedRef.current,[ev_id]:{...prevSyncedEv,[dish_key]:nextSyncedDish}};
+          return {...p,[ev_id]:nextForEv};
+        });
+      }
       // (ev_id, dish_key) is this table's actual primary key (no surrogate id
       // column), so a DELETE's payload.old reliably carries both — without
       // this, a row removed server-side (manual dashboard cleanup has
       // happened before, see KT_RESERVED_KEYS above) left every already-open
       // tablet showing that dish/step ticked forever, surviving even a reload
       // since the boot-time merge only ever adds/overwrites keys, never drops one.
-      if(payload.eventType==='DELETE'&&payload.old){const {ev_id,dish_key}=payload.old;if(!ev_id||!dish_key)return;setKitchenTracking(p=>{if(!p[ev_id]||!(dish_key in p[ev_id]))return p;const evState={...p[ev_id]};delete evState[dish_key];return {...p,[ev_id]:evState};});}
+      if(payload.eventType==='DELETE'&&payload.old){
+        const {ev_id,dish_key}=payload.old;
+        if(!ev_id||!dish_key)return;
+        // Clear this dish's entries out of the per-path echo-ordering ref
+        // too — otherwise a stale timestamp survives the row's deletion, and
+        // if the same dish_key is ever reused (e.g. the row gets recreated),
+        // a tablet whose clock legitimately runs behind the deleted row's
+        // last timestamp would have its first genuine write rejected.
+        const tkPrefix=ev_id+'|'+dish_key+'|';
+        Object.keys(ktPathTsRef.current).forEach(tk=>{ if(tk.indexOf(tkPrefix)===0) delete ktPathTsRef.current[tk]; });
+        setKitchenTracking(p=>{if(!p[ev_id]||!(dish_key in p[ev_id]))return p;const evState={...p[ev_id]};delete evState[dish_key];return {...p,[ev_id]:evState};});
+      }
     });
     const u7 = dbSubscribe('transport_queue', (payload) => {
       const nq=payload.new?{id:payload.new.id,dish:payload.new.dish_name,evId:payload.new.ev_id||null,sec:payload.new.sec||null,station:payload.new.station||null,qty:payload.new.qty??null,unit:payload.new.unit||null,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined,fromVenue:payload.new.from_venue||"",vehicleId:payload.new.vehicle_id||""}:null;

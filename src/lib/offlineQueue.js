@@ -101,6 +101,9 @@ export async function replayQueue(supabase) {
         } else if (entry.action === 'insert') {
           const { error } = await supabase.from(entry.table).insert(entry.record);
           ok = !error; err = error;
+        } else if (entry.action === 'rpc') {
+          const { error } = await supabase.rpc(entry.fn, entry.args);
+          ok = !error; err = error;
         }
         // A permanently-failing entry (a real PostgREST error, not a
         // connectivity blip) used to just sit here forever: this loop never
@@ -154,6 +157,9 @@ export async function replayQueue(supabase) {
           ok = !error; err = error;
         } else if (entry.action === 'insert') {
           const { error } = await supabase.from(entry.table).insert(entry.record);
+          ok = !error; err = error;
+        } else if (entry.action === 'rpc') {
+          const { error } = await supabase.rpc(entry.fn, entry.args);
           ok = !error; err = error;
         }
         // Same fix as the IndexedDB loop above: a permanently-failing entry

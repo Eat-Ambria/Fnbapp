@@ -6,7 +6,7 @@ import { T } from '../data/translations.js';
 import { TODAY, safeArr, safeNum, TOMORROW, categorizeIngredientWithOverride, INGR_CATEGORY_ORDER, normIngName } from '../utils/helpers.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { Card, Btn, Chip, SectionHeader } from './SharedUI.jsx';
-import { dbLoad, dbUpsert, dbDelete } from '../lib/db.js';
+import { dbLoad, dbUpsert, dbDelete, dbRpc } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
@@ -1003,12 +1003,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
   // must never silently credit another station's outstanding requirement.
   // Returns true on success, false on a genuine (non-retryable) failure —
   // callers must check this before treating the issue as done. This used to
-  // be a raw .upsert() with no offline queue and a catch that only
-  // console.error'd: a dropped connection left the checkmark green and the
-  // row showing issued with nothing actually saved, and a refresh silently
-  // lost it. dbUpsert gives this the same offline-queue + genuine-failure
-  // handling every other write in this app already has, and a real failure
-  // now reverts the optimistic state instead of leaving it lying.
+  // read qty_issued from the local snapshot, add the new amount, and write
+  // the result as an ABSOLUTE value — two devices issuing the same
+  // ingredient around the same moment could both read the same stale
+  // starting point and each add their own amount, with whichever write
+  // landed last silently overwriting the other's contribution (a genuine
+  // lost-update race, made worse by the offline queue potentially replaying
+  // a now-stale absolute value over whatever another device wrote in the
+  // meantime). increment_store_issues (migration 20261105000000) makes the
+  // add atomic at the database level — the server, not this client, computes
+  // the final qty_issued — so this now sends a DELTA, not an absolute value,
+  // and trusts the server's returned row over its own guess.
   async function commitIssueQty(row, amountInRowUnit, sec, silent) {
     if (!(amountInRowUnit > 0) || !row.evBreak || row.evBreak.length === 0) return false;
     const targets = sec != null ? row.evBreak.filter(b => b.sec === sec) : row.evBreak;
@@ -1017,44 +1022,56 @@ function StoreModule({events, lang="en", currentUser=null}) {
       ? targets.reduce((sum, b) => sum + convQty(b.qty, b.unit, row.unit), 0)
       : row.total;
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
-    const now = new Date().toISOString();
     const prevByKey = {}; // snapshot for revert — only this write's own prior value, per key
-    const updates = targets.map(b => {
+    const rpcRows = [];
+    targets.forEach(b => {
       const key = b.evId + "::" + b.sec + "::" + row.name;
       const share = scopedTotal > 0 ? (convQty(b.qty, b.unit, row.unit) / scopedTotal) : (1 / targets.length);
       const addQty = amountInRowUnit * share;
       const addInBUnit = convQty(addQty, row.unit, b.unit);
-      const existing = issueRecords[key];
-      prevByKey[key] = existing; // may be undefined — a brand-new row
-      const prevIssued = existing ? (+existing.qty_issued || 0) : 0;
-      const newIssued = prevIssued + addInBUnit;
-      return {
-        event_id: b.evId, section_name: b.sec, ingredient_name: row.name,
+      prevByKey[key] = issueRecords[key]; // may be undefined — a brand-new row
+      rpcRows.push({
+        key, event_id: b.evId, section_name: b.sec, ingredient_name: row.name,
         ingredient_hindi: row.hindi || null, unit: b.unit,
-        qty_required: b.qty, qty_issued: newIssued,
-        issued: newIssued >= b.qty - 1e-6,
-        issued_by: staffId, issued_at: now,
-      };
+        qty_required: b.qty, delta: addInBUnit, issued_by: staffId,
+      });
     });
+    // Optimistic guess only — the RPC's returned rows (the server's actual
+    // computed total) replace this the moment they come back, win or lose.
     setIssueRecords(prev => {
       const n = { ...prev };
-      updates.forEach(u => { n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name] = { ...n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name], ...u }; });
+      rpcRows.forEach(r => {
+        const existing = n[r.key];
+        const guessIssued = (existing ? (+existing.qty_issued || 0) : 0) + r.delta;
+        n[r.key] = { ...existing, event_id: r.event_id, section_name: r.section_name, ingredient_name: r.ingredient_name,
+          ingredient_hindi: r.ingredient_hindi, unit: r.unit, qty_required: r.qty_required,
+          qty_issued: guessIssued, issued: guessIssued >= r.qty_required - 1e-6, issued_by: r.issued_by };
+      });
       return n;
     });
     try {
-      await dbUpsert('store_issues', updates, 'event_id,section_name,ingredient_name');
+      const opId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
+      const resultRows = await dbRpc('increment_store_issues', { p_op_id: opId, p_rows: rpcRows.map(({key, ...r}) => r) });
+      if (resultRows) {
+        setIssueRecords(prev => {
+          const n = { ...prev };
+          resultRows.forEach(r => { n[r.event_id + "::" + r.section_name + "::" + r.ingredient_name] = r; });
+          return n;
+        });
+      }
       return true;
     } catch (e) {
       console.error("Issue write failed:", e);
       setIssueRecords(prev => {
         const n = { ...prev };
-        updates.forEach(u => {
-          const key = u.event_id + "::" + u.section_name + "::" + u.ingredient_name;
-          // Only revert if this is still exactly what WE wrote a moment ago —
-          // if realtime has already brought in something newer for this key
-          // (another device's write), leave it alone rather than stomping it.
-          if (n[key] && n[key].qty_issued === u.qty_issued) {
-            if (prevByKey[key] === undefined) delete n[key]; else n[key] = prevByKey[key];
+        rpcRows.forEach(r => {
+          // Only revert if this key still holds exactly the optimistic guess
+          // this call made — if realtime has already brought in something
+          // newer (another device's own write), leave it alone rather than
+          // stomping it.
+          const guessIssued = ((prevByKey[r.key] ? (+prevByKey[r.key].qty_issued || 0) : 0) + r.delta);
+          if (n[r.key] && n[r.key].qty_issued === guessIssued) {
+            if (prevByKey[r.key] === undefined) delete n[r.key]; else n[r.key] = prevByKey[r.key];
           }
         });
         return n;

@@ -12,6 +12,41 @@ import { logActivity } from './ActivityLog.jsx';
 import { K, type } from '../utils/theme.js';
 import { Icon } from './Icons.jsx';
 
+// A plain controlled <input> shows whatever `value` the parent passes on
+// every render — fine normally, but once a realtime echo (another device's
+// save, or even this tab's own save arriving back out of order) can push a
+// new `value` at any moment, an echo landing while this exact field is
+// focused used to stomp whatever was mid-keystroke. Holding a local draft
+// and only re-syncing from `value` while the field is NOT focused keeps an
+// active edit safe from a remote update, without ever blocking the remote
+// value once the user moves on to something else. Debouncing the commit
+// (rather than firing an upsert on every keystroke) also means far fewer
+// echoes are in flight to begin with.
+function DraftInput({ value, onCommit, ...rest }) {
+  const [draft, setDraft] = useState(value || "");
+  const focusedRef = useRef(false);
+  const timerRef = useRef(null);
+  useEffect(() => { if (!focusedRef.current) setDraft(value || ""); }, [value]);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  return (
+    <input
+      {...rest}
+      value={draft}
+      onFocus={() => { focusedRef.current = true; }}
+      onChange={(e) => {
+        const v = e.target.value;
+        setDraft(v);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => { timerRef.current = null; onCommit(v); }, 400);
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onCommit(draft); }
+      }}
+    />
+  );
+}
+
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   // Only work with events in a rolling window (today - 2d to future). Past events don't need dispatch state — they froze the mount when the queue included all 179+ historical events.
@@ -74,6 +109,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
       dispatchedAt: r.dispatched_at || undefined, arrivedAt: r.arrived_at || undefined, unloadedAt: r.unloaded_at || undefined };
   }
   const [dispatchRows, setDispatchRows] = useState([]);
+  // Per-row write queue: without this, firing several patchAsgn calls for the
+  // SAME row close together (the debounced driver-name commit landing right
+  // after a status change, say) could have their writes actually reach
+  // Supabase out of order, so the realtime echo that comes back last isn't
+  // necessarily the one holding the most recent edit. Chaining each row's
+  // writes through its own promise keeps them committing — and therefore
+  // echoing back — in the order they were made.
+  const dispatchWriteChainRef = useRef({});
   useEffect(function(){
     let cancelled = false;
     dbLoad('transport_dispatch_assignments', []).then(function(rows){ if(!cancelled) setDispatchRows(rows||[]); });
@@ -103,7 +146,10 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
       if(idx<0) return [...p, {id, event_id:evId, vehicle_id:vehicleId, driver:"", dispatch_time:"", status:"Planning", dispatched_at:null, arrived_at:null, unloaded_at:null, ...patch}];
       const copy=[...p]; copy[idx]={...copy[idx], ...patch}; return copy;
     });
-    dbUpsert('transport_dispatch_assignments', {id, event_id:evId, vehicle_id:vehicleId, ...patch}, 'id').catch(e=>{
+    const chain = dispatchWriteChainRef.current[id] || Promise.resolve();
+    dispatchWriteChainRef.current[id] = chain.then(() =>
+      dbUpsert('transport_dispatch_assignments', {id, event_id:evId, vehicle_id:vehicleId, ...patch}, 'id')
+    ).catch(e=>{
       console.error('[Transport] dispatch upsert failed:',e);
       setDispatchRows(p=>{
         if(prevRow) return p.map(r=>r.id===id?prevRow:r);
@@ -191,9 +237,16 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   function addVehicle(evId){
     const ev=safeEvs.find(e=>e.id===evId);
     const used=new Set((dispatches.find(d=>d.evId===evId)?.assignments||[]).map(a=>a.vehicleId));
-    const vid=(VEHICLES.find(v=>!used.has(v.id))||VEHICLES[0])?.id;
-    if(!vid) return;
-    patchAsgn(evId, vid, { driver:"", dispatch_time:calcDispatch(ev?.time||""), status:"Planning" });
+    const spare = fleetList.find(v=>!used.has(v.id));
+    // The old `||VEHICLES[0]` fallback, when every fleet vehicle was already
+    // on this event, picked one of THIS EVENT'S OWN slots and reset it to
+    // Planning with a blank driver — silently wiping a truck that might
+    // already be Dispatched or At Venue. There is no legitimate case for
+    // that, so this now just refuses instead of "adding" by damaging an
+    // existing slot — the button itself is also disabled for the same
+    // reason (see hasSpare below).
+    if(!spare){ alert(T2('Every fleet vehicle is already assigned to this event — remove one, or add a vehicle in Fleet.')); return; }
+    patchAsgn(evId, spare.id, { driver:"", dispatch_time:calcDispatch(ev?.time||""), status:"Planning" });
   }
 
   // ── Dispatch status flow: Planning → Loaded → Dispatched → At Venue → Unloaded ──
@@ -473,13 +526,21 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   truck's own status (Planning → Loaded → Dispatched → At Venue
                   → Unloaded). ── */}
               <div style={{...cardS,padding:"16px 18px",marginBottom:14}}>
+                {(()=>{
+                  const usedVehIds = new Set(dispatch.assignments.map(a=>a.vehicleId));
+                  const hasSpareVeh = fleetList.some(v=>!usedVehIds.has(v.id));
+                  return (
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <span style={{display:"inline-flex",alignItems:"center",gap:12,...eyebrow}}><Icon name="truck" size={20} strokeWidth={1.8}/>{T2("Dispatch Plan")}</span>
-                  <button onClick={()=>addVehicle(ev.id)} className="kh-hovercard"
-                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:12,background:K.brand,color:"#FFFFFF",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",boxShadow:K.shadowCard,fontFamily:K.fontBody}}>
+                  <button onClick={()=>addVehicle(ev.id)} disabled={!hasSpareVeh} className={hasSpareVeh?"kh-hovercard":undefined}
+                    title={hasSpareVeh?undefined:T2('Every fleet vehicle is already assigned to this event — remove one, or add a vehicle in Fleet')}
+                    style={{display:"inline-flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:12,border:"none",fontSize:14,fontWeight:700,fontFamily:K.fontBody,
+                      cursor:hasSpareVeh?"pointer":"not-allowed",background:hasSpareVeh?K.brand:"#E9E6DE",color:hasSpareVeh?"#FFFFFF":K.textFaint,boxShadow:hasSpareVeh?K.shadowCard:"none"}}>
                     <Icon name="plus" size={16} strokeWidth={2.2}/>{T2("Add Vehicle")}
                   </button>
                 </div>
+                  );
+                })()}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(380px, 1fr))",gap:16,maxWidth:dispatch.assignments.length<3?900:"none"}}>
                   {dispatch.assignments.map((asgn,ai)=>{
                     const loc=getVehicleLocation(asgn.vehicleId);
@@ -489,14 +550,24 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     const can = canAdvance(asgn);
                     const lbl = {display:"block",fontSize:12,fontWeight:600,color:K.textBody,marginBottom:5};
                     const inp = {width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:`1px solid ${K.cardWarmLine}`,fontSize:13.5,color:K.hdrTitle,background:"#FFFFFF",fontFamily:K.fontBody,outline:"none"};
+                    // A vehicle already filling a DIFFERENT slot for this same
+                    // event must not be offered here — picking it used to
+                    // silently overwrite that other slot's real status
+                    // (Dispatched/At Venue/driver) with this slot's Planning
+                    // reset. Still shown (so the select always has an entry
+                    // for the current value) but disabled, with which slot
+                    // it's already in.
+                    const takenElsewhere = {};
+                    dispatch.assignments.forEach((a,i)=>{ if(i!==ai) takenElsewhere[a.vehicleId]=i+1; });
                     return (
-                      <div key={ai} style={{borderRadius:14,background:"#FBFAF6",border:`1px solid ${K.cardWarmLine}`,padding:"14px 14px 12px"}}>
+                      <div key={asgn.vehicleId} style={{borderRadius:14,background:"#FBFAF6",border:`1px solid ${K.cardWarmLine}`,padding:"14px 14px 12px"}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
                           <span style={{width:32,height:32,borderRadius:"50%",flexShrink:0,background:"#EEF0EA",color:K.hdrTitle,fontSize:13.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{ai+1}</span>
                           <span style={{color:K.hdrTitle,display:"flex"}}><Icon name="truck" size={20} strokeWidth={1.8}/></span>
                           <select value={asgn.vehicleId} onChange={e=>{
                             const newVid = e.target.value;
                             if(newVid===asgn.vehicleId) return;
+                            if(takenElsewhere[newVid]) return; // stale option list (e.g. a realtime update just assigned it) — ignore
                             // Swapping which truck fills this slot is a new assignment
                             // identity (vehicleId is the DB key) — carry over the plan
                             // (driver/time) but reset physical status, since the new
@@ -504,7 +575,8 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                             removeAsgn(ev.id, asgn.vehicleId);
                             patchAsgn(ev.id, newVid, { driver:asgn.driver, dispatch_time:asgn.dispatchTime, status:"Planning" });
                           }} style={{...inp,flex:1,minWidth:0,width:"auto",fontWeight:600,padding:"8px 10px"}}>
-                            {fleetList.map(fv=><option key={fv.id} value={fv.id}>{fv.name}</option>)}
+                            {fleetList.some(fv=>fv.id===asgn.vehicleId) ? null : <option value={asgn.vehicleId}>{asgn.vehicleId}</option>}
+                            {fleetList.map(fv=><option key={fv.id} value={fv.id} disabled={!!takenElsewhere[fv.id]}>{fv.name}{takenElsewhere[fv.id]?(' — '+T2('in slot')+' '+takenElsewhere[fv.id]):''}</option>)}
                           </select>
                           <span style={{padding:"7px 16px",borderRadius:8,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap",
                             background:done?K.okBg:asgn.status==="Loaded"?K.warnBg:"#E7EEE5",color:done?K.ok:asgn.status==="Loaded"?K.warn:K.brandText}}>{T2(asgn.status)}</span>
@@ -515,8 +587,8 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:10,marginBottom:10}}>
                           <label><span style={lbl}>{T2("Driver")}</span>
-                            <input value={asgn.driver} placeholder={T2("Driver")} onChange={e=>{
-                              updAsgn(ev.id, asgn.vehicleId, "driver", e.target.value);
+                            <DraftInput value={asgn.driver} placeholder={T2("Driver")} onCommit={v=>{
+                              updAsgn(ev.id, asgn.vehicleId, "driver", v);
                             }} style={inp}/></label>
                           <label><span style={lbl}>{T2("Departure time")}</span>
                             <input type="time" value={asgn.dispatchTime} onChange={e=>{updAsgn(ev.id,asgn.vehicleId,"dispatchTime",e.target.value);}} style={inp}/></label>

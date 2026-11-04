@@ -162,6 +162,37 @@ export async function dbInsert(table, record) {
   }
 }
 
+// For a Postgres function that does something a plain insert/update/upsert
+// can't express atomically at the row level — e.g. an increment that must
+// never lose a concurrent write from another device the way a client-side
+// read-then-write would. Returns the RPC's own result on success (unlike
+// the other db* helpers here, which return nothing) since callers of an RPC
+// generally need the server-computed value back, not just a success/fail.
+// `args` should carry its own idempotency key (e.g. a client-generated
+// op id) when offline queuing is a possibility, since a queued call can be
+// replayed after it already succeeded (an ambiguous timeout, not just a
+// clean failure) — the RPC itself is responsible for being a safe no-op on
+// a repeated id, this helper has no way to know.
+export async function dbRpc(fn, args) {
+  if (!supabase) {
+    await enqueue({ action: 'rpc', fn, args });
+    return null;
+  }
+  try {
+    const { data, error } = await supabase.rpc(fn, args);
+    if (error) throw error;
+    return data;
+  } catch(e) {
+    if (isOfflineError(e)) {
+      console.warn('dbRpc offline-queued:', fn, e.message||e);
+      await enqueue({ action: 'rpc', fn, args });
+      return null;
+    }
+    console.error('dbRpc failed (not retryable, not queued):', fn, e.message||e);
+    throw e;
+  }
+}
+
 /**
  * Paginate a Supabase select through PostgREST's 1000-row cap.
  * Pass a builder function that returns a fresh query each call
