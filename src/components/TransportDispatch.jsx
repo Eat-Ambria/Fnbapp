@@ -50,7 +50,7 @@ function DraftInput({ value, onCommit, ...rest }) {
 function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null, lang="en", currentUser=null, transportQueue=[], setTransportQueue}) {
   const T2 = s => T(s, lang||"en");
   // Only work with events in a rolling window (today - 2d to future). Past events don't need dispatch state — they froze the mount when the queue included all 179+ historical events.
-  const DISPATCH_CUTOFF = new Date(Date.now() - 2*864e5).toISOString().slice(0,10);
+  const DISPATCH_CUTOFF = localDateStr(new Date(Date.now() - 2*864e5));
   const allEventsRaw = Array.isArray(events) ? events : [];
   const safeEvs = allEventsRaw.filter(e => e && e.date && e.date >= DISPATCH_CUTOFF);
   const kt = kitchenTracking && typeof kitchenTracking === "object" ? kitchenTracking : {};
@@ -83,6 +83,40 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return arr;
   }
 
+  // VEHICLES (data/constants.js) is a ONE-TIME snapshot taken at app boot via
+  // hydrateConstants — it never updates again. Seeding fleetList from it and
+  // never reloading meant adding/editing/deleting a vehicle here wrote to
+  // the `vehicles` table correctly, but the very next navigation away and
+  // back (which remounts this component, re-running this useState
+  // initializer) silently reverted fleetList back to that stale boot
+  // snapshot — an edit looked saved, then undid itself; a deleted vehicle
+  // came back; another tablet never saw any of it. Loading + subscribing
+  // here directly (the same dbLoad/dbSubscribe pattern dispatchRows below
+  // uses) keeps it live, the same way every other table-backed list in this
+  // app works. Declared before autoVehicles/dispatches below, which both
+  // read it.
+  const [fleetList,   setFleetList]   = useState(VEHICLES.map(v=>({...v})));
+  useEffect(function(){
+    let cancelled = false;
+    dbLoad('vehicles', VEHICLES).then(function(rows){
+      if(!cancelled && Array.isArray(rows) && rows.length>0) setFleetList(rows.filter(function(r){return r.is_active!==false;}));
+    });
+    const unsub = dbSubscribe('vehicles', function(payload){
+      if(payload.eventType==='DELETE'){
+        setFleetList(p=>p.filter(v=>v.id!==payload.old.id));
+      } else if(payload.new.is_active===false){
+        setFleetList(p=>p.filter(v=>v.id!==payload.new.id));
+      } else {
+        setFleetList(p=>{
+          const idx = p.findIndex(v=>v.id===payload.new.id);
+          if(idx<0) return [...p, payload.new];
+          const copy=[...p]; copy[idx]=payload.new; return copy;
+        });
+      }
+    });
+    return function(){ cancelled=true; unsub(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   function autoVehicles(ev){
     const menu=menuArr(ev);
     const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
@@ -91,7 +125,13 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     vids.push("DL1LAJ1250");
     if(hasCold) vids.push("DL1LAN2125");
     if(pax>400) vids.push("DL1LAN1814");
-    return vids;
+    // A plate that's been removed from the fleet (Fleet tab delete) must
+    // stop being auto-assigned to every event — it used to keep showing up
+    // here, and removeAsgn'd deletion of its dispatch row (see removeAsgn's
+    // own comment) made it reappear as a fresh "Planning" slot on the very
+    // next render even while it was still in the fleet, let alone after it
+    // had been deleted entirely.
+    return vids.filter(vid=>fleetList.some(v=>v.id===vid));
   }
 
   // Dispatch status (Planning→Loaded→Dispatched→At Venue→Unloaded, driver,
@@ -159,6 +199,19 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     });
   }
   function removeAsgn(evId, vehicleId){
+    const ev = safeEvs.find(e=>e.id===evId);
+    if(ev && autoVehicles(ev).includes(vehicleId)){
+      // autoVehicles() always proposes this plate again for this event (it's
+      // rule-based — e.g. "always send the dry truck", "send a cold van
+      // when the menu has cold items") — a hard delete here just let the
+      // very next render re-add it as a fresh "Planning" slot, so tapping ✕
+      // looked like it worked for a moment and then undid itself. A
+      // tombstone (status:'Removed', a plain unconstrained text value) is
+      // recognized and skipped below instead of being treated as a fresh
+      // auto-assignment.
+      patchAsgn(evId, vehicleId, {status:'Removed'});
+      return;
+    }
     const id = rowKey(evId, vehicleId);
     const prevRow = dispatchRows.find(r=>r.id===id);
     setDispatchRows(p=>p.filter(r=>r.id!==id));
@@ -172,12 +225,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   const dispatches = safeEvs.map(ev=>{
     const rowsForEv = dispatchRows.filter(r=>r.event_id===ev.id);
     const seen = new Set();
-    const assignments = autoVehicles(ev).map(vid=>{
+    const assignments = [];
+    autoVehicles(ev).forEach(vid=>{
       seen.add(vid);
       const row = rowsForEv.find(r=>r.vehicle_id===vid);
-      return row ? rowToAsgn(row) : { vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:"Planning" };
+      if(row && row.status==='Removed') return; // explicitly removed by the user -- don't resurrect it
+      assignments.push(row ? rowToAsgn(row) : { vehicleId:vid, driver:"", dispatchTime:calcDispatch(ev.time), status:"Planning" });
     });
-    rowsForEv.forEach(r=>{ if(!seen.has(r.vehicle_id)) assignments.push(rowToAsgn(r)); });
+    rowsForEv.forEach(r=>{ if(!seen.has(r.vehicle_id) && r.status!=='Removed') assignments.push(rowToAsgn(r)); });
     return { evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev), assignments };
   });
 
@@ -212,7 +267,6 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   },[]);
   const [tdSecOpen, setTdSecOpen] = useState({});
   const [activeTab,  setActiveTab]  = useState("todayplan");
-  const [fleetList,   setFleetList]   = useState(VEHICLES.map(v=>({...v})));
   const [showAddVeh,  setShowAddVeh]  = useState(false);
   const [editVehId,   setEditVehId]   = useState(null);
   const [vehForm,     setVehForm]     = useState({id:"",name:"",icon:"🚛",type:"dry",note:"",base_location:"AP Kitchen"});
@@ -236,7 +290,13 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
   }
   function addVehicle(evId){
     const ev=safeEvs.find(e=>e.id===evId);
-    const used=new Set((dispatches.find(d=>d.evId===evId)?.assignments||[]).map(a=>a.vehicleId));
+    // Built from dispatchRows directly, not from `dispatches`'s own
+    // `assignments` (which deliberately EXCLUDES a tombstoned auto vehicle —
+    // see removeAsgn/dispatches) — using `assignments` here let a vehicle
+    // the user just removed count as "spare" again, so tapping Add Vehicle
+    // right after removing one silently un-tombstoned and re-added the SAME
+    // vehicle instead of offering a genuinely different one.
+    const used=new Set(dispatchRows.filter(r=>r.event_id===evId).map(r=>r.vehicle_id));
     const spare = fleetList.find(v=>!used.has(v.id));
     // The old `||VEHICLES[0]` fallback, when every fleet vehicle was already
     // on this event, picked one of THIS EVENT'S OWN slots and reset it to
@@ -309,11 +369,21 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     if (!vehForm.name.trim()) return;
     var vid = editVehId || vehForm.name.replace(/\s+/g, "").toUpperCase();
     var rec = { id: vid, name: vehForm.name.trim(), icon: vehForm.icon || "🚛", type: vehForm.type || "dry", note: vehForm.note || "", base_location: vehForm.base_location || "AP Kitchen", is_active: true };
+    var prevVeh = fleetList.find(v => v.id === vid);
     setFleetList(p => { var exists = p.find(v => v.id === vid); if (exists) return p.map(v => v.id === vid ? { ...v, ...rec } : v); return [...p, rec]; });
     dbUpsert("vehicles", rec, "id").then(() => {
       setShowAddVeh(false); setEditVehId(null); setVehForm({ id: "", name: "", icon: "🚛", type: "dry", note: "", base_location: "AP Kitchen" });
     }).catch(e => {
       console.error("vehicle save:", e);
+      // fleetList is now realtime-synced from the `vehicles` table (see its
+      // own load effect above) — a failed write here used to leave a
+      // phantom/stale vehicle in local state with nothing to ever correct
+      // it, since no DB row exists to emit a future realtime event fixing
+      // it. Revert to whatever was there before, same as deleteVehicle.
+      setFleetList(p => {
+        if (prevVeh) return p.map(v => v.id === vid ? prevVeh : v);
+        return p.filter(v => v.id !== vid);
+      });
       alert('Could not save vehicle: ' + (e.message||e) + '. Please try again.');
     });
   }
@@ -429,22 +499,53 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
             if(!bySec[sec]) bySec[sec]=[];
             bySec[sec].push(r);
           });
-          const stationsMeta = Object.keys(menuBySec).sort().map(sec=>{
+          // Union of every station the CURRENT menu touches and every station
+          // the kitchen has actually SENT rows for — not just the current
+          // menu's own keys. The kitchen sends a station's dishes as a
+          // snapshot (EventDayTab.jsx) using whatever category each dish
+          // belonged to AT THAT MOMENT; if the menu/categorization changes
+          // afterward (recategorized, marked outsourced, dropped), that
+          // station's key can disappear from menuBySec entirely even though
+          // its rows — and the food already loaded under them — still exist.
+          // Iterating only menuBySec's keys silently hid that whole station,
+          // Ready/Loaded/Delivered chips and all, even though the challan
+          // (loadedRowsFor) still counted it.
+          const allSecKeys = [...new Set([...Object.keys(menuBySec), ...Object.keys(bySec)])];
+          const stationsMeta = allSecKeys.sort().map(sec=>{
             const catObj=RECIPE_DB.cats.find(c=>c.id===sec);
             const rows=bySec[sec]||[];
-            const total=menuBySec[sec].length;
-            const uniqDishes=[...new Set(rows.map(r=>r.dish))];
-            const sent=uniqDishes.length;
+            const menuDishes = menuBySec[sec]||[];
+            const total=menuDishes.length;
+            const sentDishNames=[...new Set(rows.map(r=>r.dish))];
+            // Count only dishes that are STILL this station's own menu
+            // dishes, not every distinct dish name in its queue rows — a
+            // row for an injected base-gravy intermediate, or a dish that's
+            // since moved to a different station, used to inflate `sent`
+            // past `total` even though a real menu dish for this station
+            // had never actually been sent, making the whole station show
+            // "done" early.
+            const sent = total>0 ? menuDishes.filter(n=>sentDishNames.includes(n)).length : sentDishNames.length;
             const deliveredAll = rows.length>0 && rows.every(r=>r.status==="Delivered");
             const allDone = sent>0 && sent>=total && deliveredAll;
             const vehIds=[...new Set(rows.map(r=>r.vehicleId).filter(Boolean))];
             const assignedVehicleId = vehIds.length===1?vehIds[0]:"";
-            return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0, assignedVehicleId};
+            return {sec, color:catObj?.color||C.muted, icon:catObj?.icon||"🍽", name:T2(catObj?.name||sec), rows, total, sent, allDone, started: rows.length>0, assignedVehicleId, onCurrentMenu: total>0};
           });
           const startedStations = stationsMeta.filter(s=>s.started);
           const notStartedStations = stationsMeta.filter(s=>!s.started);
-          const totalDishes = stationsMeta.reduce((n,s)=>n+s.total,0);
-          const readyDishes = stationsMeta.reduce((n,s)=>n+s.sent,0);
+          // Excludes orphan stations (onCurrentMenu:false — on the menu-
+          // derived side these have total:0 but sent falls back to their
+          // raw sent-dish count, which can be >0) from this EVENT-WIDE
+          // ready tally — otherwise readyDishes could exceed totalDishes
+          // (an "X/Y ready" reading over 100%) the moment a station's
+          // dishes leave the current menu after being sent. The station
+          // itself still renders its own chip/panel (with the "not on
+          // current menu" tag) via stationsMeta directly; it's only left
+          // out of this aggregate, which is meant to read against the
+          // CURRENT menu's own requirement.
+          const onMenuStations = stationsMeta.filter(s=>s.onCurrentMenu);
+          const totalDishes = onMenuStations.reduce((n,s)=>n+s.total,0);
+          const readyDishes = onMenuStations.reduce((n,s)=>n+s.sent,0);
           const readyPct = safePct(readyDishes,totalDishes);
           function toggleSecOpen(secKey, currentOpen){ setTdSecOpen(p=>({...p,[secKey]:!currentOpen})); }
           // People load a station's dishes onto one truck together, so the
@@ -527,7 +628,12 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                   → Unloaded). ── */}
               <div style={{...cardS,padding:"16px 18px",marginBottom:14}}>
                 {(()=>{
-                  const usedVehIds = new Set(dispatch.assignments.map(a=>a.vehicleId));
+                  // From dispatchRows, not dispatch.assignments — see addVehicle's
+                  // own comment: assignments excludes a tombstoned ('Removed')
+                  // auto vehicle, which would make this button look enabled
+                  // right after a removal even though addVehicle would still
+                  // correctly refuse to pick that same vehicle back up.
+                  const usedVehIds = new Set(dispatchRows.filter(r=>r.event_id===ev.id).map(r=>r.vehicle_id));
                   const hasSpareVeh = fleetList.some(v=>!usedVehIds.has(v.id));
                   return (
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -645,6 +751,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                             background:st.allDone?K.okBg:"#FFFFFF",border:`1px solid ${st.allDone?K.okBorder:st.sent>0?st.color:K.cardWarmLine}`,
                             fontSize:13,fontWeight:600,color:st.allDone?K.ok:K.textBody}}>
                           <span style={{fontSize:14}}>{st.icon}</span>{st.name} {st.allDone?"✓ ":""}{st.sent}/{st.total}
+                          {!st.onCurrentMenu && <span style={{fontSize:10,fontWeight:700,color:K.warn,marginLeft:2}} title={T2("This station's dishes are no longer on the current menu, but rows already sent for it still exist")}>⚠ {T2("not on current menu")}</span>}
                         </button>
                       );
                     })}

@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
 import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc } from './lib/db.js';
-import { getQueueSize, replayQueue } from './lib/offlineQueue.js';
+import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount } from './lib/offlineQueue.js';
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
@@ -1135,10 +1135,18 @@ export default function App() {
   }, [appReady]);
 
   // ── Supabase connectivity indicator + offline queue replay ──
+  // offlineQueueCount used to only update on this effect's own 2-minute
+  // poll (or on reconnect) — nothing on screen ever showed a queued write at
+  // all in between, so a tablet could go offline, have every tap correctly
+  // queued, and the person using it could close the tab or hand it to
+  // someone else believing it had all saved. The 'ambria-offq-change' event
+  // (fired by offlineQueue.js the moment anything is queued or replayed)
+  // updates this immediately instead of waiting on the next poll.
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [lostWriteCount, setLostWriteCount] = useState(0);
   useEffect(() => {
     if(!supabase){setSupaLive(false);return;}
-    const checkQueue=()=>getQueueSize().then(n=>setOfflineQueueCount(n)).catch(()=>{});
+    const checkQueue=()=>{ getQueueSize().then(n=>setOfflineQueueCount(n)).catch(()=>{}); setLostWriteCount(getLostWriteCount()); };
     const ping=()=>supabase.from('staff').select('count',{count:'exact',head:true}).then(({error})=>{
       const live=!error;
       setSupaLive(live);
@@ -1153,10 +1161,12 @@ export default function App() {
     checkQueue();
     const onOnline=()=>ping();
     const onOffline=()=>{setSupaLive(false);checkQueue();};
+    const onQueueChange=()=>checkQueue();
     window.addEventListener('online',onOnline);
     window.addEventListener('offline',onOffline);
+    window.addEventListener('ambria-offq-change',onQueueChange);
     const interval=setInterval(()=>{if(navigator.onLine)ping();checkQueue();},120000);
-    return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);clearInterval(interval);};
+    return()=>{window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);window.removeEventListener('ambria-offq-change',onQueueChange);clearInterval(interval);};
   },[]);
 
   // Admin skips dept selector — go straight to Management Dashboard
@@ -1279,6 +1289,31 @@ export default function App() {
   // Topbar search = quick-nav over the screens this user can actually reach.
   const showStaffView = currentUser&&currentUser.role==="staff";
 
+  // Nothing anywhere in the app ever showed that a write had been queued
+  // offline — a tablet could go dark, have every tap correctly queued, and
+  // whoever was using it would have no on-screen sign that it hadn't
+  // actually reached the server yet. position:fixed so it drops into either
+  // shell below without touching their flex/grid layouts (see MEMORY.md on
+  // inline-style precedence traps in this app before changing how this is
+  // placed).
+  const offlineBannerNode = (supaLive===false || offlineQueueCount>0 || lostWriteCount>0) ? (
+    <div style={{position:"fixed",bottom:14,left:"50%",transform:"translateX(-50%)",zIndex:9999,display:"flex",alignItems:"center",gap:8,
+      padding:"7px 16px",borderRadius:999,fontSize:12,fontWeight:700,fontFamily:K.fontBody,boxShadow:"0 6px 18px rgba(0,0,0,.18)",
+      background:lostWriteCount>0?"#FBEAEA":(supaLive===false?"#FBF2DD":"#FFFFFF"),
+      color:lostWriteCount>0?"#C0392B":(supaLive===false?"#8A6416":K.textBody),
+      border:`1px solid ${lostWriteCount>0?"#C0392B55":(supaLive===false?"#D4A84355":K.cardWarmLine)}`}}>
+      <span>{lostWriteCount>0?"⚠":(supaLive===false?"📴":"⏳")}</span>
+      <span>
+        {lostWriteCount>0
+          ? (lostWriteCount+" change(s) could not be saved anywhere on this device — please redo them")
+          : (supaLive===false
+            ? ("Offline"+(offlineQueueCount>0?(" — "+offlineQueueCount+" change(s) waiting to sync"):""))
+            : (offlineQueueCount+" change(s) syncing…"))}
+      </span>
+      {lostWriteCount>0 && <button onClick={()=>{clearLostWriteCount();setLostWriteCount(0);}} style={{border:"none",background:"transparent",color:"#C0392B",fontWeight:700,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Dismiss</button>}
+    </div>
+  ) : null;
+
   // Loading
   if(!appReady) return (
     <div style={{minHeight:"100vh",background:K.shellBg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,position:"relative",overflow:"hidden"}}>
@@ -1353,6 +1388,7 @@ export default function App() {
       // across the top. The tablet had its own older styling, so the two halves
       // of the same product looked like different apps.
       <div className="kh-scope" style={{position:"relative",display:"flex",height:"100vh",background:K.shellBg,overflow:"hidden"}}>
+        {offlineBannerNode}
         {/* Same page artwork as the admin shell, spanning the whole window so it
             shows behind the floating sidebar's rounded corners rather than a
             flat gap. BASE_URL, not a bare "/", because vite sets base:'/Fnbapp/'. */}
@@ -1672,6 +1708,7 @@ export default function App() {
 
   return (
     <div className="ash-shell" style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:K.shellBg,overflow:"hidden",flexDirection:"column",position:"relative"}}>
+      {offlineBannerNode}
 
       {/* Page artwork spans the WHOLE window, not just the content column, so the
           floating sidebar sits on it. Behind the sidebar's rounded corners you

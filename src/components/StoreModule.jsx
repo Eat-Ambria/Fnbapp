@@ -479,6 +479,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueQtyModal, setIssueQtyModal] = useState(null); // {row,agg,stock,isDiscrete,value} — custom/partial issue-quantity dialog
   const [transferRequests, setTransferRequests] = useState([]); // rows from store_transfer_requests
   const [transferModal, setTransferModal] = useState(null); // {row,stock,toVenue,donors,value,fromVenueId}
+  const [transferSaving, setTransferSaving] = useState(false);
   const [transferListOpen, setTransferListOpen] = useState(false); // list/manage modal for open requests
   const [printReq, setPrintReq] = useState(null); // null | {mode:"all"} | {mode:"one", key} — Order Lists print preview
   const [orderListItems, setOrderListItems] = useState([]); // rows from store_order_lists
@@ -487,6 +488,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion, category_override}}
+  // ingredient_item_map holds TWO independent things on the same row: an
+  // ops store/inventory link (ops_item_id/ops_inventory_id) and a
+  // category_override (used only to bucket an ingredient on the Ordering
+  // Sheet). saveIngredientCategory upserts a row with ONLY the latter set —
+  // a plain truthiness check on ingredientMap[name] (the row exists) can't
+  // tell that apart from a real mapping, so setting just a category used to
+  // make every "is this ingredient mapped to store?" check (counts, filters,
+  // badges, Sync to Ops eligibility, and the ingredient-merge "does the
+  // target already have a mapping" decision) believe it was linked when it
+  // never was. Every one of those checks must test for an actual ops link.
+  function hasOpsMapping(m) { return !!(m && (m.ops_item_id != null || m.ops_inventory_id != null)); }
   // Same override map the Ordering Sheet reads (KitchenHub.jsx) — this one's
   // free, ingredientMap above already pulls category_override via select('*').
   // Keyed by normIngName since ingredient_name here often carries the Hindi
@@ -502,12 +514,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
     // is already the exact key an existing ops-mapped row uses (isMapped
     // above relies on that same exact match), so this never needs to touch
     // ingredient_hindi or any ops_* column on that row.
+    const prevVal = ingredientMap[ingName];
     setIngredientMap(prev => ({ ...prev, [ingName]: { ...(prev[ingName] || { ingredient_name: ingName }), category_override: category || null } }));
     const { error } = await supabase.from('ingredient_item_map').upsert(
       { ingredient_name: ingName, category_override: category || null },
       { onConflict: 'ingredient_name' }
     );
-    if (error) console.error('[StoreModule] saveIngredientCategory failed:', error);
+    if (error) {
+      console.error('[StoreModule] saveIngredientCategory failed:', error);
+      setIngredientMap(prev => { const n = { ...prev }; if (prevVal) n[ingName] = prevVal; else delete n[ingName]; return n; });
+      alert(T2('Failed to save category:') + ' ' + (error.message || error));
+    }
   }
   const [fruitSelections, setFruitSelections] = useState([]); // rows from event_fruit_selections — per-function fruit-counter picks made in Fruits Ops
   const [mapModalIng, setMapModalIng] = useState(null); // {name,hindi,unit} — currently mapping this ingredient
@@ -976,6 +993,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return { required, issuedQty, remaining: Math.max(0, required - issuedQty), surplus: Math.max(0, issuedQty - required) };
   }
   function roundSmart(n) { return Math.round((+n || 0) * 100) / 100; }
+  // Used only for the issue-qty modal's PRE-FILLED amount on a freely-
+  // divisible (non-discrete) unit. Rounding the remaining amount to the
+  // NEAREST 2dp (roundSmart) can round it DOWN — confirming that pre-fill
+  // as-is then leaves a few grams permanently outstanding: the row never
+  // reaches "fully issued" (both the client's 1e-9 check and the server's
+  // own, in increment_store_issues' migration), and the next time the modal
+  // opens, roundSmart of that now-tiny remainder can itself round to 0,
+  // disabling Confirm entirely. Rounding UP never leaves a shortfall from
+  // the pre-fill alone (openIssueQty separately issues the EXACT remaining,
+  // not this rounded display value, when the pre-fill is left untouched).
+  function roundUpSmart(n) { return Math.ceil(((+n || 0) * 100) - 1e-7) / 100; }
   // The one-click default: the exact remaining amount for a freely-divisible
   // unit, or the nearest whole pack (rounded UP, never short-changing the
   // kitchen) for a discrete one.
@@ -1095,10 +1123,15 @@ function StoreModule({events, lang="en", currentUser=null}) {
     var value = "";
     if (agg.remaining > 1e-9) {
       if (isDiscrete) value = suggestedSU != null ? String(suggestedSU) : "1";
-      else if (stock) value = String(roundSmart(qtyToStoreUnits(suggested, row.unit, stock)));
-      else value = String(roundSmart(suggested));
+      else if (stock) value = String(roundUpSmart(qtyToStoreUnits(suggested, row.unit, stock)));
+      else value = String(roundUpSmart(suggested));
     }
-    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value, sec });
+    // prefillUntouched: true until the input's onChange fires. Confirming
+    // the pre-fill as-is issues the EXACT remaining amount (see the Confirm
+    // button below), not this rounded display value — the rounding here is
+    // only to make the number legible to type over, never the amount that
+    // actually gets recorded when nothing was typed over it.
+    setIssueQtyModal({ row, agg, stock, isDiscrete, shortfall, value, sec, prefillUntouched: true });
   }
 
   /* ── Cross-venue transfer requests ─────────────────────────────────────
@@ -1206,16 +1239,38 @@ function StoreModule({events, lang="en", currentUser=null}) {
       to_venue_code: toVenue.venueCode, to_venue_name: toVenue.venueName,
       status: 'open', requested_by: staffId,
     };
+    // The modal used to close before this write even started — on a
+    // rejection or a dropped connection it looked exactly like a request
+    // that went through, with nothing anywhere to show for it: the
+    // requesting venue thinks stock is on its way, the donor venue never
+    // sees anything. Keep it open with a saving state, and insert the row
+    // locally from the actual insert's result (id is server-generated —
+    // this request can't exist locally before the row does) rather than
+    // waiting on the realtime echo, which the requester's own tab might not
+    // even be subscribed to yet. The realtime handler above already dedupes
+    // by id, so this is safe if the echo arrives afterward too.
+    setTransferSaving(true);
+    const { data, error } = await supabase.from('store_transfer_requests').insert(rec).select().single();
+    setTransferSaving(false);
+    if (error) {
+      console.error("Transfer request failed:", error);
+      alert(T2('Failed to send transfer request:') + ' ' + (error.message || error));
+      return;
+    }
+    setTransferRequests(prev => prev.some(r => r.id === data.id) ? prev : [data, ...prev]);
     setTransferModal(null);
-    const { error } = await supabase.from('store_transfer_requests').insert(rec);
-    if (error) console.error("Transfer request failed:", error);
   }
   async function markTransferFulfilled(id) {
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const now = new Date().toISOString();
+    const prevRow = transferRequests.find(r => r.id === id);
     setTransferRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'fulfilled', fulfilled_by: staffId, fulfilled_at: now } : r));
     const { error } = await supabase.from('store_transfer_requests').update({ status: 'fulfilled', fulfilled_by: staffId, fulfilled_at: now }).eq('id', id);
-    if (error) console.error("Mark fulfilled failed:", error);
+    if (error) {
+      console.error("Mark fulfilled failed:", error);
+      if (prevRow) setTransferRequests(prev => prev.map(r => r.id === id ? prevRow : r));
+      alert(T2('Failed to mark fulfilled:') + ' ' + (error.message || error));
+    }
   }
 
   /* ── Stock resolution — same 3-tier unit-conversion chain the old
@@ -1226,11 +1281,30 @@ function StoreModule({events, lang="en", currentUser=null}) {
   function resolveStock(row){
     const stock = stockForRow(row);
     const isDirectInv = row._type==='inv' && !!row.ops_inventory_id;
-    const isMapped = isDirectInv || !!ingredientMap[row.name];
+    const isMapped = isDirectInv || hasOpsMapping(ingredientMap[row.name]);
     if(!isMapped || !stock) return {isMapped, stock:null, requiredSU:null, myQty:null};
     return {isMapped:true, stock, requiredSU: qtyToStoreUnits(row.total, row.unit, stock), myQty: myVenueQty(stock)};
   }
-  function rowIssued(row, sec){ return rowIssueAgg(row, sec).remaining<=1e-9; }
+  // A plain remaining<=1e-9 check treats a genuine fractional remainder
+  // (e.g. 4.5g left on a 1.2345kg requirement, from rounding somewhere along
+  // the way) as permanently outstanding — the row never reaches "Fully
+  // issued", and reopening the issue modal pre-fills roundUpSmart/roundSmart
+  // of that now-tiny amount, which itself can round to a value too small to
+  // confirm. Discrete stock (whole packets/pieces) never gets this leeway —
+  // a missing whole pack must stay outstanding. For anything freely
+  // divisible, a remainder this far below what the UI can even ask someone
+  // to type (the modal works in 2dp) is treated as done.
+  function isIssueComplete(agg, isDiscrete) {
+    if (agg.remaining <= 1e-9) return true;
+    if (isDiscrete) return false;
+    const tol = Math.max((agg.required || 0) * 0.005, 0.005);
+    return agg.remaining <= tol;
+  }
+  function rowIssued(row, sec){
+    const agg = rowIssueAgg(row, sec);
+    const stock = stockForRow(row);
+    return isIssueComplete(agg, stock ? isDiscreteStockUnit(row, stock) : false);
+  }
 
   /* ── Day Sheet row-building — one event's menu -> per-ingredient totals,
      broken down by kitchen section/station. Shared by Requirements (issuing,
@@ -1426,12 +1500,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
       // same "keep canonical's, drop duplicates'" rule dish-merge uses for
       // dish_store_map.
       const sourcesToDrop = [...allNames].filter(n => n !== target);
-      if (!ingredientMap[target]) {
-        const donorName = sourcesToDrop.find(n => ingredientMap[n]);
+      if (!hasOpsMapping(ingredientMap[target])) {
+        const donorName = sourcesToDrop.find(n => hasOpsMapping(ingredientMap[n]));
         if (donorName) {
           const donor = ingredientMap[donorName];
           await saveIngredientMapping(target, donor.ingredient_hindi, { _opsId: donor.ops_item_id, inventoryId: donor.ops_inventory_id, name: donor.ops_item_name, unit: donor.ops_item_unit }, donor.unit_conversion || 1);
         }
+      }
+      // A donor's category_override (if any, and if target has none of its
+      // own) is worth carrying forward too — the whole point of this
+      // distinction is that category and ops-mapping are independent facts.
+      if (!ingredientMap[target]?.category_override) {
+        const catDonorName = sourcesToDrop.find(n => ingredientMap[n]?.category_override);
+        if (catDonorName) await saveIngredientCategory(target, ingredientMap[catDonorName].category_override);
       }
       for (const n of sourcesToDrop) {
         if (ingredientMap[n]) await removeIngredientMapping(n);
@@ -1604,7 +1685,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
   function getStockForIngredient(ingName) {
     const mapping = ingredientMap[ingName];
     if (!mapping) return null;
-    const storeItem = items.find(i => i._opsId === mapping.ops_item_id);
+    // ops_item_id can go stale after an Ops-side inventory rebuild — that's
+    // exactly why ops_inventory_id ("V67: stable prefix id — survives Ops
+    // rebuilds", see saveIngredientMapping) exists. Falling back to it here
+    // (the way getStockByInventoryId already does for direct-inv rows) means
+    // a row hasOpsMapping correctly still calls "mapped" after a rebuild
+    // doesn't silently stop resolving real stock — the Map tab saying
+    // "Mapped" while Requirements shows "—" and Sync to Ops skips it as
+    // "not linked to store" was the same bug class this whole fix targeted.
+    const storeItem = items.find(i => i._opsId === mapping.ops_item_id)
+      || (mapping.ops_inventory_id ? items.find(i => i.inventoryId === mapping.ops_inventory_id) : null);
     if (!storeItem) return null;
     const conversion = mapping.unit_conversion || 1;
     return { item: storeItem, available: storeItem.available, unit: storeItem.unit, conversion };
@@ -1633,18 +1723,52 @@ function StoreModule({events, lang="en", currentUser=null}) {
       unit_conversion: conv,
       mapped_by: staffId,
     };
-    setIngredientMap(prev => ({ ...prev, [ingName]: rec }));
+    // Merge onto whatever this ingredient already had locally (a
+    // category_override in particular) rather than replacing the row
+    // outright — `rec` doesn't carry category_override, and the upsert
+    // below only ever touches the columns it lists, so the DB row keeps its
+    // existing category_override regardless; this keeps local state
+    // consistent with that instead of looking like it was just cleared
+    // until the next load/realtime refresh quietly restores it.
+    const prevVal = ingredientMap[ingName];
+    setIngredientMap(prev => ({ ...prev, [ingName]: { ...(prev[ingName] || {}), ...rec } }));
     setMapModalIng(null);
     setMapSearch("");
     setConvModal(null);
     const { error } = await supabase.from('ingredient_item_map').upsert(rec, { onConflict: 'ingredient_name' });
-    if (error) console.error("Mapping save failed:", error);
+    if (error) {
+      console.error("Mapping save failed:", error);
+      setIngredientMap(prev => { const n = { ...prev }; if (prevVal) n[ingName] = prevVal; else delete n[ingName]; return n; });
+      alert(T2('Failed to save mapping for') + ' ' + ingName + ': ' + (error.message || error));
+    }
   }
 
   async function removeIngredientMapping(ingName) {
+    // A row with a category_override must survive unmapping — that override
+    // is an independent fact from the ops link (see hasOpsMapping's
+    // comment), and deleting the whole row would silently erase the
+    // ordering-sheet category someone set, with no connection to "unmap
+    // this from store" at all. Only drop the row entirely when there's
+    // nothing left on it worth keeping.
+    const existing = ingredientMap[ingName];
+    if (existing && existing.category_override) {
+      const rec = { ingredient_name: ingName, ops_item_id: null, ops_inventory_id: null, ops_item_name: null, ops_item_unit: null, unit_conversion: null, mapped_by: null };
+      setIngredientMap(prev => ({ ...prev, [ingName]: { ...(prev[ingName] || {}), ...rec } }));
+      const { error } = await supabase.from('ingredient_item_map').update(rec).eq('ingredient_name', ingName);
+      if (error) {
+        console.error("Mapping unlink failed:", error);
+        setIngredientMap(prev => ({ ...prev, [ingName]: existing }));
+        alert(T2('Failed to unmap') + ' ' + ingName + ': ' + (error.message || error));
+      }
+      return;
+    }
     setIngredientMap(prev => { const n = { ...prev }; delete n[ingName]; return n; });
     const { error } = await supabase.from('ingredient_item_map').delete().eq('ingredient_name', ingName);
-    if (error) console.error("Mapping delete failed:", error);
+    if (error) {
+      console.error("Mapping delete failed:", error);
+      setIngredientMap(prev => ({ ...prev, [ingName]: existing }));
+      alert(T2('Failed to unmap') + ' ' + ingName + ': ' + (error.message || error));
+    }
   }
 
   /* build per-event section bags — used by both views */
@@ -2230,7 +2354,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
         // excluded from every FUTURE sync too, so anything issued against
         // that ingredient afterward silently never reached Ops at all.
         const stSyncPlan = (function(){
-          const rowPlans = [], skipped = [];
+          const rowPlans = [], skipped = [], tooSmall = [];
           openStationRows.forEach(row=>{
             const rowKeys = (row.evBreak||[]).filter(b=>b.sec===openStation.name).map(b=>({evId:b.evId, sec:b.sec}));
             const keyPlans = [];
@@ -2249,12 +2373,22 @@ function StoreModule({events, lang="en", currentUser=null}) {
             const {isMapped, stock} = resolveStock(row);
             const invId = row._type==='inv' ? row.ops_inventory_id : (ingredientMap[row.name]?.ops_inventory_id);
             if(!isMapped || !stock || !invId){ skipped.push(row.name); return; }
+            // A unit-conversion factor that shrinks an already-small delta
+            // (e.g. grams -> kg, or a packet-weight conversion) can round the
+            // amount actually sent to Ops down to exactly 0 even though real
+            // stock was genuinely issued. Rounding a claimed delta to 0 and
+            // still marking it synced silently loses that amount forever —
+            // leave it OUT of rowPlans entirely instead, so none of its
+            // keyPlans get claimed and the unsynced delta carries over to the
+            // next sync attempt once more has been issued against it.
+            const storeQty = Math.round(qtyToStoreUnits(totalDeltaRowUnit, row.unit, stock)*10000)/10000;
+            if(storeQty<=0){ tooSmall.push(row.name); return; }
             rowPlans.push({
               row, keyPlans, totalDeltaRowUnit,
               invId, itemSource: row._type==='inv' ? 'inventory' : 'catering_store', unit: stock.unit,
             });
           });
-          return { rowPlans, skipped };
+          return { rowPlans, skipped, tooSmall };
         })();
         async function syncStationToOps(){
           if(stSyncPlan.rowPlans.length===0) return;
@@ -2291,17 +2425,41 @@ function StoreModule({events, lang="en", currentUser=null}) {
           const claimedByIng = {};
           claimed.forEach(kp=>{ (claimedByIng[kp.ingName] = claimedByIng[kp.ingName]||[]).push(kp); });
           const items = [];
+          // A multi-key row (the same ingredient issued against more than
+          // one event/section) can have SOME of its keys lose the claim race
+          // above while others win — the pre-claim tooSmall screen in
+          // stSyncPlan ran on the row's FULL delta, before any claim loss,
+          // so it can't see this. If what's left after losing some keys
+          // itself rounds to 0 in store units, that claimed-but-now-empty
+          // amount must be released, not silently sent as qty:0 or marked
+          // synced for nothing.
+          const postClaimTooSmall = [];
           stSyncPlan.rowPlans.forEach(rp=>{
             const kps = claimedByIng[rp.row.name];
             if(!kps || kps.length===0) return;
             const claimedDeltaRowUnit = kps.reduce((s,kp)=>s+kp.deltaRowUnit,0);
             const {stock} = resolveStock(rp.row);
             if(!stock) return;
-            items.push({
-              ops_inventory_id: rp.invId, item_source: rp.itemSource, item_name: rp.row.name, unit: rp.unit,
-              qty: Math.round(qtyToStoreUnits(claimedDeltaRowUnit, rp.row.unit, stock)*100)/100,
-            });
+            // 4 dp, not 2 — a 2-dp round could still zero out a small
+            // delta in a unit whose conversion factor is itself small (see
+            // the tooSmall check in stSyncPlan above, which only screens
+            // out an entirely-zeroed row; this keeps a small-but-nonzero
+            // one from losing precision here instead).
+            const qty = Math.round(qtyToStoreUnits(claimedDeltaRowUnit, rp.row.unit, stock)*10000)/10000;
+            if(qty<=0){ postClaimTooSmall.push(...kps); return; }
+            items.push({ ops_inventory_id: rp.invId, item_source: rp.itemSource, item_name: rp.row.name, unit: rp.unit, qty });
           });
+          let claimedForSync = claimed;
+          if(postClaimTooSmall.length){
+            const releasedKeys = new Set(postClaimTooSmall.map(kp=>kp.key));
+            claimedForSync = claimed.filter(kp=>!releasedKeys.has(kp.key));
+            await Promise.all(postClaimTooSmall.map(async kp=>{
+              await supabase.from('store_issues')
+                .update({ synced_qty: kp.snapSynced, ops_sync_ref: null })
+                .eq('event_id', kp.evId).eq('section_name', kp.sec).eq('ingredient_name', kp.ingName)
+                .eq('ops_sync_ref', sync_ref).eq('synced_qty', kp.snapIssued);
+            }));
+          }
 
           // Step 2: send only the claimed items to Ops.
           let opsOk = false, opsErr = null;
@@ -2320,7 +2478,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             // permanently synced for something Ops never actually received.
             console.error('[syncStationToOps] ops call failed:', opsErr);
             let releaseFailed = 0;
-            await Promise.all(claimed.map(async kp=>{
+            await Promise.all(claimedForSync.map(async kp=>{
               const { data, error } = await supabase.from('store_issues')
                 .update({ synced_qty: kp.snapSynced, ops_sync_ref: null })
                 .eq('event_id', kp.evId).eq('section_name', kp.sec).eq('ingredient_name', kp.ingName)
@@ -2335,12 +2493,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
           setIssueRecords(prev=>{
             const n = {...prev};
-            claimed.forEach(kp=>{ n[kp.key] = {...n[kp.key], synced_qty: kp.snapIssued, ops_sync_ref: sync_ref}; });
+            claimedForSync.forEach(kp=>{ n[kp.key] = {...n[kp.key], synced_qty: kp.snapIssued, ops_sync_ref: sync_ref}; });
             return n;
           });
           const skipNote = stSyncPlan.skipped.length ? (' ('+stSyncPlan.skipped.length+' '+T2('skipped — not linked to store')+': '+stSyncPlan.skipped.join(', ')+')') : '';
+          const smallCount = stSyncPlan.tooSmall.length + (postClaimTooSmall.length ? 1 : 0);
+          const smallNote = smallCount ? (' ('+smallCount+' '+T2('item(s) too small to sync yet')+')') : '';
           const partialNote = lostClaim ? (' ('+lostClaim+' '+T2('already synced from another device')+')') : '';
-          setReqNote({tone:'ok', text:T2('Synced')+' '+items.length+' '+T2('item(s) to Ops')+skipNote+partialNote});
+          setReqNote({tone:'ok', text:T2('Synced')+' '+items.length+' '+T2('item(s) to Ops')+skipNote+smallNote+partialNote});
           setOpsSyncingStation(null);
         }
 
@@ -2540,7 +2700,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                               // labelled Balance instead of this station's own leftover requirement.
                               const aggAll = rowIssueAgg(row);
                               const agg = rowIssueAgg(row, openStation.name);
-                              const done = agg.remaining<=1e-9;
+                              const done = isIssueComplete(agg, (isMapped && stock) ? isDiscreteStockUnit(row, stock) : false);
                               const issuedAllSU = (isMapped && stock) ? qtyToStoreUnits(aggAll.issuedQty, row.unit, stock) : null;
                               const liveStock = (issuedAllSU!=null && available!=null) ? available-issuedAllSU : null;
                               const stockShown = liveStock!=null ? liveStock : available;
@@ -2914,13 +3074,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
       {tab==="ingmap"&&(()=>{
         const total = allRecipeIngredients.length;
         // 9D — inv-mapped counts as mapped (skips ingredient_item_map)
-        const mappedCount = allRecipeIngredients.filter(i => i.hasInv || ingredientMap[i.name]).length;
+        const mappedCount = allRecipeIngredients.filter(i => i.hasInv || hasOpsMapping(ingredientMap[i.name])).length;
         const unmappedCount = total - mappedCount;
 
         // Filter + search
         let filtered = allRecipeIngredients;
-        if (mapTabFilter === "mapped") filtered = filtered.filter(i => i.hasInv || ingredientMap[i.name]);
-        if (mapTabFilter === "unmapped") filtered = filtered.filter(i => !i.hasInv && !ingredientMap[i.name]);
+        if (mapTabFilter === "mapped") filtered = filtered.filter(i => i.hasInv || hasOpsMapping(ingredientMap[i.name]));
+        if (mapTabFilter === "unmapped") filtered = filtered.filter(i => !i.hasInv && !hasOpsMapping(ingredientMap[i.name]));
         if (mapTabSearch) {
           const s = mapTabSearch.toLowerCase();
           filtered = filtered.filter(i => i.name.toLowerCase().includes(s) || (i.hindi||"").includes(s));
@@ -2988,7 +3148,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
 
             {/* Auto-link all suggestions */}
             {mapTabFilter==="unmapped"&&unmappedCount>0&&unmappedCount<=500&&(()=>{
-              const suggestions = allRecipeIngredients.filter(i=>!i.hasInv && !ingredientMap[i.name]).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
+              const suggestions = allRecipeIngredients.filter(i=>!i.hasInv && !hasOpsMapping(ingredientMap[i.name])).map(i=>({ing:i,match:fuzzyMatchStoreItem(i.name)})).filter(s=>s.match&&s.match.score>=70);
               if(suggestions.length===0) return null;
               return(
                 <button onClick={async()=>{
@@ -3029,7 +3189,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 </div>
                 {filtered.slice(mapTabPage*30,(mapTabPage+1)*30).map((ing,ri)=>{
                   const mapping = ingredientMap[ing.name];
-                  const isMapped = !!mapping;
+                  const isMapped = hasOpsMapping(mapping);
                   const suggestion = !isMapped ? fuzzyMatchStoreItem(ing.name) : null;
                   const conv = isMapped ? (mapping.unit_conversion||1) : 1;
                   // Same weight/volume family as the recipe unit (e.g. kg<->Kg,
@@ -3308,7 +3468,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 {c.items.slice().sort((a,b)=>(b.dishes||[]).length-(a.dishes||[]).length).map(d=>{
                   const isT = d.name===target;
                   const uses = (d.dishes||[]).length;
-                  const isMapped = d.hasInv || !!ingredientMap[d.name];
+                  const isMapped = d.hasInv || hasOpsMapping(ingredientMap[d.name]);
                   return (
                     <label key={d.name} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,
                       background:isT?K.brandSoft:"#FFFFFF",border:`1.5px solid ${isT?K.brand:K.cardWarmLine}`,cursor:disabled?"not-allowed":"pointer"}}>
@@ -3506,10 +3666,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 if(normVal==null) normVal = val; // recipe unit isn't weight/volume — nothing to normalize
                 var conv=1/normVal;
                 if(convModal.editMode){
-                  var upd=Object.assign({},ingredientMap[convModal.ingName],{unit_conversion:conv});
+                  var prevVal=ingredientMap[convModal.ingName];
+                  var upd=Object.assign({},prevVal,{unit_conversion:conv});
                   setIngredientMap(function(prev){var n=Object.assign({},prev);n[convModal.ingName]=upd;return n;});
                   setConvModal(null);
-                  supabase.from("ingredient_item_map").update({unit_conversion:conv}).eq("ingredient_name",convModal.ingName).then(function(r){if(r.error)console.error("Conv update failed:",r.error);});
+                  supabase.from("ingredient_item_map").update({unit_conversion:conv}).eq("ingredient_name",convModal.ingName).then(function(r){
+                    if(r.error){
+                      console.error("Conv update failed:",r.error);
+                      setIngredientMap(function(prev){var n=Object.assign({},prev);n[convModal.ingName]=prevVal;return n;});
+                      alert(T2('Failed to save conversion for')+' '+convModal.ingName+': '+(r.error.message||r.error));
+                    }
+                  });
                 }else{
                   saveIngredientMapping(convModal.ingName,convModal.ingHindi,convModal.opsItem,conv);
                 }
@@ -3548,7 +3715,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             <div style={{padding:"18px"}}>
               <div style={{fontSize:12,color:C.text,marginBottom:10,fontWeight:600}}>{T2("Issue now")} ({stock?stock.unit:row.unit})</div>
               <input type="number" step={isDiscrete?"1":"any"} min="0" autoFocus value={issueQtyModal.value}
-                onChange={e=>setIssueQtyModal(p=>({...p,value:e.target.value}))}
+                onChange={e=>setIssueQtyModal(p=>({...p,value:e.target.value,prefillUntouched:false}))}
                 style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
               {stock && valid && (
                 <div style={{fontSize:11,color:C.faint,marginTop:8}}>
@@ -3587,7 +3754,17 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
               <button onClick={()=>setIssueQtyModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-              <button disabled={!valid} onClick={async()=>{ const ok = await commitIssueQty(row,valInRowUnit,sec); if(ok) setIssueQtyModal(null); }}
+              <button disabled={!valid} onClick={async()=>{
+                // An untouched, non-discrete pre-fill issues the EXACT
+                // remaining amount, not the rounded display value — see
+                // roundUpSmart's comment for why confirming the rounded
+                // number as-is can leave a few grams permanently
+                // outstanding. A discrete pre-fill (whole packs) and any
+                // manually-typed value are issued exactly as shown/typed.
+                const amount = (issueQtyModal.prefillUntouched && !isDiscrete) ? agg.remaining : valInRowUnit;
+                const ok = await commitIssueQty(row,amount,sec);
+                if(ok) setIssueQtyModal(null);
+              }}
                 style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>✓ {T2("Confirm issue")}</button>
             </div>
           </div>
@@ -3629,9 +3806,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
                 style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.border}`,fontSize:14,color:C.text,background:C.bg,textAlign:"center",boxSizing:"border-box"}}/>
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
-              <button onClick={()=>setTransferModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-              <button disabled={!valid} onClick={createTransferRequest}
-                style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>🚚 {T2("Send request")}</button>
+              <button disabled={transferSaving} onClick={()=>setTransferModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:transferSaving?"not-allowed":"pointer"}}>✕ {T2("Cancel")}</button>
+              <button disabled={!valid||transferSaving||!navigator.onLine} onClick={createTransferRequest}
+                style={{flex:1,padding:"10px",borderRadius:10,background:(valid&&!transferSaving&&navigator.onLine)?C.gold:C.borderLight,border:"none",color:(valid&&!transferSaving&&navigator.onLine)?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:(valid&&!transferSaving&&navigator.onLine)?"pointer":"not-allowed"}}>
+                {transferSaving?T2("Sending…"):(!navigator.onLine?T2("Offline"):('🚚 '+T2("Send request")))}
+              </button>
             </div>
           </div>
         </div>

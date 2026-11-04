@@ -69,6 +69,20 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
   const [checklists, setChecklists] = useState({}); // { evId: { phase: {items, notes} } }
   const [loading, setLoading] = useState(false);
   const [noteText, setNoteText] = useState("");
+  // A load failure used to still cache {} for this event (the .then() ran
+  // with data===null, treated as "no rows yet"), and the guard above
+  // ("already loaded — skip") meant it was NEVER retried for the rest of
+  // this session, with nothing on screen to say the load had actually
+  // failed. Worse: toggleItem/saveNotes build their upsert from
+  // getItems()/checklists[evId][ph], which is "all template defaults" when
+  // nothing loaded — ticking ONE item after a failed load re-saved the
+  // whole phase as "everything else unchecked", wiping out whatever had
+  // really been checked there before, by anyone, on any device. loadedEvIds
+  // tracks a genuine SUCCESS only; loadErrorEvIds tracks a failure so the
+  // UI can block edits and offer Retry instead of silently corrupting state.
+  const [loadErrorEvIds, setLoadErrorEvIds] = useState(() => new Set());
+  const [loadedEvIds, setLoadedEvIds] = useState(() => new Set());
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Auto-select first upcoming event
   useEffect(() => {
@@ -80,14 +94,20 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
   // ── Load checklists from Supabase for selected event ──
   useEffect(() => {
     if (!selEvId || !supabase) return;
-    if (checklists[selEvId]) {
+    if (loadedEvIds.has(selEvId)) {
       // Already loaded — restore note for current phase
       setNoteText((checklists[selEvId]?.[phase]?.notes) || "");
       return;
     }
     setLoading(true);
     supabase.from("odc_checklists").select("*").eq("ev_id", selEvId)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[ODCModule] checklist load failed:', error);
+          setLoadErrorEvIds(prev => new Set(prev).add(selEvId));
+          setLoading(false);
+          return;
+        }
         const byPhase = {};
         (data || []).forEach(row => {
           byPhase[row.phase] = {
@@ -96,29 +116,84 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
           };
         });
         setChecklists(prev => ({ ...prev, [selEvId]: byPhase }));
+        setLoadedEvIds(prev => new Set(prev).add(selEvId));
+        setLoadErrorEvIds(prev => { if (!prev.has(selEvId)) return prev; const n = new Set(prev); n.delete(selEvId); return n; });
         setNoteText(byPhase[phase]?.notes || "");
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [selEvId]);
+      .catch(e => {
+        console.error('[ODCModule] checklist load failed:', e);
+        setLoadErrorEvIds(prev => new Set(prev).add(selEvId));
+        setLoading(false);
+      });
+  }, [selEvId, reloadTick]);
+
+  // Realtime — a whole-phase JSON blob means two devices can each load, each
+  // tick a DIFFERENT item, and each upsert their own full snapshot: whoever
+  // saves second overwrites the first device's tick entirely (they never
+  // see each other's local state change). toggleItem/saveNotes below now
+  // fresh-fetch-then-merge immediately before writing, which narrows that to
+  // one round trip; this subscription keeps an already-open screen's local
+  // state current with whatever the other device just saved, same as the
+  // dept_checks/kitchen_tracking pattern elsewhere in this app.
+  useEffect(() => {
+    if (!supabase) return;
+    const chan = supabase.channel('odc-checklists-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'odc_checklists' }, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row || !row.ev_id || !row.phase) return;
+        if (payload.eventType === 'DELETE') {
+          setChecklists(prev => {
+            if (!prev[row.ev_id] || !(row.phase in prev[row.ev_id])) return prev;
+            const evEntry = { ...prev[row.ev_id] }; delete evEntry[row.phase];
+            return { ...prev, [row.ev_id]: evEntry };
+          });
+          return;
+        }
+        const entry = {
+          items: (typeof payload.new.items === 'string' ? JSON.parse(payload.new.items) : payload.new.items) || [],
+          notes: payload.new.notes || "",
+        };
+        setChecklists(prev => ({ ...prev, [row.ev_id]: { ...(prev[row.ev_id] || {}), [row.phase]: entry } }));
+        if (row.ev_id === selEvId && row.phase === phase) setNoteText(entry.notes);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(chan); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selEvId, phase]);
 
   // When phase changes, update note text
   useEffect(() => {
     setNoteText((checklists[selEvId]?.[phase]?.notes) || "");
   }, [phase, selEvId]);
 
+  // Merge any saved items array with the current template defaults (adds
+  // any item the template has gained since this was last saved). Factored
+  // out of getItems so toggleItem/saveNotes's fresh-fetch-then-merge below
+  // can run the exact same merge against the SERVER's current row instead
+  // of this component's local (possibly stale) state.
+  function mergeWithTemplate(saved, ph) {
+    const defaults = template[ph] || [];
+    const savedMap = {};
+    (saved || []).forEach(s => { savedMap[s.id] = s; });
+    return defaults.map(d => savedMap[d.id] || { ...d, checked: false, checkedBy: null, checkedAt: null });
+  }
   // ── Get items for current event+phase (merge defaults with saved state) ──
   function getItems(evId, ph) {
-    const saved = checklists[evId]?.[ph]?.items || [];
-    const defaults = template[ph] || [];
-    // Merge: use saved state for items that exist, add any new defaults
-    const savedMap = {};
-    saved.forEach(s => { savedMap[s.id] = s; });
-    return defaults.map(d => savedMap[d.id] || { ...d, checked: false, checkedBy: null, checkedAt: null });
+    return mergeWithTemplate(checklists[evId]?.[ph]?.items, ph);
   }
 
   // ── Toggle a checklist item ──
-  function toggleItem(evId, ph, itemId) {
+  async function toggleItem(evId, ph, itemId) {
+    // getItems() falls back to "every template default, all unchecked" when
+    // nothing has loaded for this event yet — ticking one item in that state
+    // and upserting it would overwrite the server's real checklist with
+    // "everything else unchecked", the exact data-loss bug a failed/slow
+    // load used to cause. Block the tap instead of risking that.
+    if (!loadedEvIds.has(evId) || loadErrorEvIds.has(evId)) {
+      alert(T2("This checklist hasn't loaded yet — please wait or retry the load before checking items."));
+      return;
+    }
     const items = getItems(evId, ph);
     const updated = items.map(item => {
       if (item.id !== itemId) return item;
@@ -150,20 +225,50 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         [ph]: { items: updated, notes: prev[evId]?.[ph]?.notes || "" },
       },
     }));
-    // Persist to Supabase — Supabase's query builder resolves (rather than
-    // rejects) on a logical/PostgREST error, so the error field must be
-    // checked in .then(), not just caught via .catch().
-    if (supabase) {
-      supabase.from("odc_checklists").upsert({
-        ev_id: evId, phase: ph, items: updated,
-        notes: checklists[evId]?.[ph]?.notes || "",
+    if (!supabase) return;
+    try {
+      // Fresh-fetch-then-merge: this whole phase is ONE jsonb row, so two
+      // devices each upserting their own full snapshot (built from however
+      // stale their own local state is) is a lost-update race — whoever
+      // saves second wins entirely, discarding whatever item the first
+      // device just ticked. Re-reading the row immediately before writing,
+      // and toggling only THIS one item onto what the server has RIGHT NOW
+      // (not this tab's possibly-stale local items), narrows that to one
+      // round trip, the same pattern used for kitchen_tracking/FP elsewhere.
+      const fresh = await supabase.from("odc_checklists").select("items,notes").eq("ev_id", evId).eq("phase", ph).maybeSingle();
+      if (fresh.error) throw fresh.error;
+      const freshItems = mergeWithTemplate(fresh.data ? (typeof fresh.data.items === 'string' ? JSON.parse(fresh.data.items) : fresh.data.items) : null, ph);
+      const mergedItems = freshItems.map(fi => {
+        if (fi.id !== itemId) return fi;
+        const nowChecked = !fi.checked;
+        return {
+          ...fi,
+          checked: nowChecked,
+          checkedBy: nowChecked ? (currentUser?.name || "Staff") : null,
+          checkedAt: nowChecked ? new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : null,
+        };
+      });
+      const freshNotes = fresh.data ? (fresh.data.notes || "") : (checklists[evId]?.[ph]?.notes || "");
+      const { error } = await supabase.from("odc_checklists").upsert({
+        ev_id: evId, phase: ph, items: mergedItems,
+        notes: freshNotes,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "ev_id,phase" }).then(({ error }) => { if (error) revert(error); }).catch(revert);
-    }
+      }, { onConflict: "ev_id,phase" });
+      if (error) throw error;
+      // Reflect the server-authoritative merged result locally too — this
+      // tab's own optimistic guess above may have been built from a stale
+      // base if another device's tick landed between this tab's last load
+      // and this toggle.
+      setChecklists(prev => ({ ...prev, [evId]: { ...(prev[evId] || {}), [ph]: { items: mergedItems, notes: freshNotes } } }));
+    } catch (e) { revert(e); }
   }
 
   // ── Save notes ──
-  function saveNotes(evId, ph, text) {
+  async function saveNotes(evId, ph, text) {
+    if (!loadedEvIds.has(evId) || loadErrorEvIds.has(evId)) {
+      alert(T2("This checklist hasn't loaded yet — please wait or retry the load before saving a note."));
+      return;
+    }
     const prevNotes = checklists[evId]?.[ph]?.notes || "";
     const itemsForPhase = checklists[evId]?.[ph]?.items || getItems(evId, ph);
     function revert(e) {
@@ -184,14 +289,22 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
         [ph]: { items: getItems(evId, ph), notes: text },
       },
     }));
-    if (supabase) {
-      supabase.from("odc_checklists").upsert({
-        ev_id: evId, phase: ph,
-        items: checklists[evId]?.[ph]?.items || getItems(evId, ph),
-        notes: text,
+    if (!supabase) return;
+    try {
+      // Same fresh-fetch-then-merge reasoning as toggleItem: notes and items
+      // share one row, so writing this tab's possibly-stale local `items`
+      // alongside the new note text could silently revert an item another
+      // device ticked after this tab last loaded.
+      const fresh = await supabase.from("odc_checklists").select("items").eq("ev_id", evId).eq("phase", ph).maybeSingle();
+      if (fresh.error) throw fresh.error;
+      const freshItems = mergeWithTemplate(fresh.data ? (typeof fresh.data.items === 'string' ? JSON.parse(fresh.data.items) : fresh.data.items) : null, ph);
+      const { error } = await supabase.from("odc_checklists").upsert({
+        ev_id: evId, phase: ph, items: freshItems, notes: text,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "ev_id,phase" }).then(({ error }) => { if (error) revert(error); }).catch(revert);
-    }
+      }, { onConflict: "ev_id,phase" });
+      if (error) throw error;
+      setChecklists(prev => ({ ...prev, [evId]: { ...(prev[evId] || {}), [ph]: { items: freshItems, notes: text } } }));
+    } catch (e) { revert(e); }
   }
 
   // ── Progress calculations ──
@@ -419,6 +532,12 @@ function ODCModule({ events=[], lang="en", currentUser=null, checklistsCfg=null 
           </div>
 
           {/* ── Checklist items ── */}
+          {loadErrorEvIds.has(selEvId) && (
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",marginBottom:10,borderRadius:8,background:C.redBg||"#FBEAEA",border:`1px solid ${C.red||"#C0392B"}33`}}>
+              <span style={{fontSize:11.5,color:C.red||"#C0392B",fontWeight:600,flex:1}}>⚠ {T2("Could not load this checklist — ticking items is disabled until it loads.")}</span>
+              <button onClick={() => setReloadTick(t => t + 1)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.red||"#C0392B"}`,background:"#fff",color:C.red||"#C0392B",fontSize:11,fontWeight:700,cursor:"pointer"}}>{T2("Retry")}</button>
+            </div>
+          )}
           {loading ? (
             <div style={{textAlign:"center",padding:20,color:C.muted,fontSize:12}}>Loading checklist…</div>
           ) : (

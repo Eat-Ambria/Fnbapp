@@ -2,23 +2,40 @@
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, safeArr } from '../utils/helpers.js';
+import { TODAY, safeArr, localDateStr } from '../utils/helpers.js';
 import { Card } from './SharedUI.jsx';
 import { supabase } from '../lib/supabase.js';
+import { dbInsert } from '../lib/db.js';
 
 // ── Writable log helper — call from any component ──
 // Usage: import { logActivity } from './ActivityLog.jsx';
 //        logActivity('kitchen','Paneer Tikka completed','dish_complete',{evId,dish,chef:'Gopal'});
+// 35+ call sites across the app fire this and never look at the result —
+// supabase-js RESOLVES (doesn't throw) on a rejected insert, so the plain
+// try/catch this used to have around a raw .insert() never actually caught
+// anything; a rejection (a schema mismatch, a NOT NULL/CHECK violation) or
+// any offline period silently discarded the entry with no trace anywhere.
+// dbInsert throws on a genuine (non-offline) rejection and queues a real
+// offline failure for replay, same as every other write in this app — the
+// try/catch here now actually does something, logged once per session
+// (not alerted — this is a background audit trail called many times a
+// shift, not a user action that deserves an interruption on every failure).
+let loggingWarnedOnce = false;
 async function logActivity(type, message, action, meta = {}, userId = null) {
-  if (!supabase) return;
+  if (!supabase) return false;
   try {
-    await supabase.from('activity_log').insert({
+    await dbInsert('activity_log', {
       type, message, action,
       meta: typeof meta === 'object' ? meta : {},
       user_id: userId || meta?.userId || null,
       created_at: new Date().toISOString(),
     });
-  } catch (e) { console.warn('logActivity err:', e); }
+    return true;
+  } catch (e) {
+    console.error('logActivity failed:', e);
+    if (!loggingWarnedOnce) { loggingWarnedOnce = true; console.warn('[ActivityLog] at least one activity entry failed to save this session — further failures only logged to console.'); }
+    return false;
+  }
 }
 
 function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
@@ -27,6 +44,8 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
   const [dateFilter, setDateFilter] = useState(TODAY);
   const [dbLogs, setDbLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // ── Load from Supabase ──
   useEffect(() => {
@@ -34,29 +53,49 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const from = dateFilter + 'T00:00:00';
-      const to = dateFilter + 'T23:59:59';
+      setLoadError(false);
+      // Postgres reads a bare "YYYY-MM-DDTHH:MM:SS" (no offset) in the
+      // SESSION's timezone, which on Supabase is UTC — so the old
+      // dateFilter+'T00:00:00'..'T23:59:59' range actually meant 05:30 IST
+      // THAT day through 05:29 IST the NEXT day (IST = UTC+5:30). Anything
+      // logged between midnight and 05:30 IST was filed under the PREVIOUS
+      // day's view and never showed up live on the day it actually happened
+      // on. Pinning the offset explicitly, and using an exclusive upper
+      // bound on the next calendar day (localDateStr, never toISOString —
+      // see CLAUDE.md), queries the real IST calendar day and also stops
+      // dropping the last fractional second before 23:59:59.000.
+      const nextDay = localDateStr(new Date(new Date(dateFilter + 'T12:00:00').getTime() + 864e5));
+      const from = dateFilter + 'T00:00:00+05:30';
+      const to = nextDay + 'T00:00:00+05:30';
       const { data, error } = await supabase
         .from('activity_log')
         .select('*')
         .gte('created_at', from)
-        .lte('created_at', to)
+        .lt('created_at', to)
         .order('created_at', { ascending: false })
         .limit(500);
-      if (!cancelled && !error && data) setDbLogs(data);
+      if (cancelled) return;
+      if (error) {
+        console.error('[ActivityLog] load failed:', error);
+        setLoadError(true);
+      } else if (data) {
+        setDbLogs(data);
+      }
       setLoading(false);
     }
     load();
-    // Realtime subscription
+    // Realtime subscription — compare the IST calendar day (localDateStr),
+    // not a raw startsWith on the UTC timestamp string, for the same
+    // midnight-05:30 IST reason as the query above.
     const chan = supabase.channel('activity_log_rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log' }, (payload) => {
-        if (payload.new?.created_at?.startsWith(dateFilter)) {
+        if (payload.new?.created_at && localDateStr(new Date(payload.new.created_at)) === dateFilter) {
           setDbLogs(p => [payload.new, ...p]);
         }
       })
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(chan); };
-  }, [dateFilter]);
+  }, [dateFilter, reloadTick]);
 
   // ── Derive client-side logs from props (live fallback for today) ──
   const clientLogs = [];
@@ -110,6 +149,13 @@ function ActivityLog({ lang, currentUser, empDb, kitchenTracking, events }) {
         {dateFilter !== TODAY && <button onClick={() => setDateFilter(TODAY)} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.gold, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>{T2('Today')}</button>}
         {loading && <span style={{ fontSize: 11, color: C.muted }}>⏳</span>}
       </div>
+
+      {loadError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', marginBottom: 14, borderRadius: 10, background: (C.redBg || '#FBEAEA'), border: `1px solid ${C.red || '#C0392B'}33` }}>
+          <span style={{ fontSize: 12, color: C.red || '#C0392B', fontWeight: 600 }}>⚠ {T2('Could not load the log for this day — showing whatever loaded earlier, not necessarily everything.')}</span>
+          <button onClick={() => setReloadTick(t => t + 1)} style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${C.red || '#C0392B'}`, background: '#fff', color: C.red || '#C0392B', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{T2('Retry')}</button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {FILTERS.map(f => {

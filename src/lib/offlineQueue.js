@@ -45,6 +45,16 @@ function openDB() {
   });
 }
 
+// Nothing in the UI ever showed that a write had been queued at all — a
+// tablet could go offline, have every tap silently queued (correctly, by
+// design), and a user could close the tab or hand the device to someone
+// else believing it had all saved, with no on-screen sign otherwise. This
+// event lets App.jsx update its offline-queue count the MOMENT something is
+// queued or replayed, instead of only noticing on its next 2-minute poll.
+function notifyQueueChanged() {
+  try { window.dispatchEvent(new CustomEvent('ambria-offq-change')); } catch (_) {}
+}
+
 export async function enqueue(entry) {
   try {
     const db = await openDB();
@@ -52,6 +62,7 @@ export async function enqueue(entry) {
     tx.objectStore(STORE).add({ ...entry, ts: Date.now() });
     await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
     db.close();
+    notifyQueueChanged();
   } catch (e) {
     // IndexedDB unavailable — last resort: localStorage
     try {
@@ -59,14 +70,30 @@ export async function enqueue(entry) {
       const arr = JSON.parse(localStorage.getItem(key) || '[]');
       arr.push({ ...entry, ts: Date.now() });
       localStorage.setItem(key, JSON.stringify(arr));
+      notifyQueueChanged();
     } catch (_) {
       // Both IndexedDB and localStorage failed (private browsing, quota
       // exceeded) -- this write is genuinely gone with no way to retry it.
       // At minimum leave a trace; silently losing data with zero evidence
-      // anywhere was the worst version of the original bug class.
+      // anywhere was the worst version of the original bug class. Flagging
+      // it here too (not just the console) means App.jsx's offline banner
+      // can surface it, instead of this being visible only to whoever
+      // happens to have devtools open.
       console.error('[offlineQueue] write lost -- IndexedDB and localStorage both unavailable:', entry.table, entry.action);
+      try {
+        const n = Number(localStorage.getItem('ambria_offq_lost') || '0') + 1;
+        localStorage.setItem('ambria_offq_lost', String(n));
+      } catch (_) {}
+      notifyQueueChanged();
     }
   }
+}
+
+export function getLostWriteCount() {
+  try { return Number(localStorage.getItem('ambria_offq_lost') || '0'); } catch (_) { return 0; }
+}
+export function clearLostWriteCount() {
+  try { localStorage.removeItem('ambria_offq_lost'); } catch (_) {}
 }
 
 export async function replayQueue(supabase) {
@@ -175,6 +202,7 @@ export async function replayQueue(supabase) {
     localStorage.setItem(key, JSON.stringify(remaining));
   } catch (_) {}
 
+  notifyQueueChanged();
   return replayed;
 }
 

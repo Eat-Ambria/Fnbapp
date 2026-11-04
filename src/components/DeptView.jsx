@@ -180,7 +180,35 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
   // THIS session (local state) wins over it, so a load that resolves after a
   // user has already started ticking doesn't stomp their taps.
   const deptChecksLoadedRef = useRef(new Set());
+  const deptChecksLoadWarnedRef = useRef(false);
   const deptChecksEvIds = Array.from(new Set([...selEvs.map(e=>e.id), ...upcomingEvs.map(e=>e.id)])).join(',');
+  // Single source of truth for "which setState owns this dept's checklist
+  // data, and is it nested-by-event-id or flat" — the boot-load effect and
+  // the realtime patch effect below both dispatch through this SAME table
+  // instead of each hand-maintaining their own copy, so a future renamed or
+  // added dept can't update one path while silently missing the other (the
+  // same "one copy missed a fix" class KNOWN_ISSUES.md already documents
+  // for menuArr()).
+  const deptCheckSetters = {
+    service: { setter: setSvcChecks, flat: false },
+    crockery: { setter: setCrockChecks, flat: false },
+    transport_load: { setter: setLoadChecks, flat: false },
+    odc: { setter: setOdcChecks, flat: false },
+    beverages: { setter: setBevChecks, flat: true },
+    fruits: { setter: setFruitChecks, flat: true },
+  };
+  function mergeDeptChecksRows(data){
+    const nested = { service:{}, crockery:{}, transport_load:{}, odc:{} };
+    const flatBev = {}, flatFruit = {};
+    (data||[]).forEach(r=>{
+      if (r.dept==='beverages') { flatBev[r.item_key] = r.value; return; }
+      if (r.dept==='fruits') { flatFruit[r.item_key] = r.value; return; }
+      if (!nested[r.dept]) return;
+      if (!nested[r.dept][r.event_id]) nested[r.dept][r.event_id] = {};
+      nested[r.dept][r.event_id][r.item_key] = r.value;
+    });
+    return { nested, flatBev, flatFruit };
+  }
   useEffect(()=>{
     const ids = deptChecksEvIds ? deptChecksEvIds.split(',') : [];
     const missing = ids.filter(id=>!deptChecksLoadedRef.current.has(id));
@@ -189,33 +217,61 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
     supabase.from('dept_checks').select('event_id, dept, item_key, value').in('event_id', missing)
       .then(({data, error})=>{
         if (cancelled) return;
+        if (error) {
+          // Marking these ids "loaded" here (as this used to, unconditionally)
+          // meant a failed fetch was NEVER retried for the rest of the
+          // session — every checklist for that event looked permanently
+          // empty, with nothing in the UI to say the load had actually
+          // failed rather than genuinely having nothing checked yet. Leaving
+          // them out of deptChecksLoadedRef means the next time this effect
+          // runs for any reason (switching the date picker, opening another
+          // dept tab, a tab remount) retries them automatically.
+          console.error('[DeptView] dept_checks load failed:', error);
+          if (!deptChecksLoadWarnedRef.current) {
+            deptChecksLoadWarnedRef.current = true;
+            alert(T2('Could not load saved checklist state — showing nothing checked until this reloads. Switching tabs or the date picker will retry.'));
+          }
+          return;
+        }
         missing.forEach(id=>deptChecksLoadedRef.current.add(id));
-        if (error) { console.error('[DeptView] dept_checks load failed:', error); return; }
-        const nested = { service:{}, crockery:{}, transport_load:{}, odc:{} };
-        const flatBev = {}, flatFruit = {};
-        (data||[]).forEach(r=>{
-          if (r.dept==='beverages') { flatBev[r.item_key] = r.value; return; }
-          if (r.dept==='fruits') { flatFruit[r.item_key] = r.value; return; }
-          if (!nested[r.dept]) return;
-          if (!nested[r.dept][r.event_id]) nested[r.dept][r.event_id] = {};
-          nested[r.dept][r.event_id][r.item_key] = r.value;
-        });
+        const { nested, flatBev, flatFruit } = mergeDeptChecksRows(data);
+        const flatByDept = { beverages: flatBev, fruits: flatFruit };
         const mergeNested = (loaded, local) => {
           const merged = {};
           Object.keys(loaded).forEach(evId=>{ merged[evId] = {...loaded[evId]}; });
           Object.keys(local).forEach(evId=>{ merged[evId] = {...(merged[evId]||{}), ...local[evId]}; });
           return merged;
         };
-        setSvcChecks(p=>mergeNested(nested.service, p));
-        setCrockChecks(p=>mergeNested(nested.crockery, p));
-        setLoadChecks(p=>mergeNested(nested.transport_load, p));
-        setOdcChecks(p=>mergeNested(nested.odc, p));
-        setBevChecks(p=>({...flatBev, ...p}));
-        setFruitChecks(p=>({...flatFruit, ...p}));
+        Object.entries(deptCheckSetters).forEach(([dept, {setter, flat}])=>{
+          if (flat) setter(p=>({...flatByDept[dept], ...p}));
+          else setter(p=>mergeNested(nested[dept]||{}, p));
+        });
       });
     return ()=>{ cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deptChecksEvIds]);
+  // Realtime — dept_checks is one row per checked item (never a whole-blob
+  // overwrite), so this never risks clobbering a concurrent tick the way a
+  // blob-table merge would; it just keeps an already-open tab's state
+  // current with whatever another tablet just ticked. Without this, two
+  // tablets on the same Service/Crockery/ODC checklist never saw each
+  // other's work until a reload.
+  useEffect(()=>{
+    if (!supabase) return;
+    const chan = supabase.channel('dept-checks-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dept_checks' }, (payload)=>{
+        const row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
+        if (!row || !row.event_id || !row.dept || !row.item_key) return;
+        const value = payload.eventType==='DELETE' ? undefined : payload.new.value;
+        const entry = deptCheckSetters[row.dept];
+        if (!entry) return;
+        if (entry.flat) entry.setter(p=>({...p, [row.item_key]: value}));
+        else entry.setter(p=>({...p, [row.event_id]: {...(p[row.event_id]||{}), [row.item_key]: value}}));
+      })
+      .subscribe();
+    return ()=>{ supabase.removeChannel(chan); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   // Service > Staff Allocation: the saved Waiters Ratio config (event_configs,
   // dept_id='svc', config_key='waiter_ratio') for the picked date's events,
