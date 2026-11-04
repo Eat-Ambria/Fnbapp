@@ -332,6 +332,7 @@ const EVENT_CHILD_TABLES: Array<[string, string]> = [
   ["store_issue_assignments", "event_id"],
   ["ingredient_usage_log", "event_id"],
   ["dept_checks", "event_id"],
+  ["odc_checklists", "ev_id"],
   ["transport_queue", "ev_id"],
   ["notifications", "event_id"],
 ];
@@ -385,6 +386,16 @@ async function migrateEventId(sb: any, oldRow: any, newId: string): Promise<void
         dish_key: typeof r.dish_key === "string" && r.dish_key.startsWith(ktPrefix)
           ? newId + r.dish_key.slice(oldRow.id.length)
           : r.dish_key,
+        // Without this, the copied row keeps the ORIGINAL writer's client_id
+        // — the realtime INSERT echo for the new id then hits that same
+        // tablet's own "skip my own echo" check in App.jsx, while the
+        // DELETE echo for the old id clears its local state for the old
+        // key. That tablet shows these dishes as un-ticked until it
+        // reloads, even though the server's copy under the new id is
+        // correct. Nulling it means the echo is treated as foreign (merged
+        // normally) on every tablet, including the one that originally
+        // wrote it.
+        client_id: null,
       }));
       const { error: ktUpErr } = await sb.from("kitchen_tracking").upsert(renamed, { onConflict: "ev_id,dish_key" });
       if (ktUpErr) { console.error(`migrateEventId: kitchen_tracking upsert ${oldRow.id} -> ${newId} failed:`, ktUpErr); ktOk = false; break; }
@@ -400,6 +411,37 @@ async function migrateEventId(sb: any, oldRow: any, newId: string): Promise<void
       if (ktDelErr) console.error(`migrateEventId: kitchen_tracking cleanup ${oldRow.id} failed:`, ktDelErr);
     } else {
       console.error(`migrateEventId: kitchen_tracking migration incomplete for ${oldRow.id} -> ${newId}, leaving old rows in place for retry`);
+    }
+  }
+
+  // dept_checks: beverages/fruits rows key item_key as `bev_${evId}_${idx}` /
+  // `fruit_${evId}_${idx}` (see DeptView.jsx's persistCheck call sites) —
+  // the generic EVENT_CHILD_TABLES rewrite above only updates the event_id
+  // column, leaving item_key still carrying the OLD event id baked in. The
+  // loader reads these back flat by item_key, so a renamed event's
+  // Beverages/Fruits ticks look reset — the exact same bug class the
+  // kitchen_tracking dish_key fix above exists for. service/crockery/
+  // transport_load/odc rows are unaffected: their item_key never embeds an
+  // event id.
+  {
+    const bevPrefix = `bev_${oldRow.id}_`;
+    const fruitPrefix = `fruit_${oldRow.id}_`;
+    const { data: dcRows, error: dcSelErr } = await sb
+      .from("dept_checks").select("event_id,dept,item_key").eq("event_id", newId).in("dept", ["beverages", "fruits"]);
+    if (dcSelErr) {
+      console.error(`migrateEventId: dept_checks select ${newId} failed:`, dcSelErr);
+    } else {
+      for (const r of dcRows || []) {
+        const isBev = typeof r.item_key === "string" && r.item_key.startsWith(bevPrefix);
+        const isFruit = !isBev && typeof r.item_key === "string" && r.item_key.startsWith(fruitPrefix);
+        if (!isBev && !isFruit) continue;
+        const suffix = r.item_key.slice((isBev ? bevPrefix : fruitPrefix).length);
+        const newItemKey = (isBev ? "bev_" : "fruit_") + newId + "_" + suffix;
+        const { error: dcUpErr } = await sb.from("dept_checks")
+          .update({ item_key: newItemKey })
+          .eq("event_id", newId).eq("dept", r.dept).eq("item_key", r.item_key);
+        if (dcUpErr) console.error(`migrateEventId: dept_checks item_key rewrite ${r.item_key} -> ${newItemKey} failed:`, dcUpErr);
+      }
     }
   }
 
