@@ -13,7 +13,7 @@ import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
-import { fetchAllRows } from '../lib/db.js';
+import { fetchAllRows, dbSubscribe } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
 import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
@@ -113,6 +113,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }, [event && event.id]);
   // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
   var [fp, setFp]                   = useState(null);
+  // A load failure used to silently set fp to just {event_id} — exactly the
+  // same shape as a genuinely-new, never-saved FP — so the next field edit
+  // (or worse, a lock/unlock) wrote that empty shell straight over whatever
+  // was actually in the database, wiping real fp_history/lock_history. Now
+  // fp stays null (every read site in this file and FunctionPlanTab.jsx
+  // already null-checks it) and every write function below refuses to run.
+  var [fpLoadError, setFpLoadError] = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
   // V89 — Service/Crockery/Transport configs, fetched fresh right before print
   // so the "1 doc for kitchen + service" always reflects the latest saves,
@@ -458,20 +465,42 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }, [loading]);
 
   // ── V78: Function Plan (event_function_plans, one row per event) ──
-  useEffect(function(){
+  var fpCancelledRef = useRef(false);
+  function loadFp() {
     if (!event || !event.id) return;
-    var cancelled = false;
+    setFpLoadError(null);
     (async function(){
       try {
         var res = await supabase.from('event_function_plans').select('*').eq('event_id', event.id).maybeSingle();
         if (res.error) throw res.error;
-        if (!cancelled) setFp(res.data || { event_id: event.id });
+        if (!fpCancelledRef.current) setFp(res.data || { event_id: event.id });
       } catch (e) {
         console.error('[EventMenuBuilder] load FP failed:', e);
-        if (!cancelled) setFp({ event_id: event.id });
+        if (!fpCancelledRef.current) { setFp(null); setFpLoadError(e); }
       }
     })();
-    return function(){ cancelled = true; };
+  }
+  useEffect(function(){
+    fpCancelledRef.current = false;
+    loadFp();
+    // Keeps the Final/Locked badge, blockIfMenuLocked, and the "did someone
+    // else already change this?" checks in writeFpLockState fresh without
+    // needing every write to be the thing that discovers a stale view — a
+    // tablet sitting on this tab when another device locks/unlocks/marks
+    // final sees it update live instead of silently acting on old state
+    // until its next own write happens to fail.
+    var unsub = (event && event.id) ? dbSubscribe('event_function_plans', function(payload){
+      var row = (payload && (payload.new || payload.old)) || {};
+      if (row.event_id !== event.id) return;
+      if (payload.eventType === 'DELETE') { if (!fpCancelledRef.current) setFp({ event_id: event.id }); return; }
+      // Refetch rather than trust payload.new directly — fp_history/
+      // lock_history are large jsonb columns, and an unchanged TOASTed
+      // column can be omitted from a realtime payload (same risk already
+      // flagged for events.menu elsewhere in this app).
+      loadFp();
+    }) : (function(){});
+    return function(){ fpCancelledRef.current = true; unsub(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event && event.id]);
 
   // Kitchen Hub's D-1 planning already scans events.special for dietary keywords
@@ -494,11 +523,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // Re-fetches the specific columns about to be touched immediately before
+  // writing, same pattern as menuItemOps.js's mergeOverridesForWrite — the
+  // three write functions below used to build their whole upserted payload
+  // from the LOCAL fp snapshot (which can be stale by however long it's been
+  // since this tablet last loaded/received an update), so one tablet's edit
+  // could silently carry an old lock_history/fp_history array over whatever
+  // another tablet had already appended to it, or even un-lock an FP another
+  // device had just marked final. Returns null if the row doesn't exist yet.
+  async function fetchFpFresh(cols) {
+    var res = await supabase.from('event_function_plans').select(cols).eq('event_id', event.id).maybeSingle();
+    if (res.error) throw res.error;
+    return res.data || null;
+  }
+
   async function saveFPField(field, value) {
-    var prevVal = fp ? fp[field] : undefined;
+    if (!fp) { alert(T2('Function Plan failed to load — cannot save. Please retry.')); return; }
+    var prevVal = fp[field];
     var who = (currentUser && currentUser.name) || null;
-    var next = { ...(fp || { event_id: event.id }), [field]: value };
-    if (!next.created_by && who) next.created_by = who;
+    var historyEntry = null;
     // Only log an actual change — a field that's blurred without being
     // touched still calls onSaveField in a couple of spots (e.g. re-saving
     // guest_signature_name alongside the signature itself), and that isn't
@@ -506,11 +549,21 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (prevVal !== value && !(prevVal == null && value == null)) {
       var label = FP_FIELD_LABELS[field] || field;
       var summary = T2('Changed') + ' ' + T2(label) + ': ' + formatFpHistoryValue(field, prevVal) + ' → ' + formatFpHistoryValue(field, value);
-      next.fp_history = [ ...((fp && fp.fp_history) || []), { at: new Date().toISOString(), by: who, summary: summary } ];
+      historyEntry = { at: new Date().toISOString(), by: who, summary: summary };
     }
-    setFp(next);
+    var localNext = { ...fp, [field]: value };
+    if (historyEntry) localNext.fp_history = [ ...(fp.fp_history || []), historyEntry ];
+    setFp(localNext);
     try {
-      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      var fresh = await fetchFpFresh('fp_history, created_by');
+      var payload = { event_id: event.id, [field]: value };
+      if (historyEntry) payload.fp_history = [ ...((fresh && fresh.fp_history) || []), historyEntry ];
+      if (!(fresh && fresh.created_by) && who) payload.created_by = who;
+      // Upsert is safe here even though it carries only the touched
+      // columns: Postgres' ON CONFLICT DO UPDATE SET only touches the
+      // columns actually present in the payload, leaving every other
+      // column (including a concurrently-changed lock state) untouched.
+      var res = await supabase.from('event_function_plans').upsert(payload, { onConflict: 'event_id' }).select().single();
       if (res.error) throw res.error;
       setFp(res.data);
       await mirrorFPToEvent(res.data);
@@ -522,16 +575,21 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   // Shared append-only history write for anything that changes the FP but
   // doesn't go through saveFPField/writeFpLockState — menu dish add/remove,
-  // FOC toggles, outsourced toggles. One extra upsert per action; best-effort
+  // FOC toggles, outsourced toggles. One extra write per action; best-effort
   // (a history write failing should never undo or block the action itself).
   async function logFpHistory(summary) {
+    if (!fp) return;
     var who = (currentUser && currentUser.name) || null;
-    var base = fp || { event_id: event.id };
-    var next = { ...base, fp_history: [ ...((base.fp_history) || []), { at: new Date().toISOString(), by: who, summary: summary } ] };
-    if (!next.created_by && who) next.created_by = who;
-    setFp(next);
+    var histEntry = { at: new Date().toISOString(), by: who, summary: summary };
+    setFp(function(prevFp){
+      var base = prevFp || { event_id: event.id };
+      return { ...base, fp_history: [ ...(base.fp_history || []), histEntry ] };
+    });
     try {
-      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      var fresh = await fetchFpFresh('fp_history, created_by');
+      var payload = { event_id: event.id, fp_history: [ ...((fresh && fresh.fp_history) || []), histEntry ] };
+      if (!(fresh && fresh.created_by) && who) payload.created_by = who;
+      var res = await supabase.from('event_function_plans').upsert(payload, { onConflict: 'event_id' }).select().single();
       if (res.error) throw res.error;
       setFp(res.data);
     } catch (e) {
@@ -567,24 +625,61 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // free for whoever locked it, code-gated for anyone else) is the one gate
   // for both; there's no separate bypass for menu edits specifically.
   function blockIfMenuLocked() {
+    // A load failure means the real lock state is unknown — treat it as
+    // locked rather than silently letting menu edits through on a guess.
+    if (fpLoadError) { alert(T2("Could not confirm this Function Plan's lock state — try reloading before changing the menu.")); return true; }
     if (!(fp && fp.locked)) return false;
     alert(T2('This Function Plan is locked. Unlock it first to change the menu.'));
     return true;
   }
 
+  // The highest-stakes write in this file — lock/unlock/mark-final — so it's
+  // the one place that does a genuine optimistic-concurrency check, not just
+  // a fresh-fetch-then-merge. A stale upsert here used to be able to un-lock
+  // an FP another tablet had already marked Final (and vice versa), silently
+  // dropping whichever lock/fp_history entries the OTHER tablet's action had
+  // just appended. Returns true only if the write actually took effect.
   async function writeFpLockState(patch, histEntry, fpHistorySummary) {
-    var next = { ...(fp || { event_id: event.id }), ...patch,
-      lock_history: [ ...((fp && fp.lock_history) || []), histEntry ],
-      fp_history: [ ...((fp && fp.fp_history) || []), { at: histEntry.at, by: histEntry.by, summary: fpHistorySummary } ] };
-    if (!next.created_by && currentUser && currentUser.name) next.created_by = currentUser.name;
-    setFp(next);
+    if (!fp) { alert(T2('Function Plan failed to load — cannot change lock state. Please retry.')); return false; }
+    var expectedLocked = !!fp.locked;
+    var expectedSent = !!fp.sent_to_kitchen;
+    var localNext = { ...fp, ...patch,
+      lock_history: [ ...(fp.lock_history || []), histEntry ],
+      fp_history: [ ...(fp.fp_history || []), { at: histEntry.at, by: histEntry.by, summary: fpHistorySummary } ] };
+    if (!localNext.created_by && currentUser && currentUser.name) localNext.created_by = currentUser.name;
+    setFp(localNext);
     try {
-      var res = await supabase.from('event_function_plans').upsert(next, { onConflict: 'event_id' }).select().single();
+      // The row may not exist yet if this is the very first thing anyone's
+      // done on this FP (no field ever saved) — create it if missing before
+      // the conditional update below, which can only ever affect a row that
+      // already exists. ON CONFLICT DO NOTHING, so a harmless no-op if the
+      // row is already there.
+      await supabase.from('event_function_plans').upsert({ event_id: event.id }, { onConflict: 'event_id', ignoreDuplicates: true });
+      var fresh = await fetchFpFresh('lock_history, fp_history, created_by');
+      var payload = { ...patch,
+        lock_history: [ ...((fresh && fresh.lock_history) || []), histEntry ],
+        fp_history: [ ...((fresh && fresh.fp_history) || []), { at: histEntry.at, by: histEntry.by, summary: fpHistorySummary } ] };
+      if (!(fresh && fresh.created_by) && currentUser && currentUser.name) payload.created_by = currentUser.name;
+      var res = await supabase.from('event_function_plans')
+        .update(payload)
+        .eq('event_id', event.id).eq('locked', expectedLocked).eq('sent_to_kitchen', expectedSent)
+        .select();
       if (res.error) throw res.error;
-      setFp(res.data);
+      if (!res.data || res.data.length !== 1) {
+        // Nothing matched: the lock state changed on another device since
+        // this tablet last saw it. Resync to the real current state instead
+        // of silently proceeding as if our own stale view were still right.
+        var full = await supabase.from('event_function_plans').select('*').eq('event_id', event.id).maybeSingle();
+        if (!full.error) setFp(full.data || fp);
+        alert(T2("This Function Plan's lock state was changed on another device — review and try again."));
+        return false;
+      }
+      setFp(res.data[0]);
+      return true;
     } catch (e) {
       console.error('[EventMenuBuilder] FP lock state save failed:', e);
       alert(T2('Failed to save:') + ' ' + (e.message || e));
+      return false;
     }
   }
 
@@ -614,12 +709,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   async function confirmLockOnly() {
     var who = (currentUser && currentUser.name) || null;
     var now = new Date().toISOString();
-    await writeFpLockState(
+    var ok = await writeFpLockState(
       { locked: true, locked_at: now, locked_by: who, sent_to_kitchen: false },
       { action: 'locked', by: who, at: now },
       T2('Locked (not yet sent to Kitchen)')
     );
-    setFpLockModal(null);
+    if (ok) setFpLockModal(null);
   }
 
   // Mark Final is the one action that actually notifies Kitchen — locks the
@@ -632,11 +727,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var now = new Date().toISOString();
     var patch = { locked: true, sent_to_kitchen: true, sent_to_kitchen_at: now, sent_to_kitchen_by: who };
     if (!(fp && fp.locked)) { patch.locked_at = now; patch.locked_by = who; }
-    await writeFpLockState(
+    var ok = await writeFpLockState(
       patch,
       { action: 'marked_final', by: who, at: now },
       T2('Marked Final — sent to Kitchen')
     );
+    if (!ok) return; // write didn't take — don't tell Kitchen about something that didn't happen
     setFpLockModal(null);
     notifyKitchen('fp_locked', T2('FP released') + ': ' + (event.guest || T2('Function')),
       (event.date ? event.date + ' · ' : '') + (who ? T2('by') + ' ' + who : ''));
@@ -651,11 +747,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     // FP before — reopening a plan that was only ever locked-while-drafting
     // (never marked final) is not news to them.
     var wasSentToKitchen = !!(fp && fp.sent_to_kitchen);
-    await writeFpLockState(
+    var ok = await writeFpLockState(
       { locked: false, sent_to_kitchen: false },
       { action: 'unlocked', by: who, at: new Date().toISOString(), reason: reason },
       T2('Unlocked for a late change') + ' — ' + reason
     );
+    if (!ok) return;
     setFpLockModal(null);
     setUnlockReason('');
     setUnlockCode('');

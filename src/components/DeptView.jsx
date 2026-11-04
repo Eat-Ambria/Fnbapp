@@ -94,6 +94,28 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
   const [selOdcId, setSelOdcId] = useState(null);
   useEffect(()=>{const t2=setInterval(()=>setBevTick(k=>k+1),1000);return()=>clearInterval(t2);},[]);
   const [odcChecks, setOdcChecks] = useState({});
+  // Every checklist above used to live only in useState — ticked items were
+  // lost on refresh/logout and invisible to any other tablet. One row per
+  // checked item in `dept_checks` (event_id, dept, item_key) means a toggle
+  // is always a single-row upsert, never a whole-event JSON blob to
+  // reconstruct (the whitelist/stale-overwrite bug class this app keeps
+  // getting bitten by elsewhere). `timestamptz` here is a genuine moment in
+  // time, not a date-only value, so toISOString() is the right call —
+  // unlike the date-only strings CLAUDE.md's localDateStr() rule is about.
+  const deptChecksWarnedRef = useRef(false);
+  function persistCheck(evId, dept, itemKey, value) {
+    dbUpsert('dept_checks', {
+      event_id: evId, dept, item_key: itemKey, value,
+      updated_by: currentUser?.staff_id || currentUser?.id || null,
+      updated_at: new Date().toISOString(),
+    }, 'event_id,dept,item_key').catch(e => {
+      console.error('[DeptView] persistCheck failed:', dept, itemKey, e);
+      if (!deptChecksWarnedRef.current) {
+        deptChecksWarnedRef.current = true;
+        alert(T2('Could not save that checklist item — check your connection.') + ' ' + (e.message || e));
+      }
+    });
+  }
   // Service > Staff Allocation's admin rule editor — lifted here from a nested
   // IIFE that only runs when selDept==="service" && activeTab==="staffing" &&
   // currentUser is admin. useState INSIDE that conditional closure meant these
@@ -147,6 +169,53 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
   // future function, not just tomorrow — the fruits actually needed can be
   // decided whenever, not on a strict D-1 cadence like kitchen prep.
   const upcomingEvs = safeArr(events).filter(e=>e.date>=TODAY).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+
+  // Boot-load every checklist above from dept_checks. `selEvs` covers whatever
+  // date is picked for Service/Crockery/Beverages (including a past date
+  // being reviewed); `upcomingEvs` covers Fruits/ODC/Transport-loading, which
+  // always look at today-or-later. service/crockery/transport_load/odc are
+  // nested event_id -> item_key; beverages/fruits store the already-composite
+  // `bk` string (e.g. "bev_<evId>_<idx>") directly as item_key, so they load
+  // back flat with no parsing. Loaded data is the base; any tap already made
+  // THIS session (local state) wins over it, so a load that resolves after a
+  // user has already started ticking doesn't stomp their taps.
+  const deptChecksLoadedRef = useRef(new Set());
+  const deptChecksEvIds = Array.from(new Set([...selEvs.map(e=>e.id), ...upcomingEvs.map(e=>e.id)])).join(',');
+  useEffect(()=>{
+    const ids = deptChecksEvIds ? deptChecksEvIds.split(',') : [];
+    const missing = ids.filter(id=>!deptChecksLoadedRef.current.has(id));
+    if (missing.length===0) return;
+    let cancelled = false;
+    supabase.from('dept_checks').select('event_id, dept, item_key, value').in('event_id', missing)
+      .then(({data, error})=>{
+        if (cancelled) return;
+        missing.forEach(id=>deptChecksLoadedRef.current.add(id));
+        if (error) { console.error('[DeptView] dept_checks load failed:', error); return; }
+        const nested = { service:{}, crockery:{}, transport_load:{}, odc:{} };
+        const flatBev = {}, flatFruit = {};
+        (data||[]).forEach(r=>{
+          if (r.dept==='beverages') { flatBev[r.item_key] = r.value; return; }
+          if (r.dept==='fruits') { flatFruit[r.item_key] = r.value; return; }
+          if (!nested[r.dept]) return;
+          if (!nested[r.dept][r.event_id]) nested[r.dept][r.event_id] = {};
+          nested[r.dept][r.event_id][r.item_key] = r.value;
+        });
+        const mergeNested = (loaded, local) => {
+          const merged = {};
+          Object.keys(loaded).forEach(evId=>{ merged[evId] = {...loaded[evId]}; });
+          Object.keys(local).forEach(evId=>{ merged[evId] = {...(merged[evId]||{}), ...local[evId]}; });
+          return merged;
+        };
+        setSvcChecks(p=>mergeNested(nested.service, p));
+        setCrockChecks(p=>mergeNested(nested.crockery, p));
+        setLoadChecks(p=>mergeNested(nested.transport_load, p));
+        setOdcChecks(p=>mergeNested(nested.odc, p));
+        setBevChecks(p=>({...flatBev, ...p}));
+        setFruitChecks(p=>({...flatFruit, ...p}));
+      });
+    return ()=>{ cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deptChecksEvIds]);
 
   // Service > Staff Allocation: the saved Waiters Ratio config (event_configs,
   // dept_id='svc', config_key='waiter_ratio') for the picked date's events,
@@ -672,7 +741,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                   {SERVICE_CHECKLIST.map(item=>{
                     const done = !!checks[item.id];
                     return (
-                      <div key={item.id} onClick={()=>setSvcChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:!done}}))}
+                      <div key={item.id} onClick={()=>{const nextVal=!done;setSvcChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:nextVal}}));persistCheck(ev.id,'service',item.id,nextVal);}}
                         style={{display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",gap:4,padding:"10px 6px",borderRadius:10,cursor:"pointer",background:done?C.greenBg:C.surface,border:`1px solid ${done?C.greenBorder:C.border}`,minHeight:84}}>
                         <span style={{fontSize:16}}>{item.icon}</span>
                         <span style={{fontSize:10.5,lineHeight:1.25,color:done?C.green:C.text,textDecoration:done?"line-through":"none"}}>{lang==="hi"?item.h:item.label}</span>
@@ -708,7 +777,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                       const qty = Math.ceil(ev.pax * item.perPax);
                       const done = !!checks[item.name];
                       return (
-                        <div key={item.name} onClick={()=>setCrockChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.name]:!done}}))}
+                        <div key={item.name} onClick={()=>{const nextVal=!done;setCrockChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.name]:nextVal}}));persistCheck(ev.id,'crockery',item.name,nextVal);}}
                           style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",borderRadius:8,cursor:"pointer",background:done?C.greenBg:"transparent",border:`1px solid ${done?C.greenBorder:C.borderLight}`}}>
                           <div style={{width:20,height:20,borderRadius:3,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                             {done&&<span style={{color:"#fff",fontSize:10}}>✓</span>}
@@ -917,15 +986,15 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                                       {sRunning?`⏱ ${fmtT(sEl)} / ${fmtT(sTm)} — ${fmtT(sRem)} ${T2("left")}`:sDone?`✓ ${fmtT(sTm)}`:`⏱ ${fmtT(sTm)}`}
                                     </div>
                                   </div>}
-                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),starts:{...((p[bk]||{}).starts||{}),[si]:Date.now()}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
-                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),manual:{...((p[bk]||{}).manual||{}),[si]:true}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),starts:{...(bd.starts||{}),[si]:Date.now()}};setBevChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'beverages',bk,nextVal);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
+                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),manual:{...(bd.manual||{}),[si]:true}};setBevChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'beverages',bk,nextVal);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
                                   {!sRunning&&!sDone&&!prevOk2&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
                                 </div>
                               </div>
                             );
                           })}
                           {steps.every((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);})&&!bd.ready&&(
-                            <button onClick={(e)=>{e.stopPropagation();setBevChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}}));}}
+                            <button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})};setBevChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'beverages',bk,nextVal);}}
                               style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:48}}>
                               ✅ {T2("Mark as Ready")} — {b.name}
                             </button>
@@ -1058,15 +1127,15 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                                       {sRunning?`⏱ ${fmtT(sEl)} / ${fmtT(sTm)} — ${fmtT(sRem)} ${T2("left")}`:sDone?`✓ ${fmtT(sTm)}`:`⏱ ${fmtT(sTm)}`}
                                     </div>
                                   </div>}
-                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),starts:{...((p[bk]||{}).starts||{}),[si]:Date.now()}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
-                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),manual:{...((p[bk]||{}).manual||{}),[si]:true}}}));}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
+                                  {!sRunning&&!sDone&&sTm>0&&prevOk2&&<button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),starts:{...(bd.starts||{}),[si]:Date.now()}};setFruitChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'fruits',bk,nextVal);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>▶ {T2("Start")} — {fmtT(sTm)}</button>}
+                                  {!sRunning&&!sDone&&!sTm&&prevOk2&&!step.live&&<button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),manual:{...(bd.manual||{}),[si]:true}};setFruitChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'fruits',bk,nextVal);}} style={{marginTop:6,padding:"8px 16px",borderRadius:8,background:C.gold,color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>✓ {T2("Mark Done")}</button>}
                                   {!sRunning&&!sDone&&!prevOk2&&<div style={{marginTop:4,fontSize:11,color:C.faint}}>⏸ {T2("Previous step must finish first")}</div>}
                                 </div>
                               </div>
                             );
                           })}
                           {steps.every((_,si)=>{return !!(bd.manual?.[si])||(bd.starts?.[si]&&steps[si].tm&&Math.floor((Date.now()-bd.starts[si])/1000)>=steps[si].tm);})&&!bd.ready&&(
-                            <button onClick={(e)=>{e.stopPropagation();setFruitChecks(p=>({...p,[bk]:{...(p[bk]||{}),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}}));}}
+                            <button onClick={(e)=>{e.stopPropagation();const nextVal={...(bd),ready:true,readyAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})};setFruitChecks(p=>({...p,[bk]:nextVal}));persistCheck(ev.id,'fruits',bk,nextVal);}}
                               style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${C.green},#2A7A4A)`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8,minHeight:48}}>
                               ✅ {T2("Mark as Ready")} — {b.name}
                             </button>
@@ -1304,7 +1373,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                       const checked=!!ck[item.id];
                       const foodReady=item.isFood?!!(kt[ev.id]?.[`d_${item.id.replace("food_","")}`]?.ready):true;
                       return(
-                        <div key={item.id} onClick={()=>{if(!item.isFood||foodReady)setLoadChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:!checked}}));}}
+                        <div key={item.id} onClick={()=>{if(!item.isFood||foodReady){const nextVal=!checked;setLoadChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:nextVal}}));persistCheck(ev.id,'transport_load',item.id,nextVal);}}}
                           style={{display:"flex",gap:10,alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:(!item.isFood||foodReady)?"pointer":"default",opacity:item.isFood&&!foodReady?.4:1}}>
                           <div style={{width:24,height:24,borderRadius:6,border:`2px solid ${checked?C.green:C.border}`,background:checked?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                             {checked&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}
@@ -1501,7 +1570,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                           const key = phase.phase+"_"+c.id;
                           const done = !!evChecks[key];
                           return (
-                            <div key={c.id} onClick={()=>setOdcChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[key]:!done}}))}
+                            <div key={c.id} onClick={()=>{const nextVal=!done;setOdcChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[key]:nextVal}}));persistCheck(ev.id,'odc',key,nextVal);}}
                               style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0",cursor:"pointer"}}>
                               <div style={{width:20,height:20,borderRadius:3,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                                 {done&&<span style={{color:"#fff",fontSize:10}}>✓</span>}

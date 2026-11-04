@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
-import { fetchAllRows } from '../lib/db.js';
+import { fetchAllRows, dbInsert } from '../lib/db.js';
 // V81: was a dynamic import('../lib/supabase.js') at ~20 call sites — Rollup
 // already merges it into the main chunk (it's statically imported everywhere
 // else too), so the dynamic form bought no real code-splitting, only extra
@@ -987,6 +987,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   const [yieldQty, setYieldQty] = useState("");
   const [yieldUnit, setYieldUnit] = useState("kg");
   const [usageModal, setUsageModal] = useState(null);
+  const [savingUsage, setSavingUsage] = useState(false);
   const [usageActuals, setUsageActuals] = useState({});
   function openUsageModal(dish, pax, isPrepDay, onConfirm) {
     setYieldModal({dish:dish, pax:pax, isPrepDay:isPrepDay, onConfirm:onConfirm});
@@ -1007,14 +1008,34 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     } else { ym.onConfirm(made); }
   }
   async function saveUsageAndDone() {
-    if (!usageModal) return;
+    if (!usageModal || savingUsage) return;
     const rows = usageModal.ingredients.map(ing => {
       const actual = usageActuals[ing.n];
       return { name: ing.n, hindi: ing.h||"", scaled_qty: Math.round(ing.q*100)/100, unit: ing.u, actual_qty: actual !== undefined && actual !== "" ? parseFloat(actual) : null };
     });
+    setSavingUsage(true);
     try {
-      await supabase.from('ingredient_usage_log').insert({ event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
-    } catch(e) { console.error('Usage log save error:', e); }
+      // dbInsert throws on a genuine (non-retryable) failure and queues
+      // offline writes for replay, unlike the raw .insert() this replaced —
+      // that never checked {error} at all, so a rejected write looked
+      // exactly like a successful one and the dish still got marked done
+      // with the actual-usage figures silently gone for good.
+      await dbInsert('ingredient_usage_log', { event_id: usageModal.evId, dish_name: usageModal.dishName, pax: usageModal.pax, ingredients: rows, is_prep_day: usageModal.isPrepDay, recorded_by: currentUser?.name||"Unknown", yield_qty: usageModal.yieldQty||null, yield_unit: usageModal.yieldQty?usageModal.yieldUnit:null });
+    } catch(e) {
+      console.error('Usage log save error:', e);
+      setSavingUsage(false);
+      // The kitchen's live progress (the dish is actually done, staff are
+      // moving on) matters more than this analytics log, so this doesn't
+      // block marking done the way a failed issue/FP write does — but it
+      // must ask, not silently proceed, since cancelling keeps the modal
+      // open with everything already entered so it can just be retried.
+      const proceed = window.confirm(T2('Ingredient usage could NOT be saved')+': '+(e.message||e)+'. '+T2('Mark dish done anyway? The usage figures entered here will be lost.'));
+      if (!proceed) return;
+      usageModal.onConfirm(usageModal.made);
+      setUsageModal(null);
+      return;
+    }
+    setSavingUsage(false);
     usageModal.onConfirm(usageModal.made);
     setUsageModal(null);
   }
@@ -8275,8 +8296,8 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
               </div>
             </div>
             <div style={{padding:"16px 24px 20px",borderTop:`1px solid ${K.modalLine}`,display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0}}>
-              <KButton variant="ghost" onClick={()=>{usageModal.onConfirm();setUsageModal(null);}} style={{padding:"11px 22px",borderRadius:14}}>{T2("Skip")}</KButton>
-              <KButton variant="brand" icon="check" onClick={saveUsageAndDone} style={{padding:"11px 22px",borderRadius:14}}>{T2("Save & Done")}</KButton>
+              <KButton variant="ghost" disabled={savingUsage} onClick={()=>{usageModal.onConfirm();setUsageModal(null);}} style={{padding:"11px 22px",borderRadius:14}}>{T2("Skip")}</KButton>
+              <KButton variant="brand" icon="check" disabled={savingUsage} onClick={saveUsageAndDone} style={{padding:"11px 22px",borderRadius:14}}>{savingUsage?T2("Saving…"):T2("Save & Done")}</KButton>
             </div>
           </div>
         </div>

@@ -1001,20 +1001,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
   // `sec` scopes both which evBreak entries receive the write and the share
   // denominator to just that station — issuing against one station's need
   // must never silently credit another station's outstanding requirement.
-  async function commitIssueQty(row, amountInRowUnit, sec) {
-    if (!(amountInRowUnit > 0) || !row.evBreak || row.evBreak.length === 0) return;
+  // Returns true on success, false on a genuine (non-retryable) failure —
+  // callers must check this before treating the issue as done. This used to
+  // be a raw .upsert() with no offline queue and a catch that only
+  // console.error'd: a dropped connection left the checkmark green and the
+  // row showing issued with nothing actually saved, and a refresh silently
+  // lost it. dbUpsert gives this the same offline-queue + genuine-failure
+  // handling every other write in this app already has, and a real failure
+  // now reverts the optimistic state instead of leaving it lying.
+  async function commitIssueQty(row, amountInRowUnit, sec, silent) {
+    if (!(amountInRowUnit > 0) || !row.evBreak || row.evBreak.length === 0) return false;
     const targets = sec != null ? row.evBreak.filter(b => b.sec === sec) : row.evBreak;
-    if (targets.length === 0) return;
+    if (targets.length === 0) return false;
     const scopedTotal = sec != null
       ? targets.reduce((sum, b) => sum + convQty(b.qty, b.unit, row.unit), 0)
       : row.total;
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
     const now = new Date().toISOString();
+    const prevByKey = {}; // snapshot for revert — only this write's own prior value, per key
     const updates = targets.map(b => {
+      const key = b.evId + "::" + b.sec + "::" + row.name;
       const share = scopedTotal > 0 ? (convQty(b.qty, b.unit, row.unit) / scopedTotal) : (1 / targets.length);
       const addQty = amountInRowUnit * share;
       const addInBUnit = convQty(addQty, row.unit, b.unit);
-      const existing = issueRecords[b.evId + "::" + b.sec + "::" + row.name];
+      const existing = issueRecords[key];
+      prevByKey[key] = existing; // may be undefined — a brand-new row
       const prevIssued = existing ? (+existing.qty_issued || 0) : 0;
       const newIssued = prevIssued + addInBUnit;
       return {
@@ -1030,13 +1041,32 @@ function StoreModule({events, lang="en", currentUser=null}) {
       updates.forEach(u => { n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name] = { ...n[u.event_id + "::" + u.section_name + "::" + u.ingredient_name], ...u }; });
       return n;
     });
-    const { error } = await supabase.from('store_issues').upsert(updates, { onConflict: 'event_id,section_name,ingredient_name' });
-    if (error) console.error("Partial issue failed:", error);
+    try {
+      await dbUpsert('store_issues', updates, 'event_id,section_name,ingredient_name');
+      return true;
+    } catch (e) {
+      console.error("Issue write failed:", e);
+      setIssueRecords(prev => {
+        const n = { ...prev };
+        updates.forEach(u => {
+          const key = u.event_id + "::" + u.section_name + "::" + u.ingredient_name;
+          // Only revert if this is still exactly what WE wrote a moment ago —
+          // if realtime has already brought in something newer for this key
+          // (another device's write), leave it alone rather than stomping it.
+          if (n[key] && n[key].qty_issued === u.qty_issued) {
+            if (prevByKey[key] === undefined) delete n[key]; else n[key] = prevByKey[key];
+          }
+        });
+        return n;
+      });
+      if (!silent) alert('Could not save that issue — it was NOT recorded: ' + (e.message || e));
+      return false;
+    }
   }
-  async function quickIssue(row, sec) {
+  async function quickIssue(row, sec, silent) {
     const { agg, suggested } = suggestedIssueQty(row, sec);
-    if (agg.remaining <= 1e-9 || !(suggested > 0)) return;
-    await commitIssueQty(row, suggested, sec);
+    if (agg.remaining <= 1e-9 || !(suggested > 0)) return false;
+    return await commitIssueQty(row, suggested, sec, silent);
   }
   function openIssueQty(row, sec) {
     const { agg, stock, isDiscrete, suggested, suggestedSU } = suggestedIssueQty(row, sec);
@@ -2171,87 +2201,129 @@ function StoreModule({events, lang="en", currentUser=null}) {
         const stPending = openStationRows.filter(r=>!rowIssued(r, openStation.name));
         async function issueAllStation(){
           setReqIssueAllAsk(false);
-          for(const r of stPending) await quickIssue(r, openStation.name);
+          const failed = [];
+          for(const r of stPending){ const ok = await quickIssue(r, openStation.name, true); if(!ok) failed.push(r.name); }
+          if(failed.length) alert('Some items could not be issued and are NOT recorded — please retry individually: '+failed.join(', '));
         }
 
         // ── Sync to Ops: bundles whatever's been issued for THIS station/day
         // and not yet sent, into one Store Requisition entry on the Ops side.
-        // Only the delta (unsynced store_issues rows) goes each time, so a
-        // second click after more issuing never re-sends — and never
-        // re-records — what a previous sync already covered.
+        // Tracked as synced_qty (how much of qty_issued has actually been
+        // sent), not a boolean — a boolean meant a row synced once was
+        // excluded from every FUTURE sync too, so anything issued against
+        // that ingredient afterward silently never reached Ops at all.
         const stSyncPlan = (function(){
-          const items = [], keys = [], skipped = [];
+          const rowPlans = [], skipped = [];
           openStationRows.forEach(row=>{
-            const rowKeys = (row.evBreak||[]).filter(b=>b.sec===openStation.name).map(b=>b.evId+"::"+b.sec+"::"+row.name);
-            let unsyncedQty = 0; const usedKeys = [];
-            rowKeys.forEach(k=>{
+            const rowKeys = (row.evBreak||[]).filter(b=>b.sec===openStation.name).map(b=>({evId:b.evId, sec:b.sec}));
+            const keyPlans = [];
+            rowKeys.forEach(({evId,sec})=>{
+              const k = evId+"::"+sec+"::"+row.name;
               const r = issueRecords[k];
-              if(r && +r.qty_issued>0 && !r.synced_to_ops){
-                unsyncedQty += convQty(+r.qty_issued, r.unit||row.unit, row.unit);
-                usedKeys.push(k);
-              }
+              if(!r) return;
+              const snapIssued = +r.qty_issued||0;
+              const snapSynced = +r.synced_qty||0;
+              const deltaInB = snapIssued - snapSynced;
+              if(deltaInB<=1e-9) return;
+              keyPlans.push({ key:k, evId, sec, ingName:row.name, deltaRowUnit: convQty(deltaInB, r.unit||row.unit, row.unit), snapIssued, snapSynced });
             });
-            if(unsyncedQty<=1e-9) return;
+            if(keyPlans.length===0) return;
+            const totalDeltaRowUnit = keyPlans.reduce((s,kp)=>s+kp.deltaRowUnit,0);
             const {isMapped, stock} = resolveStock(row);
             const invId = row._type==='inv' ? row.ops_inventory_id : (ingredientMap[row.name]?.ops_inventory_id);
             if(!isMapped || !stock || !invId){ skipped.push(row.name); return; }
-            items.push({
-              ops_inventory_id: invId,
-              item_source: row._type==='inv' ? 'inventory' : 'catering_store',
-              item_name: row.name,
-              unit: stock.unit,
-              qty: Math.round(qtyToStoreUnits(unsyncedQty, row.unit, stock)*100)/100,
+            rowPlans.push({
+              row, keyPlans, totalDeltaRowUnit,
+              invId, itemSource: row._type==='inv' ? 'inventory' : 'catering_store', unit: stock.unit,
             });
-            keys.push(...usedKeys);
           });
-          return { items, keys, skipped };
+          return { rowPlans, skipped };
         })();
         async function syncStationToOps(){
-          if(stSyncPlan.items.length===0) return;
+          if(stSyncPlan.rowPlans.length===0) return;
           setOpsSyncingStation(openStation.name);
           setReqNote(null);
           const sync_ref = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.random());
           const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
-          // Step 1: send to Ops. Nothing local changes yet — if this fails,
-          // nothing was recorded on either side, so it's safe to just retry.
+
+          // Step 1: CLAIM every contributing row with a conditional update —
+          // it only succeeds if synced_qty still equals what we last saw, so
+          // two tabs racing the same unsynced rows can't both claim them.
+          // Claiming BEFORE calling Ops (not after) means a collision is
+          // caught before Ops ever sees a duplicate, not after.
+          const allKeyPlans = stSyncPlan.rowPlans.flatMap(rp=>rp.keyPlans);
+          const claimResults = await Promise.all(allKeyPlans.map(async kp=>{
+            const { data, error } = await supabase.from('store_issues')
+              .update({ synced_qty: kp.snapIssued, ops_sync_ref: sync_ref })
+              .eq('event_id', kp.evId).eq('section_name', kp.sec).eq('ingredient_name', kp.ingName)
+              .eq('synced_qty', kp.snapSynced)
+              .select('event_id');
+            return { kp, claimed: !error && Array.isArray(data) && data.length===1 };
+          }));
+          const claimed = claimResults.filter(r=>r.claimed).map(r=>r.kp);
+          const lostClaim = claimResults.length - claimed.length;
+          if(claimed.length===0){
+            setReqNote({tone:'err', text:T2('Nothing to sync — already synced from another device.')});
+            setOpsSyncingStation(null);
+            return;
+          }
+
+          // Rebuild items[] from only the successfully-claimed keys, grouped
+          // back by ingredient (a station can have the same ingredient
+          // issued against more than one event/section the same day).
+          const claimedByIng = {};
+          claimed.forEach(kp=>{ (claimedByIng[kp.ingName] = claimedByIng[kp.ingName]||[]).push(kp); });
+          const items = [];
+          stSyncPlan.rowPlans.forEach(rp=>{
+            const kps = claimedByIng[rp.row.name];
+            if(!kps || kps.length===0) return;
+            const claimedDeltaRowUnit = kps.reduce((s,kp)=>s+kp.deltaRowUnit,0);
+            const {stock} = resolveStock(rp.row);
+            if(!stock) return;
+            items.push({
+              ops_inventory_id: rp.invId, item_source: rp.itemSource, item_name: rp.row.name, unit: rp.unit,
+              qty: Math.round(qtyToStoreUnits(claimedDeltaRowUnit, rp.row.unit, stock)*100)/100,
+            });
+          });
+
+          // Step 2: send only the claimed items to Ops.
+          let opsOk = false, opsErr = null;
           try {
             const { data, error } = await supabase.functions.invoke('store-requisition-sync', {
-              body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items: stSyncPlan.items },
+              body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items },
             });
             if(error) throw error;
             if(data && data.error) throw new Error(data.error+(data.missing?(': '+JSON.stringify(data.missing)):''));
-          } catch(e){
-            console.error('[syncStationToOps] ops call failed:', e);
-            setReqNote({tone:'err', text:T2('Sync to Ops failed:')+' '+(e.message||e)});
+            opsOk = true;
+          } catch(e){ opsErr = e; }
+
+          if(!opsOk){
+            // Release every claim back to its pre-claim snapshot so a retry
+            // can pick these rows up again, instead of them looking
+            // permanently synced for something Ops never actually received.
+            console.error('[syncStationToOps] ops call failed:', opsErr);
+            let releaseFailed = 0;
+            await Promise.all(claimed.map(async kp=>{
+              const { data, error } = await supabase.from('store_issues')
+                .update({ synced_qty: kp.snapSynced, ops_sync_ref: null })
+                .eq('event_id', kp.evId).eq('section_name', kp.sec).eq('ingredient_name', kp.ingName)
+                .eq('ops_sync_ref', sync_ref).eq('synced_qty', kp.snapIssued)
+                .select('event_id');
+              if(error || !data || data.length!==1) releaseFailed++;
+            }));
+            setReqNote({tone:'err', text:T2('Sync to Ops failed:')+' '+(opsErr.message||opsErr)+(releaseFailed?(' — '+releaseFailed+' '+T2('item(s) NOT sent to Ops but marked synced — tell admin.')):'')});
             setOpsSyncingStation(null);
             return;
           }
-          // Step 2: Ops has confirmed receipt — now persist the synced flag.
-          // This must never be marked locally before this point: doing so
-          // optimistically (and unconditionally showing "Synced") meant a
-          // failure here was invisible, and the next click would re-send the
-          // exact same items as a second, duplicate Ops requisition. If THIS
-          // step fails, Ops already has the data but our own bookkeeping
-          // doesn't know it — surface that loudly instead of a plain success,
-          // since the usual "just retry" advice would create that duplicate.
-          const updates = stSyncPlan.keys.map(k=>{
-            const [evId, sec, ingName] = k.split("::");
-            return { event_id: evId, section_name: sec, ingredient_name: ingName, synced_to_ops: true, ops_sync_ref: sync_ref };
-          });
-          const { error: upErr } = await supabase.from('store_issues').upsert(updates, {onConflict:'event_id,section_name,ingredient_name'});
-          if(upErr){
-            console.error('[syncStationToOps] mark-synced failed:', upErr);
-            setReqNote({tone:'err', text:T2('Sent to Ops, but failed to record that locally — do NOT sync this station again, tell admin. Error:')+' '+upErr.message});
-            setOpsSyncingStation(null);
-            return;
-          }
+
           setIssueRecords(prev=>{
             const n = {...prev};
-            updates.forEach(u=>{ const key=u.event_id+"::"+u.section_name+"::"+u.ingredient_name; n[key] = {...n[key], ...u}; });
+            claimed.forEach(kp=>{ n[kp.key] = {...n[kp.key], synced_qty: kp.snapIssued, ops_sync_ref: sync_ref}; });
             return n;
           });
           const skipNote = stSyncPlan.skipped.length ? (' ('+stSyncPlan.skipped.length+' '+T2('skipped — not linked to store')+': '+stSyncPlan.skipped.join(', ')+')') : '';
-          setReqNote({tone:'ok', text:T2('Synced')+' '+stSyncPlan.items.length+' '+T2('item(s) to Ops')+skipNote});
+          const partialNote = lostClaim ? (' ('+lostClaim+' '+T2('already synced from another device')+')') : '';
+          setReqNote({tone:'ok', text:T2('Synced')+' '+items.length+' '+T2('item(s) to Ops')+skipNote+partialNote});
           setOpsSyncingStation(null);
         }
 
@@ -2410,11 +2482,11 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                     title={T2("Issue all from store")}
                                     style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,cursor:stPending.length?"pointer":"not-allowed",
                                       background:"#FFFFFF",color:stPending.length?C.green:K.textFaint,border:`1.5px solid ${stPending.length?C.greenBorder:K.cardWarmLine}`}}>✓ {T2("All")}</button>}
-                                  {canIssueStock && <button onClick={syncStationToOps} disabled={stSyncPlan.items.length===0||opsSyncingStation===openStation.name}
-                                    title={T2("Send what's been issued here to Ops as a Store Requisition")}
+                                  {canIssueStock && <button onClick={syncStationToOps} disabled={stSyncPlan.rowPlans.length===0||opsSyncingStation===openStation.name||!navigator.onLine}
+                                    title={!navigator.onLine?T2("Offline — can't sync right now"):T2("Send what's been issued here to Ops as a Store Requisition")}
                                     style={{padding:"3px 9px",borderRadius:8,fontSize:11,fontWeight:700,
-                                      cursor:(stSyncPlan.items.length&&opsSyncingStation!==openStation.name)?"pointer":"not-allowed",
-                                      background:"#FFFFFF",color:stSyncPlan.items.length?C.gold:K.textFaint,border:`1.5px solid ${stSyncPlan.items.length?C.goldBorder:K.cardWarmLine}`}}>
+                                      cursor:(stSyncPlan.rowPlans.length&&opsSyncingStation!==openStation.name)?"pointer":"not-allowed",
+                                      background:"#FFFFFF",color:stSyncPlan.rowPlans.length?C.gold:K.textFaint,border:`1.5px solid ${stSyncPlan.rowPlans.length?C.goldBorder:K.cardWarmLine}`}}>
                                     {opsSyncingStation===openStation.name?"⏳":"🔄"} {T2("Sync to Ops")}</button>}
                                 </div>
                               </th>
@@ -3498,7 +3570,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
             <div style={{display:"flex",gap:8,padding:"0 18px 16px"}}>
               <button onClick={()=>setIssueQtyModal(null)} style={{flex:1,padding:"10px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {T2("Cancel")}</button>
-              <button disabled={!valid} onClick={async()=>{ await commitIssueQty(row,valInRowUnit,sec); setIssueQtyModal(null); }}
+              <button disabled={!valid} onClick={async()=>{ const ok = await commitIssueQty(row,valInRowUnit,sec); if(ok) setIssueQtyModal(null); }}
                 style={{flex:1,padding:"10px",borderRadius:10,background:valid?C.gold:C.borderLight,border:"none",color:valid?C.goldBg:C.muted,fontSize:12,fontWeight:700,cursor:valid?"pointer":"not-allowed"}}>✓ {T2("Confirm issue")}</button>
             </div>
           </div>

@@ -368,7 +368,16 @@ export default function App() {
   // reachable, or the row simply had not landed yet, a refresh threw away
   // everything the kitchen had ticked off. transportQueue right below already
   // mirrors to localStorage; this now does the same.
-  const KT_LS_KEY = "ambria_kitchen_tracking";
+  // NOT "ambria_kitchen_tracking" — that's the exact key lib/db.js's dbLoad
+  // uses internally to cache kitchen_tracking's RAW SNAKE_CASE rows (its
+  // cacheKey() is 'ambria_'+table). Every successful dbLoad('kitchen_tracking')
+  // unconditionally overwrites that key with its own raw-row array, stomping
+  // this file's app-shaped {evId:{dishKey:data}} cache underneath it. A
+  // reload that then falls back to reading this key (device offline, or
+  // simply before the first successful boot load lands) could silently load
+  // db.js's raw rows as though they were already app-shaped — the likely
+  // source of the "poisoned rows" KT_RESERVED_KEYS exists to filter out.
+  const KT_LS_KEY = "ambria_kt_state_v2";
   // The kitchen_tracking table's own columns — some pre-existing rows in this
   // table have a dish_key literally equal to one of these (likely seed/test
   // data from before this table's schema settled, e.g. dish_key: "updated_at"
@@ -378,10 +387,22 @@ export default function App() {
   // thousands of pointless requests a session. Never load or re-upload one.
   const KT_RESERVED_KEYS = new Set(["id", "ev_id", "dish_key", "data", "created_at", "updated_at", "client_id", "client_write_ts"]);
   const [kitchenTracking, setKitchenTracking] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}") || {}; }
-    catch { return {}; }
+    try {
+      const parsed = JSON.parse(localStorage.getItem(KT_LS_KEY) || "{}");
+      // Defend against ever reading db.js's raw-row array cache (the old key
+      // collision above) as though it were this file's app-shaped object.
+      return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {};
+    } catch { return {}; }
   });
-  const ktSyncedRef = useRef({});
+  // Seeded from the SAME initial value kitchenTracking just loaded (not {}):
+  // the sync effect below diffs kitchenTracking against this ref's last-known
+  // value and re-uploads whatever's changed with a FRESH timestamp. Starting
+  // this at {} made every cached dish look "changed" on every single app
+  // boot, re-uploading this tablet's possibly-hours-stale local cache over
+  // whatever a different tablet had written more recently in the meantime —
+  // confirmed real: tablet A idle since 6pm, opened the next morning,
+  // overwrote tablet B's 11pm work dish-by-dish with A's stale 6pm view.
+  const ktSyncedRef = useRef(kitchenTracking);
   // One id per tab/session, stamped on every kitchen_tracking write below and
   // compared against incoming realtime echoes — a tap's own write always
   // echoes straight back to the SAME tab a moment later, and if a second tap
@@ -489,12 +510,22 @@ export default function App() {
   }, [kitchenTracking]);
 
   // ── Transport Queue ──
+  // NOT "ambria_transport_queue" — that's the exact key lib/db.js's dbLoad
+  // uses internally to cache this table's RAW SNAKE_CASE rows (ev_id,
+  // dish_name, event_date...), and it unconditionally overwrites that key on
+  // every successful load. This file's own cache below is APP-SHAPED (evId,
+  // dish, eventDate...) — the two sharing one key meant the fallback read a
+  // few lines down (when a boot fetch comes back empty) could silently load
+  // db.js's raw rows as if they were app-shaped, mapping every field to
+  // undefined. The mount-time prune further down then saw a queue full of
+  // "dishes" with no eventDate and deleted every single one.
+  const TQ_LS_KEY = "ambria_tq_state_v2";
   const tqSyncWarnedRef = useRef(false); // one alert per session, not one per failed write
   const [transportQueue, setTransportQueue_raw] = useState([]);
   const setTransportQueue = (updater) => {
     setTransportQueue_raw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem("ambria_transport_queue", JSON.stringify(next)); } catch(e) {}
+      try { localStorage.setItem(TQ_LS_KEY, JSON.stringify(next)); } catch(e) {}
       const prevMap = new Map(safeArr(prev).map(q=>[q.id, q]));
       const nextMap = new Map(safeArr(next).map(q=>[q.id, q]));
       nextMap.forEach((q, id) => {
@@ -680,25 +711,39 @@ export default function App() {
         // `?? {}`, not `|| {}` — the meta keys now sync too, and a stored
         // `false` (an un-dispatched function) would otherwise come back as an
         // empty object, which is truthy and would read as dispatched.
-        ktData.forEach(row=>{if(KT_RESERVED_KEYS.has(row.dish_key))return;if(!ktObj[row.ev_id])ktObj[row.ev_id]={};ktObj[row.ev_id][row.dish_key]=row.data ?? {};});
+        ktData.forEach(row=>{
+          if(KT_RESERVED_KEYS.has(row.dish_key))return;
+          if(!ktObj[row.ev_id])ktObj[row.ev_id]={};
+          ktObj[row.ev_id][row.dish_key]=row.data ?? {};
+          // Seeds the newest-wins comparison the realtime subscription and
+          // this tab's own future writes both rely on — without this, that
+          // comparison starts cold for every dish until something touches it
+          // locally, post-boot.
+          const incomingTs = Number(row.client_write_ts)||0;
+          if(incomingTs){ const tk = ktTsKey(row.ev_id, row.dish_key); ktTsRef.current[tk] = Math.max(ktTsRef.current[tk]||0, incomingTs); }
+        });
         // MERGE over whatever the local seed already holds — do not replace.
         // A straight replace would wipe anything ticked off while the row had
-        // not reached Supabase yet. Server wins per key; local-only keys stay,
-        // and because the synced ref is set to the SERVER object those keys
-        // read as a diff and get pushed up on the next tick.
-        ktSyncedRef.current = ktObj;
+        // not reached Supabase yet. Server wins per key; local-only keys stay.
         setKitchenTracking(prev => {
           const merged = { ...(prev || {}) };
           Object.keys(ktObj).forEach(evId => {
             merged[evId] = { ...(merged[evId] || {}), ...ktObj[evId] };
           });
+          // The synced ref must reflect the FULL merged result (server data
+          // PLUS whatever local-only keys survived the merge above), not just
+          // the server's own ktObj — setting it to ktObj alone made every
+          // local-only key look "changed" against this ref on the very next
+          // sync-effect run, re-uploading it with a brand-new timestamp even
+          // though nothing about it actually changed just now.
+          ktSyncedRef.current = merged;
           return merged;
         });
       }
       if(tqData.length>0){
         setTransportQueue_raw(tqData.map(q=>({id:q.id,dish:q.dish_name,evId:q.ev_id||null,sec:q.sec||null,station:q.station||null,qty:q.qty??null,unit:q.unit||null,event:q.event_guest,pax:q.pax,venue:q.venue,eventDate:q.event_date,preparedBy:q.prepared_by,markedAt:q.marked_at,status:q.status,pickedUpAt:q.picked_up_at||undefined,fromVenue:q.from_venue||"",vehicleId:q.vehicle_id||""})));
       } else {
-        try{const c=JSON.parse(localStorage.getItem("ambria_transport_queue")||"[]");if(c.length)setTransportQueue_raw(c);}catch(e){}
+        try{const c=JSON.parse(localStorage.getItem(TQ_LS_KEY)||"[]");if(Array.isArray(c)&&c.length)setTransportQueue_raw(c);}catch(e){}
       }
       // Seed AM001 to Supabase on every load (idempotent)
       const am001=EMPLOYEE_DB_INIT.find(e=>e.staff_id==='AM001'||e.staffListId==='AM001');

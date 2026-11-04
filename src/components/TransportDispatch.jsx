@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { C, VEHICLES, COLD_ITEMS, AMBRIA_VENUES } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch } from '../utils/helpers.js';
+import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch, localDateStr } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from '../lib/db.js';
 import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
@@ -135,11 +135,30 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     return { evId:ev.id, evGuest:ev.guest, evDate:ev.date, evTime:ev.time, evVenue:ev.venue, menu:menuArr(ev), assignments };
   });
 
-  // One-shot cleanup: drop transport queue items older than 7 days on mount (prevents unbounded growth)
+  // One-shot cleanup: drop transport queue items older than 7 days on mount
+  // (prevents unbounded growth). This filter is destructive — anything it
+  // drops gets dbDelete'd by setTransportQueue's own diff, queued for replay
+  // if offline — so it must never fire on data that merely LOOKS empty
+  // because of some upstream problem (a bad load, a stale/corrupted cache)
+  // rather than genuinely being old. A row is only ever dropped if it's
+  // provably well-formed AND past the cutoff; anything malformed is kept,
+  // and if more than half the queue looks malformed this bails out entirely
+  // instead of treating "half the queue looks broken" as "half the queue is
+  // safe to delete."
   useEffect(function(){
     if(!setTransportQueue || !Array.isArray(transportQueue) || transportQueue.length===0) return;
-    var PRUNE_CUTOFF = new Date(Date.now() - 7*864e5).toISOString().slice(0,10);
-    var kept = transportQueue.filter(function(item){return item.eventDate && item.eventDate >= PRUNE_CUTOFF;});
+    var cutoffDate = new Date(); cutoffDate.setDate(cutoffDate.getDate()-7);
+    var PRUNE_CUTOFF = localDateStr(cutoffDate);
+    var malformed = 0;
+    var kept = transportQueue.filter(function(item){
+      var wellFormed = !!item.id && !!item.dish && typeof item.eventDate==="string" && /^\d{4}-\d{2}-\d{2}$/.test(item.eventDate);
+      if(!wellFormed){ malformed++; return true; } // never prune something we can't confirm is old
+      return item.eventDate >= PRUNE_CUTOFF;
+    });
+    if(malformed > transportQueue.length/2){
+      console.warn('[TransportDispatch] skipping queue prune — majority of rows look malformed', malformed, '/', transportQueue.length);
+      return;
+    }
     if(kept.length !== transportQueue.length){
       setTransportQueue(kept);
     }
