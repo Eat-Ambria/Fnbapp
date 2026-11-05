@@ -13,7 +13,7 @@ import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
-import { fetchAllRows, dbSubscribe } from '../lib/db.js';
+import { fetchAllRows, dbSubscribe, dbRpc } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
 import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
@@ -23,7 +23,6 @@ import { FunctionPlanTab, TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.js
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
 import { KModal } from './KitchenUI.jsx';
-import { getFpUnlockCode } from '../data/appSettings.js';
 import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
@@ -613,11 +612,18 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // reason into the prompt below. Empty = admin hasn't set one, so unlocking
   // falls back to reason-only, same as before this existed.
   var [unlockCode, setUnlockCode] = useState('');
+  // Whether a code is even configured -- fetched via RPC, not read directly
+  // off app_settings (that table is admin-only-readable once RLS stage 2 is
+  // live, since it holds this same secret; fp_unlock_code_required() only
+  // ever reveals yes/no, never the value). Fetched lazily, right when the
+  // unlock modal is about to open (see onRequestUnlock below), not on every
+  // render.
+  var [fpCodeRequired, setFpCodeRequired] = useState(false);
   // The person who marked it final can always re-open their own FP with just
   // a reason, same as before the code existed — the code is only a gate
   // against someone OTHER than the locker re-opening it.
   var isOwnLock = !!(fp && fp.locked_by && currentUser && currentUser.name && fp.locked_by === currentUser.name);
-  var requiredUnlockCode = isOwnLock ? '' : getFpUnlockCode();
+  var showUnlockCodeField = !isOwnLock && fpCodeRequired;
 
   // A locked FP has to freeze the menu too — otherwise "locking" only
   // protects the text fields while dishes keep changing underneath it,
@@ -742,7 +748,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var who = (currentUser && currentUser.name) || null;
     var reason = unlockReason.trim();
     if (!reason) return;
-    if (requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode) return;
+    if (showUnlockCodeField) {
+      // Verified server-side -- the client never holds the actual code to
+      // compare against anymore (see fpCodeRequired's comment above).
+      var codeOk = await dbRpc('verify_fp_unlock_code', { p_code: unlockCode.trim() }).catch(function(e){ console.error('[EventMenuBuilder] verify_fp_unlock_code failed:', e); return null; });
+      if (codeOk == null) { alert(T2("Could not verify the code — check connection and try again.")); return; }
+      if (!codeOk) { alert(T2("Incorrect code.")); return; }
+    }
     // Kitchen only hears about this unlock if they'd actually been sent the
     // FP before — reopening a plan that was only ever locked-while-drafting
     // (never marked final) is not news to them.
@@ -1260,7 +1272,24 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               locked={!!(fp && fp.locked)}
               onRequestLock={function(){ setFpLockModal('lockOnly'); }}
               onRequestMarkFinal={function(){ setFpLockModal('markFinal'); }}
-              onRequestUnlock={function(){ setFpLockModal('unlock'); }} />
+              onRequestUnlock={function(){
+                setFpLockModal('unlock');
+                if (!isOwnLock) {
+                  // Fail SAFE: assume a code IS required the instant the
+                  // modal opens, synchronously, before the RPC is even sent
+                  // -- otherwise the field starts hidden (state's own default
+                  // is false) and someone who types a reason and confirms
+                  // before the RPC resolves (plausible on venue wifi) would
+                  // get waved through with no code check at all. Also fail
+                  // safe on the RESULT: dbRpc resolves `null` (it does not
+                  // throw) when this call gets offline-queued rather than
+                  // actually answered by the server, so `null` must be
+                  // treated the same as "yes, required" -- only an explicit
+                  // `false` from a real server answer may turn the field off.
+                  setFpCodeRequired(true);
+                  dbRpc('fp_unlock_code_required', {}).then(function(required){ setFpCodeRequired(required !== false); }).catch(function(e){ console.error('[EventMenuBuilder] fp_unlock_code_required failed:', e); setFpCodeRequired(true); });
+                }
+              }} />
           )}
         </div>
       )}
@@ -1527,7 +1556,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           <textarea autoFocus value={unlockReason} onChange={function(e){ setUnlockReason(e.target.value); }}
             placeholder={T2("Reason for re-opening…")} rows={3}
             style={{ width: "100%", padding: "9px 11px", borderRadius: 10, border: "1px solid " + C.border, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
-          {requiredUnlockCode && (
+          {showUnlockCodeField && (
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 12, color: C.muted, marginBottom: 5 }}>{T2("Enter the FP re-open code (set by admin)")}</div>
               <input value={unlockCode} onChange={function(e){ setUnlockCode(e.target.value); }} type="password"
@@ -1537,7 +1566,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           )}
         </>}
         confirmLabel={T2("Unlock for editing")} confirmIcon="lock"
-        confirmDisabled={!unlockReason.trim() || (!!requiredUnlockCode && unlockCode.trim() !== requiredUnlockCode)}
+        confirmDisabled={!unlockReason.trim() || (showUnlockCodeField && !unlockCode.trim())}
         onConfirm={confirmUnlock}
         onClose={function(){ setFpLockModal(null); setUnlockReason(''); setUnlockCode(''); }} />
     </div>

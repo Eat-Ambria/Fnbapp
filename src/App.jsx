@@ -185,7 +185,20 @@ export default function App() {
       function armIfWaiting(){
         if(reg.waiting && navigator.serviceWorker.controller){
           waitingWorkerRef.current = reg.waiting;
-          setUpdateReady(true);
+          // Nobody logged in yet (LoginScreen / venue picker) means there is
+          // no unsaved work on screen to lose, so there's no reason to make
+          // anyone click a banner — apply immediately. The controllerchange
+          // listener above still does the actual reload, same safe path as
+          // a manual "Update Now" click; this just skips waiting for a
+          // human to notice the banner. Once someone IS logged in, keep
+          // requiring the click — auto-reloading out from under someone
+          // mid-edit (e.g. typing into a kitchen tracking field) would
+          // silently drop whatever they hadn't saved yet.
+          if(!currentUserRef.current){
+            waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'});
+          } else {
+            setUpdateReady(true);
+          }
         }
       }
       armIfWaiting(); // an update may already be waiting from before this mounted
@@ -210,7 +223,12 @@ export default function App() {
       checkNow(); // don't wait 15 minutes for the very first check either
       document.addEventListener('visibilitychange', checkIfVisible);
       window.addEventListener('focus', checkNow);
-      var poll = setInterval(checkNow, 5*60*1000);
+      // 60s, not 5min -- reg.update() is a conditional GET against sw.js
+      // (a few KB, cached with normal revalidation), cheap enough to poll
+      // often, and a shorter interval is most of what "notice sooner" means
+      // for the laptop/desktop case where visibilitychange/focus don't fire
+      // (a tab left open and in the foreground the whole time).
+      var poll = setInterval(checkNow, 60*1000);
       return function(){
         clearInterval(poll);
         document.removeEventListener('visibilitychange', checkIfVisible);
@@ -649,6 +667,26 @@ export default function App() {
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
   const [dateDrift, setDateDrift]     = useState(false);
+  // Bumped by handleLogin to re-run the master load effect below. Needed
+  // once RLS actually restricts anon (stage 2 of the RLS rollout): the
+  // FIRST run of that effect, at mount, fires before anyone's logged in --
+  // under stage 2 that's an anon-context fetch that comes back empty for
+  // every RLS-protected table, not an error, so nothing catches it on its
+  // own. A session established AFTER that initial load (LoginScreen's
+  // onLogin -> handleLogin) needs the exact same load run again, now
+  // authenticated, or the app stays empty (no events, no menus, nothing)
+  // until a manual reload. Harmless to also fire on an already-logged-in
+  // boot (every step in that effect is either idempotent, a merge, or
+  // gated by its own cooldown -- see the effect's own comments).
+  const [dataReloadTick, setDataReloadTick] = useState(0);
+  // subscribeRecipeRealtime/subscribeDishMetaRealtime open a channel keyed by
+  // a fixed topic name and call .on(...) before .subscribe() -- calling them
+  // again on the post-login re-run (dataReloadTick) hands back the SAME
+  // already-joined channel (realtime-js matches by topic) and throws on the
+  // second .on() call, which aborts the whole config-hydration try/catch
+  // block before allocRules/dbChecklists get set. These two calls are a
+  // true one-time boot step, not part of what dataReloadTick should repeat.
+  const realtimeSubscribedRef = useRef(false);
 
   // ── Stale-session detector: TODAY is module-load frozen, so a tab open across midnight
   //    silently reads/writes/deletes rows keyed to yesterday. Poll every 5 min and surface a banner.
@@ -691,8 +729,11 @@ export default function App() {
         hydrateScreenDefinitions(cfg.screenDefinitions);
         hydrateAppSettings(cfg.appSettings);
         hydrateRecipeData(cfg);
-        subscribeRecipeRealtime(supabase);
-        subscribeDishMetaRealtime(supabase);
+        if (!realtimeSubscribedRef.current) {
+          realtimeSubscribedRef.current = true;
+          subscribeRecipeRealtime(supabase);
+          subscribeDishMetaRealtime(supabase);
+        }
         if(cfg.allocRules) setAllocRules(cfg.allocRules);
         if(cfg.checklists) setDbChecklists(cfg.checklists);
       } catch(e) { console.warn('Config hydration failed, using fallbacks:', e); }
@@ -882,11 +923,16 @@ export default function App() {
         const lastSync=localStorage.getItem('ambria_lms_last_sync_ts');
         const cooldown=15*60*1000; // 15 minutes
         if(supabase&&(!lastSync||Date.now()-parseInt(lastSync)>cooldown)){
+          // Claim the cooldown before the call resolves, not after -- the
+          // anon boot run and a login-triggered reload (dataReloadTick) can
+          // both reach this check before either's invoke() has returned,
+          // and writing the timestamp only on success let both fire lms-sync
+          // concurrently.
+          try{localStorage.setItem('ambria_lms_last_sync_ts',String(Date.now()));}catch(e){}
           supabase.functions.invoke('lms-sync',{body:{triggered_by:'auto-boot'}})
             .then(({data})=>{
               if(data?.status==='success') console.log(`✅ LMS auto-sync: ${data.events_upserted} events`);
               else console.warn('LMS auto-sync returned:',data);
-              try{localStorage.setItem('ambria_lms_last_sync_ts',String(Date.now()));}catch(e){}
               const now=new Date().toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short',timeZone:'Asia/Kolkata'});
               try{localStorage.setItem('ambria_lms_last_sync',now);}catch(e){}
             })
@@ -897,7 +943,8 @@ export default function App() {
       setAppReady(true);
     }
     loadAll();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataReloadTick]);
 
   // Catches a session GoTrue itself has invalidated -- the main case is an
   // admin's PIN reset (admin-staff-auth's admin_revoke_user_sessions RPC),
@@ -1334,6 +1381,11 @@ export default function App() {
     setCurrentUser(emp);
     setForceLogoutMsg(null);
     try{ localStorage.setItem("ambria_session_user",JSON.stringify(emp)); }catch(e){}
+    // Re-run the master load now that a real session exists -- see
+    // dataReloadTick's own comment for why this is necessary once RLS
+    // actually restricts anon (the boot-time load ran before this login
+    // completed, as anon).
+    setDataReloadTick(t => t + 1);
   }
   function handleLogout(){
     setCurrentUser(null); setActiveDept(null);

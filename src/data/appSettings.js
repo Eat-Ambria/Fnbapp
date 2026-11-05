@@ -15,10 +15,3 @@ export function setAppSetting(key, value) {
   if (value) APP_SETTINGS[key] = value;
   else delete APP_SETTINGS[key];
 }
-
-// The code staff must enter to re-open a Function Plan that's been marked
-// final. Empty/unset means the admin hasn't configured one yet — unlocking
-// then falls back to just the reason prompt, same as before this existed.
-export function getFpUnlockCode() {
-  return (APP_SETTINGS.fp_unlock_code || '').trim();
-}
