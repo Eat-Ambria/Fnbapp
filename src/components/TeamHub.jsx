@@ -46,7 +46,31 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
   const [dirSearch,setDirSearch] = useState("");
   const [dirFilter,setDirFilter] = useState("All");
   const [showAddEmp,setShowAddEmp] = useState(false);
-  const [showPins,setShowPins] = useState(false);
+  // A staff member's PIN is now the password on their linked Supabase Auth
+  // account -- never readable back through any API, to anyone, regardless
+  // of privilege. "Show PINs" is gone; resetPinTarget drives a blind
+  // "set a new PIN" prompt instead (see resetStaffPin below), same pattern
+  // as Access Manager's equivalent feature.
+  const [resetPinTarget,setResetPinTarget] = useState(null); // {staff_id,name} | null
+  const [resetPinValue,setResetPinValue] = useState("");
+  const [resetPinError,setResetPinError] = useState("");
+  const [resetPinBusy,setResetPinBusy] = useState(false);
+  async function resetStaffPin(){
+    if(!resetPinTarget) return;
+    var next = resetPinValue.trim();
+    // Exactly 4 -- the login input itself caps entry at 4 digits, so a
+    // longer PIN set here could never actually be typed back in at login.
+    if(!/^\d{4}$/.test(next)){ setResetPinError("PIN must be 4 digits."); return; }
+    setResetPinBusy(true); setResetPinError("");
+    var resp = await supabase.functions.invoke('admin-staff-auth', { body:{ action:'reset_pin', staff_id: resetPinTarget.staff_id, new_pin: next } }).catch(function(e){ return {error:e}; });
+    setResetPinBusy(false);
+    if(resp.error || !resp.data || !resp.data.ok){
+      setResetPinError("Could not reset PIN: " + ((resp.data&&resp.data.reason)||(resp.error&&resp.error.message)||'unknown error'));
+      return;
+    }
+    setResetPinTarget(null);
+    setResetPinValue("");
+  }
   const [selEmp,setSelEmp]       = useState(null);
   const [editEmpForm,setEditEmpForm] = useState(null);
   const [deleteConfirm,setDeleteConfirm] = useState(null);
@@ -96,6 +120,11 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
   async function addEmployee(){
     if(!newEmpForm.name.trim()) { alert("Please enter a name"); return; }
     if(!newEmpForm.section) { alert("Please pick a section"); return; }
+    // Validate before creating anything -- catching this only after the
+    // staff row already exists (the edge function's own validation) would
+    // leave a half-created staff member with no login until someone
+    // notices, deletes, and re-adds them.
+    if(!/^\d{4}$/.test(newEmpForm.pin||"")) { alert("PIN must be 4 digits."); return; }
     var dept = SECTION_TO_DEPT[newEmpForm.section] || null;
     if(!dept) { alert("Section '"+newEmpForm.section+"' is not mapped to any department. Check team_sections table."); return; }
     const newId="STF-"+Date.now();
@@ -107,8 +136,27 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
     }
     const record = {...newEmpForm, dept:dept, id:newId, staff_id:newId, staffListId:newId, is_active:true, active:true};
     if (photo_url) record.photo_url = photo_url;
+    const pinForNewAccount = newEmpForm.pin;
     setEmpDb(p=>[...p,record]);
-    if(syncToServer) syncToServer('upsert',record).catch(e=>{console.error('[addEmployee]',e);alert('Failed to save new staff: '+(e.message||e));});
+    try{
+      if(syncToServer) await syncToServer('upsert',record);
+    }catch(e){
+      console.error('[addEmployee]',e);
+      alert('Failed to save new staff: '+(e.message||e));
+      setEmpDb(p=>p.filter(r=>(r.id||r.staff_id||r.staffListId)!==newId));
+      return;
+    }
+    // The staff row exists now; this provisions the matching login (a
+    // Supabase Auth account) -- needs the service role, so it's the one
+    // thing here that goes through an edge function instead of a plain
+    // dbUpsert. If THIS fails, the staff row still exists (visible in the
+    // directory, so the gap is discoverable) but nobody can log in as them yet.
+    const authResp = await supabase.functions.invoke('admin-staff-auth', { body:{ action:'create', staff_id: newId, pin: pinForNewAccount } }).catch(e=>({error:e}));
+    if(authResp.error || !authResp.data?.ok){
+      alert('Staff record created, but login setup failed: '+(authResp.data?.reason||authResp.error?.message||'unknown error')+'. Delete this employee and add them again to retry.');
+    } else {
+      setEmpDb(p=>p.map(r=>(r.id||r.staff_id||r.staffListId)===newId?{...r,auth_user_id:authResp.data.auth_user_id}:r));
+    }
     setNewEmpForm({name:"",name_hi:"",section:"",section_hi:"",role:"staff",pin:"0000",joining:TODAY,active:true});
     setAddPhotoFile(null);
     setAddPhotoPreview(null);
@@ -155,6 +203,9 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
     if(!editEmpForm||!selEmp) return;
     var sid = selEmp.staff_id||selEmp.staffListId||selEmp.id;
     var patch = {...editEmpForm};
+    // No pin field in this form at all anymore -- PIN resets go through the
+    // separate "🔑 PIN" button (resetStaffPin), which calls admin-staff-auth
+    // since that's the only thing allowed to touch a Supabase Auth password.
     if (editPhotoFile) {
       setPhotoUploading(true);
       var url = await uploadStaffPhoto(supabase, sid, editPhotoFile);
@@ -180,6 +231,10 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
     var did = deleteConfirm.id||deleteConfirm.staff_id||deleteConfirm.staffListId;
     setEmpDb(p=>p.filter(e=>(e.id||e.staff_id||e.staffListId)!==did));
     if(syncToServer) syncToServer('delete',deleteConfirm).catch(e=>{console.error('[deleteEmployee]',e);alert('Failed to delete staff: '+(e.message||e));});
+    // Clean up the linked Supabase Auth account too -- a leftover one would
+    // block ever re-adding a staff member under this same staff_id later
+    // (the synthetic email would already be taken).
+    if(deleteConfirm.auth_user_id) supabase.functions.invoke('admin-staff-auth', { body:{ action:'delete', auth_user_id: deleteConfirm.auth_user_id } }).catch(e=>console.error('[deleteEmployee] auth cleanup failed:',e));
     setDeleteConfirm(null);
   }
 
@@ -599,17 +654,36 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
             </div>
           )}
 
-          {/* Search + filter + add + PIN toggle */}
+          {/* Reset PIN — blind reset only, it can never be shown again once
+              it's a Supabase Auth password */}
+          {resetPinTarget && (
+            <div style={{position:"fixed",inset:0,background:"rgba(12,20,16,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{setResetPinTarget(null);setResetPinValue("");setResetPinError("");}}>
+              <div style={{background:C.surface,borderRadius:16,padding:"28px 32px",maxWidth:380,width:"90%",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                <div style={{fontSize:32,marginBottom:12}}>🔑</div>
+                <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6}}>Set a new PIN for {resetPinTarget.name}</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:20}}>Their current PIN can't be shown — only replaced. This signs them out everywhere else immediately.</div>
+                <input value={resetPinValue} onChange={e=>setResetPinValue(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="0000" maxLength={4} autoFocus
+                  style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${resetPinError?C.red:C.border}`,fontSize:20,textAlign:"center",letterSpacing:8,fontFamily:"monospace",color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",marginBottom:resetPinError?8:18}}
+                  type="text" inputMode="numeric" onKeyDown={e=>e.key==="Enter"&&resetStaffPin()}/>
+                {resetPinError && <div style={{fontSize:11,color:C.red,marginBottom:10}}>{resetPinError}</div>}
+                <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                  <Btn onClick={resetStaffPin} color={C.wine} style={{fontSize:12,padding:"8px 20px",opacity:(resetPinBusy||resetPinValue.length<4)?0.5:1,pointerEvents:(resetPinBusy||resetPinValue.length<4)?"none":"auto"}}>{resetPinBusy?"Saving…":"Set New PIN"}</Btn>
+                  <Btn onClick={()=>{setResetPinTarget(null);setResetPinValue("");setResetPinError("");}} color="transparent" textColor={C.muted} border={`1px solid ${C.border}`} style={{fontSize:12,padding:"8px 16px"}}>Cancel</Btn>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Search + filter + add */}
           <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
             <input value={dirSearch} onChange={e=>setDirSearch(e.target.value)} placeholder={T2("Search name or ID…")} style={{flex:1,minWidth:160,padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}/>
-            <button onClick={()=>setShowPins(!showPins)} style={{padding:"7px 12px",borderRadius:8,background:showPins?C.gold:C.surface,color:showPins?"#fff":C.muted,border:`1px solid ${showPins?C.gold:C.border}`,fontSize:12,fontWeight:600,cursor:"pointer",minHeight:44}}>🔐 {showPins?T2("Hide PINs"):T2("Show PINs")}</button>
             <select value={dirFilter} onChange={e=>setDirFilter(e.target.value)} style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,color:C.text,background:C.surface}}>
               <option value="All">{T2("All Sections")}</option>
               {ALL_DEPARTMENTS.map(s=><option key={s}>{s}</option>)}
               <option value="admin">Admin</option>
               <option value="headchef">{T2("Head Chefs")}</option>
             </select>
-            <Btn onClick={()=>{ if(showAddEmp){setShowAddEmp(false);} else {openAddForm();} }} color={showAddEmp?"transparent":C.wine} textColor={showAddEmp?C.muted:"#fff"} border={showAddEmp?`1px solid ${C.border}`:"none"} style={{fontSize:12,padding:"7px 14px"}}>{showAddEmp?"× Cancel":"+ Add Employee"}</Btn>
+            {(currentUser?.role==='admin')&&<Btn onClick={()=>{ if(showAddEmp){setShowAddEmp(false);} else {openAddForm();} }} color={showAddEmp?"transparent":C.wine} textColor={showAddEmp?C.muted:"#fff"} border={showAddEmp?`1px solid ${C.border}`:"none"} style={{fontSize:12,padding:"7px 14px"}}>{showAddEmp?"× Cancel":"+ Add Employee"}</Btn>}
                 {(()=>{
                   var needBackfill = safeArr(empDb).filter(function(e){ return e.is_active!==false && e.name && (!e.name_hi || e.name_hi===''); }).length;
                   if (needBackfill === 0) return null;
@@ -693,10 +767,6 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
                           <input type="text" value={editEmpForm.name_hi||""} onChange={e=>setEditEmpForm(p=>({...p,name_hi:e.target.value}))} placeholder="नाम" style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
                         </div>
                         <div>
-                          <div style={{fontSize:11,color:C.muted,marginBottom:2}}>PIN</div>
-                          <input type="text" value={editEmpForm.pin||""} onChange={e=>setEditEmpForm(p=>({...p,pin:e.target.value}))} maxLength={4} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
                           <div style={{fontSize:11,color:C.muted,marginBottom:2}}>Joining</div>
                           <input type="date" value={editEmpForm.joining||""} onChange={e=>setEditEmpForm(p=>({...p,joining:e.target.value}))} style={{width:"100%",padding:"5px 7px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.text,background:C.surface,boxSizing:"border-box"}}/>
                         </div>
@@ -755,15 +825,15 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6,flexShrink:0}}>
-                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,name_hi:emp.name_hi||transliterateName(emp.name||""),pin:emp.pin,joining:emp.joining,role:emp.role,section:emp.section,section_hi:emp.section_hi||sectionHiMap[emp.section]||""});setEditPhotoFile(null);setEditPhotoPreview(emp.photo_url||null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
+                          <button onClick={()=>{setSelEmp(emp);setEditEmpForm({name:emp.name,name_hi:emp.name_hi||transliterateName(emp.name||""),joining:emp.joining,role:emp.role,section:emp.section,section_hi:emp.section_hi||sectionHiMap[emp.section]||""});setEditPhotoFile(null);setEditPhotoPreview(emp.photo_url||null);}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>Edit</button>
+                          {(currentUser?.role==='admin')&&<button onClick={()=>{setResetPinTarget({staff_id:emp.id||emp.staff_id||emp.staffListId,name:emp.name});setResetPinValue("");setResetPinError("");}} style={{padding:"6px 12px",borderRadius:8,background:C.bg,border:`1px solid ${C.border}`,fontSize:10,cursor:"pointer",color:C.text}}>🔑 PIN</button>}
                           <button onClick={()=>{var eid=emp.id||emp.staff_id||emp.staffListId;var toggled=!emp.active;setEmpDb(p=>p.map(e=>(e.id||e.staff_id||e.staffListId)!==eid?e:{...e,active:toggled,is_active:toggled}));if(syncToServer)syncToServer('upsert',{...emp,active:toggled,is_active:toggled});}} style={{padding:"6px 12px",borderRadius:8,fontSize:10,cursor:"pointer",border:"none",background:emp.active?C.greenBg:C.redBg,color:emp.active?C.green:C.red}}>{emp.active?T2("Active"):T2("Off")}</button>
                           <button onClick={()=>setDeleteConfirm(emp)} style={{padding:"6px 10px",borderRadius:8,fontSize:10,cursor:"pointer",border:`1px solid ${C.redBorder}`,background:C.redBg,color:C.red}}>🗑</button>
                         </div>
                       </div>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginTop:8}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginTop:8}}>
                         <div style={{background:C.bg,borderRadius:8,padding:"4px 7px"}}><div style={{fontSize:12,color:C.muted}}>JOINED</div><div style={{fontSize:10,fontWeight:500,color:C.text}}>{emp.joining}</div></div>
                         <div style={{background:C.bg,borderRadius:8,padding:"4px 7px"}}><div style={{fontSize:12,color:C.muted}}>SERVICE</div><div style={{fontSize:10,fontWeight:500,color:C.text}}>{yrsOfService(emp.joining)}</div></div>
-                        <div style={{background:showPins?(emp.pin==="0000"?C.amberBg:C.greenBg):C.bg,borderRadius:8,padding:"4px 7px"}}><div style={{fontSize:10,color:showPins?(emp.pin==="0000"?C.amber:C.green):C.muted}}>{T2("PIN")}</div><div style={{fontSize:12,fontWeight:700,color:showPins?(emp.pin==="0000"?C.amber:C.green):C.muted}}>{showPins?(emp.pin==="0000"?"⚠ 0000":emp.pin):"••••"}</div></div>
                       </div>
                     </div>
                   )}

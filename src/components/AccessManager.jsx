@@ -447,7 +447,31 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   const [showBasicStaff, setShowBasicStaff] = useState(false);
   const [form, setForm]       = useState(blankForm);
   const [addMode, setAddMode] = useState("staff");
-  const [showPin, setShowPin] = useState(null); // staff_id whose PIN is visible
+  // A staff member's PIN is now the password on their linked Supabase Auth
+  // account -- Postgres/GoTrue never expose a password back out through any
+  // API, to anyone, regardless of privilege. "Reveal PIN" is therefore not
+  // just locked down, it's categorically impossible now; resetPinTarget
+  // drives a blind "set a new PIN" prompt instead (see resetStaffPin below).
+  const [resetPinTarget, setResetPinTarget] = useState(null); // {staff_id, name} | null
+  const [resetPinValue, setResetPinValue] = useState("");
+  const [resetPinError, setResetPinError] = useState("");
+  const [resetPinBusy, setResetPinBusy] = useState(false);
+  async function resetStaffPin(){
+    if(!resetPinTarget) return;
+    const next = resetPinValue.trim();
+    // Exactly 4 -- the login input itself caps entry at 4 digits, so a
+    // longer PIN set here could never actually be typed back in at login.
+    if(!/^\d{4}$/.test(next)){ setResetPinError("PIN must be 4 digits."); return; }
+    setResetPinBusy(true); setResetPinError("");
+    const resp = await supabase.functions.invoke('admin-staff-auth', { body: { action:'reset_pin', staff_id: resetPinTarget.staff_id, new_pin: next } }).catch(e=>({error:e}));
+    setResetPinBusy(false);
+    if(resp.error || !resp.data?.ok){
+      setResetPinError("Could not reset PIN: " + (resp.data?.reason || resp.error?.message || 'unknown error'));
+      return;
+    }
+    setResetPinTarget(null);
+    setResetPinValue("");
+  }
 
   // Permission modal state
   const [permStaff, setPermStaff] = useState(null);
@@ -521,12 +545,20 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   function bulkDelete() {
     if (!window.confirm('PERMANENTLY DELETE ' + selected.size + ' staff?')) return;
     const ids = [...selected];
+    // Snapshot auth_user_id for each target BEFORE removing them from empDb
+    // below -- same reasoning as the single-delete path (deleteStaff): a
+    // leftover auth.users account blocks ever re-adding someone under the
+    // same staff_id later (the synthetic email would already be taken).
+    const authUserIds = safeArr(empDb).filter(s => selected.has(getSID(s)) && s.auth_user_id).map(s => s.auth_user_id);
     setEmpDb(prev => prev.filter(s => !selected.has(getSID(s))));
     const failed = [];
     Promise.allSettled(ids.map(id => {
       if (!syncToServer) return Promise.resolve();
       return syncToServer('delete', {staff_id:id}).catch(e => { failed.push(id); console.error('[bulkDelete]', id, e); });
     })).then(() => { if (failed.length) alert('Failed to delete ' + failed.length + ' of ' + ids.length + ' staff — try again for: ' + failed.join(', ')); });
+    authUserIds.forEach(authUserId => {
+      supabase.functions.invoke('admin-staff-auth', { body:{ action:'delete', auth_user_id: authUserId } }).catch(e=>console.error('[bulkDelete] auth cleanup failed:', authUserId, e));
+    });
     setSelected(new Set());
   }
 
@@ -584,10 +616,14 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
   }
   function openEdit(s){
     const cats = Array.isArray(s.sop_categories)?s.sop_categories:[];
-    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role==='section_tablet'?'section_tablet':(s.role?.startsWith('section_')?'section_tablet':s.role||"section_tablet"),section:s.section||"",dept:s.dept||"kitchen",pin:s.pin||"0000",is_active:s.is_active!==false,venue:s.venue||"",sop_categories:cats});
+    // No pin field here at all anymore -- editing an existing staff member's
+    // PIN is the separate "Reset PIN" button/modal (resetStaffPin), which
+    // goes through admin-staff-auth since that's the only thing allowed to
+    // touch a Supabase Auth password.
+    setForm({staff_id:s.staffListId||s.staff_id||s.id||"",name:s.name||"",role:s.role==='section_tablet'?'section_tablet':(s.role?.startsWith('section_')?'section_tablet':s.role||"section_tablet"),section:s.section||"",dept:s.dept||"kitchen",is_active:s.is_active!==false,venue:s.venue||"",sop_categories:cats});
     setEditId(s.staffListId||s.staff_id||s.id); setShowAdd(true);
   }
-  function saveForm(){
+  async function saveForm(){
     if(!form.name.trim()||!form.staff_id.trim()) return;
     // SOP categories & tablet-style section derivation apply ONLY to section_tablet roles.
     // For any other role, section is exactly what the user picked in the Section dropdown.
@@ -596,25 +632,57 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
       const updated = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===editId);
       const cats = isTablet ? (form.sop_categories||[]) : [];
       const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
-      const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", pin:form.pin, is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
+      const entry = {...updated, name:form.name, role:form.role, section:derivedSection, dept:form.dept||"kitchen", is_active:form.is_active, venue:form.venue||null, sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===editId?entry:s));
       if(syncToServer) syncToServer('upsert', entry).catch(e=>{console.error('[saveStaff]',e);alert('Failed to save staff change: '+(e.message||e));});
       logActivity('system', 'Staff updated: '+form.name+' ('+editId+')', 'staff_edit', {staff_id:editId, name:form.name, role:form.role}, currentUser?.id);
+      setShowAdd(false); setEditId(null);
     } else {
+      // Validate before creating anything -- catching this only after the
+      // staff row already exists (the edge function's own validation) would
+      // leave a half-created staff member with no login until someone
+      // notices, deletes, and re-adds them.
+      if(!/^\d{4}$/.test(form.pin||"")){ alert("PIN must be 4 digits."); return; }
       const sid = form.staff_id.toUpperCase();
       const cats = isTablet ? (form.sop_categories||[]) : [];
       const derivedSection = (isTablet && cats.length>0) ? cats.map(c=>{const rc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return rc?rc.name:c;}).join(' + ') : form.section;
-      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",pin:form.pin,is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
+      const newStaff={staffListId:sid,staff_id:sid,name:form.name,role:form.role,section:derivedSection,dept:form.dept||"kitchen",is_active:true,joining:TODAY,venue:form.venue||null,sop_categories:cats.length>0?cats:null};
       setEmpDb(p=>[...safeArr(p),newStaff]);
-      if(syncToServer) syncToServer('upsert', newStaff).catch(e=>{console.error('[addStaff]',e);alert('Failed to save new staff: '+(e.message||e));});
+      try{
+        if(syncToServer) await syncToServer('upsert', newStaff);
+      }catch(e){
+        console.error('[addStaff]',e);
+        alert('Failed to save new staff: '+(e.message||e));
+        setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==sid));
+        return;
+      }
+      // The staff row exists now; this provisions the matching login (a
+      // Supabase Auth account) -- needs the service role, so it's the one
+      // thing here that goes through an edge function instead of a plain
+      // dbUpsert. If THIS fails, the staff row still exists (visible in the
+      // list, so the gap is discoverable) but nobody can log in as them yet.
+      const authResp = await supabase.functions.invoke('admin-staff-auth', { body:{ action:'create', staff_id: sid, pin: form.pin } }).catch(e=>({error:e}));
+      if(authResp.error || !authResp.data?.ok){
+        // Reset PIN won't help recover this -- it needs an auth_user_id to
+        // already exist, which is exactly what failed to get created here.
+        alert('Staff record created, but login setup failed: '+(authResp.data?.reason||authResp.error?.message||'unknown error')+'. Delete this staff member and add them again to retry.');
+      } else {
+        setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===sid?{...s,auth_user_id:authResp.data.auth_user_id}:s));
+      }
       logActivity('system', 'Staff added: '+form.name+' ('+sid+')', 'staff_add', {staff_id:sid, name:form.name, role:form.role, dept:form.dept}, currentUser?.id);
+      setShowAdd(false); setEditId(null);
     }
-    setShowAdd(false); setEditId(null);
   }
   function deleteStaff(id){
     const target = safeArr(empDb).find(s=>(s.staffListId||s.staff_id||s.id)===id);
     setEmpDb(p=>safeArr(p).filter(s=>(s.staffListId||s.staff_id||s.id)!==id));
     if(syncToServer) syncToServer('delete', {staff_id:id, staffListId:id}).catch(e=>{console.error('[deleteStaff]',e);alert('Failed to delete staff: '+(e.message||e));});
+    // Clean up the linked Supabase Auth account too -- a leftover one would
+    // block ever re-adding a staff member under this same staff_id later
+    // (the synthetic email would already be taken). Fire-and-forget, same
+    // as the staff-row delete above; auth_user_id is read from the snapshot
+    // taken before the row was removed from empDb.
+    if(target?.auth_user_id) supabase.functions.invoke('admin-staff-auth', { body:{ action:'delete', auth_user_id: target.auth_user_id } }).catch(e=>console.error('[deleteStaff] auth cleanup failed:',e));
     logActivity('system', 'Staff deleted: '+(target?.name||id)+' ('+id+')', 'staff_delete', {staff_id:id, name:target?.name||''}, currentUser?.id);
     setDelId(null);
   }
@@ -823,10 +891,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               </select>
             </div>
             )}
+            {!editId && (
             <div>
               <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:5}}>{T2("PIN (4 digits)")}</div>
-              <input value={form.pin} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700,fontFamily:"monospace"}} type="text" inputMode="numeric"/>
+              <input value={form.pin||""} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,"").slice(0,4)}))} placeholder="0000" maxLength={4} style={{...fld,letterSpacing:8,textAlign:"center",fontSize:18,fontWeight:700,fontFamily:"monospace"}} type="text" inputMode="numeric"/>
             </div>
+            )}
           </div>
 
           {/* Venue (home location for tablets) */}
@@ -1035,6 +1105,24 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
           <div style={{display:"flex",gap:10}}>
             <button onClick={()=>deleteStaff(delId)} style={{flex:1,padding:"12px",borderRadius:10,background:C.red,color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑 {T2("Delete")}</button>
             <button onClick={()=>setDelId(null)} style={{flex:1,padding:"12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ══════ RESET PIN MODAL — blind reset only, the PIN itself can
+          never be shown again once it's a Supabase Auth password ══════ */}
+      <Modal open={!!resetPinTarget} onClose={()=>{setResetPinTarget(null);setResetPinValue("");setResetPinError("");}}>
+        <div style={{padding:"28px 24px"}}>
+          <div style={{fontSize:28,marginBottom:10,textAlign:"center"}}>🔑</div>
+          <div style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:6,fontFamily:"var(--font-display)",textAlign:"center"}}>{T2("Set a new PIN for")} {resetPinTarget?.name}</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:18,textAlign:"center"}}>{T2("Their current PIN can't be shown — only replaced. This signs them out everywhere else immediately.")}</div>
+          <input value={resetPinValue} onChange={e=>setResetPinValue(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="0000" maxLength={4} autoFocus
+            style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1.5px solid ${resetPinError?C.red:C.border}`,fontSize:20,textAlign:"center",letterSpacing:8,fontFamily:"monospace",color:C.text,background:C.bg,outline:"none",boxSizing:"border-box",marginBottom:resetPinError?8:18}}
+            type="text" inputMode="numeric" onKeyDown={e=>e.key==="Enter"&&resetStaffPin()}/>
+          {resetPinError&&<div style={{fontSize:11,color:C.red,marginBottom:10,textAlign:"center"}}>{resetPinError}</div>}
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={resetStaffPin} disabled={resetPinBusy||resetPinValue.length<4} style={{flex:1,padding:"12px",borderRadius:10,background:resetPinBusy||resetPinValue.length<4?C.border:C.gold,color:resetPinBusy||resetPinValue.length<4?C.muted:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:resetPinBusy||resetPinValue.length<4?"not-allowed":"pointer"}}>{resetPinBusy?T2("Saving…"):T2("Set New PIN")}</button>
+            <button onClick={()=>{setResetPinTarget(null);setResetPinValue("");setResetPinError("");}} style={{flex:1,padding:"12px",borderRadius:10,background:C.darkCard,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer"}}>{T2("Cancel")}</button>
           </div>
         </div>
       </Modal>
@@ -1291,7 +1379,6 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
         const sid = s.staffListId||s.staff_id||s.id;
         const pc = permCounts(s);
         const isSel = selected.has(sid);
-        const pinVisible = showPin===sid;
         return(
           <Card key={sid} style={{marginBottom:8,padding:"14px 16px",opacity:isActive?1:.6,border:`1px solid ${isSel?C.gold:isActive?C.border:C.redBorder}`,background:isSel?C.gold+"08":undefined}}>
             <div style={{display:"flex",gap:12,alignItems:"center"}}>
@@ -1312,13 +1399,6 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
                   {!isActive&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:C.redBg,color:C.red}}>Inactive</span>}
                 </div>
                 <div style={{fontSize:11,color:C.muted,marginBottom:3}}>{roleLabel}{Array.isArray(s.sop_categories)&&s.sop_categories.length>0?" · 🏷 "+s.sop_categories.map(c=>{const cc=(RECIPE_DB.cats||[]).find(x=>x.id===c);return cc?cc.name:c;}).join(', '):(s.section?" · 📍 "+s.section:"")}{s.venue?" · 🏠 "+s.venue:""}</div>
-                {/* PIN — hidden by default */}
-                <div style={{fontSize:11,color:C.faint}}>
-                  PIN: <span onClick={()=>setShowPin(pinVisible?null:sid)} style={{cursor:"pointer",fontFamily:"monospace",fontSize:13,fontWeight:600,color:pinVisible?C.gold:C.faint,letterSpacing:pinVisible?3:0}}>
-                    {pinVisible?(s.pin||"0000"):"••••"}
-                  </span>
-                  {pinVisible&&<span style={{fontSize:10,color:C.faint,marginLeft:6}}>(tap to hide)</span>}
-                </div>
                 {/* Permission pills */}
                 <div style={{display:"flex",gap:4,marginTop:5,flexWrap:"wrap"}}>
                   {pc.total===0
@@ -1330,6 +1410,12 @@ function AccessManager({lang="en", empDb, setEmpDb, currentUser=null, syncToServ
               {/* Action buttons — compact row */}
               <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end",maxWidth:180}}>
                 {canEdit&&<button onClick={()=>openEdit(s)} style={{padding:"6px 12px",borderRadius:8,background:C.goldBg,border:`1px solid ${C.goldBorder}`,color:C.gold,fontSize:11,fontWeight:600,cursor:"pointer"}}>✏️ Edit</button>}
+                {/* admin-staff-auth (the edge function this calls) strictly requires
+                    role==='admin', a narrower check than the access.edit permission
+                    canEdit is based on -- gating on both avoids offering an action
+                    that would otherwise fail with a confusing server-side rejection
+                    for a non-admin role that's merely been granted access.edit. */}
+                {canEdit&&currentUser?.role==='admin'&&<button onClick={()=>{setResetPinTarget({staff_id:sid,name:s.name}); setResetPinValue(""); setResetPinError("");}} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,fontWeight:600,cursor:"pointer"}}>🔑 Reset PIN</button>}
                 {canPerms&&<button onClick={()=>openPerms(s)} style={{padding:"6px 12px",borderRadius:8,background:C.blueBg,border:`1px solid ${C.blueBorder}`,color:C.blue,fontSize:11,fontWeight:600,cursor:"pointer"}}>🔐 Perms</button>}
                 <button onClick={()=>toggleActive(sid)} style={{padding:"6px 12px",borderRadius:8,background:isActive?C.redBg:C.greenBg,border:`1px solid ${isActive?C.redBorder:C.greenBorder}`,color:isActive?C.red:C.green,fontSize:11,fontWeight:600,cursor:"pointer"}}>{isActive?"🔴":"✅"}</button>
                 {canDel&&<button onClick={()=>setDelId(sid)} style={{padding:"6px 12px",borderRadius:8,background:C.darkCard,border:`1px solid ${C.border}`,color:C.faint,fontSize:11,cursor:"pointer"}}>🗑</button>}

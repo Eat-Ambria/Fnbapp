@@ -1,9 +1,14 @@
 import { supabase } from './supabase.js'
 import { enqueue } from './offlineQueue.js'
 
-// Versioned cache key for staff busts old cached data on deploy
+// Versioned cache key for staff busts old cached data on deploy. Bumped to
+// v12 for the move to real Supabase Auth: staff.pin no longer exists as a
+// column at all (the PIN lives in auth.users' password hash now, see the
+// auth+RLS migration) and rows gained auth_user_id instead -- an offline
+// boot falling back to an older cached shape should start clean rather than
+// mixing an obsolete pin/pin_changed_at field into the merged staff list.
 function cacheKey(table) {
-  return table === 'staff' ? 'ambria_empdb_v10' : 'ambria_' + table;
+  return table === 'staff' ? 'ambria_empdb_v12' : 'ambria_' + table;
 }
 
 // A write that fails because the device is offline is RETRYABLE -- queuing it

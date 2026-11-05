@@ -2,42 +2,33 @@
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { safeArr } from '../utils/helpers.js';
 import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon, KButton } from './KitchenUI.jsx';
 import { VENUE_OPTIONS } from '../data/staffData.js';
+import { supabase } from '../lib/supabase.js';
+import { safeArr } from '../utils/helpers.js';
+import { staffAuthEmail, staffAuthPassword, classifyAuthError } from '../lib/staffAuth.js';
 
 function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
   const T2 = s => T(s, lang);
-  const safeDb = safeArr(empDb);
   const [empId,  setEmpId]  = useState("");
   const [pin,    setPin]    = useState("");
   const [error,  setError]  = useState("");
   const [loading,setLoading]= useState(false);
-  const [remember,setRemember]=useState(false);
   const [pendingEmp, setPendingEmp] = useState(null);
   const [venueOverride, setVenueOverride] = useState("");
 
+  // This screen only ever renders when there's genuinely no active session
+  // (App.jsx's boot check already confirmed that via supabase.auth.getSession()
+  // before deciding to show it) -- GoTrue's own persisted session is what
+  // keeps an ordinary reload logged in now, with nothing to restore here.
+  // The one convenience worth keeping is pre-filling the last-used staff ID.
   useEffect(()=>{
     try{
-      const rid  = localStorage.getItem("ambria_emp_id");
-      const rpin = localStorage.getItem("ambria_pin");
-      const rrem = localStorage.getItem("ambria_remember");
-      if(rrem==="true" && rid && rpin){
-        const id   = rid.trim().toUpperCase();
-        const pin2 = rpin.trim();
-        const emp  = (empDb||[]).find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
-        if(emp && emp.active!==false && emp.is_active!==false && String(emp.pin)===pin2){
-          const rid = emp.id||emp.staffListId||emp.staff_id;
-          const savedVenue = localStorage.getItem("ambria_venue_override")||emp.venue||"";
-          onLogin({...emp, id:rid, staffListId:emp.staffListId||rid, venue:savedVenue});
-          return;
-        }
-        setEmpId(id); setPin(pin2); setRemember(true);
-      }
+      const rid = localStorage.getItem("ambria_emp_id");
+      if(rid) setEmpId(rid.trim().toUpperCase());
     }catch(e){}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   function finalizeLogin(emp, venue) {
@@ -49,32 +40,62 @@ function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
 
   async function handleLogin(){
     setError(""); setLoading(true);
-    const id  = empId.trim().toUpperCase();
-    const emp = safeDb.find(e=>(String(e.id||e.staffListId||e.staff_id||"")).toUpperCase()===id);
-    if(!emp){setError("Employee ID not found.");setLoading(false);return;}
-    if(emp.active===false||emp.is_active===false){setError("Account inactive. Contact manager.");setLoading(false);return;}
-    if(String(emp.pin)!==pin.trim()){setError("Incorrect PIN.");setLoading(false);return;}
     try{
-      if(remember){
-        localStorage.setItem("ambria_emp_id",id);
-        localStorage.setItem("ambria_pin",pin.trim());
-        localStorage.setItem("ambria_remember","true");
-      } else {
-        localStorage.removeItem("ambria_emp_id");
-        localStorage.removeItem("ambria_pin");
-        localStorage.removeItem("ambria_remember");
+      const id  = empId.trim().toUpperCase();
+      const pinVal = pin.trim();
+      if(!id){setError("Employee ID not found.");setLoading(false);return;}
+      if(!supabase){setError("Can't reach server — check connection and try again.");setLoading(false);return;}
+      const { data, error } = await supabase.auth.signInWithPassword({ email: staffAuthEmail(id), password: staffAuthPassword(id, pinVal) });
+      if(error){
+        // GoTrue's own invalid_credentials response doesn't distinguish "no
+        // such account" from "wrong PIN" either -- same anti-enumeration
+        // posture as before. A genuine network failure, or GoTrue's per-IP
+        // sign-in rate limit (all tablets at one venue share a NAT IP, so a
+        // shift change can trip this), each get their own distinct message
+        // so neither looks like a wrong PIN.
+        const kind = classifyAuthError(error);
+        setError(kind==='network' ? "Can't reach server — check connection and try again." : kind==='rate_limited' ? "Too many attempts — wait a minute and try again." : "Incorrect PIN.");
+        setLoading(false);
+        return;
       }
-    }catch(e){}
-    // Section tablets get venue selection step
-    if(emp.role?.startsWith("section_")){
-      const savedVenue = localStorage.getItem("ambria_venue_override")||"";
-      setVenueOverride(savedVenue||emp.venue||"");
-      setPendingEmp(emp);
+      let emp = safeArr(empDb).find(e => e.auth_user_id === data.user.id);
+      if(!emp && supabase){
+        // empDb can be stale (a brand-new hire's auth_user_id link arrives
+        // as a realtime UPDATE after the row's own INSERT, and this device
+        // may have missed it; or this is a first boot with an empty offline
+        // cache) -- a miss here isn't necessarily "this account is broken,"
+        // so confirm against the live table once before giving up.
+        const { data: liveRow } = await supabase.from('staff').select('*').eq('auth_user_id', data.user.id).maybeSingle();
+        if(liveRow) emp = {...liveRow, staffListId: liveRow.staff_id};
+      }
+      if(!emp){
+        setError("Account not set up correctly. Contact an admin.");
+        await supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
+        setLoading(false);
+        return;
+      }
+      if(emp.is_active===false){
+        setError("Account inactive. Contact manager.");
+        await supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
+        setLoading(false);
+        return;
+      }
+      try{ localStorage.setItem("ambria_emp_id", id); }catch(e){}
+      // Section tablets get venue selection step
+      if(emp.role?.startsWith("section_")){
+        const savedVenue = localStorage.getItem("ambria_venue_override")||"";
+        setVenueOverride(savedVenue||emp.venue||"");
+        setPendingEmp(emp);
+        setLoading(false);
+        return;
+      }
+      finalizeLogin(emp);
       setLoading(false);
-      return;
+    }catch(e){
+      console.error('[LoginScreen] handleLogin failed:', e);
+      setError("Something went wrong — please try again.");
+      setLoading(false);
     }
-    finalizeLogin(emp);
-    setLoading(false);
   }
 
   return (
@@ -121,17 +142,10 @@ function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
 
         {error&&<div className="fade-in" style={{background:C.redBg,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.red,marginBottom:16}}>{error}</div>}
 
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,cursor:"pointer"}} onClick={()=>setRemember(r=>!r)}>
-          <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${remember?C.gold:C.border}`,background:remember?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {remember&&<span style={{color:"#fff",fontSize:11,fontWeight:700}}>✓</span>}
-          </div>
-          <span style={{fontSize:12,color:C.muted}}>{T2("Remember me on this device")}</span>
-        </div>
-
         <button
           onClick={handleLogin}
           disabled={loading||!empId||pin.length<4}
-          style={{width:"100%",padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #1A46C4)`,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
+          style={{width:"100%",marginTop:24,padding:"14px",borderRadius:14,background:(!empId||pin.length<4)?C.border:`linear-gradient(135deg, ${C.gold}, #1A46C4)`,color:(!empId||pin.length<4)?C.muted:"#fff",border:"none",fontSize:15,fontWeight:700,cursor:(!empId||pin.length<4)?"not-allowed":"pointer",fontFamily:"var(--font-display)",letterSpacing:1.5,boxShadow:(!empId||pin.length<4)?"none":`0 4px 16px rgba(212,180,74,.3)`}}>
           {loading?T2("Signing in…"):T2("Sign In →")}
         </button>
 
@@ -177,7 +191,15 @@ function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
               })}
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-              <KButton variant="ghost" onClick={()=>{setPendingEmp(null);setVenueOverride("");}} style={{padding:"11px 22px",borderRadius:14}}>
+              <KButton variant="ghost" onClick={()=>{
+                // signInWithPassword already established a real session by
+                // this point -- "Back" must actually end it (scope:'local',
+                // this device only), or the next reload silently auto-logs
+                // this tablet in as whoever was picking a venue, with login
+                // never having been completed.
+                if(supabase) supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
+                setPendingEmp(null);setVenueOverride("");
+              }} style={{padding:"11px 22px",borderRadius:14}}>
                 {T2("Back")}
               </KButton>
               <KButton variant="brand" icon="chevronR" disabled={!venueOverride}

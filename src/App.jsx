@@ -4,6 +4,7 @@
 import React, { useState, useRef, useEffect, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
+import { staffAuthEmail, staffAuthPassword, classifyAuthError } from './lib/staffAuth.js';
 import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc } from './lib/db.js';
 import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount } from './lib/offlineQueue.js';
 
@@ -667,7 +668,12 @@ export default function App() {
     async function loadAll() {
       // Clear any legacy localStorage kitchen tracking keys
       try { localStorage.removeItem('ambria_kt'); localStorage.removeItem('ambria_kitchen_tracking'); } catch(e) {}
-      // Restore session (always localStorage — device-specific)
+      // Restore a cached profile purely for a fast initial paint while the
+      // real session/staff data load below -- this is never the thing that
+      // decides whether the device is actually logged in (GoTrue's own
+      // session, restored automatically by the Supabase client, is that
+      // authority), just a UI head start so the screen isn't blank for the
+      // length of the data load.
       try {
         const suRaw = localStorage.getItem("ambria_session_user");
         if(suRaw){ const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } }
@@ -705,47 +711,67 @@ export default function App() {
       const initOnly = EMPLOYEE_DB_INIT.filter(e => !supaIds.has(e.staff_id) && !supaIds.has(e.staffListId));
       const mergedStaff = [...staffData, ...initOnly].map(s=>({...s,staffListId:s.staff_id||s.staffListId,is_active:s.is_active!==false}));
       setEmpDb(mergedStaff);
-      // Refresh currentUser with latest DB data (picks up sop_categories, venue, etc.)
+      // GoTrue's own session is the actual authority on whether this device
+      // is logged in -- not the ambria_session_user cache restored above,
+      // which was only ever a fast-paint preview. A PIN reset elsewhere
+      // (admin-staff-auth's admin_revoke_user_sessions RPC) already
+      // invalidates this device's session server-side, so there's no custom
+      // "did the pin change" comparison needed here at all anymore -- if the
+      // session was revoked, getSession() simply won't return a usable one.
       try {
-        const suRaw2 = localStorage.getItem("ambria_session_user");
-        if(suRaw2) {
-          const cached = JSON.parse(suRaw2);
-          const cid = cached?.id || cached?.staffListId || cached?.staff_id;
-          if(cid) {
-            const fresh = mergedStaff.find(s => (s.staff_id||s.staffListId||s.id) === cid);
-            if(fresh) {
-              // A device that was closed (or offline) when an admin reset
-              // this user's PIN never saw the realtime UPDATE below — it
-              // reopens straight into the stale cached session from
-              // localStorage (set just above, before this DB round-trip).
-              // Catch that here too: if the PIN this device last knew no
-              // longer matches the DB, the reset happened while it was away
-              // and this session is exactly the kind of already-open-under-
-              // the-old-PIN session a reset is supposed to kick.
-              if(cached?.pin!=null && String(cached.pin)!==String(fresh.pin)){
-                setCurrentUser(null);
-                setForceLogoutMsg(T2("Your PIN was reset. Please log in again with your new PIN."));
-                try{
-                  localStorage.removeItem("ambria_session_user");
-                  localStorage.removeItem("ambria_emp_id");
-                  localStorage.removeItem("ambria_pin");
-                  localStorage.removeItem("ambria_remember");
-                }catch(e){}
-              } else {
-                // This DB refresh used to blindly overwrite venue with the
-                // static Home Venue configured in Access Manager, silently
-                // discarding whatever the tablet's own login screen asked for
-                // that day ("Where is this tablet located today?" — see
-                // LoginScreen.jsx). A section tablet answers that prompt on
-                // every login precisely because it moves between venues, so
-                // that answer — persisted to ambria_venue_override, most
-                // recent wins — is the current location, not the seed default.
-                let venueOverride = null;
-                try { venueOverride = localStorage.getItem("ambria_venue_override"); } catch(e) {}
-                const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid, venue: venueOverride || cached?.venue || fresh.venue};
-                setCurrentUser(refreshed);
-                localStorage.setItem("ambria_session_user", JSON.stringify(refreshed));
-              }
+        if(!supabase){
+          // Offline/unconfigured mode -- nothing to confirm against, trust
+          // whatever the fast-paint cache already set.
+        } else {
+          const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+          if(sessErr){
+            // getSession() tries to refresh an expired session and, on a
+            // network/offline failure, returns an error WITHOUT destroying
+            // the session already in storage (it's left for a later retry).
+            // Treating this the same as "no session" would log out a device
+            // that's simply offline right now, regressing this app's
+            // offline-first design. Leave the fast-paint cache as-is and let
+            // a later boot/reconnect confirm properly.
+            console.warn('[App] getSession() failed (offline?) — keeping cached session for now:', sessErr);
+          } else if(!session){
+            setCurrentUser(null);
+            try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+          } else {
+            const fresh = mergedStaff.find(s => s.auth_user_id === session.user.id);
+            // Only treat "no matching/inactive row" as authoritative when
+            // the staff list actually looks like it came from the server --
+            // an offline boot that fell back to an empty/stale local cache
+            // (dbLoad's own fallback) must not read as "this account was
+            // removed," which would wrongly sign out a perfectly valid
+            // session with no way to log back in until reconnecting.
+            const staffDataLooksLive = mergedStaff.length > 0;
+            if(staffDataLooksLive && (!fresh || fresh.is_active===false)){
+              // No matching/active staff row for an otherwise-valid session
+              // (deactivated while this device was away, or a session for a
+              // row that no longer exists) -- sign out of the stale session.
+              // scope:'local' -- this only ends THIS device's session, never
+              // revokes the account's other sessions (that's
+              // admin_revoke_user_sessions, a deliberate separate action).
+              setCurrentUser(null);
+              await supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
+              try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+            } else if(fresh){
+              let cached = null;
+              try { const suRaw2 = localStorage.getItem("ambria_session_user"); cached = suRaw2 ? JSON.parse(suRaw2) : null; } catch(e) {}
+              // This DB refresh used to blindly overwrite venue with the
+              // static Home Venue configured in Access Manager, silently
+              // discarding whatever the tablet's own login screen asked for
+              // that day ("Where is this tablet located today?" — see
+              // LoginScreen.jsx). A section tablet answers that prompt on
+              // every login precisely because it moves between venues, so
+              // that answer — persisted to ambria_venue_override, most
+              // recent wins — is the current location, not the seed default.
+              let venueOverride = null;
+              try { venueOverride = localStorage.getItem("ambria_venue_override"); } catch(e) {}
+              const cid = fresh.staff_id;
+              const refreshed = {...fresh, id:cid, staffListId:fresh.staffListId||cid, venue: venueOverride || cached?.venue || fresh.venue};
+              setCurrentUser(refreshed);
+              try{ localStorage.setItem("ambria_session_user", JSON.stringify(refreshed)); }catch(e){}
             }
           }
         }
@@ -845,7 +871,11 @@ export default function App() {
       }
       // Seed AM001 to Supabase on every load (idempotent)
       const am001=EMPLOYEE_DB_INIT.find(e=>e.staff_id==='AM001'||e.staffListId==='AM001');
-      if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',pin:String(am001.pin||'0000'),is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(e=>console.warn('AM001 boot-seed failed (non-fatal, idempotent — will retry next boot):',e));
+      // No pin field -- that column is gone (or going, see the auth+RLS
+      // migrations); a re-seeded AM001 gets its login provisioned the same
+      // way any other new staff member does (AccessManager/TeamHub's "Add"
+      // flow, via admin-staff-auth), not through this boot-seed.
+      if(am001) dbUpsert('staff',{staff_id:am001.staff_id||am001.staffListId,name:am001.name,section:am001.section||null,dept:am001.dept||null,role:'admin',is_admin:true,is_active:true,joining:am001.joining||null,phone:am001.phone||null},'staff_id').catch(e=>console.warn('AM001 boot-seed failed (non-fatal, idempotent — will retry next boot):',e));
 
       // Auto-sync from LMS (15-min cooldown)
       try{
@@ -869,6 +899,39 @@ export default function App() {
     loadAll();
   }, []);
 
+  // Catches a session GoTrue itself has invalidated -- the main case is an
+  // admin's PIN reset (admin-staff-auth's admin_revoke_user_sessions RPC),
+  // which revokes this device's refresh token server-side immediately. This
+  // device's current access token keeps working until it naturally expires
+  // (the SDK auto-refreshes shortly before that), at which point the refresh
+  // fails and supabase-js fires SIGNED_OUT here -- this is what actually ends
+  // the session on this device, not any client-side comparison. The `appReady`
+  // guard skips the SIGNED_OUT this itself fires when loadAll() finds no
+  // session / signs out a deactivated or stale one at boot, so that doesn't
+  // show a spurious "please log in again" the very first time the app opens
+  // with nobody logged in yet.
+  const currentUserRef = useRef(null);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  const appReadyRef = useRef(false);
+  useEffect(() => { appReadyRef.current = appReady; }, [appReady]);
+  useEffect(() => {
+    if (!supabase) return;
+    // Mount-once: reads the latest currentUser/appReady via refs rather than
+    // closing over the state values from whenever this effect last ran, since
+    // the event this reacts to can fire at any arbitrary future point (hours
+    // or days later), long after any closure captured at setup time would be
+    // stale.
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && appReadyRef.current && currentUserRef.current) {
+        setCurrentUser(null);
+        setActiveDept(null);
+        try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+        setForceLogoutMsg(T2("Your PIN was reset. Please log in again with your new PIN."));
+      }
+    });
+    return () => { sub?.subscription?.unsubscribe(); };
+  }, []);
+
   // Role/screen registry edits (Access Manager's Manage Roles/Manage Screens)
   // only ever patched the editing device's own in-memory PRESET_ROLES/
   // SCREEN_PERMISSIONS (permissions.js) after writing to Supabase — any other
@@ -884,37 +947,38 @@ export default function App() {
   useEffect(() => {
     if (!appReady) return;
     const u1 = dbSubscribe('staff', (payload) => {
-      if(payload.eventType==='INSERT') setEmpDb(p=>{if(p.some(s=>(s.staffListId||s.staff_id)===payload.new.staff_id))return p;return[...p,{...payload.new,staffListId:payload.new.staff_id}];});
+      const newRow = payload.new;
+      if(payload.eventType==='INSERT') setEmpDb(p=>{if(p.some(s=>(s.staffListId||s.staff_id)===newRow.staff_id))return p;return[...p,{...newRow,staffListId:newRow.staff_id}];});
       if(payload.eventType==='UPDATE'){
-        setEmpDb(p=>p.map(s=>(s.staffListId||s.staff_id)===payload.new.staff_id?{...s,...payload.new,staffListId:payload.new.staff_id}:s));
+        setEmpDb(p=>p.map(s=>(s.staffListId||s.staff_id)===newRow.staff_id?{...s,...newRow,staffListId:newRow.staff_id}:s));
         // An admin granting/changing a tab permission on their own device only
         // ever updated empDb above — the logged-in tablet it was actually
         // meant for keeps its own currentUser as a separate snapshot taken at
         // login (canAccessScreen reads THAT, not empDb), so the change stayed
         // invisible there until someone reloaded or logged out and back in.
+        // A PIN reset no longer touches this table at all (the PIN lives in
+        // auth.users now) and is enforced via admin-staff-auth's
+        // admin_revoke_user_sessions RPC instead — this handler only needs to
+        // keep currentUser live-synced with ordinary profile/role edits, not
+        // security-enforce anything itself.
         setCurrentUser(prev=>{
           if(!prev) return prev;
           const pid=prev.staffListId||prev.staff_id||prev.id;
-          if(pid!==payload.new.staff_id) return prev;
-          // A PIN reset must kick every OTHER already-open session for this
-          // user, not just patch their data in place — otherwise a device
-          // still holds a live session under a PIN it no longer knows, which
-          // defeats the point of resetting it. The device that itself just
-          // performed a self-service PIN change (savePinReset) already
-          // applied the new PIN to its own currentUser optimistically before
-          // writing to Supabase, so prev.pin already equals payload.new.pin
-          // there and this echo is a no-op; only a device that's seeing the
-          // new PIN for the first time — reset by an admin, or by this same
-          // user from a different device — gets logged out here.
-          if(prev.pin!=null && String(prev.pin)!==String(payload.new.pin)){
-            try{
-              localStorage.removeItem("ambria_session_user");
-              localStorage.removeItem("ambria_emp_id");
-              localStorage.removeItem("ambria_pin");
-              localStorage.removeItem("ambria_remember");
-            }catch(e){}
+          if(pid!==newRow.staff_id) return prev;
+          // Deactivating the currently-open session's own account DOES need
+          // to actually end it here -- a role change alone just updates what
+          // this device can see (handled by the merge below), but staying
+          // signed in past is_active:false would let it keep working with a
+          // still-valid GoTrue session regardless of what the UI now hides.
+          if(newRow.is_active===false){
+            try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+            // scope:'local' -- ends only THIS device's session; a bare
+            // signOut() defaults to 'global' and would revoke this person's
+            // OTHER devices too, which is a much bigger action than "this
+            // one device noticed its own row went inactive."
+            if(supabase) supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
             setActiveDept(null);
-            setForceLogoutMsg(T2("Your PIN was reset. Please log in again with your new PIN."));
+            setForceLogoutMsg(T2("Your access was updated. Please log in again."));
             return null;
           }
           // Keep this device's own venue answer, same precedent as the
@@ -922,7 +986,7 @@ export default function App() {
           // tablet today" answer must not get silently overwritten by
           // whatever Access Manager has saved as the static Home Venue.
           let venueOverride=null; try{venueOverride=localStorage.getItem("ambria_venue_override");}catch(e){}
-          const updated={...prev,...payload.new,id:pid,staffListId:payload.new.staff_id,venue:venueOverride||prev.venue};
+          const updated={...prev,...newRow,id:pid,staffListId:newRow.staff_id,venue:venueOverride||prev.venue};
           try{localStorage.setItem("ambria_session_user",JSON.stringify(updated));}catch(e){}
           return updated;
         });
@@ -1183,12 +1247,29 @@ export default function App() {
   }, [currentUser]);
 
   async function syncStaff(action, data) {
+    // The PIN itself never lives in this table anymore -- it's the password
+    // on the linked auth.users row (see the auth+RLS migration). This
+    // function only ever touches ordinary profile/role fields; PIN changes
+    // go through admin-staff-auth (admin reset) or supabase.auth.updateUser
+    // (self-service, see savePinReset) instead, never through here.
+    //
+    // auth_user_id is deliberately OMITTED from this record, same reasoning
+    // as the old `pin` column's omission: every AccessManager/TeamHub call
+    // site spreads a snapshot of the row (`{...s, ...}`), and that snapshot
+    // can be stale or simply missing auth_user_id (a brand-new hire whose
+    // link hasn't arrived via realtime yet on this device, a row replayed
+    // from the offline queue, a permissions-only snapshot taken before the
+    // link existed). Including it here would let any ordinary, unrelated
+    // edit silently null out the link and lock that person out of login
+    // entirely -- upsert only touches columns present in the record, so
+    // omitting it leaves whatever's already there alone. Only the edge
+    // functions (service role) ever write this column.
     const record = {
       staff_id: data.staffListId||data.staff_id, name: data.name||'',
       name_hi: data.name_hi||null,
       section: data.section||null, section_hi: data.section_hi||null,
       dept: data.dept||null, role: data.role||'staff',
-      pin: String(data.pin||'0000'), is_admin: data.role==='admin',
+      is_admin: data.role==='admin',
       is_active: data.is_active!==false, joining: data.joining||null,
       phone: data.phone||null, custom_screens: data.custom_screens||null,
       permissions: data.permissions||null,
@@ -1198,10 +1279,10 @@ export default function App() {
     // dbUpsert/dbDelete already console.error + throw on a non-retryable
     // failure (lib/db.js) — this function must keep passing that rejection
     // straight through, unaltered: App.jsx's own savePinReset awaits this
-    // call inside its own try/catch to roll back an optimistic PIN update on
+    // call inside its own try/catch to roll back an optimistic update on
     // failure, and swallowing the error here (as an earlier version of this
     // fix did) silently broke that rollback. The real gap — AccessManager.jsx
-    // /TeamHub.jsx's 9 fire-and-forget call sites with no .catch of their
+    // /TeamHub.jsx's fire-and-forget call sites with no .catch of their
     // own — is fixed at each of those call sites instead, not here.
     if(action==='upsert') await dbUpsert('staff', record, 'staff_id');
     if(action==='delete') await dbDelete('staff', 'staff_id', record.staff_id);
@@ -1209,33 +1290,42 @@ export default function App() {
 
   // Self-service PIN reset from the account menu — anyone can change their
   // own PIN here without going through Access Manager (admin-only screen).
+  // The PIN is the password on this person's linked auth.users row now, not
+  // a staff table column at all -- this is an ordinary Supabase Auth
+  // self-service password change, not a custom RPC.
   async function savePinReset(){
     const cur = pinResetForm.current.trim();
     const next = pinResetForm.next.trim();
     const confirmPin = pinResetForm.confirm.trim();
-    if(String(currentUser?.pin||"")!==cur){ setPinResetForm(f=>({...f,error:"Current PIN is incorrect."})); return; }
-    if(!/^\d{4,6}$/.test(next)){ setPinResetForm(f=>({...f,error:"New PIN must be 4-6 digits."})); return; }
-    if(next!==confirmPin){ setPinResetForm(f=>({...f,error:"New PINs don't match."})); return; }
+    if(!supabase){ setPinResetForm(f=>({...f,error:"Can't reach server — check connection and try again."})); return; }
     const myId = currentUser.staffListId||currentUser.staff_id||currentUser.id;
-    const prevUser = currentUser;
-    const updated = {...currentUser, pin:next};
-    setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===myId?{...s,pin:next}:s));
-    setCurrentUser(updated);
-    try{
-      await syncStaff('upsert', updated);
-    }catch(e){
-      // The write genuinely failed (not just offline) -- roll back the
-      // optimistic update instead of closing the dialog as if it worked.
-      // A silently-unsaved PIN change is exactly the "user clicks Save,
-      // sees success, nothing actually persisted" bug class this app has
-      // already been bitten by once.
-      console.error('[savePinReset] sync failed:', e);
-      setEmpDb(p=>safeArr(p).map(s=>(s.staffListId||s.staff_id||s.id)===myId?prevUser:s));
-      setCurrentUser(prevUser);
-      setPinResetForm(f=>({...f,error:"Could not save your new PIN: "+(e.message||e)}));
+    // "Confirm your current PIN" has no built-in GoTrue check (updateUser()
+    // doesn't ask for the old password) -- re-authenticating with it IS the
+    // check: wrong current PIN fails here with the same invalid_credentials
+    // error a fresh login would get.
+    const confirmResp = await supabase.auth.signInWithPassword({ email: staffAuthEmail(myId), password: staffAuthPassword(myId, cur) });
+    if(confirmResp.error){
+      const kind = classifyAuthError(confirmResp.error);
+      setPinResetForm(f=>({...f,error: kind==='network' ? "Can't reach server — check connection and try again." : kind==='rate_limited' ? "Too many attempts — wait a minute and try again." : "Current PIN is incorrect."}));
       return;
     }
-    try{ localStorage.setItem("ambria_session_user", JSON.stringify(updated)); }catch(e){}
+    // Exactly 4, matching the login input itself (LoginScreen.jsx caps entry
+    // at 4 digits) -- allowing a longer PIN to be SET here while login could
+    // never send more than 4 characters would silently lock that person out
+    // on their very next login.
+    if(!/^\d{4}$/.test(next)){ setPinResetForm(f=>({...f,error:"New PIN must be 4 digits."})); return; }
+    if(next!==confirmPin){ setPinResetForm(f=>({...f,error:"New PINs don't match."})); return; }
+    const { error: updErr } = await supabase.auth.updateUser({ password: staffAuthPassword(myId, next) });
+    if(updErr){
+      console.error('[savePinReset] updateUser failed:', updErr);
+      setPinResetForm(f=>({...f,error:"Could not save your new PIN: "+(updErr.message||updErr)}));
+      return;
+    }
+    // Matches the app's existing intent (documented since before this
+    // rework): a PIN change must kick every OTHER already-open session for
+    // this user, not just this device. Best-effort -- the PIN itself is
+    // already changed and saved regardless of whether this succeeds.
+    supabase.rpc('revoke_my_other_sessions').then(({error})=>{ if(error) console.error('[savePinReset] revoke_my_other_sessions failed:', error); });
     setShowPinReset(false);
     setPinResetForm({current:"",next:"",confirm:"",error:""});
   }
@@ -1247,11 +1337,17 @@ export default function App() {
   }
   function handleLogout(){
     setCurrentUser(null); setActiveDept(null);
+    // scope:'local' -- logging out THIS shared tablet must never revoke the
+    // same person's session on a different device; a bare signOut() call
+    // defaults to 'global' and would do exactly that.
+    if(supabase) supabase.auth.signOut({ scope: 'local' }).catch(e=>console.error('[handleLogout] signOut failed:',e));
     try{
       localStorage.removeItem("ambria_session_user");
-      localStorage.removeItem("ambria_emp_id");
-      localStorage.removeItem("ambria_pin");
-      localStorage.removeItem("ambria_remember");
+      // ambria_emp_id deliberately kept -- LoginScreen pre-fills the last-
+      // used staff ID as a typing convenience; nothing PIN-related is ever
+      // stored anymore (GoTrue's own session persistence is what keeps an
+      // ORDINARY reload logged in, with no credential cached client-side at
+      // all for that).
     }catch(e){}
   }
 
@@ -1547,13 +1643,13 @@ export default function App() {
                   <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
                   <div style={{fontSize:12,color:K.textMuted,marginBottom:16}}>{T2("Change the PIN you use to sign in.")}</div>
                   <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Current PIN")} value={pinResetForm.current}
+                    <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("Current PIN")} value={pinResetForm.current}
                       onChange={e=>setPinResetForm(f=>({...f,current:e.target.value.replace(/\D/g,""),error:""}))}
                       style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
-                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("New PIN (4-6 digits)")} value={pinResetForm.next}
+                    <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("New PIN (4 digits)")} value={pinResetForm.next}
                       onChange={e=>setPinResetForm(f=>({...f,next:e.target.value.replace(/\D/g,""),error:""}))}
                       style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
-                    <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
+                    <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
                       onChange={e=>setPinResetForm(f=>({...f,confirm:e.target.value.replace(/\D/g,""),error:""}))}
                       style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
                   </div>
@@ -1971,13 +2067,13 @@ export default function App() {
               <div style={{fontSize:16,fontWeight:700,color:K.text,marginBottom:4}}>{T2("Reset PIN")}</div>
               <div style={{fontSize:12,color:K.textMuted,marginBottom:16}}>{T2("Change the PIN you use to sign in.")}</div>
               <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Current PIN")} value={pinResetForm.current}
+                <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("Current PIN")} value={pinResetForm.current}
                   onChange={e=>setPinResetForm(f=>({...f,current:e.target.value.replace(/\D/g,""),error:""}))}
                   style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
-                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("New PIN (4-6 digits)")} value={pinResetForm.next}
+                <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("New PIN (4 digits)")} value={pinResetForm.next}
                   onChange={e=>setPinResetForm(f=>({...f,next:e.target.value.replace(/\D/g,""),error:""}))}
                   style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
-                <input type="password" inputMode="numeric" maxLength={6} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
+                <input type="password" inputMode="numeric" maxLength={4} placeholder={T2("Confirm new PIN")} value={pinResetForm.confirm}
                   onChange={e=>setPinResetForm(f=>({...f,confirm:e.target.value.replace(/\D/g,""),error:""}))}
                   style={{padding:"10px 12px",borderRadius:10,border:`1px solid ${K.line}`,fontSize:14,letterSpacing:2,boxSizing:"border-box"}}/>
               </div>
