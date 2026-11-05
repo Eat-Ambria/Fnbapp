@@ -214,8 +214,17 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   const [noSopOpen, setNoSopOpen] = useState(true); // the no-SOP alert below starts expanded — it's meant to be seen, not clicked open
   const [mapDishName, setMapDishName] = useState(''); // dish currently open in DishMappingModal, from the no-SOP banner's "Map" button
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
+  // Snapshot of `form` as it was when the Edit modal opened (openEdit sets
+  // this alongside form; null for Add). saveForm diffs against this to tell
+  // which fields the user actually touched -- see saveForm's comment.
+  const [origForm, setOrigForm] = useState(null);
   const [showMenuEditor, setShowMenuEditor] = useState(false);
   const [menuEditorDishes, setMenuEditorDishes] = useState([]);
+  // Snapshot of menuEditorDishes as openEdit seeded it, same purpose as
+  // origForm -- menuEditorDishes is local-only state, never kept live, so
+  // saveForm needs this to tell whether the ODC Menu Editor was actually
+  // touched in this modal session (see saveForm's menuEditorTouched).
+  const [origMenuEditorDishes, setOrigMenuEditorDishes] = useState([]);
   // The unconfirmed-menu list is a sortable, filterable, paged table now, so it
   // carries the state a table needs. Timeframe replaces the three collapsible
   // buckets: they hid most of the list behind two closed headers.
@@ -353,8 +362,8 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       alert('Menu package saved, but the dish list may not have updated to match it: '+(e.message||e)+'. Check the Booked Functions Items tab for this event.');
     }
   }
-  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setShowForm(true);}
-  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";setForm({guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""});setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(Array.isArray(ev.menu)?[...ev.menu]:[]);setShowForm(true);}
+  function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setOrigForm(null);setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setOrigMenuEditorDishes([]);setShowForm(true);}
+  function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";const f={guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""};const med=Array.isArray(ev.menu)?[...ev.menu]:[];setForm(f);setOrigForm(f);setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(med);setOrigMenuEditorDishes(med);setShowForm(true);}
   function saveForm(){
     if(!form.guest||!form.date||!form.pax)return;
     const formIsODC = form.venue==="Outdoor Catering (ODC)";
@@ -368,11 +377,37 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
     };
     if(editId){
       const prevPkg = (events||[]).find(e=>e.id===editId)?.menuPackage||"";
-      setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...d}));
+      // `d` above is built from EVERY field in `form`, whether the user
+      // touched it or not. Sending all of it straight into the merge would
+      // silently revert any field someone else changed on this event (on
+      // another device) while this modal sat open, back to the stale
+      // open-time value -- and setEvents' own sync-diff then pushes that
+      // stale revert to the server too, clobbering the other device's
+      // change there as well. Only carry a field through when the raw form
+      // value actually differs from the snapshot taken in openEdit.
+      const of = origForm || form;
+      // For ODC, `mi` comes from menuEditorDishes -- local-only state that
+      // openEdit seeds once and only the in-modal MenuEditor ever changes.
+      // Forcing this true for every ODC save (formIsODC alone) meant an
+      // admin saving an unrelated field (e.g. site recce) while never
+      // touching the Menu Editor still sent the stale open-time dish list,
+      // overwriting any concurrent server-side dish change -- exactly the
+      // race this whole safeD mechanism exists to prevent. Only force it
+      // when the dish list itself actually changed in this modal session.
+      const menuEditorTouched = formIsODC && JSON.stringify(menuEditorDishes)!==JSON.stringify(origMenuEditorDishes||[]);
+      const menuTouched = menuEditorTouched || form.menuPackage!==of.menuPackage || form.menu!==of.menu;
+      const caterTouched = form.external_caterer!==of.external_caterer || form.external_caterer_name!==of.external_caterer_name;
+      const safeD = {};
+      Object.keys(d).forEach(k=>{
+        if(k==='menu'||k==='odc_menu_confirmed'){ if(menuTouched) safeD[k]=d[k]; return; }
+        if(k==='external_caterer_name'){ if(caterTouched) safeD[k]=d[k]; return; }
+        if(!(k in of) || form[k]!==of[k]) safeD[k]=d[k];
+      });
+      setEvents(p=>(p||[]).map(e=>e.id!==editId?e:{...e,...safeD}));
       logActivity('system','Event updated: '+form.guest+' ('+editId+')','event_edit',{evId:editId,guest:form.guest,venue:form.venue,date:form.date},currentUser?.id);
       if(form.menuPackage&&form.menuPackage!==prevPkg&&MENU_PACKAGES[form.menuPackage]) syncEventItemsOnPackageChange(editId,prevPkg,form.menuPackage);
     }else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
-    setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setEditId(null);
+    setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setOrigMenuEditorDishes([]);setEditId(null);setOrigForm(null);
   }
   function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);}
 

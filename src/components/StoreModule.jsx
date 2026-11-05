@@ -487,6 +487,8 @@ function StoreModule({events, lang="en", currentUser=null}) {
   const [issueAssignments, setIssueAssignments] = useState({}); // {[event_id+"::"+section_name]: venue_code}
   const [issueRecords, setIssueRecords] = useState({}); // {[event_id+"::"+section+"::"+ingredient]: {issued,qty_issued,...}}
   const [issueLoading, setIssueLoading] = useState(false);
+  const [issueLoadError, setIssueLoadError] = useState(false);
+  const [issueReloadTick, setIssueReloadTick] = useState(0);
   const [ingredientMap, setIngredientMap] = useState({}); // {ingredient_name: {ops_item_id, ops_inventory_id, ops_item_name, ops_item_unit, unit_conversion, category_override}}
   // ingredient_item_map holds TWO independent things on the same row: an
   // ops store/inventory link (ops_item_id/ops_inventory_id) and a
@@ -683,11 +685,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
     let subs = [];
     async function loadIssueState() {
       setIssueLoading(true);
+      setIssueLoadError(false);
       try {
         // Each table on its own: one failing fetch used to reject the whole
         // Promise.all, leaving ingredient_item_map empty — every Day Sheet
         // row then read "no stock" and fell into Uncategorized.
-        const soft = (label, p) => p.catch(e => { console.error("Issue state: " + label + " failed:", e); return null; });
+        let anyFailed = false;
+        const soft = (label, p) => p.catch(e => { console.error("Issue state: " + label + " failed:", e); anyFailed = true; return null; });
         const [aData, iData, mData, fData] = await Promise.all([
           soft('store_issue_assignments', fetchAllRows(() => supabase.from('store_issue_assignments').select('*'))),
           soft('store_issues', fetchAllRows(() => supabase.from('store_issues').select('*'))),
@@ -711,7 +715,12 @@ function StoreModule({events, lang="en", currentUser=null}) {
           mRes.data.forEach(r => { map[r.ingredient_name] = r; });
           setIngredientMap(map);
         }
-      } catch (e) { console.error("Issue state load failed:", e); }
+        // A blip here used to leave whichever table failed silently stuck at
+        // its previous (often empty, on first mount) state forever — nothing
+        // told the user the Day Sheet's stock/assignment data might be
+        // incomplete, or gave them a way to retry short of a full reload.
+        if (anyFailed) setIssueLoadError(true);
+      } catch (e) { console.error("Issue state load failed:", e); setIssueLoadError(true); }
       setIssueLoading(false);
     }
     loadIssueState();
@@ -786,7 +795,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
     return () => {
       subs.forEach(ch => supabase.removeChannel(ch));
     };
-  }, []);
+  }, [issueReloadTick]);
 
   /* ── Load Order Lists (Requirements tab "Add to Order list") + subscribe ── */
   useEffect(() => {
@@ -866,10 +875,28 @@ function StoreModule({events, lang="en", currentUser=null}) {
       issued_at: currentlyIssued ? null : now,
     };
     // Optimistic update
-    setIssueRecords(prev => ({ ...prev, [key]: { ...prev[key], ...rec } }));
-    // Persist
-    const { error } = await supabase.from('store_issues').upsert(rec, { onConflict: 'event_id,section_name,ingredient_name' });
-    if (error) console.error("Issue toggle failed:", error);
+    const prevVal = issueRecords[key];
+    let optimisticVal;
+    setIssueRecords(prev => { optimisticVal = { ...prev[key], ...rec }; return { ...prev, [key]: optimisticVal }; });
+    // Persist — dbUpsert queues this for replay on a genuine connectivity
+    // failure (navigator offline, timeout, no response), so it only needs a
+    // revert here when the write actually reached the server and was
+    // rejected (a real PostgREST error) — otherwise the optimistic toggle
+    // above was correct and the queued write will land once reconnected.
+    try {
+      await dbUpsert('store_issues', rec, 'event_id,section_name,ingredient_name');
+    } catch (error) {
+      console.error("Issue toggle failed:", error);
+      setIssueRecords(prev => {
+        // Only restore prevVal if this key still holds OUR optimistic write —
+        // a realtime echo of someone else's edit to the same key landing in
+        // the meantime (this device's write genuinely rejected, theirs
+        // didn't) must win, not get clobbered back to our stale prior value.
+        if (prev[key] !== optimisticVal) return prev;
+        const n = { ...prev }; if (prevVal) n[key] = prevVal; else delete n[key]; return n;
+      });
+      alert(T2('Failed to save issue status for') + ' ' + ing.name + ': ' + (error.message || error));
+    }
   }
 
   async function issueAllForSection(eventId, sec, ingList) {
@@ -888,21 +915,53 @@ function StoreModule({events, lang="en", currentUser=null}) {
       issued_at: now,
     }));
     // Optimistic
-    const upd = {};
-    rows.forEach(r => { upd[r.event_id + "::" + r.section_name + "::" + r.ingredient_name] = r; });
+    const upd = {}, prevVals = {};
+    rows.forEach(r => {
+      const k = r.event_id + "::" + r.section_name + "::" + r.ingredient_name;
+      prevVals[k] = issueRecords[k];
+      upd[k] = r;
+    });
     setIssueRecords(prev => ({ ...prev, ...upd }));
-    const { error } = await supabase.from('store_issues').upsert(rows, { onConflict: 'event_id,section_name,ingredient_name' });
-    if (error) console.error("Issue all failed:", error);
+    try {
+      await dbUpsert('store_issues', rows, 'event_id,section_name,ingredient_name');
+    } catch (error) {
+      console.error("Issue all failed:", error);
+      setIssueRecords(prev => {
+        const n = { ...prev };
+        // Same compare-and-restore as toggleIssueItem: skip any key a
+        // concurrent realtime echo has already moved past our own optimistic
+        // write for, instead of blindly stomping it back to our stale value.
+        Object.keys(prevVals).forEach(k => {
+          if (n[k] !== upd[k]) return;
+          if (prevVals[k]) n[k] = prevVals[k]; else delete n[k];
+        });
+        return n;
+      });
+      alert(T2('Failed to issue all for') + ' ' + sec + ': ' + (error.message || error));
+    }
   }
 
   async function setVenueAssignment(eventId, sec, venueCode) {
     const staffId = currentUser?.staff_id || currentUser?.staffListId || "";
-    setIssueAssignments(prev => ({ ...prev, [eventId + "::" + sec]: venueCode }));
-    const { error } = await supabase.from('store_issue_assignments').upsert(
-      { event_id: eventId, section_name: sec, venue_code: venueCode, assigned_by: staffId },
-      { onConflict: 'event_id,section_name' }
-    );
-    if (error) console.error("Assignment save failed:", error);
+    const key = eventId + "::" + sec;
+    const prevVal = issueAssignments[key];
+    setIssueAssignments(prev => ({ ...prev, [key]: venueCode }));
+    try {
+      await dbUpsert('store_issue_assignments',
+        { event_id: eventId, section_name: sec, venue_code: venueCode, assigned_by: staffId },
+        'event_id,section_name'
+      );
+    } catch (error) {
+      console.error("Assignment save failed:", error);
+      setIssueAssignments(prev => {
+        // Same compare-and-restore reasoning as toggleIssueItem/issueAllForSection
+        // above — don't clobber a concurrent realtime update to this same
+        // event+section's assignment that landed after our own optimistic set.
+        if (prev[key] !== venueCode) return prev;
+        const n = { ...prev }; if (prevVal) n[key] = prevVal; else delete n[key]; return n;
+      });
+      alert(T2('Failed to save venue assignment for') + ' ' + sec + ': ' + (error.message || error));
+    }
   }
 
   /* ── Partial/pack-aware issuing ──────────────────────────────────────────
@@ -2552,6 +2611,13 @@ function StoreModule({events, lang="en", currentUser=null}) {
             </div>
 
             {issueLoading&&<div style={{textAlign:"center",padding:20,color:K.hdrMeta,fontSize:12}}>{T2("Loading issue state…")}</div>}
+
+            {issueLoadError && (
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",marginBottom:14,borderRadius:10,background:"#FBEAEA",border:`1px solid ${K.danger||'#C0392B'}33`}}>
+                <span style={{fontSize:12,color:K.danger||'#C0392B',fontWeight:600}}>⚠ {T2("Could not load some Smart Issue data — stock/assignment info may be incomplete.")}</span>
+                <button onClick={()=>setIssueReloadTick(t=>t+1)} style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${K.danger||'#C0392B'}`,background:"#fff",color:K.danger||'#C0392B',fontSize:11,fontWeight:700,cursor:"pointer"}}>{T2("Retry")}</button>
+              </div>
+            )}
 
             {dayEvs.length>0 && rows.length===0 && (
               <div style={{textAlign:"center",padding:40,background:K.cardWarm,border:`1px solid ${K.cardWarmLine}`,borderRadius:16,color:K.hdrMeta,fontSize:13}}>{T2("No ingredient data for this day's dishes.")}</div>

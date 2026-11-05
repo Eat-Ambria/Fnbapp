@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 import { K } from '../utils/theme.js';
 import { Icon } from './Icons.jsx';
 import { supabase } from '../lib/supabase.js';
-import { dbSubscribe } from '../lib/db.js';
+import { dbSubscribe, dbRpc } from '../lib/db.js';
 
 // Gates the bell, the 'kitchen' notification match, and push-subscription
 // registration — admin included (not just head_chef/section_*) so admin sees
@@ -226,22 +226,35 @@ export function NotificationCenter({ currentUser, T2 = function (s) { return s; 
 
   var unread = items.filter(isUnread);
 
+  // Both of these used to read_by.concat([myId]) client-side and write the
+  // whole array back — two admins marking the same notification read close
+  // together could have one's marker silently overwritten by the other's
+  // write. notif_mark_read does the append AND the "already marked?" check
+  // in one atomic UPDATE server-side, so there's no read-then-write gap for
+  // a concurrent mark to land in. The local optimistic update below is just
+  // for instant UI feedback — the realtime UPDATE subscription above
+  // reconciles it with the server's authoritative value either way.
   async function markRead(row) {
     if (!myId || !isUnread(row)) return;
-    var nextReadBy = (Array.isArray(row.read_by) ? row.read_by : []).concat([myId]);
-    setItems(function (prev) { return prev.map(function (x) { return x.id === row.id ? { ...x, read_by: nextReadBy } : x; }); });
-    try { await supabase.from('notifications').update({ read_by: nextReadBy }).eq('id', row.id); } catch (e) { console.error('[NotificationCenter] markRead failed:', e); }
+    setItems(function (prev) { return prev.map(function (x) { return x.id === row.id ? { ...x, read_by: (Array.isArray(x.read_by) ? x.read_by : []).concat([myId]) } : x; }); });
+    try { await dbRpc('notif_mark_read', { p_ids: [row.id], p_staff_id: myId }); } catch (e) {
+      console.error('[NotificationCenter] markRead failed:', e);
+      // A non-retryable failure (dbRpc already queued a genuine offline one)
+      // used to leave the bell showing "read" forever with no server write
+      // behind it, and no way to tell short of a reload. Revert so the badge
+      // count stays honest and the item is still tappable to retry.
+      setItems(function (prev) { return prev.map(function (x) { return x.id === row.id ? row : x; }); });
+    }
   }
   async function markAllRead() {
     var toMark = unread;
     if (!myId || toMark.length === 0) return;
     setItems(function (prev) { return prev.map(function (x) { return isUnread(x) ? { ...x, read_by: (Array.isArray(x.read_by) ? x.read_by : []).concat([myId]) } : x; }); });
-    try {
-      await Promise.all(toMark.map(function (row) {
-        var nextReadBy = (Array.isArray(row.read_by) ? row.read_by : []).concat([myId]);
-        return supabase.from('notifications').update({ read_by: nextReadBy }).eq('id', row.id);
-      }));
-    } catch (e) { console.error('[NotificationCenter] markAllRead failed:', e); }
+    try { await dbRpc('notif_mark_read', { p_ids: toMark.map(function (row) { return row.id; }), p_staff_id: myId }); } catch (e) {
+      console.error('[NotificationCenter] markAllRead failed:', e);
+      var revertIds = {}; toMark.forEach(function (row) { revertIds[row.id] = row; });
+      setItems(function (prev) { return prev.map(function (x) { return revertIds[x.id] ? revertIds[x.id] : x; }); });
+    }
   }
 
   return (

@@ -161,7 +161,13 @@ function TeamHub({empDb,setEmpDb,events,lang="en",activeDept,currentUser=null,sy
       setPhotoUploading(false);
       if (url) patch.photo_url = url;
     }
-    const updated = {...selEmp,...patch};
+    // Merge the edited fields onto the LIVE row, not the snapshot the modal
+    // opened with -- selEmp goes stale the moment another device changes
+    // this staff member's PIN/role/permissions while the modal sits open,
+    // and syncStaff sends a full-row upsert, so merging onto a stale
+    // snapshot would silently overwrite that concurrent change.
+    var liveEmp = empDb.find(e=>(e.id||e.staff_id||e.staffListId)===sid) || selEmp;
+    const updated = {...liveEmp,...patch};
     setEmpDb(p=>p.map(e=>{
       var eid = e.id||e.staff_id||e.staffListId;
       return eid===sid?{...e,...patch}:e;

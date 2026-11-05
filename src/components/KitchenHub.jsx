@@ -954,7 +954,14 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
     try{localStorage.removeItem('ambria_kt');}catch(e){}
     import('../lib/supabase.js').then(function(mod){
-      mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
+      // Must `return` this promise into the outer chain -- otherwise a
+      // genuine network failure here (the delete call itself rejecting,
+      // not just resolving with {error}) was an unhandled rejection the
+      // outer .catch() below never saw: the local optimistic clear above
+      // had already applied, so the screen just sat on a wrongly-emptied
+      // view with no "Reset failed" message and no way to tell the delete
+      // never reached the server.
+      return mod.supabase.from('kitchen_tracking').delete().in('ev_id', targetIds).then(function(r){
         if(r.error){
           console.error('KT scoped clear error:', r.error);
           setResetModal({ tone:"danger", icon:"alert", title:T2("Reset failed"), body:r.error.message });

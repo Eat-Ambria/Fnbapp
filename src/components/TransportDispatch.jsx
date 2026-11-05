@@ -288,6 +288,17 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     const dbField = field==="dispatchTime" ? "dispatch_time" : field;
     patchAsgn(evId, vehicleId, { [dbField]: val });
   }
+  // The fleet is one shared pool of physical vehicles across every event —
+  // nothing stopped the same truck being handed to two different events on
+  // the same day, since both addVehicle and the per-slot swap below only
+  // ever checked for a conflict WITHIN the one event being edited. Returns
+  // the other event's guest name if `vehicleId` is already assigned
+  // (non-Removed) to a different event on `date`, else null.
+  function vehicleBusyElsewhereToday(vehicleId, evId, date) {
+    if (!date) return null;
+    const other = dispatches.find(d => d.evId !== evId && d.evDate === date && d.assignments.some(a => a.vehicleId === vehicleId));
+    return other ? other.evGuest : null;
+  }
   function addVehicle(evId){
     const ev=safeEvs.find(e=>e.id===evId);
     // Built from dispatchRows directly, not from `dispatches`'s own
@@ -297,7 +308,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     // right after removing one silently un-tombstoned and re-added the SAME
     // vehicle instead of offering a genuinely different one.
     const used=new Set(dispatchRows.filter(r=>r.event_id===evId).map(r=>r.vehicle_id));
-    const spare = fleetList.find(v=>!used.has(v.id));
+    const freeFleet = fleetList.filter(v=>!used.has(v.id));
     // The old `||VEHICLES[0]` fallback, when every fleet vehicle was already
     // on this event, picked one of THIS EVENT'S OWN slots and reset it to
     // Planning with a blank driver — silently wiping a truck that might
@@ -305,7 +316,17 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     // that, so this now just refuses instead of "adding" by damaging an
     // existing slot — the button itself is also disabled for the same
     // reason (see hasSpare below).
-    if(!spare){ alert(T2('Every fleet vehicle is already assigned to this event — remove one, or add a vehicle in Fleet.')); return; }
+    if(!freeFleet.length){ alert(T2('Every fleet vehicle is already assigned to this event — remove one, or add a vehicle in Fleet.')); return; }
+    // Prefer a vehicle that isn't already out on a different event today;
+    // only offer to double-book one — with an explicit confirm naming the
+    // other event — when every remaining vehicle is already committed
+    // elsewhere today. On a fully-committed day, declining the first busy
+    // candidate used to just give up — tapping Add Vehicle again offered
+    // that identical vehicle with no way to reach any other one. Try each
+    // remaining free vehicle in turn instead of stopping at the first.
+    const free = freeFleet.find(v=>!vehicleBusyElsewhereToday(v.id, evId, ev?.date));
+    const spare = free || freeFleet.find(v=>confirm(v.name+' '+T2('is also assigned to')+' "'+vehicleBusyElsewhereToday(v.id, evId, ev?.date)+'" '+T2('today — assign it here as well?')));
+    if(!spare) return;
     patchAsgn(evId, spare.id, { driver:"", dispatch_time:calcDispatch(ev?.time||""), status:"Planning" });
   }
 
@@ -665,6 +686,12 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                     // it's already in.
                     const takenElsewhere = {};
                     dispatch.assignments.forEach((a,i)=>{ if(i!==ai) takenElsewhere[a.vehicleId]=i+1; });
+                    // Same fleet-wide double-booking check as addVehicle, for
+                    // the manual swap below — a vehicle already busy on a
+                    // DIFFERENT event today is still selectable (unlike a
+                    // same-event slot clash) but warns and confirms first.
+                    const busyOtherEvent = {};
+                    fleetList.forEach(fv=>{ if(!takenElsewhere[fv.id]){ const other=vehicleBusyElsewhereToday(fv.id, ev.id, ev.date); if(other) busyOtherEvent[fv.id]=other; } });
                     return (
                       <div key={asgn.vehicleId} style={{borderRadius:14,background:"#FBFAF6",border:`1px solid ${K.cardWarmLine}`,padding:"14px 14px 12px"}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
@@ -673,7 +700,14 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                           <select value={asgn.vehicleId} onChange={e=>{
                             const newVid = e.target.value;
                             if(newVid===asgn.vehicleId) return;
-                            if(takenElsewhere[newVid]) return; // stale option list (e.g. a realtime update just assigned it) — ignore
+                            // This is a controlled <select> — the browser already shows
+                            // newVid in the DOM the instant the user picks it, before
+                            // this handler runs. Bailing out below with no state change
+                            // left the dropdown visually showing the unconfirmed/rejected
+                            // vehicle until some unrelated re-render happened to correct
+                            // it. Snap it back to the real value on every early return.
+                            if(takenElsewhere[newVid]){ e.target.value=asgn.vehicleId; return; } // stale option list (e.g. a realtime update just assigned it) — ignore
+                            if(busyOtherEvent[newVid] && !confirm(T2('This vehicle is also assigned to')+' "'+busyOtherEvent[newVid]+'" '+T2('today — assign it here as well?'))){ e.target.value=asgn.vehicleId; return; }
                             // Swapping which truck fills this slot is a new assignment
                             // identity (vehicleId is the DB key) — carry over the plan
                             // (driver/time) but reset physical status, since the new
@@ -682,7 +716,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
                             patchAsgn(ev.id, newVid, { driver:asgn.driver, dispatch_time:asgn.dispatchTime, status:"Planning" });
                           }} style={{...inp,flex:1,minWidth:0,width:"auto",fontWeight:600,padding:"8px 10px"}}>
                             {fleetList.some(fv=>fv.id===asgn.vehicleId) ? null : <option value={asgn.vehicleId}>{asgn.vehicleId}</option>}
-                            {fleetList.map(fv=><option key={fv.id} value={fv.id} disabled={!!takenElsewhere[fv.id]}>{fv.name}{takenElsewhere[fv.id]?(' — '+T2('in slot')+' '+takenElsewhere[fv.id]):''}</option>)}
+                            {fleetList.map(fv=><option key={fv.id} value={fv.id} disabled={!!takenElsewhere[fv.id]}>{fv.name}{takenElsewhere[fv.id]?(' — '+T2('in slot')+' '+takenElsewhere[fv.id]):(busyOtherEvent[fv.id]?(' — '+T2('also on')+' '+busyOtherEvent[fv.id]+' '+T2('today')):'')}</option>)}
                           </select>
                           <span style={{padding:"7px 16px",borderRadius:8,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap",
                             background:done?K.okBg:asgn.status==="Loaded"?K.warnBg:"#E7EEE5",color:done?K.ok:asgn.status==="Loaded"?K.warn:K.brandText}}>{T2(asgn.status)}</span>

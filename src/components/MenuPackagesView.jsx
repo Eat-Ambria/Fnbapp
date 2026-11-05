@@ -381,7 +381,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       // 409 Conflict. Only truly-absent dishes should ever be inserted here.
       var toInsert = (dishes || []).filter(function(n){ return !existingSet[n]; });
       if (toDelete.length > 0) {
-        await supabase.from('event_items').delete().eq('event_id', eventId).in('dish_name', toDelete);
+        var delRes = await supabase.from('event_items').delete().eq('event_id', eventId).in('dish_name', toDelete);
+        if (delRes.error) throw delRes.error;
       }
       if (toInsert.length > 0) {
         // Belt-and-suspenders: upsert with ignoreDuplicates so a race against
@@ -389,7 +390,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         var insRes = await supabase.from('event_items').upsert(toInsert.map(function(n, i){
           return { event_id: eventId, dish_name: n, is_addon: false, ordering: existingNames.length + i };
         }), { onConflict: 'event_id,dish_name', ignoreDuplicates: true });
-        if (insRes.error) console.error('[MenuPackages] event_items insert failed:', insRes.error);
+        // Was only logged, not thrown -- a dropped insert here (network blip
+        // between the delete above and this call) left event_items missing
+        // dishes the UI still showed as present, with neither an alert nor
+        // the caller's onFail/revertMenu ever firing to roll the local menu
+        // back or warn anyone. Throwing routes it through the same
+        // catch/alert/onFail path the delete and select above already use.
+        if (insRes.error) throw insRes.error;
       }
       await supabase.from('events').update({ event_items_initialized: true }).eq('id', eventId);
     } catch (e) {
