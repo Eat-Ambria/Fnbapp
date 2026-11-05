@@ -703,6 +703,13 @@ export default function App() {
 
   // ── Master load: session + all data ──
   useEffect(() => {
+    // A public FP hub visit (?fp=1) fetches everything it needs itself via
+    // the public-fp-view edge function and never reaches the screens this
+    // feeds -- running it anyway would still mean every such visit
+    // anonymously writes to events.menu (syncAllKitchenMenuMirrors below),
+    // upserts the AM001 boot-seed, and fires an lms-sync invoke, none of
+    // which a no-identity visitor should ever trigger.
+    if (isPublicFP) return;
     async function loadAll() {
       // Clear any legacy localStorage kitchen tracking keys
       try { localStorage.removeItem('ambria_kt'); localStorage.removeItem('ambria_kitchen_tracking'); } catch(e) {}
@@ -1462,6 +1469,14 @@ export default function App() {
     </div>
   ) : null;
 
+  // Public Function Plan hub — a no-login, link-shareable page (?fp=1) for
+  // people with no app account. Checked BEFORE the loading screen/login gate
+  // on purpose: this page fetches everything it needs itself via the
+  // public-fp-view edge function (see PublicFPHub.jsx's own header), so it
+  // has no reason to wait on -- or trigger -- the main app's authenticated
+  // boot load (staff directory, full events list, kitchen tracking...) at
+  // all, let alone need it to succeed.
+  if(isPublicFP) return <PublicFPHub lang={lang}/>;
   // Loading
   if(!appReady) return (
     <div style={{minHeight:"100vh",background:K.shellBg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,position:"relative",overflow:"hidden"}}>
@@ -1497,10 +1512,6 @@ export default function App() {
       </div>
     </div>
   );
-  // Public Function Plan hub — a no-login, link-shareable page (?fp=1) for
-  // people with no app account. Checked ahead of the login gate, after the
-  // boot load above has already hydrated events/MENU_PACKAGES/sales configs.
-  if(isPublicFP) return <PublicFPHub events={events} lang={lang}/>;
   // Login
   if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang} forceLogoutMsg={forceLogoutMsg}/>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} onLogout={handleLogout} lang={lang}/>;

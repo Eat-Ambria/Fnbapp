@@ -3,8 +3,18 @@
 // people with no app login (venue/vendor partners) who just need to see a
 // function's printed FP once it exists. Reached via ?fp=1 on the live URL —
 // App.jsx checks for that before the login gate and renders this instead of
-// LoginScreen, after the normal boot load (events, MENU_PACKAGES, sales
-// configs) has already finished, so everything this needs is already hydrated.
+// LoginScreen.
+//
+// Deliberately self-contained via the public-fp-view edge function rather
+// than reusing the main app's boot-loaded `events`/MENU_PACKAGES/etc. state:
+// that global state is only populated for an authenticated, is_active_staff()
+// session once RLS Stage 2 is live, and even before Stage 2, those tables
+// hold a lot more than an anonymous visitor should see (client contact
+// numbers, internal notes, ODC transport cost...). public-fp-view returns
+// one audited, explicitly-projected payload instead — see its own header for
+// the full reasoning, including why EventMenuBuilderView takes a `preload`
+// prop here rather than being left to fetch (and, for a never-opened event,
+// WRITE) these tables itself.
 // Clicking a ready function mounts the existing EventMenuBuilderView in its
 // FP-print mode (autoOpenPrint) — the printed sheet itself is NOT redesigned
 // here, this file only adds the list in front of it.
@@ -15,11 +25,14 @@ import { T } from '../data/translations.js';
 import { K, type } from '../utils/theme.js';
 import { Icon } from './Icons.jsx';
 import { supabase } from '../lib/supabase.js';
-import { fetchAllRows } from '../lib/db.js';
 import { safeArr, TODAY, TOMORROW, localDateStr } from '../utils/helpers.js';
 import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
+import { buildDishMasterMap, buildDeptConfigs } from '../lib/dbConfig.js';
+import { hydrateMenuPackages } from '../data/menuPackages.js';
+import { hydrateRecipeData } from '../data/recipeData.js';
+import { hydrateSalesConfigs } from '../data/salesConfig.js';
 
-export function PublicFPHub({ events, lang = "en" }) {
+export function PublicFPHub({ lang = "en" }) {
   var T2 = function(s) { return T(s, lang); };
 
   var [selEvId, setSelEvId] = useState(function(){
@@ -31,21 +44,28 @@ export function PublicFPHub({ events, lang = "en" }) {
   var [calYr, setCalYr] = useState(now.getFullYear());
   var [calMo, setCalMo] = useState(now.getMonth());
   var [selDate, setSelDate] = useState(null);
-  function prevMo(){ setCalMo(function(m){ if (m === 0) { setCalYr(function(y){ return y - 1; }); return 11; } return m - 1; }); }
-  function nextMo(){ setCalMo(function(m){ if (m === 11) { setCalYr(function(y){ return y + 1; }); return 0; } return m + 1; }); }
 
-  // Same read MenuPackagesView's list uses to show FP status without opening
-  // each function — not made / made / locked.
+  // ── The one edge-function call that replaces every direct table read this
+  // page used to make: a safe projection of every event plus each one's FP
+  // status (made/locked/none), fetched once up front for the calendar/list. ──
+  var [events, setEvents] = useState([]);
   var [fpMap, setFpMap] = useState({});
+  var [listError, setListError] = useState(null);
   useEffect(function(){
-    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked'); })
-      .then(function(rows){
+    supabase.functions.invoke('public-fp-view', { body: { action: 'list' } })
+      .then(function(res){
+        var data = res && res.data;
+        if (!data || !data.ok) { setListError(true); return; }
+        setEvents(data.events || []);
         var map = {};
-        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked }; });
+        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked }; });
         setFpMap(map);
       })
-      .catch(function(e){ console.error('[PublicFPHub] loadFpStatuses failed:', e); });
+      .catch(function(e){ console.error('[PublicFPHub] list failed:', e); setListError(true); });
   }, []);
+
+  function prevMo(){ setCalMo(function(m){ if (m === 0) { setCalYr(function(y){ return y - 1; }); return 11; } return m - 1; }); }
+  function nextMo(){ setCalMo(function(m){ if (m === 11) { setCalYr(function(y){ return y + 1; }); return 0; } return m + 1; }); }
 
   function fpStatusFor(ev) {
     var row = fpMap[ev.id];
@@ -54,9 +74,38 @@ export function PublicFPHub({ events, lang = "en" }) {
     return { key: 'made', label: T2('FP Draft') };
   }
 
-  var selEv = useMemo(function(){
-    return safeArr(events).find(function(e){ return e.id === selEvId; }) || null;
-  }, [events, selEvId]);
+  // ── Per-event detail payload (fp/items/configs/salesMeta/sections), fetched
+  // only once a function is actually opened — not worth pulling for every
+  // event up front just to populate a list. ──
+  var [detail, setDetail] = useState(null);
+  var [detailError, setDetailError] = useState(null);
+  useEffect(function(){
+    if (!selEvId) { setDetail(null); setDetailError(null); return; }
+    var cancelled = false;
+    setDetailError(null);
+    supabase.functions.invoke('public-fp-view', { body: { action: 'detail', event_id: selEvId } })
+      .then(function(res){
+        if (cancelled) return;
+        var data = res && res.data;
+        if (!data || !data.ok) { setDetailError((data && data.reason) || 'failed'); return; }
+        // Hydrate the SAME global module-state EventMenuBuilderView's normal
+        // (authenticated) boot path hydrates via loadAllConfig -- just
+        // scoped to this one event instead of the whole catalogue. Without
+        // this, templateInfo/allDishesByName/DEPT_CONFIGS are empty for a
+        // no-login viewer, and the print silently shows wrong department
+        // grouping, wrong "added beyond template" marks, wrong veg/non-veg,
+        // and no Service/Crockery/Transport config bullets at all.
+        if (data.menuPackage) hydrateMenuPackages({ [data.menuPackage.name]: data.menuPackage.dishes }, {}, {});
+        hydrateRecipeData({ dishMaster: buildDishMasterMap(data.dishMaster) });
+        hydrateSalesConfigs(buildDeptConfigs(data.salesConfigDefs, data.salesConfigOptions));
+        setDetail(data);
+      })
+      .catch(function(e){
+        console.error('[PublicFPHub] detail failed:', e);
+        if (!cancelled) setDetailError('failed');
+      });
+    return function(){ cancelled = true; };
+  }, [selEvId]);
 
   function openEvent(ev) {
     setSelEvId(ev.id);
@@ -108,19 +157,45 @@ export function PublicFPHub({ events, lang = "en" }) {
   var MO_N = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var DY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-  // Every hook above runs on every render regardless of selEv — this branch
-  // has to come after all of them, never before, or clicking a card changes
-  // how many hooks ran and React throws (minified error #300/#310).
-  if (selEv) {
+  // Every hook above runs on every render regardless of selEvId — this
+  // branch has to come after all of them, never before, or clicking a card
+  // changes how many hooks ran and React throws (minified error #300/#310).
+  // Branches on selEvId (the URL/click intent), NOT on finding a matching
+  // row in `events` -- a direct ?event=<id> deep link fires the detail
+  // fetch independently of the list call, so gating on the list's own
+  // result would show the calendar instead of a loading/error state
+  // whenever the list hadn't resolved yet (or failed) even though detail
+  // was fine, or silently fall through to the calendar for an unknown id
+  // instead of the "could not load" message below.
+  if (selEvId) {
+    if (detail) {
+      return (
+        <EventMenuBuilderView
+          event={detail.event}
+          onClose={backToList}
+          lang={lang}
+          currentUser={null}
+          initialTab="fp"
+          autoOpenPrint={true}
+          preload={{ fp: detail.fp, items: detail.items, configs: detail.configs, salesMeta: detail.salesMeta, sections: detail.sections }}
+        />
+      );
+    }
     return (
-      <EventMenuBuilderView
-        event={selEv}
-        onClose={backToList}
-        lang={lang}
-        currentUser={null}
-        initialTab="fp"
-        autoOpenPrint={true}
-      />
+      <div className="kh-scope" style={{ minHeight: "100vh", background: K.canvas, display: "flex", alignItems: "center", justifyContent: "center", padding: 32 }}>
+        <div style={{ textAlign: "center", color: K.textFaint, fontSize: 13.5 }}>
+          {detailError
+            ? T2("Could not load this Function Plan — the link may be out of date, or it hasn't been made yet.")
+            : T2("Loading…")}
+          {detailError && (
+            <div style={{ marginTop: 14 }}>
+              <button onClick={backToList} style={{ padding: "8px 18px", borderRadius: 999, background: K.brand, color: "#fff", border: "none", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
+                {T2("Back to list")}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -149,6 +224,12 @@ export function PublicFPHub({ events, lang = "en" }) {
         <div style={{ fontSize: 12.5, color: K.hdrMeta, padding: "0 4px" }}>
           {T2("Shared link — no login needed. Pick a date below, then tap a function once its Function Plan is ready to view it.")}
         </div>
+
+        {listError && (
+          <div style={{ fontSize: 12.5, color: K.warn || "#A15C00", background: K.warnBg || "#FFF3E0", border: "1px solid " + (K.warnBorder || "#FFD9A8"), borderRadius: 10, padding: "10px 16px" }}>
+            {T2("Could not load the function list — check your connection and try reloading this page.")}
+          </div>
+        )}
 
         {/* ── Calendar ── */}
         <div style={{ backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine, borderRadius: 20, overflow: "hidden", boxShadow: K.shadowCard }}>

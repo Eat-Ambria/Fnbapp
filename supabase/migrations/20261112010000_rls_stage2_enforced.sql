@@ -13,19 +13,15 @@
 -- boot-time load already had real data regardless of login state) and would
 -- only surface once anon access is actually removed here.
 --
--- ALSO: the no-login public Function Plan hub (src/App.jsx's `?fp=1` route,
--- src/components/PublicFPHub.jsx) reads `events` (via the app's own anon-
--- context boot load) and queries `event_function_plans` (event_id, locked)
--- directly, with no session at all -- that is its whole point, a link
--- shareable with people who have no app account. Once anon loses all table
--- access here, that page goes permanently blank for everyone, not just until
--- a reload. This migration does not add anything back for it -- doing so
--- needs an explicit decision about what a stranger with the link may see
--- (a narrow anon-readable view of just event_id/locked, a signed-token
--- scheme, or moving this page behind a service-role edge function instead of
--- direct table access) -- not something to default silently one way or the
--- other. Resolve this (or confirm the page can go away / go behind a login)
--- before applying.
+-- RESOLVED: the no-login public Function Plan hub (src/App.jsx's `?fp=1`
+-- route, src/components/PublicFPHub.jsx) used to read `events`/
+-- `event_function_plans`/`event_items`/`event_configs` directly with no
+-- session at all -- fine while anon could read everything, but this
+-- migration removes that entirely. It's now backed by the public-fp-view
+-- edge function instead (service role, explicit column allowlist on
+-- `events`, no write paths) -- see that function's own header. Nothing
+-- needed here: that function bypasses RLS by design, same as backfill-
+-- staff-auth/admin-staff-auth already do for their own operations.
 --
 -- ALSO confirm, before applying, that "Allow new users to sign up" is
 -- turned OFF in the Supabase dashboard (Authentication -> Providers ->

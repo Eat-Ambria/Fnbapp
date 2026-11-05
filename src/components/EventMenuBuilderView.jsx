@@ -36,6 +36,22 @@ function normalizePkgName(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Shared by loadSalesMeta() and the public-hub preload path below, so a
+// row from either the normal table read or public-fp-view's pass-through
+// of the same rows turns into the exact same {dish_name: {...}} shape.
+function buildSalesMetaMap(rows) {
+  var m = {};
+  (rows || []).forEach(function(r){
+    m[r.dish_name] = {
+      diet_tag:          r.diet_tag || DEFAULT_DIET,
+      sales_dept:        r.sales_dept || DEFAULT_DEPT,
+      sales_description: r.sales_description || '',
+      hero_image_url:    r.hero_image_url || '',
+    };
+  });
+  return m;
+}
+
 // Human-readable labels for the FP change history (see logFpHistory /
 // saveFPField below) — built from the same TIME_FIELDS/EQUIP_FIELDS lists
 // FunctionPlanTab.jsx renders from, plus every other named column on
@@ -72,7 +88,17 @@ function formatFpHistoryValue(field, v) {
   return String(v);
 }
 
-export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false }) {
+// `preload`: pre-fetched {fp, items, configs, salesMeta, sections}, used
+// ONLY by the no-login public FP hub (PublicFPHub.jsx) — a real staff
+// session always leaves this undefined and loads everything itself the
+// normal way below. See public-fp-view edge function's header for why an
+// anonymous caller gets one audited, pre-shaped payload instead of direct
+// table access: this component otherwise does its own event_items/
+// event_function_plans/event_configs/dish_catalogue_sections/
+// sales_items_meta reads (and, for a brand-new event, a legacy-menu
+// SEED WRITE — see seedFromLegacyMenuIfNeeded) that a public, anonymous
+// viewer has no business triggering.
+export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false, preload = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
 
@@ -88,9 +114,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // builder. Independent of activeSubTab, which switches the whole page between
   // the item builder and the Function Plan.
   var [activeDeptTab, setActiveDeptTab] = useState('items'); // 'items' | 'configs'
-  var [dishItems, setDishItems]     = useState([]);        // event_items rows
-  var [salesMeta, setSalesMeta]     = useState({});
-  var [loading, setLoading]         = useState(true);
+  var [dishItems, setDishItems]     = useState(function(){ return (preload && preload.items) || []; });        // event_items rows
+  var [salesMeta, setSalesMeta]     = useState(function(){ return preload ? buildSalesMetaMap(preload.salesMeta) : {}; });
+  var [loading, setLoading]         = useState(function(){ return !preload; }); // preload already has everything synchronously
   var [seeding, setSeeding]         = useState(false);
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
@@ -111,7 +137,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event && event.id]);
   // V78 — Function Plan (food preference, spice tolerance, allergies, notes)
-  var [fp, setFp]                   = useState(null);
+  var [fp, setFp]                   = useState(function(){ return (preload && preload.fp) || null; });
   // A load failure used to silently set fp to just {event_id} — exactly the
   // same shape as a genuinely-new, never-saved FP — so the next field edit
   // (or worse, a lock/unlock) wrote that empty shell straight over whatever
@@ -125,17 +151,27 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // rather than being kept in sync with ConfigsPanel's own internal state.
   var [printConfigs, setPrintConfigs] = useState({});
   async function openFPPrint() {
-    try {
-      var res = await supabase.from('event_configs').select('*').eq('event_id', event.id);
-      if (res.error) throw res.error;
+    var rows;
+    if (preload) {
+      rows = preload.configs || [];
+    } else {
+      try {
+        var res = await supabase.from('event_configs').select('*').eq('event_id', event.id);
+        if (res.error) throw res.error;
+        rows = res.data || [];
+      } catch (e) {
+        console.error('[EventMenuBuilder] load configs for print failed:', e);
+        rows = null;
+      }
+    }
+    if (rows) {
       var next = {};
-      (res.data || []).forEach(function(r){
+      rows.forEach(function(r){
         if (!next[r.dept_id]) next[r.dept_id] = {};
         next[r.dept_id][r.config_key] = r.config_value;
       });
       setPrintConfigs(next);
-    } catch (e) {
-      console.error('[EventMenuBuilder] load configs for print failed:', e);
+    } else {
       setPrintConfigs({});
     }
     setShowFPPrint(true);
@@ -206,8 +242,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // since groupedByPkgSection/groupedBySection look it up by name in here.
   var [dishLibBump, setDishLibBump] = useState(0);
   // ── dish_catalogue_sections (all depts) ──
-  var [sections, setSections] = useState([]);
+  var [sections, setSections] = useState(function(){ return (preload && preload.sections) || []; });
   useEffect(function(){
+    if (preload) return; // public hub already supplied this in one shot
     var cancelled = false;
     (async function(){
       try {
@@ -270,16 +307,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       // there) and would silently truncate at PostgREST's 1000-row cap with
       // no error the same way kitchen_tracking did otherwise.
       var rows = await fetchAllRows(function(){ return supabase.from('sales_items_meta').select('*'); });
-      var m = {};
-      (rows || []).forEach(function(r){
-        m[r.dish_name] = {
-          diet_tag:          r.diet_tag || DEFAULT_DIET,
-          sales_dept:        r.sales_dept || DEFAULT_DEPT,
-          sales_description: r.sales_description || '',
-          hero_image_url:    r.hero_image_url || '',
-        };
-      });
-      setSalesMeta(m);
+      setSalesMeta(buildSalesMetaMap(rows));
     } catch (e) {
       console.error('[EventMenuBuilder] loadSalesMeta failed:', e);
       setSalesMeta({});
@@ -347,6 +375,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }
 
   useEffect(function(){
+    if (preload) return; // public hub already supplied salesMeta/items in one shot, no seed write to risk
     var cancelled = false;
     async function boot(){
       setLoading(true);
@@ -368,6 +397,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
 
   // ── Realtime for event_items on this event ──
   useEffect(function(){
+    if (preload) return; // a static public snapshot has no live session to keep in sync
     if (!event || !event.id) return;
     var chan = supabase.channel('eitems_rt_' + event.id)
       .on('postgres_changes',
@@ -458,7 +488,15 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Kitchen Hub sees the right menu the moment anyone opens this event, not only
   // after the next manual toggle.
   useEffect(function(){
-    if (loading || !event || !event.id) return;
+    // No currentUser means no real session drove this open at all (the
+    // public FP hub's read-only preview, currentUser={null}) — there is no
+    // legitimate reason for a no-identity viewer to ever write to events.menu,
+    // and doing so from an anonymous session on possibly-incomplete catalogue
+    // data (see preload's header comment) risked silently overwriting the
+    // real Kitchen menu with a wrong one. This check is NOT preload-specific
+    // on purpose: it closes the gap for any currentUser-less render, today,
+    // independent of whether preload is used.
+    if (loading || !event || !event.id || !currentUser) return;
     mirrorKitchenMenu(dishItems);
   // eslint-disable-next-line
   }, [loading]);
@@ -480,6 +518,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     })();
   }
   useEffect(function(){
+    if (preload) return; // fp already seeded from preload above; no live session to subscribe for
     fpCancelledRef.current = false;
     loadFp();
     // Keeps the Final/Locked badge, blockIfMenuLocked, and the "did someone

@@ -76,7 +76,7 @@ function transformColdItems(rows) {
   return rows.map(r => r.item_name);
 }
 
-function transformMenuPackages(rows) {
+export function transformMenuPackages(rows) {
   // Components expect: { "Multi-Cuisine Veg": ["dish1","dish2",...], ... }
   const pkg = {};
   rows.filter(r => r.is_active !== false)
@@ -89,6 +89,67 @@ function transformMenuPackages(rows) {
         }
       });
   return pkg;
+}
+
+// Shared by loadAllConfig() (the normal, authenticated boot load) and the
+// public FP hub's preload path (PublicFPHub.jsx), which needs this exact
+// shape for a small, event-scoped subset of dishes_master rows rather than
+// the whole catalogue — see public-fp-view edge function's `detail` action.
+// Shared by loadAllConfig() and the public FP hub's preload path — same
+// sales_config_defs/sales_config_options -> DEPT_CONFIGS-shape nesting
+// either way, so FunctionPlanPrintView's config-label lookups (DEPT_CONFIGS[d.id])
+// resolve identically for a real staff session and the public preview.
+export function buildDeptConfigs(defsRaw, optionsRaw) {
+  const byDept = {};
+  (defsRaw || [])
+    .filter(function(d){ return d.is_active !== false; })
+    .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); })
+    .forEach(function(def){
+      if (!byDept[def.dept_id]) byDept[def.dept_id] = [];
+      const cfg = { key: def.config_key, label: def.label, icon: def.icon || '', type: def.type };
+      const opts = (optionsRaw || [])
+        .filter(function(o){ return o.dept_id === def.dept_id && o.config_key === def.config_key && o.is_active !== false; })
+        .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); });
+      if (def.type === 'ratio') {
+        cfg.allowExtras = !!def.allow_extras;
+        cfg.ratios = opts.map(function(o){
+          return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name, price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
+        });
+      } else if (def.type === 'count') {
+        cfg.min  = def.min_val != null ? def.min_val : 0;
+        cfg.max  = def.max_val != null ? def.max_val : 999;
+        cfg.step = def.step_val || 1;
+        cfg.pricePerPax = Number(def.price_per_pax) || 0;
+        cfg.pricingMode = def.pricing_mode || 'per_pax';
+        cfg.isIncluded = !!def.is_included;
+      } else {
+        // options, radio, multi_count, tags
+        cfg.options = opts.map(function(o){
+          return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '', price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
+        });
+      }
+      byDept[def.dept_id].push(cfg);
+    });
+  return byDept;
+}
+
+export function buildDishMasterMap(rows) {
+  const dishMaster = {};
+  (rows || []).forEach(r => {
+    if (r && r.dish_name) {
+      dishMaster[r.dish_name] = {
+        is_active:       r.is_active !== false,
+        notes:           r.notes || '',
+        image_url:       r.image_url || '',
+        section_id:      r.section_id || null,
+        sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
+        is_veg:          r.is_veg == null ? null : !!r.is_veg,
+        no_auto_select:  !!r.no_auto_select,
+        alt_group:       r.alt_group || null
+      };
+    }
+  });
+  return dishMaster;
 }
 
 function transformVendors(rows) {
@@ -276,21 +337,7 @@ export async function loadAllConfig() {
   (dishHindiMapRaw || []).forEach(r => { if (r.dish_name && r.hi) dishHindiMap[r.dish_name] = r.hi; });
 
   // Build dish master catalogue lookup
-  const dishMaster = {};
-  (dishMasterRaw || []).forEach(r => {
-    if (r && r.dish_name) {
-      dishMaster[r.dish_name] = {
-        is_active:       r.is_active !== false,
-        notes:           r.notes || '',
-        image_url:       r.image_url || '',
-        section_id:      r.section_id || null,
-        sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
-        is_veg:          r.is_veg == null ? null : !!r.is_veg,
-        no_auto_select:  !!r.no_auto_select,
-        alt_group:       r.alt_group || null
-      };
-    }
-  });
+  const dishMaster = buildDishMasterMap(dishMasterRaw);
 
   // V62: Build dish → Ops store item lookup
   // V64: added ops_inventory_id (stable prefix key — CS-/FLO-/PRBR-) that survives Ops inventory rebuilds; ops_item_id kept for back-compat
@@ -309,44 +356,7 @@ export async function loadAllConfig() {
   });
 
   // V70 Phase 5B follow-up: nest sales_config_options under their defs, shape into DEPT_CONFIGS
-  const salesConfigs = (function() {
-    const byDept = {};
-    (salesConfigDefsRaw || [])
-      .filter(function(d){ return d.is_active !== false; })
-      .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); })
-      .forEach(function(def){
-        if (!byDept[def.dept_id]) byDept[def.dept_id] = [];
-        const cfg = { key: def.config_key, label: def.label, icon: def.icon || '', type: def.type };
-        const opts = (salesConfigOptionsRaw || [])
-          .filter(function(o){ return o.dept_id === def.dept_id && o.config_key === def.config_key && o.is_active !== false; })
-          .sort(function(a,b){ return (a.ordering||0) - (b.ordering||0); });
-        if (def.type === 'ratio') {
-          cfg.allowExtras = !!def.allow_extras;
-          cfg.ratios = opts.map(function(o){
-            return { id: o.option_id, num: o.ratio_num, den: o.ratio_den, label: o.ratio_label || o.name, price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
-          });
-        } else if (def.type === 'count') {
-          cfg.min  = def.min_val != null ? def.min_val : 0;
-          cfg.max  = def.max_val != null ? def.max_val : 999;
-          cfg.step = def.step_val || 1;
-          // V90 — pricing backend: a flat per-unit-per-pax rate, since 'count'
-          // configs have no options list to hang a price on individually.
-          cfg.pricePerPax = Number(def.price_per_pax) || 0;
-          // V95 — whether that rate is charged per guest or as one flat amount.
-          cfg.pricingMode = def.pricing_mode || 'per_pax';
-          // V95 — included in every package by default (standard crockery,
-          // service, display setups...), so it never adds to the price.
-          cfg.isIncluded = !!def.is_included;
-        } else {
-          // options, radio, multi_count, tags
-          cfg.options = opts.map(function(o){
-            return { id: o.option_id, name: o.name, desc: o.description || '', icon: o.icon || '', price_per_pax: Number(o.price_per_pax) || 0, pricing_mode: o.pricing_mode || 'per_pax', is_included: !!o.is_included };
-          });
-        }
-        byDept[def.dept_id].push(cfg);
-      });
-    return byDept;
-  })();
+  const salesConfigs = buildDeptConfigs(salesConfigDefsRaw, salesConfigOptionsRaw);
 
   return {
     vehicles,
