@@ -22,7 +22,7 @@ function cacheKey(table) {
 // reached the server carries a `.code` (e.g. '23502' not-null, '23505'
 // unique, '42501' insufficient privilege); a genuine network failure never
 // gets a response to carry one, so it has no `.code`.
-function isOfflineError(e) {
+export function isOfflineError(e) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
   if (e && e.code) return false;
   return true;

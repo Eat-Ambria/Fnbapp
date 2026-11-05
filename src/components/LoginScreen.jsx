@@ -7,6 +7,7 @@ import { ripple } from '../utils/ripple.js';
 import { Icon, KButton } from './KitchenUI.jsx';
 import { VENUE_OPTIONS } from '../data/staffData.js';
 import { supabase } from '../lib/supabase.js';
+import { isOfflineError } from '../lib/db.js';
 import { safeArr } from '../utils/helpers.js';
 import { staffAuthEmail, staffAuthPassword, classifyAuthError } from '../lib/staffAuth.js';
 
@@ -58,15 +59,37 @@ function LoginScreen({ empDb, onLogin, lang="en", forceLogoutMsg=null }) {
         setLoading(false);
         return;
       }
+      // No `error` should always mean a real session came back, but this is
+      // exactly the shape (silently falling through to `data.user.id` below)
+      // that turned one flaky response into an uncaught TypeError and the
+      // generic "Something went wrong" catch-all, with nothing in between to
+      // say which step actually failed -- treat it as the same "try again"
+      // case rather than crash.
+      if(!data || !data.user){
+        setError("Something went wrong signing you in — please try again.");
+        setLoading(false);
+        return;
+      }
       let emp = safeArr(empDb).find(e => e.auth_user_id === data.user.id);
       if(!emp && supabase){
         // empDb can be stale (a brand-new hire's auth_user_id link arrives
         // as a realtime UPDATE after the row's own INSERT, and this device
         // may have missed it; or this is a first boot with an empty offline
         // cache) -- a miss here isn't necessarily "this account is broken,"
-        // so confirm against the live table once before giving up.
-        const { data: liveRow } = await supabase.from('staff').select('*').eq('auth_user_id', data.user.id).maybeSingle();
-        if(liveRow) emp = {...liveRow, staffListId: liveRow.staff_id};
+        // so confirm against the live table once before giving up. A network
+        // blip on THIS specific call used to be indistinguishable from "no
+        // matching row" -- silently falling through to "Account not set up
+        // correctly" (wrong) or, if the fetch itself rejected outright,
+        // straight into the generic catch-all below (confusing either way).
+        try {
+          const { data: liveRow, error: liveErr } = await supabase.from('staff').select('*').eq('auth_user_id', data.user.id).maybeSingle();
+          if(liveErr && isOfflineError(liveErr)) throw liveErr;
+          if(liveRow) emp = {...liveRow, staffListId: liveRow.staff_id};
+        } catch(e) {
+          setError("Can't reach server — check connection and try again.");
+          setLoading(false);
+          return;
+        }
       }
       if(!emp){
         setError("Account not set up correctly. Contact an admin.");
