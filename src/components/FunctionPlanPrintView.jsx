@@ -241,7 +241,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     if (fp.guest_community) bullets.push('Community: ' + fp.guest_community);
     if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : ''));
     else if (fp.corkage_liquor) bullets.push('Liquor being served');
-    TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' start time @ ' + fp[f.id]); });
+    // Not every one of these is a START time -- "Wind-up"/"Chaat end"/
+    // "Snacks end"/"Live end"/"Valet end" are all end-of-something times, so
+    // a blanket " start time @ " suffix was wrong for them (and redundant
+    // for "Function start"). Just the label and the time.
+    TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' @ ' + fp[f.id]); });
     if (fp.room_info_enabled) {
       var roomParts = [];
       if (fp.room_check_in) roomParts.push('check-in ' + fp.room_check_in);
@@ -557,6 +561,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
               <img src={fp.layout_image_url} alt={T2("Layout reference")}
                 style={{ display: "block", marginTop: fp.layout_info ? 8 : 0, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />
             )}
+          </div>
+        )}
+
+        {/* ── Guest signature, when captured — FunctionPlanTab.jsx's own
+            closing-confirmation block, never shown on the print before. ── */}
+        {fp.guest_signature && (
+          <div style={{ border: "2px solid #000", borderTop: "none", padding: "10px 16px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>
+              {T2("GUEST SIGNATURE")}{fp.guest_signature_name ? (' — ' + fp.guest_signature_name) : ''}
+            </div>
+            <img src={fp.guest_signature} alt={T2("Guest signature")}
+              style={{ height: 50, maxWidth: 220, objectFit: "contain", border: "1px solid #ccc", background: "#fff" }} />
           </div>
         )}
 

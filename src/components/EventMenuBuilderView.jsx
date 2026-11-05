@@ -1032,7 +1032,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
           var dept = pinnedDeptForDish(n) || dishNameToPkgDept[n] || DEFAULT_DEPT;
           return dept === d.id;
         });
-        if (names.length === 0) return;
+        // A one-dish section collapsing to zero is just that one dish being
+        // removed, not a section being eliminated — "Removed section: X (1
+        // dish)" reads as a bigger, more structural change than actually
+        // happened. The one-line "section removed" summary only earns its
+        // keep when it's actually standing in for more than one "− dish"
+        // bullet it would otherwise take the place of.
+        if (names.length <= 1) return;
         if (!names.every(function(n){ return removedSet[n]; })) return;
         removedSections.push({ name: sec.name, dishes: names });
         names.forEach(function(n){ coveredByRemovedSection[n] = true; });
