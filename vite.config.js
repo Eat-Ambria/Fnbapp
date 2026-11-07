@@ -7,20 +7,27 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // V92: switched from generateSW to injectManifest so the service worker
-      // can carry a `push` handler (web push notifications) — generateSW only
-      // lets you configure routing/caching, there's no hook for custom event
-      // listeners. src/sw.js hand-writes the same routing/caching rules this
-      // used to get for free from a `workbox: {...}` block here, plus the push
-      // handler. The update-gating behavior (no auto skipWaiting — see
-      // src/sw.js) is unchanged.
+      // V96 — ripped out ALL caching/offline support after a dormant stale
+      // service worker left staff genuinely unable to log in (an old SW kept
+      // serving a pre-Supabase-Auth bundle indefinitely; worse, uninstalling
+      // and reinstalling the home-screen icon did NOT clear it, since that
+      // storage lives in the browser profile, not the shortcut — only an
+      // explicit "clear site data" did). That trade-off is deliberate:
+      // staff would rather the app simply not load without internet than
+      // silently run stale code against a backend that's moved on. Still on
+      // injectManifest (not generateSW) ONLY because push notifications need
+      // a custom `push` handler, which generateSW has no hook for —
+      // `injectionPoint: undefined` below means no precache manifest is
+      // even generated, so there's nothing for injectManifest to inject.
+      // src/sw.js has no `fetch` listener at all now: every request, cached
+      // or not, hard refresh or not, always goes straight to the network.
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.js',
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        injectionPoint: undefined,
       },
       manifest: {
         name: 'Ambria FnB Operations',

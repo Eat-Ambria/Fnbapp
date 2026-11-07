@@ -158,127 +158,6 @@ export default function App() {
     document.addEventListener("keydown",onEsc);
     return ()=>{ document.removeEventListener("mousedown",onDown); document.removeEventListener("keydown",onEsc); };
   },[userMenuOpen]);
-  // ── PWA auto-update ──
-  // V81: vite.config.js's workbox skipWaiting+clientsClaim used to let a newly
-  // deployed SW take over THIS already-open tab silently in the background —
-  // no reload, no user action. The old JS kept running but the new SW's cache
-  // only has the new deploy's asset hashes, so any dynamic import() the old
-  // bundle made for its own (now-deleted) chunk files 404'd with
-  // "Failed to fetch dynamically imported module", and — worse — the tab kept
-  // silently running stale application code indefinitely (any bugfix just
-  // pushed live never actually reached it) until a manual hard refresh.
-  // Fix: vite.config.js no longer auto-skips waiting, so a new SW sits
-  // "waiting" until the user clicks Update Now (postMessage below); once it
-  // takes over, controllerchange fires exactly once and we reload immediately —
-  // so the old bundle is never left running against new-hash assets.
-  const [updateReady, setUpdateReady] = useState(false);
-  const waitingWorkerRef = useRef(null);
-  useEffect(function(){
-    if(!('serviceWorker' in navigator)) return;
-    var reloading = false;
-    navigator.serviceWorker.addEventListener('controllerchange', function(){
-      if(reloading) return;
-      reloading = true;
-      window.location.reload();
-    });
-    navigator.serviceWorker.ready.then(function(reg){
-      function armIfWaiting(){
-        if(reg.waiting && navigator.serviceWorker.controller){
-          waitingWorkerRef.current = reg.waiting;
-          // Nobody logged in yet (LoginScreen / venue picker) means there is
-          // no unsaved work on screen to lose, so there's no reason to make
-          // anyone click a banner — apply immediately. The controllerchange
-          // listener above still does the actual reload, same safe path as
-          // a manual "Update Now" click; this just skips waiting for a
-          // human to notice the banner. Once someone IS logged in, keep
-          // requiring the click — auto-reloading out from under someone
-          // mid-edit (e.g. typing into a kitchen tracking field) would
-          // silently drop whatever they hadn't saved yet.
-          if(!currentUserRef.current){
-            waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'});
-          } else {
-            setUpdateReady(true);
-          }
-        }
-      }
-      armIfWaiting(); // an update may already be waiting from before this mounted
-      reg.addEventListener('updatefound', function(){
-        var nw = reg.installing;
-        if(!nw) return;
-        nw.addEventListener('statechange', function(){
-          if(nw.state === 'installed') armIfWaiting();
-        });
-      });
-      // A timer alone misses tablets/phones: the moment the screen locks or
-      // the app backgrounds, mobile browsers throttle or fully suspend JS
-      // timers — a kitchen tablet sitting idle (or just asleep) for most of
-      // a shift may never see its 15-minute interval actually fire, so a
-      // pushed update's banner silently never appears until someone happens
-      // to hard-refresh. visibilitychange/focus fire reliably even when
-      // timers don't — the OS has to wake the page to show it again at all —
-      // so re-checking right then catches an update the instant the device
-      // is picked back up, not just on a laptop that never backgrounds.
-      function checkNow(){ reg.update().catch(function(){}); }
-      function checkIfVisible(){ if(document.visibilityState==='visible') checkNow(); }
-      checkNow(); // don't wait 15 minutes for the very first check either
-      document.addEventListener('visibilitychange', checkIfVisible);
-      window.addEventListener('focus', checkNow);
-      // 60s, not 5min -- reg.update() is a conditional GET against sw.js
-      // (a few KB, cached with normal revalidation), cheap enough to poll
-      // often, and a shorter interval is most of what "notice sooner" means
-      // for the laptop/desktop case where visibilitychange/focus don't fire
-      // (a tab left open and in the foreground the whole time).
-      var poll = setInterval(checkNow, 60*1000);
-      return function(){
-        clearInterval(poll);
-        document.removeEventListener('visibilitychange', checkIfVisible);
-        window.removeEventListener('focus', checkNow);
-      };
-    });
-  },[]);
-  function applyPwaUpdate(){
-    if(waitingWorkerRef.current){ waitingWorkerRef.current.postMessage({type:'SKIP_WAITING'}); }
-    else { window.location.reload(); }
-  }
-  // Auto-apply once an update is ready, but only once it's genuinely safe to
-  // reload — a tablet that's been left open all shift may never get an
-  // explicit "Update Now" tap, so waiting on that alone meant it just ran
-  // stale code indefinitely. Re-checked every 15s until ALL of these hold,
-  // never forced on a deadline:
-  //   - no input/textarea/select/contentEditable currently has focus — every
-  //     text field in this app (FP notes, custom dish names, corkage
-  //     details…) only saves on blur, so while one still has focus nothing
-  //     typed into it is lost yet by continuing to wait;
-  //   - no live camera stream on screen (the "Mark prep done" selfie
-  //     capture flow uses a <video> with a MediaStream srcObject);
-  //   - at least 2 minutes since the last tap/touch/key anywhere on the
-  //     page — genuinely idle, not just "not currently typing".
-  // The banner stays visible throughout, so anyone can still tap "Update
-  // Now" sooner themselves.
-  useEffect(function(){
-    if(!updateReady) return;
-    var lastActivity = Date.now();
-    function markActivity(){ lastActivity = Date.now(); }
-    var activityEvents = ['pointerdown','touchstart','keydown'];
-    activityEvents.forEach(function(ev){ document.addEventListener(ev, markActivity); });
-    function isSafeToApply(){
-      var ae = document.activeElement;
-      var tag = ae && ae.tagName;
-      if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT' || (ae && ae.isContentEditable)) return false;
-      var videos = document.querySelectorAll('video');
-      for(var i=0;i<videos.length;i++){ if(videos[i].srcObject) return false; }
-      return (Date.now() - lastActivity) >= 2*60*1000;
-    }
-    var checkTimer = setInterval(function(){
-      if(isSafeToApply()) applyPwaUpdate();
-    }, 15*1000);
-    return function(){
-      clearInterval(checkTimer);
-      activityEvents.forEach(function(ev){ document.removeEventListener(ev, markActivity); });
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[updateReady]);
-
   // ── Events ──
   // Full candidate DB record for one event row — same construction for both
   // the previous and next local copy, so the diff below (setEvents) compares
@@ -699,6 +578,62 @@ export default function App() {
     check();
     const iv = setInterval(check, 5*60*1000);
     return () => clearInterval(iv);
+  }, []);
+
+  // ── Auto-reload an already-open tab onto a new deploy ──
+  // V96 removed the service-worker-based caching this used to detect updates
+  // through (see sw.js's own header) -- with no caching left anywhere, a
+  // reload or fresh open already always gets the latest build for free, but
+  // nothing was left to notice a new deploy for a tab that's just sitting
+  // open (a kitchen tablet on the login screen all shift, say). This checks
+  // the live index.html's own script tag -- the one thing that changes on
+  // every deploy, since Vite content-hashes it -- against this tab's own,
+  // with a `cache: 'no-store'` fetch so it can never read a cached copy of
+  // the very thing it's trying to detect a change in. Reuses the same
+  // "only when it's actually safe" idle check this app already had for the
+  // old SW-update banner: no focused input/textarea/select/contentEditable
+  // (every text field here only saves on blur, so nothing typed is lost by
+  // waiting) and no live camera stream (the selfie-capture flow).
+  useEffect(() => {
+    let currentSrc = null;
+    try {
+      const tag = document.querySelector('script[type="module"][src*="/assets/"]');
+      currentSrc = tag && tag.getAttribute('src');
+    } catch(e) {}
+    if (!currentSrc) return; // dev server / no hashed bundle to compare against
+    let newBuildSeen = false;
+    let lastActivity = Date.now();
+    const markActivity = () => { lastActivity = Date.now(); };
+    const activityEvents = ['pointerdown','touchstart','keydown'];
+    activityEvents.forEach(ev => document.addEventListener(ev, markActivity));
+    function isSafeToReload(){
+      const ae = document.activeElement;
+      const tag = ae && ae.tagName;
+      if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT' || (ae && ae.isContentEditable)) return false;
+      const videos = document.querySelectorAll('video');
+      for(let i=0;i<videos.length;i++){ if(videos[i].srcObject) return false; }
+      return (Date.now() - lastActivity) >= 2*60*1000;
+    }
+    async function checkForNewBuild(){
+      if (newBuildSeen) { if (isSafeToReload()) window.location.reload(); return; }
+      try {
+        const res = await fetch(window.location.pathname, { cache: 'no-store' });
+        const html = await res.text();
+        const m = html.match(/<script[^>]+type="module"[^>]+src="([^"]+\/assets\/[^"]+)"/);
+        if (m && m[1] && m[1] !== currentSrc) newBuildSeen = true;
+      } catch(e) {} // offline / request failed — try again next tick, never block on it
+    }
+    checkForNewBuild();
+    const iv = setInterval(checkForNewBuild, 60*1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkForNewBuild(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', checkForNewBuild);
+    return () => {
+      clearInterval(iv);
+      activityEvents.forEach(ev => document.removeEventListener(ev, markActivity));
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', checkForNewBuild);
+    };
   }, []);
 
   // ── Master load: session + all data ──
@@ -1877,13 +1812,6 @@ export default function App() {
         onError={e=>{ const el=e.currentTarget; if(!el.dataset.pngFallback){ el.dataset.pngFallback="1"; el.src=el.src.replace(/\.webp$/,".png"); } else { el.style.display="none"; } }}
         style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center",
           opacity:K.pageBgOpacity,pointerEvents:"none",userSelect:"none",zIndex:0}}/>
-      {/* ── PWA update banner ── */}
-      {updateReady&&(
-        <div style={{flexShrink:0,background:C.green,color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>
-          <span>🔄 New version available</span>
-          <button onClick={applyPwaUpdate} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:6,color:"#fff",padding:"4px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Update Now</button>
-        </div>
-      )}
       {/* ── Stale-session banner: tab crossed midnight, module-load TODAY is stale ── */}
       {dateDrift&&(
         <div style={{flexShrink:0,background:C.red||"#B12A2A",color:"#fff",padding:"10px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13,fontWeight:600,boxShadow:`0 2px 8px ${C.shadow}`,zIndex:9999}}>

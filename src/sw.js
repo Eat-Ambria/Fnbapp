@@ -1,53 +1,40 @@
-// Ambria FnB — custom service worker (injectManifest strategy; see V92 note
-// in vite.config.js for why this replaced the plain generateSW config).
-// Routing/caching below reproduces exactly what the old generateSW `workbox`
-// block configured — nothing about caching behavior is meant to change here,
-// only the addition of the push/notificationclick handlers at the bottom.
+// Ambria FnB — service worker (push notifications ONLY, no caching)
+//
+// V96: this used to also precache the app shell and NetworkFirst-cache
+// pages/scripts/styles/Supabase reads for offline use. That caching layer is
+// exactly what left staff unable to log in after the Supabase Auth
+// migration — an old, already-installed service worker kept serving a
+// pre-migration bundle indefinitely, and critically, uninstalling and
+// reinstalling the PWA's home-screen icon did NOT clear it (that storage
+// lives in the browser profile the icon points at, not the icon itself) —
+// only an explicit "clear site data" did. Staff would rather the app
+// refuse to load without internet than silently keep running stale code
+// against a backend that's moved on, so there is no `fetch` listener here
+// at all now: every request, hard refresh or not, always goes straight to
+// the network, exactly like a page with no service worker would behave,
+// except this one can still receive push notifications when the app is
+// closed (the one thing that genuinely requires a service worker to exist
+// at all — see push/notificationclick below).
+//
+// No `self.__WB_MANIFEST` reference on purpose — vite.config.js's
+// `injectManifest.injectionPoint: undefined` tells vite-plugin-pwa not to
+// generate or require a precache manifest at all, since nothing here reads
+// one.
 
-import { precacheAndRoute } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
-import { NetworkFirst } from 'workbox-strategies';
-import { ExpirationPlugin } from 'workbox-expiration';
-import { CacheableResponsePlugin } from 'workbox-cacheable-response';
-import { clientsClaim } from 'workbox-core';
-
-precacheAndRoute(self.__WB_MANIFEST);
-
-registerRoute(
-  ({ request }) => request.mode === 'navigate',
-  new NetworkFirst({ cacheName: 'ambria-pages', networkTimeoutSeconds: 3 })
-);
-
-// V82: NetworkFirst, not StaleWhileRevalidate — see vite.config.js history.
-// This is content-hashed static hosting, so preferring the network whenever
-// it's reachable only ever helps; the cache is purely an offline/slow-network
-// fallback, never a reason a hard refresh could still see stale JS/CSS.
-registerRoute(
-  ({ request }) => request.destination === 'script' || request.destination === 'style',
-  new NetworkFirst({ cacheName: 'ambria-assets', networkTimeoutSeconds: 3 })
-);
-
-registerRoute(
-  /ozibklsaweqizzyfwqmm\.supabase\.co\/rest\/v1\/.+\?.*select=/,
-  new NetworkFirst({
-    cacheName: 'ambria-supabase-reads',
-    networkTimeoutSeconds: 4,
-    plugins: [
-      new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 86400 }),
-      new CacheableResponsePlugin({ statuses: [0, 200] }),
-    ],
-  })
-);
-
-clientsClaim();
-
-// V81: do NOT self.skipWaiting() automatically — a freshly deployed SW must
-// not silently take over an already-open tab (clientsClaim) with no reload,
-// since the old JS bundle's dynamic import()s target chunk hashes the new
-// deploy has already deleted. It sits "waiting" until the app's own
-// "Update Now" banner (App.jsx applyPwaUpdate()) posts this message.
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+self.skipWaiting();
+self.addEventListener('activate', function (event) {
+  event.waitUntil(
+    (async function () {
+      // One-time cleanup for any device that still has the OLD caching
+      // service worker's Cache Storage entries sitting around — they were
+      // named 'ambria-pages' / 'ambria-assets' / 'ambria-supabase-reads'.
+      // This SW never writes to any cache, so deleting every existing one
+      // on activate can never delete anything this version itself needs.
+      var keys = await caches.keys();
+      await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+      await self.clients.claim();
+    })()
+  );
 });
 
 // ── Web push (V92) ──────────────────────────────────────────────────────
