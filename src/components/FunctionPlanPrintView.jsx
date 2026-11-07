@@ -264,7 +264,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       if (fp.drivers_food_foc) {
         dfParts.push('FOC');
       } else {
-        var dfTotal = calcDriversFoodTotal(fp.drivers_food_count);
+        var dfTotal = calcDriversFoodTotal(fp.drivers_food_count, fp.drivers_food_total_override);
         if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
       }
       bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));

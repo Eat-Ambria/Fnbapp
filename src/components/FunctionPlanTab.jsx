@@ -88,9 +88,12 @@ var TIME_FIELD_GROUPS = [
 // Drivers food is billed at a flat, un-negotiated rate per pax with a floor —
 // never less than DRIVERS_FOOD_MIN regardless of how few drivers there are.
 // The rate itself isn't shown on the form or the print-out, only the total.
+// The total can also be hand-overridden (drivers_food_total_override) when
+// sales has agreed a different figure — still never below DRIVERS_FOOD_MIN.
 var DRIVERS_FOOD_RATE = 500;
 var DRIVERS_FOOD_MIN = 30000;
-function calcDriversFoodTotal(pax) {
+function calcDriversFoodTotal(pax, override) {
+  if (override != null && override !== '' && !isNaN(override)) return Number(override);
   if (pax == null || pax === '' || isNaN(pax)) return null;
   return Math.max(Number(pax) * DRIVERS_FOOD_RATE, DRIVERS_FOOD_MIN);
 }
@@ -331,6 +334,29 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
     var raw = drafts[field];
     var n = raw === '' ? null : parseFloat(raw);
     onSaveField(field, (n == null || isNaN(n)) ? null : n);
+  }
+
+  // Drivers food total: editable on top of the computed rate*pax figure, but
+  // never allowed to save below DRIVERS_FOOD_MIN — a typed-in value under
+  // that floor snaps back up to it rather than being rejected outright.
+  // Clearing the field entirely drops the override and falls back to the
+  // computed rate*pax total.
+  function driversFoodTotalValue() {
+    if (drafts['drivers_food_total_override'] !== undefined) return drafts['drivers_food_total_override'];
+    var computed = calcDriversFoodTotal(fp && fp.drivers_food_count, fp && fp.drivers_food_total_override);
+    return computed != null ? computed : '';
+  }
+  function commitDriversFoodTotal() {
+    if (drafts['drivers_food_total_override'] === undefined) return;
+    var raw = drafts['drivers_food_total_override'];
+    var n = raw === '' ? null : parseInt(raw, 10);
+    if (n == null || isNaN(n)) {
+      onSaveField('drivers_food_total_override', null);
+      return;
+    }
+    var floored = Math.max(n, DRIVERS_FOOD_MIN);
+    onSaveField('drivers_food_total_override', floored);
+    setDrafts(function(p){ return { ...p, drivers_food_total_override: floored }; });
   }
 
   // ── Layout information photo — one reference image (floor plan, mandap
@@ -611,7 +637,6 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
           </>}>
           {driversOn ? (function(){
             var dfFoc = !!(fp && fp.drivers_food_foc);
-            var dfTotal = calcDriversFoodTotal(fp && fp.drivers_food_count);
             return (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -625,12 +650,25 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
                 <div style={{ fontSize: 11, fontWeight: 600, color: K.textMuted, marginBottom: 6 }}>{T2("FOC")}</div>
                 <Switch on={dfFoc} onChange={function(v){ onSaveField('drivers_food_foc', v); }} title={T2("Free of cost — not charged to the guest?")} />
               </div>
-              <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: dfFoc ? K.ok : (dfTotal != null ? K.text : K.textFaint), fontVariantNumeric: "tabular-nums" }}>
-                  {dfFoc ? T2("FOC") : (dfTotal != null ? "₹" + dfTotal.toLocaleString('en-IN') : "—")}
+              {dfFoc ? (
+                <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: K.ok, fontVariantNumeric: "tabular-nums" }}>{T2("FOC")}</div>
+                  <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{T2("free of cost")}</div>
                 </div>
-                <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{dfFoc ? T2("free of cost") : T2("total")}</div>
-              </div>
+              ) : (
+                <label style={{ marginLeft: "auto", display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: K.textMuted }}>{T2("Total")}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: K.textMuted }}>₹</span>
+                    <input type="number" min={DRIVERS_FOOD_MIN} step="1" inputMode="numeric"
+                      value={driversFoodTotalValue()}
+                      onChange={function(e){ onChangeField('drivers_food_total_override', e.target.value); }}
+                      onBlur={commitDriversFoodTotal}
+                      style={{ ...inputStyle, width: 110, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }} />
+                  </div>
+                  <div style={{ fontSize: 9.5, color: K.textFaint, fontWeight: 600 }}>{T2("never below ₹" + DRIVERS_FOOD_MIN.toLocaleString('en-IN'))}</div>
+                </label>
+              )}
             </div>
             );
           })() : (

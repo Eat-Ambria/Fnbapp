@@ -94,7 +94,7 @@ const FP_SAFE_COLUMNS = [
   "event_id", "locked",
   "after_party_enabled", "after_party_pax", "after_party_start_time", "after_party_windup_time",
   "corkage_details", "corkage_liquor", "corkage_price",
-  "drivers_food_count", "drivers_food_foc", "drivers_food_required",
+  "drivers_food_count", "drivers_food_foc", "drivers_food_required", "drivers_food_total_override",
   "general_notes", "guest_community", "guest_preference",
   "layout_image_url", "layout_info", "oil_preference",
   "ops_manager_contact", "ops_manager_name",
