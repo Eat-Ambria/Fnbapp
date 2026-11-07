@@ -871,5 +871,5 @@ function FPTextArea({ label, placeholder, value, onChange, onBlur, rows }) {
   );
 }
 
-export { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, SPICE_LEVELS, SWEETNESS_LEVELS, OIL_LEVELS, COMMUNITY_OPTIONS, calcDriversFoodTotal };
+export { TIME_FIELDS, TIME_FIELD_GROUPS, EQUIP_FIELDS, getLmsPlateInfo, SPICE_LEVELS, SWEETNESS_LEVELS, OIL_LEVELS, COMMUNITY_OPTIONS, calcDriversFoodTotal };
 export default FunctionPlanTab;

@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
-import { TIME_FIELDS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
+import { TIME_FIELD_GROUPS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
 import { resolveDishVeg } from '../data/recipeData.js';
 
 // Veg first, then unclassified, then non-veg. resolveDishVeg returns
@@ -246,7 +246,16 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     // "Snacks end"/"Live end"/"Valet end" are all end-of-something times, so
     // a blanket " start time @ " suffix was wrong for them (and redundant
     // for "Function start"). Just the label and the time.
-    TIME_FIELDS.filter(function(f){ return fp[f.id]; }).forEach(function(f){ bullets.push(T2(f.label) + ' @ ' + fp[f.id]); });
+    // Grouped start/end pairs (Chaat, Snacks, Live, Valet) print as one
+    // bullet — "Chaat @ 07:30 PM – 11:00 PM" — instead of two separate
+    // lines, same pairing the Timings panel itself edits side by side.
+    TIME_FIELD_GROUPS.forEach(function(g){
+      var startVal = fp[g.start];
+      var endVal = g.end ? fp[g.end] : null;
+      if (!startVal && !endVal) return;
+      if (startVal && endVal) bullets.push(T2(g.label) + ' @ ' + startVal + ' – ' + endVal);
+      else bullets.push(T2(g.label) + ' @ ' + (startVal || endVal));
+    });
     if (fp.room_info_enabled) {
       var roomParts = [];
       if (fp.room_check_in) roomParts.push('check-in ' + fp.room_check_in);

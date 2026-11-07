@@ -853,18 +853,32 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var effectiveSectionIdByDish = useMemo(function(){
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
+    // A sectionOverrides tag can point at a PACKAGE section's own id (e.g.
+    // "Rice Factory" picked from the package's section pills) rather than a
+    // catalogue section id directly — those ids never appear in `sections`
+    // at all, so without this they fell straight through to Extras even
+    // though the tag is a perfectly real, deliberate placement. Package
+    // sections built from the library carry their own catalogue_section_id
+    // link; resolve through it so the print groups/orders exactly like any
+    // other dish in that same catalogue section.
+    var pkgSecsById = {};
+    (templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : []).forEach(function(s){ pkgSecsById[s.id] = s; });
     var out = {};
     // allDishes here is grouping.allDishes (useMenuItemGrouping's own shape),
     // which renames dishes_master's dish_name to .name — NOT the raw
     // getAllDishes() rows (those do use .dish_name).
     (allDishes || []).forEach(function(d){
       var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov && ov !== '__extras__' && byId[ov]) { out[d.name] = ov; return; }
-      if (ov) { out[d.name] = null; return; } // '__extras__', or an override that no longer resolves to a real section
+      if (ov && ov !== '__extras__') {
+        if (byId[ov]) { out[d.name] = ov; return; }
+        var pkgSec = pkgSecsById[ov];
+        if (pkgSec && pkgSec.catalogue_section_id && byId[pkgSec.catalogue_section_id]) { out[d.name] = pkgSec.catalogue_section_id; return; }
+      }
+      if (ov) { out[d.name] = null; return; } // '__extras__', or an override that resolves to no real section at all
       out[d.name] = (d.section_id && byId[d.section_id]) ? d.section_id : null;
     });
     return out;
-  }, [allDishes, sections, sectionOverrides]);
+  }, [allDishes, sections, sectionOverrides, templateInfo.name]);
 
   var dishSectionOrder = useMemo(function(){
     var byId = {};
