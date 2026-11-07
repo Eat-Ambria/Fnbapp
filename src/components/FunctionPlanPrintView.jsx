@@ -46,8 +46,9 @@ var SPICE_LABELS = {
 };
 
 var SWEETNESS_LABELS = {
-  less_sweet: 'Less Sweet',
-  normal:     'Normal',
+  less_sweet:  'Less Sweet',
+  normal:      'Normal',
+  extra_sweet: 'Extra Sweet',
 };
 
 var OIL_LABELS = {

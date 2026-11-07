@@ -23,6 +23,7 @@ var SPICE_LEVELS = [
 var SWEETNESS_LEVELS = [
   { id: 'less_sweet', label: 'Less Sweet' },
   { id: 'normal',      label: 'Normal' },
+  { id: 'extra_sweet', label: 'Extra Sweet' },
 ];
 
 var OIL_LEVELS = [
@@ -36,7 +37,7 @@ var OIL_LEVELS = [
 // happens to type ("Marwari" vs "Marwadi" etc.).
 var COMMUNITY_OPTIONS = [
   'Punjabi', 'Marwadi', 'Baniya', 'Jain', 'Sindhi', 'Bengali', 'Gujarati',
-  'South Indian', 'Rajasthani', 'UP / Bihari', 'Himachali', 'Other',
+  'South Indian', 'Rajasthani', 'UP / Bihari', 'Haryanvi', 'Himachali', 'Other',
 ];
 
 // The flat list of every timing field — order here doesn't drive the
@@ -48,7 +49,6 @@ var TIME_FIELDS = [
   { id: 'chaat_time',       label: 'Chaat' },
   { id: 'assembly_time',    label: 'Assembly' },
   { id: 'snacks_time',      label: 'Snacks' },
-  { id: 'baarat_time',      label: 'Baarat' },
   { id: 'main_course_time', label: 'Main course' },
   { id: 'jaimala_time',     label: 'Jaimala' },
   { id: 'windup_time',      label: 'Wind-up' },
@@ -81,7 +81,6 @@ var TIME_FIELD_GROUPS = [
   { label: 'Chaat',          start: 'chaat_time',      end: 'chaat_end_time' },
   { label: 'Assembly',       start: 'assembly_time' },
   { label: 'Snacks',         start: 'snacks_time',     end: 'snacks_end_time' },
-  { label: 'Baarat',         start: 'baarat_time' },
   { label: 'Main course',    start: 'main_course_time' },
   { label: 'Jaimala',        start: 'jaimala_time' },
   { label: 'Live',           start: 'live_start_time', end: 'live_end_time' },
