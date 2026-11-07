@@ -66,15 +66,12 @@ var TIME_FIELDS = [
 // referencing TIME_FIELDS' ids rather than replacing that list, since
 // FunctionPlanPrintView's bullet summary still reads the flat list.
 //
-// Order is deliberate, row-major into the 2-col grid below, pairing each
-// kitchen/service milestone with the ceremony step it's timed around rather
-// than two unrelated columns: function start bookends with wind-up, then
-// assembly/chaat, snacks/baarat, main course/jaimala, live/phera — the
-// actual sequence of a wedding function from start to finish. Every
-// start/end range (Chaat, Snacks, Live) is kept in the LEFT slot of its row
-// on purpose: a grid column's width is set by the widest row in that whole
-// column, so ranges landing in both columns at once (rather than only the
-// left) forces both columns wide and overflows the panel.
+// Order is deliberate, row-major into the 2-col grid below. Every
+// start/end range (Chaat, Snacks, Live, Valet) is kept in the LEFT slot of
+// its row on purpose: a grid column's width is set by the widest row in
+// that whole column, so a range landing in the right slot forces both
+// columns wide and overflows the panel. Single-time fields fill the right
+// slots and whatever's left on the odd row (Function start, here).
 var TIME_FIELD_GROUPS = [
   { label: 'Function start', start: 'function_start_time' },
   { label: 'Wind-up',        start: 'windup_time' },
@@ -82,10 +79,10 @@ var TIME_FIELD_GROUPS = [
   { label: 'Assembly',       start: 'assembly_time' },
   { label: 'Snacks',         start: 'snacks_time',     end: 'snacks_end_time' },
   { label: 'Main course',    start: 'main_course_time' },
-  { label: 'Jaimala',        start: 'jaimala_time' },
   { label: 'Live',           start: 'live_start_time', end: 'live_end_time' },
-  { label: 'Phera',          start: 'phera_time' },
+  { label: 'Jaimala',        start: 'jaimala_time' },
   { label: 'Valet',          start: 'valet_start_time', end: 'valet_end_time' },
+  { label: 'Phera',          start: 'phera_time' },
 ];
 
 // Drivers food is billed at a flat, un-negotiated rate per pax with a floor —
