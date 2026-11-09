@@ -2430,7 +2430,18 @@ function StoreModule({events, lang="en", currentUser=null}) {
             if(keyPlans.length===0) return;
             const totalDeltaRowUnit = keyPlans.reduce((s,kp)=>s+kp.deltaRowUnit,0);
             const {isMapped, stock} = resolveStock(row);
-            const invId = row._type==='inv' ? row.ops_inventory_id : (ingredientMap[row.name]?.ops_inventory_id);
+            const mappedInvId = row._type==='inv' ? row.ops_inventory_id : ingredientMap[row.name]?.ops_inventory_id;
+            // The mapping row's own ops_inventory_id can be missing (mapped
+            // before that field existed — most of this app's ~1265
+            // ingredient_item_map rows predate it — or an Ops-side rebuild
+            // moved the item without this mapping ever being re-saved)
+            // while `stock` itself still resolved fine via the ops_item_id
+            // fallback in getStockForIngredient. That live Ops item's own
+            // inventoryId IS the current stable id, so fall back to it
+            // instead of silently skipping an otherwise perfectly syncable
+            // row — same bug class getStockForIngredient's own comment
+            // already flags this call site as having missed.
+            const invId = mappedInvId || (stock && stock.item && stock.item.inventoryId) || null;
             if(!isMapped || !stock || !invId){ skipped.push(row.name); return; }
             // A unit-conversion factor that shrinks an already-small delta
             // (e.g. grams -> kg, or a packet-weight conversion) can round the
