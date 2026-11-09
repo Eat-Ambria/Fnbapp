@@ -1,0 +1,17 @@
+-- store_issue_ops is a pure idempotency-key table for increment_store_issues()
+-- (20261105000000_store_issues_increment_rpc.sql) -- op_id + created_at only,
+-- nothing sensitive, never read by name from client code. That RPC is
+-- `security invoker`, i.e. it runs as whichever role actually called it
+-- (anon/authenticated), not an elevated one -- so it was deliberately created
+-- with `disable row level security` from day one.
+--
+-- The RLS Stage 1 migration (20261112000000_rls_stage1_permissive.sql)
+-- misclassified it as "server-only, edge-function-only access" alongside
+-- fnb_ops_request_log/app_config/lms_masters/lms_sync_log/attendance (which
+-- really are edge-function-only) and enabled RLS on it with zero policies --
+-- a default-deny that silently blocks every call to increment_store_issues()
+-- with "new row violates row-level security policy for table
+-- \"store_issue_ops\"", since that insert runs as the calling client, not a
+-- service role. Simplest correct fix is reverting to the original intent:
+-- RLS off, same as the table that function was written against.
+alter table public.store_issue_ops disable row level security;

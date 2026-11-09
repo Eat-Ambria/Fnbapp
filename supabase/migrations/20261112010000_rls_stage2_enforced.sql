@@ -74,9 +74,11 @@
 -- self-granting admin -- there is no `with check` that can prevent this
 -- (it has no way to compare against the row's OLD values), so the only
 -- robust fix is not having a self-update policy at all.
--- Server-only tables (store_issue_ops, fnb_ops_request_log, app_config,
--- lms_masters, lms_sync_log, attendance) already have zero policies since
--- stage 1 -- nothing to change here.
+-- Server-only tables (fnb_ops_request_log, app_config, lms_masters,
+-- lms_sync_log, attendance) already have zero policies since stage 1 --
+-- nothing to change here. store_issue_ops was wrongly in that list too --
+-- see 20261109000000_fix_store_issue_ops_rls.sql, which reverts it back to
+-- RLS-disabled (its original, correct state).
 
 -- is_active_staff(): "is the CURRENT caller linked to an active staff row at
 -- all" -- the broader counterpart to is_active_admin(). Every bucket-(a)/(b)

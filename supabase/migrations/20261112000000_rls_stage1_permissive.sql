@@ -44,6 +44,17 @@
 -- staged), since there's no legitimate client access to gate in the first
 -- place and zero functional impact either way (service role bypasses RLS
 -- regardless).
+--
+-- CORRECTION (20261109000000_fix_store_issue_ops_rls.sql): store_issue_ops
+-- was wrongly included in that server-only list below -- it's a pure
+-- idempotency-key table for the client-callable, `security invoker`
+-- increment_store_issues() RPC, so enabling RLS with zero policies on it
+-- silently broke every issue in Store Ops ("new row violates row-level
+-- security policy"). The fix migration reverts it to RLS-disabled, its
+-- original state from 20261105000000_store_issues_increment_rpc.sql. Left
+-- in the list below unchanged, since this file has already been applied and
+-- editing it has no effect on a live database -- see that file for the
+-- actual fix.
 
 do $$
 declare
