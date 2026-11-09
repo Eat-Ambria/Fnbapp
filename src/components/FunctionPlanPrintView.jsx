@@ -589,11 +589,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
         {/* ── Sign-off strip — Attn Chef / Checked-Approved-Circulated ── */}
         <div style={{ border: "2px solid #000", borderTop: "none" }}>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#1A2A6B", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#D2691E", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
             {attnChefLines.length > 1 ? (
-              attnChefLines.map(function(line, i){ return <Bullet key={i}><span style={{ color: "#1A2A6B", fontWeight: 600 }}>{line}</span></Bullet>; })
+              attnChefLines.map(function(line, i){ return <Bullet key={i}><span style={{ color: "#D2691E", fontWeight: 600 }}>{line}</span></Bullet>; })
             ) : attnChefLines.length === 1 ? (
-              <div style={{ fontSize: 12.5, color: "#1A2A6B", fontWeight: 600 }}>{attnChefLines[0]}</div>
+              <div style={{ fontSize: 12.5, color: "#D2691E", fontWeight: 600 }}>{attnChefLines[0]}</div>
             ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", padding: "10px 16px", gap: 16, flexWrap: "wrap" }}>
