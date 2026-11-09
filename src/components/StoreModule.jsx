@@ -2537,7 +2537,19 @@ function StoreModule({events, lang="en", currentUser=null}) {
             const { data, error } = await supabase.functions.invoke('store-requisition-sync', {
               body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items },
             });
-            if(error) throw error;
+            if(error) {
+              // A FunctionsHttpError's own .message is always the generic
+              // "Edge Function returned a non-2xx status code" -- the actual
+              // reason (missing items, unknown staff id, Ops unreachable...)
+              // is the function's own JSON body, readable off .context (the
+              // raw, not-yet-consumed Response) per Supabase's own documented
+              // pattern. Without this, every failure here looked identical
+              // regardless of cause.
+              let detail = null;
+              try { detail = error.context && typeof error.context.json==='function' ? await error.context.json() : null; } catch(_e) {}
+              if (detail && detail.error) throw new Error(detail.error+(detail.missing?(': '+JSON.stringify(detail.missing)):(detail.detail?(': '+detail.detail):'')));
+              throw error;
+            }
             if(data && data.error) throw new Error(data.error+(data.missing?(': '+JSON.stringify(data.missing)):''));
             opsOk = true;
           } catch(e){ opsErr = e; }
