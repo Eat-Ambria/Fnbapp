@@ -546,6 +546,8 @@ export default function App() {
   const [appReady, setAppReady]       = useState(false);
   const [supaLive, setSupaLive]       = useState(null); // null=checking, true=live, false=offline
   const [dateDrift, setDateDrift]     = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+  const reloadToLatestRef = useRef(null);
   // Bumped by handleLogin to re-run the master load effect below. Needed
   // once RLS actually restricts anon (stage 2 of the RLS rollout): the
   // FIRST run of that effect, at mount, fires before anyone's logged in --
@@ -594,6 +596,18 @@ export default function App() {
   // old SW-update banner: no focused input/textarea/select/contentEditable
   // (every text field here only saves on blur, so nothing typed is lost by
   // waiting) and no live camera stream (the selfie-capture flow).
+  //
+  // V97 adds two things on top of that silent idle-reload: `updateReady`
+  // state so a small banner can tell staff a new build is live (silence was
+  // fine for a kitchen tablet, but a desk user mid-task could sit on a stale
+  // build for a long time waiting for 2 idle minutes with no sign anything
+  // was pending), and a reload path that actually bypasses the browser's own
+  // HTTP cache -- GitHub Pages serves index.html with a 10-minute max-age,
+  // so a plain reload() can be satisfied straight from that cache and hand
+  // back the exact build this was trying to replace, silently looping.
+  // Appending a cache-busting query param guarantees a genuinely fresh
+  // request every time, for both the automatic idle reload and the banner's
+  // manual "Update now" button (reloadToLatestRef, below).
   useEffect(() => {
     let currentSrc = null;
     try {
@@ -614,13 +628,19 @@ export default function App() {
       for(let i=0;i<videos.length;i++){ if(videos[i].srcObject) return false; }
       return (Date.now() - lastActivity) >= 2*60*1000;
     }
+    function reloadToLatest(){
+      const url = new URL(window.location.href);
+      url.searchParams.set('v', Date.now().toString(36));
+      window.location.replace(url.toString());
+    }
+    reloadToLatestRef.current = reloadToLatest;
     async function checkForNewBuild(){
-      if (newBuildSeen) { if (isSafeToReload()) window.location.reload(); return; }
+      if (newBuildSeen) { if (isSafeToReload()) reloadToLatest(); return; }
       try {
         const res = await fetch(window.location.pathname, { cache: 'no-store' });
         const html = await res.text();
         const m = html.match(/<script[^>]+type="module"[^>]+src="([^"]+\/assets\/[^"]+)"/);
-        if (m && m[1] && m[1] !== currentSrc) newBuildSeen = true;
+        if (m && m[1] && m[1] !== currentSrc) { newBuildSeen = true; setUpdateReady(true); }
       } catch(e) {} // offline / request failed — try again next tick, never block on it
     }
     checkForNewBuild();
@@ -633,6 +653,7 @@ export default function App() {
       activityEvents.forEach(ev => document.removeEventListener(ev, markActivity));
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', checkForNewBuild);
+      reloadToLatestRef.current = null;
     };
   }, []);
 
@@ -1404,6 +1425,25 @@ export default function App() {
     </div>
   ) : null;
 
+  // A new build was detected (see the auto-reload effect above) — this tells
+  // staff one is live instead of just silently waiting out the 2-minute idle
+  // window. Top-center so it never collides with offlineBannerNode's
+  // bottom-center pill. Clicking "Update now" reloads immediately regardless
+  // of the idle check — an explicit click is never an unsafe moment to lose
+  // unsaved typing, since the user themselves just chose to leave the page.
+  const updateBannerNode = updateReady ? (
+    <div style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",zIndex:9999,display:"flex",alignItems:"center",gap:10,
+      padding:"8px 10px 8px 16px",borderRadius:999,fontSize:12,fontWeight:700,fontFamily:K.fontBody,boxShadow:"0 6px 18px rgba(0,0,0,.18)",
+      background:K.brand,color:"#fff",border:`1px solid ${K.brand}`}}>
+      <span>🔄</span>
+      <span>A new version is available</span>
+      <button onClick={()=>{ if(reloadToLatestRef.current) reloadToLatestRef.current(); }}
+        style={{border:"none",background:"rgba(255,255,255,.22)",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12,padding:"5px 12px",borderRadius:999}}>
+        Update now
+      </button>
+    </div>
+  ) : null;
+
   // Public Function Plan hub — a no-login, link-shareable page (?fp=1) for
   // people with no app account. Checked BEFORE the loading screen/login gate
   // on purpose: this page fetches everything it needs itself via the
@@ -1448,7 +1488,7 @@ export default function App() {
     </div>
   );
   // Login
-  if(!currentUser) return <LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang} forceLogoutMsg={forceLogoutMsg}/>;  // Staff self-service
+  if(!currentUser) return <>{updateBannerNode}<LoginScreen empDb={empDb} onLogin={handleLogin} lang={lang} forceLogoutMsg={forceLogoutMsg}/></>;  // Staff self-service
   if(showStaffView) return <StaffView user={currentUser} onLogout={handleLogout} lang={lang}/>;
   // ── SECTION TABLET INTERCEPT ──
   if(currentUser && currentUser.role && (currentUser.role === 'section_tablet' || currentUser.role.startsWith('section_'))) {
@@ -1483,6 +1523,7 @@ export default function App() {
       // of the same product looked like different apps.
       <div className="kh-scope" style={{position:"relative",display:"flex",height:"100vh",background:K.shellBg,overflow:"hidden"}}>
         {offlineBannerNode}
+        {updateBannerNode}
         {/* Same page artwork as the admin shell, spanning the whole window so it
             shows behind the floating sidebar's rounded corners rather than a
             flat gap. BASE_URL, not a bare "/", because vite sets base:'/Fnbapp/'. */}
@@ -1803,6 +1844,7 @@ export default function App() {
   return (
     <div className="ash-shell" style={{display:"flex",height:"100vh",fontFamily:"var(--font-body)",background:K.shellBg,overflow:"hidden",flexDirection:"column",position:"relative"}}>
       {offlineBannerNode}
+      {updateBannerNode}
 
       {/* Page artwork spans the WHOLE window, not just the content column, so the
           floating sidebar sits on it. Behind the sidebar's rounded corners you
