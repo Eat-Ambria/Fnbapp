@@ -405,7 +405,12 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
       <div style={{fontSize:13,color:C.muted,marginBottom:32}}>{T2("Each tablet is locked to its department")}</div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,maxWidth:780,width:"100%"}}>
-        {DEPTS.map(dept=>{
+        {/* Service & Crockery Ops are temporarily disabled (being rebuilt) —
+            filtered out of the picker here; DEPTS itself still has both
+            entries intact (icon/name/color still needed if someone reaches
+            them via forceDept routing — see the "being rebuilt" guard
+            below). */}
+        {DEPTS.filter(d=>d.id!=="service"&&d.id!=="crockery").map(dept=>{
           const odcCount = todayEvs.filter(e=>(e.venue||"").includes("ODC")).length;
           const DEPT_SCREEN = {kitchen:"kitchen",service:"dept_service",crockery:"dept_crockery",beverages:"dept_beverages",fruits:"dept_fruits",transport:"transport",odc:"dept_odc"};
           const hasAccess = canAccessScreen(currentUser, DEPT_SCREEN[dept.id]||dept.id);
@@ -442,6 +447,35 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
 
   // ── DEPARTMENT DATA ──
   const dept = DEPTS.find(d=>d.id===selDept)||DEPTS[0];
+
+  // Service & Crockery Ops are being rebuilt — disabled rather than reachable
+  // with half-finished logic. The picker grid above already excludes them;
+  // this covers the other way in (forceDept routed straight from the
+  // sidebar — App.jsx's dept_service/dept_crockery cases). Everything these
+  // two used to render is still below, just unreachable now that selDept can
+  // never actually be "service"/"crockery" past this point — nothing was
+  // deleted, so restoring them later is just removing this block.
+  if (selDept==="service" || selDept==="crockery") {
+    return (
+      <div style={{padding:"4px 0"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:48,height:48,borderRadius:14,background:dept.color+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{dept.icon}</div>
+            <div>
+              <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"var(--font-display)"}}>{T2(dept.name)}</div>
+              <div style={{fontSize:12,color:C.muted}}>{lang==="hi"?dept.descHi:dept.desc}</div>
+            </div>
+          </div>
+          <button onClick={()=>{setSelDept(null);setDeptTab(null);}} style={{padding:"10px 16px",borderRadius:10,background:C.bg,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",minHeight:44}}>🔄 {T2("Change Dept")}</button>
+        </div>
+        <div style={{background:C.darkCard,border:`1px solid ${C.border}`,borderRadius:16,padding:"48px 24px",textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:12}}>🚧</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:6}}>{T2("Being rebuilt")}</div>
+          <div style={{fontSize:13,color:C.muted}}>{T2("This section is temporarily unavailable while it's rebuilt.")}</div>
+        </div>
+      </div>
+    );
+  }
 
   const odcEvs = todayEvs.filter(e=>(e.venue||"").includes("ODC"));
   const tomorrowOdc = tomorrowEvs.filter(e=>(e.venue||"").includes("ODC"));
