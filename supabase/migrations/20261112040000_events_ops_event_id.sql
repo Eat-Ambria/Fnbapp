@@ -1,0 +1,15 @@
+-- Stores the Ops-side numeric event id for a function, once registered via
+-- the new event-sync edge function (supabase/functions/event-sync/).
+--
+-- Only populated for a function created directly in Fnbapp with no LMS
+-- contract behind it (events.lms_source is null) -- these previously had no
+-- Ops-side event to attach a store requisition to, so store_requisitions
+-- synced via "Sync to Ops" landed with event_ids empty: invisible to any
+-- per-event reporting/allocation on Ops' side, even though the requisition
+-- itself still created fine and stock still decremented correctly. Resolved
+-- lazily, right before the first "Sync to Ops" call for that function --
+-- event-sync creates (or, by external_ref, re-finds) a tentative event on
+-- Ops' side and this column caches the id it returns so later syncs don't
+-- re-call it. Left null for an LMS-sourced event -- Ops tracks those through
+-- its own LMS integration, independent of this column.
+alter table public.events add column if not exists ops_event_id bigint;

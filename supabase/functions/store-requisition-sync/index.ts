@@ -73,7 +73,7 @@ serve(async (req) => {
     return json({ error: "bad_json" }, 400);
   }
 
-  const { sync_ref, issued_by, entry_date, event_id, section_name, items } = body || {};
+  const { sync_ref, issued_by, entry_date, event_ids, section_name, items } = body || {};
   if (!sync_ref) return json({ error: "missing_sync_ref" }, 400);
   if (!issued_by) return json({ error: "missing_issued_by" }, 400);
   if (!entry_date) return json({ error: "missing_entry_date" }, 400);
@@ -156,7 +156,12 @@ serve(async (req) => {
   }
 
   const opsPayload: any = { sync_ref, issued_by, entry_date, section_name, items: resolved };
-  if (event_id != null) opsPayload.event_id = event_id;
+  // Ops' store_requisitions.event_ids is an array column -- a station's
+  // sync can cover more than one function on the same day. Only events
+  // resolved to a real Ops event id (event-sync, app-only functions only --
+  // see src/components/StoreModule.jsx's ensureOpsEventId) land here; an
+  // LMS-sourced event on the same day simply isn't included yet.
+  if (Array.isArray(event_ids) && event_ids.length > 0) opsPayload.event_ids = event_ids;
 
   let opsRes: Response;
   try {

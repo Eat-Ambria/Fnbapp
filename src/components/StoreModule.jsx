@@ -60,6 +60,8 @@ function transformOpsItem(it) {
     unit: it.unit || "Pieces",
     brand: it.brand || "",
     packSize: it.pack_size_qty ? (it.pack_size_qty + " " + (it.pack_size_unit || "")) : "",
+    packSizeQty: +(it.pack_size_qty || 0),
+    packSizeUnit: it.pack_size_unit || "",
     qty: +(it.qty || 0),
     blocked: 0,
     available: venues.length > 0 ? venueSum : +(it.qty || 0),
@@ -1014,11 +1016,31 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (mPerUnit != null) return baseQty / mPerUnit;
     return baseQty;
   }
-  // A store unit is "discrete" (whole packets/bottles/tins — can't be
-  // issued down to a fraction) whenever it isn't the same weight/volume
-  // family as the recipe's own unit. kg stock for a kg requirement is
-  // freely divisible; "Packets" stock for a gram requirement is not.
+  // The minimum amount of this stock item that can physically be issued in
+  // one go, in STORE units — null when there's no such constraint (freely
+  // divisible). Ops' pack_size_qty/pack_size_unit (e.g. "1 Kg" sealed bags)
+  // takes priority: a mass/volume-tracked item (Kg, Litre) can still only
+  // come in fixed sealed packs that must be issued whole, which the old
+  // unit-family check alone couldn't see (same family as the recipe's own
+  // unit always read as "freely divisible," which it isn't for those).
+  function issueStepSU(stock) {
+    const it = stock.item;
+    if (it && it.packSizeQty > 0 && it.packSizeUnit) {
+      if (String(it.packSizeUnit).toLowerCase().replace(/\s+/g, "") === String(stock.unit).toLowerCase().replace(/\s+/g, "")) {
+        return it.packSizeQty;
+      }
+      const pf = getUnitFamily(it.packSizeUnit), sf = getUnitFamily(stock.unit);
+      if (pf && sf && pf.family === sf.family) return (it.packSizeQty * pf.toBase) / sf.toBase;
+    }
+    return null;
+  }
+  // A store unit is "discrete" (can't be issued down to a fraction) when it
+  // has a known pack size (above), or — the old fallback, for an item with
+  // no pack size on record — isn't the same weight/volume family as the
+  // recipe's own unit. kg stock for a kg requirement is freely divisible;
+  // "Packets" stock for a gram requirement is not.
   function isDiscreteStockUnit(row, stock) {
+    if (issueStepSU(stock) != null) return true;
     const rf = getUnitFamily(row.unit), sf = getUnitFamily(stock.unit);
     return !(rf && sf && rf.family === sf.family);
   }
@@ -1073,8 +1095,14 @@ function StoreModule({events, lang="en", currentUser=null}) {
     if (stock) {
       isDiscrete = isDiscreteStockUnit(row, stock);
       if (isDiscrete && agg.remaining > 1e-9) {
+        // step defaults to 1 whole stock unit (the old behavior, for an
+        // item with no pack size on record — "Pieces"/"Packets"/... where
+        // one stock unit already IS one physical item); a known pack size
+        // rounds up to the nearest whole PACK instead, which can be more or
+        // less than 1 stock unit (a 500g bag on Kg-tracked stock is 0.5 SU).
         const remSU = qtyToStoreUnits(agg.remaining, row.unit, stock);
-        const wholeSU = Math.max(1, Math.ceil(remSU - 1e-9));
+        const step = issueStepSU(stock) || 1;
+        const wholeSU = Math.round((Math.max(step, Math.ceil((remSU - 1e-9) / step) * step)) * 1e6) / 1e6;
         suggested = storeUnitsToQty(wholeSU, stock, row.unit);
         suggestedSU = wholeSU; // the whole-pack count itself, for the modal's store-unit input
       }
@@ -2396,7 +2424,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
           });
           return orderListCats.map(c=>buckets[c.key]).filter(Boolean);
         })();
-        const stationTableColSpan = 3 + 1 + 1; // Ingredient/Needed/Stock + Balance + Actions
+        const stationTableColSpan = 5 + 1; // Ingredient/Needed/Issued/Balance/Stock + Actions
         const canIssueStock = hasPerm(currentUser,"store.smart_issue");
         const stPending = openStationRows.filter(r=>!rowIssued(r, openStation.name));
         async function issueAllStation(){
@@ -2460,6 +2488,30 @@ function StoreModule({events, lang="en", currentUser=null}) {
           });
           return { rowPlans, skipped, tooSmall };
         })();
+        // Resolves (creating if needed) the Ops-side event id for a function
+        // created directly in Fnbapp with no LMS contract behind it, so a
+        // store requisition can be linked to it on Ops' side instead of
+        // landing with store_requisitions.event_ids empty. LMS-sourced
+        // events (events.lms_source set) are skipped entirely -- Ops tracks
+        // those through its own LMS integration, not this flow. Caches the
+        // returned id on events.ops_event_id so a function synced more than
+        // once only ever calls event-sync the first time.
+        async function ensureOpsEventId(evId){
+          const ev = safeEvs.find(e=>e.id===evId);
+          if(!ev || ev.lms_source) return null;
+          if(ev.ops_event_id) return ev.ops_event_id;
+          try {
+            const { data, error } = await supabase.functions.invoke('event-sync', {
+              body: {
+                external_ref: ev.id, client_name: ev.guest||'', venue_name: ev.venue||'',
+                function_date: ev.date, pax: Number(ev.pax)||0, function_type: ev.type||'',
+              },
+            });
+            if(error || !data || data.event_id==null) return null;
+            await supabase.from('events').update({ ops_event_id: data.event_id }).eq('id', ev.id);
+            return data.event_id;
+          } catch(_e) { return null; }
+        }
         async function syncStationToOps(){
           if(stSyncPlan.rowPlans.length===0) return;
           setOpsSyncingStation(openStation.name);
@@ -2531,11 +2583,16 @@ function StoreModule({events, lang="en", currentUser=null}) {
             }));
           }
 
-          // Step 2: send only the claimed items to Ops.
+          // Step 2: send only the claimed items to Ops, tagged with every
+          // distinct function this batch actually covers (a station's sync
+          // can span more than one event on the same day) -- resolved
+          // best-effort, never blocking the sync itself if it fails.
+          const distinctEvIds = [...new Set(claimedForSync.map(kp=>kp.evId))];
+          const eventIds = (await Promise.all(distinctEvIds.map(ensureOpsEventId))).filter(id=>id!=null);
           let opsOk = false, opsErr = null;
           try {
             const { data, error } = await supabase.functions.invoke('store-requisition-sync', {
-              body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items },
+              body: { sync_ref, issued_by: staffId, entry_date: reqDay, section_name: openStation.name, items, event_ids: eventIds },
             });
             if(error) {
               // A FunctionsHttpError's own .message is always the generic
@@ -2738,7 +2795,7 @@ function StoreModule({events, lang="en", currentUser=null}) {
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                           <thead>
                             <tr>
-                              {[{l:"Ingredient",a:"left"},{l:"Needed",a:"right"},{l:"Stock",a:"right"},{l:"Balance",a:"right"}].map(h=>(
+                              {[{l:"Ingredient",a:"left"},{l:"Needed",a:"right"},{l:"Issued",a:"right"},{l:"Balance",a:"right"},{l:"Stock",a:"right"}].map(h=>(
                                 <th key={h.l} style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:h.a,padding:"10px 22px",fontSize:10.5,fontWeight:700,color:K.hdrMeta,textTransform:"uppercase",letterSpacing:.6,borderBottom:`1px solid ${K.cardWarmLine}`}}>{T2(h.l)}</th>
                               ))}
                               <th style={{position:"sticky",top:0,background:"#F4F2EC",textAlign:"center",padding:"8px 16px",borderBottom:`1px solid ${K.cardWarmLine}`,borderLeft:`1px solid ${K.lineSoft}`,whiteSpace:"nowrap"}}>
@@ -2798,6 +2855,20 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                 <tr key={row.name}>
                                   <td style={{padding:"10px 22px",fontWeight:600,color:K.hdrTitle,borderBottom:`1px solid ${K.lineSoft}`}}>{row.name}{row.hindi&&<span style={{display:"block",fontSize:11.5,fontWeight:400,color:K.hdrMeta}}>{row.hindi}</span>}</td>
                                   <td style={{padding:"10px 22px",textAlign:"right",fontWeight:700,color:K.hdrTitle,fontVariantNumeric:"tabular-nums",borderBottom:`1px solid ${K.lineSoft}`}}>{fmtIssueQty(cell.totalQty,cell.unit)}</td>
+                                  <td style={{padding:"10px 22px",textAlign:"right",fontVariantNumeric:"tabular-nums",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {agg.issuedQty<=1e-9
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : <span style={{fontWeight:700,color:K.hdrTitle}}>{fmtIssueQty(agg.issuedQty,row.unit)}</span>}
+                                  </td>
+                                  <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
+                                    {agg.issuedQty<=1e-9
+                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
+                                      : agg.surplus>1e-9
+                                      ? <span title={T2("Issued more than this station needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)}</span>
+                                      : done
+                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.ok}}>✓ {T2("Settled")}</span>
+                                      : <span title={T2("Still short of what this station needs")} style={{fontSize:11.5,fontWeight:700,color:K.warn}}>−{fmtIssueQty(agg.remaining,row.unit)}</span>}
+                                  </td>
                                   <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
                                     {!isMapped || !stock
                                       ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
@@ -2806,15 +2877,6 @@ function StoreModule({events, lang="en", currentUser=null}) {
                                           background:(short||stockNegative)?K.dangerBg:"transparent",color:(short||stockNegative)?K.danger:K.textBody,border:`1px solid ${(short||stockNegative)?K.dangerBorder:"transparent"}`}}>
                                           {stockNegative?"−"+fmtIssueQty(Math.abs(stockShown),stock.unit):fmtIssueQty(stockShown,stock.unit)}
                                         </span>}
-                                  </td>
-                                  <td style={{padding:"10px 22px",textAlign:"right",borderBottom:`1px solid ${K.lineSoft}`}}>
-                                    {agg.issuedQty<=1e-9
-                                      ? <span style={{fontSize:11.5,color:K.textFaint}}>—</span>
-                                      : agg.surplus>1e-9
-                                      ? <span title={T2("Issued more than this station needed")} style={{fontSize:11.5,fontWeight:700,color:K.ok}}>+{fmtIssueQty(agg.surplus,row.unit)} {T2("surplus")}</span>
-                                      : done
-                                      ? <span style={{fontSize:11.5,fontWeight:700,color:K.ok}}>✓ {T2("Fully issued")}</span>
-                                      : <span style={{fontSize:11.5,fontWeight:700,color:K.warn}}>{fmtIssueQty(agg.issuedQty,row.unit)}/{fmtIssueQty(agg.required,row.unit)}</span>}
                                   </td>
                                   <td style={{padding:"8px 16px",borderBottom:`1px solid ${K.lineSoft}`,borderLeft:`1px solid ${K.lineSoft}`}}>
                                     <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
