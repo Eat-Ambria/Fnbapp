@@ -235,7 +235,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     // browser's own "Background graphics" print option is on — WebkitPrintColorAdjust
     // / printColorAdjust: "exact" forces this highlight to actually show up on
     // the printed page regardless of that checkbox, not just in the on-screen preview.
-    if (fp.guest_preference) bullets.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
+    if (fp.guest_preference) bullets.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, whiteSpace: "pre-wrap", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
     if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
     if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) bullets.push('Sweetness tolerance: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]);
     if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) bullets.push('Oil preference: ' + OIL_LABELS[fp.oil_preference]);
