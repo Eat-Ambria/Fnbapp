@@ -155,12 +155,12 @@ function prettyDate(dateStr) {
 // the bottom edge of its own cell — same convention as the paper prospectus,
 // where an empty cell is left as a ruled box to fill in by hand.
 function FCell({ value, label, last, large, size }) {
-  var valueSize = size != null ? size : (large ? 16 : 10);
+  var valueSize = size != null ? size : (large ? 16 : 9);
   return (
     <div style={{ flex: 1, minWidth: 0, padding: "8px 10px 6px", borderRight: last ? "none" : "1px solid #000",
       display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 46 }}>
       <div style={{ fontSize: valueSize, fontWeight: large ? 700 : 600, wordBreak: "break-word" }}>{value || ' '}</div>
-      <div style={{ fontSize: 6, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
+      <div style={{ fontSize: 5, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
     </div>
   );
 }
@@ -407,10 +407,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "30px 24px", color: "#000", fontFamily: "Georgia, 'Times New Roman', serif" }}>
         <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 19, fontWeight: 700 }}>Ambria Cuisines</div>
-          <div style={{ fontSize: 9, color: "#555" }}>{T2("Function Plan")}</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Ambria Cuisines</div>
+          <div style={{ fontSize: 8, color: "#555" }}>{T2("Function Plan")}</div>
           {fp && fp.locked && (
-            <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 7.5, fontWeight: 700, letterSpacing: ".5px" }}>
+            <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 6.5, fontWeight: 700, letterSpacing: ".5px" }}>
               🔒 {T2("FINAL — SENT TO KITCHEN")}
             </div>
           )}
@@ -426,12 +426,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
             <FCell value={addressValue} label="ADDRESS" />
-            {subVenue && <FCell value={subVenue} label="SUB-VENUE" size={8} />}
+            {subVenue && <FCell value={subVenue} label="SUB-VENUE" size={7} />}
             <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
           <FRow thick>
             <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
-            <FCell value={packageName || ''} label="PACKAGE" large size={11} />
+            <FCell value={packageName || ''} label="PACKAGE" large size={8} />
             <FCell value={(fp && fp.ops_manager_name) || ''} label="OPERATION MANAGER" />
             <FCell value={(fp && fp.ops_manager_contact) || ''} label="MANAGER CONTACT" last />
           </FRow>
