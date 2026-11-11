@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     if (body.action === "list") {
       const [evRows, fpRows] = await Promise.all([
         fetchAllRows(() => sb.from("events").select(EVENT_LIST_COLUMNS).or("is_deleted.is.null,is_deleted.eq.false")),
-        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked")),
+        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, created_by")),
       ]);
       const events = evRows.filter((e) => !isHiddenSmallRestroBooking(e));
       return json({ ok: true, events, fpStatus: fpRows });

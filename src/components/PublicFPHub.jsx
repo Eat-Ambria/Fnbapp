@@ -90,7 +90,7 @@ export function PublicFPHub({ lang = "en" }) {
         if (!data || !data.ok) { setListError(true); return; }
         setEvents(data.events || []);
         var map = {};
-        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked }; });
+        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, createdBy: r.created_by || null }; });
         setFpMap(map);
       })
       .catch(function(e){ console.error('[PublicFPHub] list failed:', e); setListError(true); });
@@ -101,9 +101,9 @@ export function PublicFPHub({ lang = "en" }) {
 
   function fpStatusFor(ev) {
     var row = fpMap[ev.id];
-    if (!row) return { key: 'none', label: T2('Not ready yet') };
-    if (row.locked) return { key: 'locked', label: T2('FP Ready') };
-    return { key: 'made', label: T2('FP Draft') };
+    if (!row) return { key: 'none', label: T2('Not ready yet'), createdBy: null };
+    if (row.locked) return { key: 'locked', label: T2('FP Ready'), createdBy: row.createdBy };
+    return { key: 'made', label: T2('FP Draft'), createdBy: row.createdBy };
   }
 
   // ── Per-event detail payload (fp/items/configs/salesMeta/sections), fetched
@@ -376,6 +376,9 @@ export function PublicFPHub({ lang = "en" }) {
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="building" size={13} strokeWidth={1.9} />{ev.venue || "—"}</span>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} strokeWidth={1.9} />{ev.time || T2("TBD")}</span>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="users" size={13} strokeWidth={1.9} />{ev.pax || "?"} {T2("pax")}</span>
+                          {fpSt.createdBy && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="contact" size={13} strokeWidth={1.9} />{T2("Prepared by")} {fpSt.createdBy}</span>
+                          )}
                         </span>
                       </span>
                       <span style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
