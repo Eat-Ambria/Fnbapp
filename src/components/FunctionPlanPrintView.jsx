@@ -173,7 +173,7 @@ function ColTitle({ children }) {
   return <div style={{ fontSize: 12, fontWeight: 700, textDecoration: "underline", marginBottom: 10 }}>{children}</div>;
 }
 
-function SubHead({ children }) {
+function SubHead({ children, tight }) {
   // breakAfter, not breakInside on the whole block below it: a department's
   // dish list can run to 20+ lines, easily taller than a full page's
   // remaining room, and forcing that entire block to stay together just
@@ -182,7 +182,10 @@ function SubHead({ children }) {
   // only keeps the heading itself from being stranded alone at a page's
   // bottom edge; the list under it is free to split wherever it naturally
   // runs out of room.
-  return <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 10, marginBottom: 4, breakAfter: "avoid" }}>{children}</div>;
+  // `tight` -- the F&B/Banquet Info column's grouped headings (Food
+  // Preference, Timings, ...) sat too far from their own first line; the
+  // Customized Menu column's dept headings keep the roomier default.
+  return <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: tight ? 8 : 10, marginBottom: tight ? 1 : 4, breakAfter: "avoid" }}>{children}</div>;
 }
 
 // A catalogue section's name (Dish Library > Sections tab), printed as a
@@ -479,7 +482,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             long lists below them are free to split, the columns can run side
             by side and continue in the same left/right position on
             subsequent pages like a normal two-column print layout. */}
-        <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
+        <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "3fr 2fr", border: "2px solid #000", borderTop: "none" }}>
           <div className="fp-print-col-left" style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
             <ColTitle>{T2("Customized Menu")} :</ColTitle>
             {packageName ? (
@@ -594,7 +597,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
               bulletGroups.map(function(g, gi){
                 return (
                   <div key={gi}>
-                    <SubHead>{T2(g.heading)}</SubHead>
+                    <SubHead tight>{T2(g.heading)}</SubHead>
                     {g.items.map(function(b, i){ return <Bullet key={i} dot={false}>{b}</Bullet>; })}
                   </div>
                 );
@@ -607,7 +610,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 disconnected from everything else about the function. ── */}
             {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
               <div>
-                <SubHead>{T2("Layout Information")}</SubHead>
+                <SubHead tight>{T2("Layout Information")}</SubHead>
                 {fp.layout_info && fp.layout_info.trim() && <Bullet dot={false}><span style={{ whiteSpace: "pre-wrap" }}>{fp.layout_info}</span></Bullet>}
                 {fp.layout_image_url && (
                   <img src={fp.layout_image_url} alt={T2("Layout reference")}
