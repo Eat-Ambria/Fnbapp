@@ -224,22 +224,34 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // eslint-disable-next-line
   }, []);
 
-  // ── Right-column bullets: every bit of F&B/banquet service info this app
-  // tracks, flattened into one list — mirrors the paper form's own mix of
-  // set-up, staffing and timing notes under one heading. ──
-  var bullets = [];
+  // ── Right-column bullets, grouped the same way FunctionPlanTab.jsx's own
+  // panels group these fields (Food Preference, Timings, Room Info, Equipment
+  // Add-ons, Drivers Food, Extra Plate Info, After Party) -- a flat list used
+  // to read as one undifferentiated pile with no sense of which form section
+  // a line actually came from.
+  var bulletGroups = [];
+  function pushGroup(heading, items) {
+    if (items.length) bulletGroups.push({ heading: heading, items: items });
+  }
+  // getLmsPlateInfo only needs `event`, not `fp` -- computed up front so its
+  // group can land between Drivers Food and After Party (the form's own
+  // panel order) and still show even before any FP row exists.
+  var lmsPlate = getLmsPlateInfo(event);
   if (fp) {
+    var foodPrefItems = [];
     // Printers (and PDF export) drop background colors by default unless the
     // browser's own "Background graphics" print option is on — WebkitPrintColorAdjust
     // / printColorAdjust: "exact" forces this highlight to actually show up on
     // the printed page regardless of that checkbox, not just in the on-screen preview.
-    if (fp.guest_preference) bullets.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, whiteSpace: "pre-wrap", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
-    if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) bullets.push('Spice tolerance: ' + SPICE_LABELS[fp.spice_tolerance]);
-    if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) bullets.push('Sweetness tolerance: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]);
-    if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) bullets.push('Oil preference: ' + OIL_LABELS[fp.oil_preference]);
-    if (fp.guest_community) bullets.push('Community: ' + fp.guest_community);
-    if (fp.corkage_price != null) bullets.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : ''));
-    else if (fp.corkage_liquor) bullets.push('Liquor being served');
+    if (fp.guest_preference) foodPrefItems.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, whiteSpace: "pre-wrap", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
+    if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) foodPrefItems.push('Spice level: ' + SPICE_LABELS[fp.spice_tolerance]);
+    if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) foodPrefItems.push('Sweetness level: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]);
+    if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) foodPrefItems.push('Oil preference: ' + OIL_LABELS[fp.oil_preference]);
+    if (fp.guest_community) foodPrefItems.push('Community: ' + fp.guest_community);
+    if (fp.corkage_price != null) foodPrefItems.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : ''));
+    else if (fp.corkage_liquor) foodPrefItems.push('Liquor being served');
+    pushGroup('Food Preference', foodPrefItems);
+
     // Not every one of these is a START time -- "Wind-up"/"Chaat end"/
     // "Snacks end"/"Live end"/"Valet end" are all end-of-something times, so
     // a blanket " start time @ " suffix was wrong for them (and redundant
@@ -247,24 +259,34 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     // Grouped start/end pairs (Chaat, Snacks, Live, Valet) print as one
     // bullet — "Chaat @ 07:30 PM – 11:00 PM" — instead of two separate
     // lines, same pairing the Timings panel itself edits side by side.
+    var timingItems = [];
     TIME_FIELD_GROUPS.forEach(function(g){
       var startVal = fp[g.start];
       var endVal = g.end ? fp[g.end] : null;
       if (!startVal && !endVal) return;
-      if (startVal && endVal) bullets.push(T2(g.label) + ' @ ' + startVal + ' – ' + endVal);
-      else bullets.push(T2(g.label) + ' @ ' + (startVal || endVal));
+      if (startVal && endVal) timingItems.push(T2(g.label) + ' @ ' + startVal + ' – ' + endVal);
+      else timingItems.push(T2(g.label) + ' @ ' + (startVal || endVal));
     });
+    pushGroup('Timings', timingItems);
+
+    var roomItems = [];
     if (fp.room_info_enabled) {
       var roomParts = [];
       if (fp.room_check_in) roomParts.push('check-in ' + fp.room_check_in);
       if (fp.room_check_out) roomParts.push('check-out ' + fp.room_check_out);
       if (fp.room_count != null) roomParts.push(fp.room_count + ' room(s)');
-      if (roomParts.length) bullets.push('Rooms — ' + roomParts.join(', '));
+      if (roomParts.length) roomItems.push('Rooms — ' + roomParts.join(', '));
     }
+    pushGroup('Room Info', roomItems);
+
+    var equipItems = [];
     EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).forEach(function(f){
       var count = fp[f.id + '_count']; var price = fp[f.id + '_price'];
-      bullets.push(T2(f.label) + (count != null ? ': ' + count : '') + (price != null ? ' @ ₹' + price : ''));
+      equipItems.push(T2(f.label) + (count != null ? ': ' + count : '') + (price != null ? ' @ ₹' + price : ''));
     });
+    pushGroup('Equipment Add-ons', equipItems);
+
+    var driversItems = [];
     if (fp.drivers_food_required) {
       var dfParts = [];
       if (fp.drivers_food_count != null) dfParts.push(fp.drivers_food_count + ' pax');
@@ -274,16 +296,26 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
         var dfTotal = calcDriversFoodTotal(fp.drivers_food_count, fp.drivers_food_total_override);
         if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
       }
-      bullets.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
+      driversItems.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
     }
-    if (fp.after_party_enabled) {
-      var apParts = [];
-      if (fp.after_party_pax != null) apParts.push(fp.after_party_pax + ' pax');
-      if (fp.after_party_start_time) apParts.push('start ' + fp.after_party_start_time);
-      if (fp.after_party_windup_time) apParts.push('wind-up ' + fp.after_party_windup_time);
-      bullets.push('After party' + (apParts.length ? ' — ' + apParts.join(', ') : ''));
-    }
+    pushGroup('Drivers Food', driversItems);
   }
+
+  var lmsPlateItems = [];
+  if (lmsPlate) {
+    if (lmsPlate.comp != null) lmsPlateItems.push('Complimentary plates: ' + lmsPlate.comp);
+    if (lmsPlate.rateFull != null) lmsPlateItems.push('Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate');
+  }
+  pushGroup('Extra Plate Info', lmsPlateItems);
+
+  if (fp && fp.after_party_enabled) {
+    var apParts = [];
+    if (fp.after_party_pax != null) apParts.push(fp.after_party_pax + ' pax');
+    if (fp.after_party_start_time) apParts.push('start ' + fp.after_party_start_time);
+    if (fp.after_party_windup_time) apParts.push('wind-up ' + fp.after_party_windup_time);
+    pushGroup('After Party', ['After party' + (apParts.length ? ' — ' + apParts.join(', ') : '')]);
+  }
+
   var lmsRaw = event.lms_raw || null;
   var functionTypeLabel = (lmsRaw && LMS_FUNCTION_TYPES[Number(lmsRaw.fiscd_function_type)]) || event.type || '';
   var mgrName = lmsRaw ? LMS_STAFF_NAMES[Number(lmsRaw.fisc_entryby)] : null;
@@ -296,11 +328,6 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // same row, so either lookup is safe.
   var sessionLabel = (lmsRaw && (lmsRaw.fiscd_session || lmsRaw.chcd_session)) || '';
 
-  var lmsPlate = getLmsPlateInfo(event);
-  if (lmsPlate) {
-    if (lmsPlate.comp != null) bullets.push('Complimentary plates: ' + lmsPlate.comp);
-    if (lmsPlate.rateFull != null) bullets.push('Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate');
-  }
   // Outdoor Catering functions carry their venue separately (events.odc_location
   // / odc_address, set by lms-sync's transformCateringContract) since event.venue
   // is just the literal "Outdoor Catering (ODC)" label for these — not the
@@ -311,14 +338,16 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   var addressValue = (event.odc_location || event.odc_address)
     ? [event.odc_location, event.odc_address].filter(Boolean).join(' — ')
     : (event.venue || '');
+  var deptConfigItems = [];
   SALES_DEPTS.forEach(function(d){
     var deptDefs = DEPT_CONFIGS[d.id] || [];
     var deptValues = (configsByDept && configsByDept[d.id]) || {};
     deptDefs.forEach(function(cfg){
       var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
-      if (val) bullets.push(d.name + ' — ' + cfg.label + ': ' + val);
+      if (val) deptConfigItems.push(d.name + ' — ' + cfg.label + ': ' + val);
     });
   });
+  pushGroup('Department Configs', deptConfigItems);
 
   var attnChefLines = [fp && fp.service_notes, fp && fp.general_notes]
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
@@ -559,10 +588,17 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
 
           <div className="fp-print-col-right" style={{ padding: "14px 16px" }}>
             <ColTitle>{T2("F&B and Banquet Informations")}</ColTitle>
-            {bullets.length === 0 ? (
+            {bulletGroups.length === 0 ? (
               <div style={{ fontSize: 10.5, fontStyle: "italic", color: "#555" }}>{T2("Nothing recorded yet.")}</div>
             ) : (
-              bullets.map(function(b, i){ return <Bullet key={i}>{b}</Bullet>; })
+              bulletGroups.map(function(g, gi){
+                return (
+                  <div key={gi}>
+                    <SubHead>{T2(g.heading)}</SubHead>
+                    {g.items.map(function(b, i){ return <Bullet key={i}>{b}</Bullet>; })}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
