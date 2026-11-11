@@ -130,15 +130,6 @@ function formatConfigValue(cfg, value, pax) {
   return null;
 }
 
-function dayNameFor(dateStr) {
-  if (!dateStr) return '';
-  try {
-    var d = new Date(dateStr + 'T00:00');
-    if (isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('en-US', { weekday: 'long' });
-  } catch (e) { return ''; }
-}
-
 function ordinalSuffix(n) {
   var v = n % 100;
   if (v >= 11 && v <= 13) return n + 'th';
@@ -163,11 +154,11 @@ function prettyDate(dateStr) {
 // A boxed field: the filled-in value sits above a small uppercase label at
 // the bottom edge of its own cell — same convention as the paper prospectus,
 // where an empty cell is left as a ruled box to fill in by hand.
-function FCell({ value, label, last }) {
+function FCell({ value, label, last, large }) {
   return (
     <div style={{ flex: 1, minWidth: 0, padding: "8px 10px 6px", borderRight: last ? "none" : "1px solid #000",
       display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 46 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>{value || ' '}</div>
+      <div style={{ fontSize: large ? 18 : 13, fontWeight: large ? 700 : 600, wordBreak: "break-word" }}>{value || ' '}</div>
       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
     </div>
   );
@@ -410,11 +401,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           )}
         </div>
 
-        {/* ── Header grid — DATE/DAY/FUNCTION, GUEST/ADDRESS/CONTACT, GTD/PAYMENT/RATE, DIRECT/REPEAT ── */}
+        {/* ── Header grid — DATE/FUNCTION/SESSION, GUEST/ADDRESS/CONTACT, GTD/PACKAGE/MANAGER ── */}
         <div style={{ border: "2px solid #000" }}>
           <FRow>
             <FCell value={prettyDate(event.date)} label="DATE" />
-            <FCell value={dayNameFor(event.date)} label="DAY" />
             <FCell value={functionTypeLabel} label="FUNCTION" />
             <FCell value={sessionLabel} label="SESSION" last />
           </FRow>
@@ -426,6 +416,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           </FRow>
           <FRow thick>
             <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
+            <FCell value={packageName || ''} label="PACKAGE" large />
             <FCell value={(fp && fp.ops_manager_name) || ''} label="OPERATION MANAGER" />
             <FCell value={(fp && fp.ops_manager_contact) || ''} label="MANAGER CONTACT" last />
           </FRow>
@@ -449,7 +440,6 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             <ColTitle>{T2("Customized Menu")} :</ColTitle>
             {packageName ? (
               <div>
-                <div style={{ fontSize: 12.5, marginBottom: 8 }}><b>{T2("Package")}:</b> {packageName}</div>
                 {Object.keys(menuDiffByDept || {}).length === 0 ? (
                   <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
                 ) : (

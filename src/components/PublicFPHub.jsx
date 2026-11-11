@@ -35,6 +35,38 @@ import { hydrateSalesConfigs } from '../data/salesConfig.js';
 export function PublicFPHub({ lang = "en" }) {
   var T2 = function(s) { return T(s, lang); };
 
+  // ── Build freshness check — this page is reached via a bookmarked/shared
+  // link with no login step to naturally force a reload, so a tab left open
+  // (or revisited from an old history entry/GitHub Pages CDN edge that
+  // hasn't caught up yet) could otherwise keep running a stale build
+  // indefinitely after a newer one ships, even though this app's service
+  // worker (vite.config.js's V96 note) no longer caches anything itself.
+  // Compares the entry script this page is actually running (its own
+  // <script type="module"> tag's src, which Vite content-hashes per build)
+  // against whatever index.html a fresh, uncached fetch returns right now —
+  // a mismatch means a newer build is live, so reload once to pick it up.
+  useEffect(function(){
+    try {
+      var current = document.querySelector('script[type="module"][src*="/assets/"]');
+      var currentSrc = current && current.getAttribute('src');
+      if (!currentSrc) return;
+      fetch(window.location.pathname, { cache: 'no-store' })
+        .then(function(res){ return res.ok ? res.text() : null; })
+        .then(function(html){
+          if (!html) return;
+          var tags = html.match(/<script[^>]*>/g) || [];
+          var freshSrc = null;
+          for (var i = 0; i < tags.length; i++) {
+            if (tags[i].indexOf('type="module"') === -1) continue;
+            var m = /src="([^"]+)"/.exec(tags[i]);
+            if (m) { freshSrc = m[1]; break; }
+          }
+          if (freshSrc && freshSrc !== currentSrc) window.location.reload();
+        })
+        .catch(function(){});
+    } catch (e) {}
+  }, []);
+
   var [selEvId, setSelEvId] = useState(function(){
     try { return new URLSearchParams(window.location.search).get('event') || null; } catch (e) { return null; }
   });
