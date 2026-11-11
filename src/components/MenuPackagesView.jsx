@@ -97,6 +97,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
+  // Kitchen shouldn't see a Function Plan until sales has actually marked it
+  // Final and sent it to kitchen -- a merely-locked (frozen-for-editing-but-
+  // not-dispatched) or never-locked draft is still sales' own working copy.
+  var isHeadChef = currentUser?.role === "head_chef";
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
   // V74: menu_packages is now realtime-subscribed (App.jsx). MENU_PACKAGES/MENU_PACKAGE_SECTIONS
   // are plain module objects, not React state, so force a re-render on every refresh; also pull
@@ -144,10 +148,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // this list doesn't need opening the FP just to find out it's locked.
   var [fpMap, setFpMap] = useState({});
   function loadFpStatuses() {
-    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked, locked_by, created_by'); })
+    fetchAllRows(function(){ return supabase.from('event_function_plans').select('event_id, locked, locked_by, created_by, sent_to_kitchen'); })
       .then(function(rows){
         var map = {};
-        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', created_by: r.created_by || '' }; });
+        (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', created_by: r.created_by || '', sentToKitchen: !!r.sent_to_kitchen }; });
         setFpMap(map);
       })
       .catch(function(e){ console.error('[MenuPackages] loadFpStatuses failed:', e); });
@@ -170,6 +174,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     if (!row) return { key: 'none', label: T2('Not made'), color: C.muted, bg: "#FFFFFF", border: K.cardWarmLine };
     if (row.locked) return { key: 'locked', label: T2('Locked'), color: C.green, bg: C.greenBg, border: C.greenBorder };
     return { key: 'made', label: T2('Made'), color: C.amber, bg: C.amberBg, border: C.amberBorder };
+  }
+  function fpSentToKitchen(ev) {
+    var row = fpMap[ev.id];
+    return !!(row && row.sentToKitchen);
   }
   // V80 — this list used to filter/sort/classify (per-dish SOP-category lookup,
   // an expensive multi-tier scan) EVERY upcoming event on EVERY render, which is
@@ -1704,14 +1712,24 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                     </button>
                     {/* A peek at this event's Function Plan without leaving the
                         list for the full item-builder — top-right, same corner
-                        the SOP cards use for their own overlaid actions. */}
-                    <button onClick={function(e) { e.stopPropagation(); setFpViewEvId(ev.id); }}
-                      title={T2("View Function Plan") + " — " + fpSt.label}
-                      style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6,
-                        padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
-                        background: fpSt.bg, border: "1px solid " + fpSt.border, color: fpSt.color, cursor: "pointer" }}>
-                      <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
-                    </button>
+                        the SOP cards use for their own overlaid actions.
+                        Head Chef only gets this once sales has actually sent
+                        it to kitchen — "Locked" alone is still sales' own
+                        working copy, not dispatched yet. */}
+                    {(() => {
+                      var fpBlocked = isHeadChef && !fpSentToKitchen(ev);
+                      return (
+                        <button onClick={function(e) { e.stopPropagation(); if (fpBlocked) return; setFpViewEvId(ev.id); }}
+                          disabled={fpBlocked}
+                          title={fpBlocked ? T2("Not sent to kitchen yet") : T2("View Function Plan") + " — " + fpSt.label}
+                          style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6,
+                            padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
+                            background: fpBlocked ? "#FFFFFF" : fpSt.bg, border: "1px solid " + (fpBlocked ? K.cardWarmLine : fpSt.border),
+                            color: fpBlocked ? K.textFaint : fpSt.color, cursor: fpBlocked ? "not-allowed" : "pointer", opacity: fpBlocked ? 0.6 : 1 }}>
+                          <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
+                        </button>
+                      );
+                    })()}
                     </div>
                   );
                 })}
@@ -2633,6 +2651,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         // filter is currently hiding, so fall back to the full list.
         var fpEv = allEvs.find(function(e) { return e.id === fpViewEvId; }) || safeArr(events).find(function(e) { return e.id === fpViewEvId; });
         if (!fpEv) { setFpViewEvId(null); return null; }
+        // Defense in depth against the card button's own gate above — covers
+        // a stray openFPEventId deep link too, not just the button click.
+        if (isHeadChef && !fpSentToKitchen(fpEv)) { setFpViewEvId(null); return null; }
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>
             <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); loadFpStatuses(); }}
