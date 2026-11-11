@@ -158,8 +158,8 @@ function FCell({ value, label, last, large }) {
   return (
     <div style={{ flex: 1, minWidth: 0, padding: "8px 10px 6px", borderRight: last ? "none" : "1px solid #000",
       display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 46 }}>
-      <div style={{ fontSize: large ? 18 : 13, fontWeight: large ? 700 : 600, wordBreak: "break-word" }}>{value || ' '}</div>
-      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
+      <div style={{ fontSize: large ? 17 : 12, fontWeight: large ? 700 : 600, wordBreak: "break-word" }}>{value || ' '}</div>
+      <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
     </div>
   );
 }
@@ -169,7 +169,7 @@ function FRow({ children, thick }) {
 }
 
 function ColTitle({ children }) {
-  return <div style={{ fontSize: 14, fontWeight: 700, textDecoration: "underline", marginBottom: 10 }}>{children}</div>;
+  return <div style={{ fontSize: 13, fontWeight: 700, textDecoration: "underline", marginBottom: 10 }}>{children}</div>;
 }
 
 function SubHead({ children }) {
@@ -181,7 +181,7 @@ function SubHead({ children }) {
   // only keeps the heading itself from being stranded alone at a page's
   // bottom edge; the list under it is free to split wherever it naturally
   // runs out of room.
-  return <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 10, marginBottom: 4, breakAfter: "avoid" }}>{children}</div>;
+  return <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 10, marginBottom: 4, breakAfter: "avoid" }}>{children}</div>;
 }
 
 // A catalogue section's name (Dish Library > Sections tab), printed as a
@@ -190,14 +190,14 @@ function SubHead({ children }) {
 // used on the no-package (custom menu) branch, where there's no package
 // section name to group by instead.
 function SectionSubHead({ children }) {
-  return <div style={{ fontSize: 11, fontWeight: 700, fontStyle: "italic", color: "#555", marginTop: 8, marginBottom: 2, breakAfter: "avoid" }}>{children}</div>;
+  return <div style={{ fontSize: 10, fontWeight: 700, fontStyle: "italic", color: "#555", marginTop: 8, marginBottom: 2, breakAfter: "avoid" }}>{children}</div>;
 }
 
 function Bullet({ children, dot }) {
   if (dot === false) {
-    return <div style={{ fontSize: 12.5, padding: "2px 0" }}>{children}</div>;
+    return <div style={{ fontSize: 11.5, padding: "2px 0" }}>{children}</div>;
   }
-  return <div style={{ fontSize: 12.5, padding: "2px 0 2px 14px", position: "relative" }}>
+  return <div style={{ fontSize: 11.5, padding: "2px 0 2px 14px", position: "relative" }}>
     <span style={{ position: "absolute", left: 0 }}>•</span>{children}
   </div>;
 }
@@ -384,32 +384,32 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
         {fp && fp.chef_ack_by && (
-          <span style={{ marginRight: "auto", fontSize: 12.5, fontWeight: 600, color: "#1C7A3D" }}>
+          <span style={{ marginRight: "auto", fontSize: 11.5, fontWeight: 600, color: "#1C7A3D" }}>
             ✓ {T2("Seen by")} {fp.chef_ack_by}
           </span>
         )}
         {currentUser && currentUser.role === 'head_chef' && !(fp && fp.chef_ack_by) && onAckChef && (
           <button onClick={handleAck} disabled={acking}
-            style={{ padding: "8px 16px", borderRadius: 8, background: "#1C7A3D", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: acking ? "default" : "pointer", opacity: acking ? 0.7 : 1 }}>
+            style={{ padding: "8px 16px", borderRadius: 8, background: "#1C7A3D", border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: acking ? "default" : "pointer", opacity: acking ? 0.7 : 1 }}>
             {acking ? T2("Saving…") : "✓ " + T2("Acknowledge")}
           </button>
         )}
         <button onClick={onClose}
-          style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           {T2("Close")}
         </button>
         <button onClick={function(){ window.print(); }}
-          style={{ padding: "8px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          style={{ padding: "8px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
           🖨 {T2("Print")}
         </button>
       </div>
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "30px 24px", color: "#000", fontFamily: "Georgia, 'Times New Roman', serif" }}>
         <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Ambria Cuisines</div>
-          <div style={{ fontSize: 12, color: "#555" }}>{T2("Function Plan")}</div>
+          <div style={{ fontSize: 21, fontWeight: 700 }}>Ambria Cuisines</div>
+          <div style={{ fontSize: 11, color: "#555" }}>{T2("Function Plan")}</div>
           {fp && fp.locked && (
-            <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 10.5, fontWeight: 700, letterSpacing: ".5px" }}>
+            <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 9.5, fontWeight: 700, letterSpacing: ".5px" }}>
               🔒 {T2("FINAL — SENT TO KITCHEN")}
             </div>
           )}
@@ -455,7 +455,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             {packageName ? (
               <div>
                 {Object.keys(menuDiffByDept || {}).length === 0 ? (
-                  <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
+                  <div style={{ fontSize: 11.5, fontStyle: "italic", color: "#555" }}>{T2("Menu matches the package exactly — no swaps or add-ons.")}</div>
                 ) : (
                   orderedDepts.map(function(d){
                     var diff = menuDiffByDept && menuDiffByDept[d.id];
@@ -550,7 +550,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                   );
                 })}
                 {SALES_DEPTS.every(function(d){ return !(itemsByDept && itemsByDept[d.id] && itemsByDept[d.id].length); }) && (
-                  <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("No items selected yet.")}</div>
+                  <div style={{ fontSize: 11.5, fontStyle: "italic", color: "#555" }}>{T2("No items selected yet.")}</div>
                 )}
               </div>
             )}
@@ -559,7 +559,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           <div className="fp-print-col-right" style={{ padding: "14px 16px" }}>
             <ColTitle>{T2("F&B and Banquet Informations")}</ColTitle>
             {bullets.length === 0 ? (
-              <div style={{ fontSize: 12.5, fontStyle: "italic", color: "#555" }}>{T2("Nothing recorded yet.")}</div>
+              <div style={{ fontSize: 11.5, fontStyle: "italic", color: "#555" }}>{T2("Nothing recorded yet.")}</div>
             ) : (
               bullets.map(function(b, i){ return <Bullet key={i}>{b}</Bullet>; })
             )}
@@ -572,8 +572,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             than being squeezed into a one-line bullet. ── */}
         {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
           <div style={{ border: "2px solid #000", borderTop: "none", padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 6 }}>{T2("LAYOUT INFORMATION")}</div>
-            {fp.layout_info && fp.layout_info.trim() && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>}
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 6 }}>{T2("LAYOUT INFORMATION")}</div>
+            {fp.layout_info && fp.layout_info.trim() && <div style={{ fontSize: 11.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>}
             {fp.layout_image_url && (
               <img src={fp.layout_image_url} alt={T2("Layout reference")}
                 style={{ display: "block", marginTop: fp.layout_info ? 8 : 0, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />
@@ -585,7 +585,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             closing-confirmation block, never shown on the print before. ── */}
         {fp.guest_signature && (
           <div style={{ border: "2px solid #000", borderTop: "none", padding: "10px 16px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>
               {T2("GUEST SIGNATURE")}{fp.guest_signature_name ? (' — ' + fp.guest_signature_name) : ''}
             </div>
             <img src={fp.guest_signature} alt={T2("Guest signature")}
@@ -596,17 +596,17 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
         {/* ── Sign-off strip — Attn Chef / Checked-Approved-Circulated ── */}
         <div style={{ border: "2px solid #000", borderTop: "none" }}>
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #000", minHeight: 54 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#D2691E", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#D2691E", marginBottom: 4 }}>{T2("ATTN CHEF")}</div>
             {attnChefLines.length > 1 ? (
               attnChefLines.map(function(line, i){ return <Bullet key={i}><span style={{ color: "#D2691E", fontWeight: 600 }}>{line}</span></Bullet>; })
             ) : attnChefLines.length === 1 ? (
-              <div style={{ fontSize: 12.5, color: "#D2691E", fontWeight: 600 }}>{attnChefLines[0]}</div>
+              <div style={{ fontSize: 11.5, color: "#D2691E", fontWeight: 600 }}>{attnChefLines[0]}</div>
             ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", padding: "10px 16px", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555", flex: "1 1 220px" }}>{T2("PROSPECTUS CHECKED / APPROVED / CIRCULATED")}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: {mgrName || '_______________'}</div>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: {prettyDate(localDateStr(new Date()))}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555", flex: "1 1 220px" }}>{T2("PROSPECTUS CHECKED / APPROVED / CIRCULATED")}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("MGR")}: {mgrName || '_______________'}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555" }}>{T2("Date")}: {prettyDate(localDateStr(new Date()))}</div>
           </div>
         </div>
       </div>
