@@ -77,29 +77,57 @@ const EVENT_LIST_COLUMNS = "id, date, time, guest, venue, pax";
 // just the literal label "Outdoor Catering (ODC)", not the real place —
 // FunctionPlanPrintView's ADDRESS cell falls back to these two plain-text
 // columns instead (see its own comment), and a venue/vendor partner reading
-// this printed plan needs the actual address to be useful at all. This is
-// NOT the same thing as `lms_raw` (still excluded below) -- that JSONB blob
-// also carries the client's raw mobile number (fisc_client_mobile), which
-// has no business going out over an unauthenticated link.
+// this printed plan needs the actual address to be useful at all.
+// lms_source/lms_raw ARE now selected too (2026-11-11, explicit business
+// call — this link's audience already gets the client's contact number and
+// signature below) but never passed through whole: LMS_RAW_SAFE_KEYS right
+// below is the explicit allowlist actually used by FunctionPlanPrintView.jsx
+// (function type, session, sub-venue, entered-by, plate counts, contact
+// number) — anything else LMS happens to sync onto that row stays out.
 const EVENT_DETAIL_COLUMNS =
-  "id, date, time, guest, venue, pax, menu, menu_package, menu_section_overrides, veg, nonveg, type, outsourced_dishes, extras, odc_location, odc_address";
+  "id, date, time, guest, venue, pax, menu, menu_package, menu_section_overrides, veg, nonveg, type, outsourced_dishes, extras, odc_location, odc_address, lms_source, lms_raw";
+
+// FunctionPlanPrintView.jsx / FunctionPlanTab.jsx's getLmsPlateInfo/
+// LMS_FUNCTION_TYPES/LMS_STAFF_NAMES/CONTACT NO. cell — the only lms_raw
+// subfields that print ever reads. fisc_client_mobile (the client's own
+// number) is included per explicit instruction (2026-11-11) now that the
+// public Hub link is meant to carry it.
+const LMS_RAW_SAFE_KEYS = [
+  "fiscd_function_type", "fisc_entryby", "address1", "fiscd_session", "chcd_session",
+  "chcd_freepax", "fiscd_free_pax_no", "chcd_extra_plate", "fiscd_extra_plate_charge",
+  "fisc_client_mobile",
+];
+function projectLmsRaw(raw: any): any {
+  if (!raw || typeof raw !== "object") return null;
+  const out: any = {};
+  for (const k of LMS_RAW_SAFE_KEYS) if (raw[k] !== undefined) out[k] = raw[k];
+  return out;
+}
 
 // Exactly the fp.* fields FunctionPlanPrintView.jsx actually reads, plus
-// `locked`/`event_id`. Deliberately excludes guest_signature (an image of
-// the client's actual signature), fp_history/lock_history (staff names and
-// internal unlock reasons) and sent_to_kitchen_by — none of which the print
-// shows, all of which a `select('*')` would otherwise hand to anyone with
-// the link.
+// `locked`/`event_id`. guest_signature/guest_signature_name and created_by
+// are included per explicit instruction (2026-11-11). Still deliberately
+// excludes fp_history/lock_history (staff names and internal unlock
+// reasons) and sent_to_kitchen_by — none of which the print shows, all of
+// which a `select('*')` would otherwise hand to anyone with the link.
 const FP_SAFE_COLUMNS = [
-  "event_id", "locked",
+  "event_id", "locked", "created_by",
   "after_party_enabled", "after_party_pax", "after_party_start_time", "after_party_windup_time",
   "corkage_details", "corkage_liquor", "corkage_price",
   "drivers_food_count", "drivers_food_foc", "drivers_food_required", "drivers_food_total_override",
-  "general_notes", "guest_community", "guest_preference",
+  "general_notes", "guest_community", "guest_preference", "guest_signature", "guest_signature_name",
   "layout_image_url", "layout_info", "oil_preference",
   "ops_manager_contact", "ops_manager_name",
   "room_check_in", "room_check_out", "room_count", "room_info_enabled",
   "service_notes", "spice_tolerance", "sweetness_tolerance",
+  // Timings (FunctionPlanTab.jsx's TIME_FIELDS)
+  "function_start_time", "chaat_time", "assembly_time", "snacks_time", "main_course_time",
+  "jaimala_time", "windup_time", "phera_time", "chaat_end_time", "snacks_end_time",
+  "live_start_time", "live_end_time", "valet_start_time", "valet_end_time",
+  // Equipment add-ons (FunctionPlanTab.jsx's EQUIP_FIELDS)
+  "fan_enabled", "fan_count", "fan_price",
+  "cooler_enabled", "cooler_count", "cooler_price",
+  "heater_enabled", "heater_count", "heater_price",
 ].join(", ");
 
 Deno.serve(async (req) => {
@@ -140,6 +168,7 @@ Deno.serve(async (req) => {
       if (!evRes.data || evRes.data.is_deleted) return json({ ok: false, reason: "not_found" });
       const event = { ...evRes.data };
       delete event.is_deleted; // fetched only to gate access, never part of the response shape
+      event.lms_raw = projectLmsRaw(event.lms_raw); // allowlisted subset only — see LMS_RAW_SAFE_KEYS
 
       const [itemsRes, configsRes, salesMetaRows, sectionsRes, defsRes, optsRes] = await Promise.all([
         sb.from("event_items").select("*").eq("event_id", eventId),
