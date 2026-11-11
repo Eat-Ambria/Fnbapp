@@ -90,7 +90,7 @@ export function PublicFPHub({ lang = "en" }) {
         if (!data || !data.ok) { setListError(true); return; }
         setEvents(data.events || []);
         var map = {};
-        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, createdBy: r.created_by || null }; });
+        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, createdBy: r.created_by || null, chefAckBy: r.chef_ack_by || null }; });
         setFpMap(map);
       })
       .catch(function(e){ console.error('[PublicFPHub] list failed:', e); setListError(true); });
@@ -101,9 +101,9 @@ export function PublicFPHub({ lang = "en" }) {
 
   function fpStatusFor(ev) {
     var row = fpMap[ev.id];
-    if (!row) return { key: 'none', label: T2('Not ready yet'), createdBy: null };
-    if (row.locked) return { key: 'locked', label: T2('FP Ready'), createdBy: row.createdBy };
-    return { key: 'made', label: T2('FP Draft'), createdBy: row.createdBy };
+    if (!row) return { key: 'none', label: T2('Not ready yet'), createdBy: null, chefAckBy: null };
+    if (row.locked) return { key: 'locked', label: T2('FP Ready'), createdBy: row.createdBy, chefAckBy: row.chefAckBy };
+    return { key: 'made', label: T2('FP Draft'), createdBy: row.createdBy, chefAckBy: row.chefAckBy };
   }
 
   // ── Per-event detail payload (fp/items/configs/salesMeta/sections), fetched
@@ -386,6 +386,9 @@ export function PublicFPHub({ lang = "en" }) {
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="users" size={13} strokeWidth={1.9} />{ev.pax || "?"} {T2("pax")}</span>
                           {fpSt.createdBy && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="contact" size={13} strokeWidth={1.9} />{T2("Prepared by")} {fpSt.createdBy}</span>
+                          )}
+                          {fpSt.chefAckBy && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: K.ok }}><Icon name="check" size={13} strokeWidth={1.9} />{T2("Seen by")} {fpSt.chefAckBy}</span>
                           )}
                         </span>
                       </span>

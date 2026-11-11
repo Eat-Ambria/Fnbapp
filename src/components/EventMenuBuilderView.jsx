@@ -635,6 +635,35 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
+  // ── Head Chef acknowledgement — a one-way "I've seen this FP" stamp,
+  // pressed from the print view's own button (head_chef role only — gated
+  // there, not here). Surfaced to sales as a "Chef Ack" column in
+  // BookedFunctionsView and on the public FP Hub's calendar cards (both
+  // already read event_function_plans the same way "Made By" does).
+  async function ackFpChef() {
+    if (!fp) return;
+    var who = (currentUser && currentUser.name) || null;
+    if (!who) return;
+    var now = new Date().toISOString();
+    var histEntry = { at: now, by: who, summary: T2('Head chef acknowledged this Function Plan') };
+    setFp(function(prevFp){
+      var base = prevFp || { event_id: event.id };
+      return { ...base, chef_ack_by: who, chef_ack_at: now, fp_history: [ ...(base.fp_history || []), histEntry ] };
+    });
+    try {
+      var fresh = await fetchFpFresh('fp_history, created_by');
+      var payload = { event_id: event.id, chef_ack_by: who, chef_ack_at: now,
+        fp_history: [ ...((fresh && fresh.fp_history) || []), histEntry ] };
+      if (!(fresh && fresh.created_by) && who) payload.created_by = who;
+      var res = await supabase.from('event_function_plans').upsert(payload, { onConflict: 'event_id' }).select().single();
+      if (res.error) throw res.error;
+      setFp(res.data);
+    } catch (e) {
+      console.error('[EventMenuBuilder] ackFpChef failed:', e);
+      alert(T2('Failed to save:') + ' ' + (e.message || e));
+    }
+  }
+
   // ── Lock / Mark Final / unlock (V92, split V93) — "Lock" freezes the FP
   // while the team is still drafting it, with no Kitchen notification.
   // "Mark Final" locks it (if not already) AND notifies Kitchen — the only
@@ -1266,6 +1295,8 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}
+        currentUser={currentUser}
+        onAckChef={ackFpChef}
         onClose={function(){
           // Jumped straight here from the Build Menu list (autoOpenPrint) —
           // closing should return to that list, not fall back to the full

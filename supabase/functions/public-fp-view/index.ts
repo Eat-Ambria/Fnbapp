@@ -111,7 +111,7 @@ function projectLmsRaw(raw: any): any {
 // reasons) and sent_to_kitchen_by — none of which the print shows, all of
 // which a `select('*')` would otherwise hand to anyone with the link.
 const FP_SAFE_COLUMNS = [
-  "event_id", "locked", "created_by",
+  "event_id", "locked", "created_by", "chef_ack_by", "chef_ack_at",
   "after_party_enabled", "after_party_pax", "after_party_start_time", "after_party_windup_time",
   "corkage_details", "corkage_liquor", "corkage_price",
   "drivers_food_count", "drivers_food_foc", "drivers_food_required", "drivers_food_total_override",
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     if (body.action === "list") {
       const [evRows, fpRows] = await Promise.all([
         fetchAllRows(() => sb.from("events").select(EVENT_LIST_COLUMNS).or("is_deleted.is.null,is_deleted.eq.false")),
-        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, created_by")),
+        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, created_by, chef_ack_by, chef_ack_at")),
       ]);
       const events = evRows.filter((e) => !isHiddenSmallRestroBooking(e));
       return json({ ok: true, events, fpStatus: fpRows });

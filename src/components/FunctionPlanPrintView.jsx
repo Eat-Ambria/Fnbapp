@@ -10,7 +10,7 @@
 // empty ruled boxes nobody used.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
@@ -202,7 +202,13 @@ function Bullet({ children, dot }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, packageName, menuDiffByDept, configsByDept, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, packageName, menuDiffByDept, configsByDept, currentUser, onAckChef, onClose, T2 }) {
+  var [acking, setAcking] = useState(false);
+  function handleAck() {
+    if (!onAckChef || acking) return;
+    setAcking(true);
+    Promise.resolve(onAckChef()).finally(function(){ setAcking(false); });
+  }
   // Browsers suggest document.title as the filename for "Print → Save as PDF",
   // so this is the one lever that controls what the chef/sales actually sees
   // in that Save dialog — set it for as long as this view is on screen, then
@@ -376,7 +382,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           direct child of body, with no transformed/clipping ancestor
           between it and the real page. */}
       <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
-      <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+      <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+        {fp && fp.chef_ack_by && (
+          <span style={{ marginRight: "auto", fontSize: 12.5, fontWeight: 600, color: "#1C7A3D" }}>
+            ✓ {T2("Seen by")} {fp.chef_ack_by}
+          </span>
+        )}
+        {currentUser && currentUser.role === 'head_chef' && !(fp && fp.chef_ack_by) && onAckChef && (
+          <button onClick={handleAck} disabled={acking}
+            style={{ padding: "8px 16px", borderRadius: 8, background: "#1C7A3D", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: acking ? "default" : "pointer", opacity: acking ? 0.7 : 1 }}>
+            {acking ? T2("Saving…") : "✓ " + T2("Acknowledge")}
+          </button>
+        )}
         <button onClick={onClose}
           style={{ padding: "8px 16px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           {T2("Close")}
