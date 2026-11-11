@@ -157,10 +157,10 @@ function prettyDate(dateStr) {
 function FCell({ value, label, last, large, size }) {
   var valueSize = size != null ? size : (large ? 16 : 9);
   return (
-    <div style={{ flex: 1, minWidth: 0, padding: "8px 10px 6px", borderRight: last ? "none" : "1px solid #000",
-      display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 46 }}>
+    <div style={{ flex: 1, minWidth: 0, padding: "4px 10px 3px", borderRight: last ? "none" : "1px solid #000",
+      display: "flex", flexDirection: "column" }}>
       <div style={{ fontSize: valueSize, fontWeight: large ? 700 : 600, wordBreak: "break-word" }}>{value || ' '}</div>
-      <div style={{ fontSize: 5, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 4 }}>{label}</div>
+      <div style={{ fontSize: 5, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginTop: 1 }}>{label}</div>
     </div>
   );
 }
@@ -416,12 +416,13 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           )}
         </div>
 
-        {/* ── Header grid — DATE/FUNCTION/SESSION, GUEST/ADDRESS/CONTACT, GTD/PACKAGE/MANAGER ── */}
+        {/* ── Header grid — DATE/FUNCTION/SESSION/MIN GTD, GUEST/ADDRESS/SUB-VENUE/CONTACT, PACKAGE/MANAGER ── */}
         <div style={{ border: "2px solid #000" }}>
           <FRow>
             <FCell value={prettyDate(event.date)} label="DATE" />
             <FCell value={functionTypeLabel} label="FUNCTION" />
-            <FCell value={sessionLabel} label="SESSION" last />
+            <FCell value={sessionLabel} label="SESSION" />
+            <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" last />
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
@@ -430,7 +431,6 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
           </FRow>
           <FRow thick>
-            <FCell value={event.pax != null ? event.pax : ''} label="MIN GTD" />
             <FCell value={packageName || ''} label="PACKAGE" large size={8} />
             <FCell value={(fp && fp.ops_manager_name) || ''} label="OPERATION MANAGER" />
             <FCell value={(fp && fp.ops_manager_contact) || ''} label="MANAGER CONTACT" last />
